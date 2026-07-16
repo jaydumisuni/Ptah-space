@@ -6,18 +6,9 @@ Ptah provides the environment and machinery. Humans and compatible software syst
 
 ## Current status
 
-**Architecture and roadmap stage. Runtime implementation has not started.**
+**Initial implementation has not started.**
 
-The project begins with documentation, donor recovery, requirement closure, contracts, and proof criteria before runtime code is accepted.
-
-## Start here
-
-1. [`AI_START_HERE.md`](AI_START_HERE.md)
-2. [`docs/ROADMAP.md`](docs/ROADMAP.md)
-3. [`docs/CURRENT_PROGRESS.md`](docs/CURRENT_PROGRESS.md)
-4. [`docs/CHAT_WORK_PROTOCOL.md`](docs/CHAT_WORK_PROTOCOL.md)
-5. [`docs/DO_NOT_BREAK.md`](docs/DO_NOT_BREAK.md)
-6. [`docs/EXTERNAL_DONOR_POOL.md`](docs/EXTERNAL_DONOR_POOL.md)
+This repository contains the public Ptah implementation and the technical documentation required to build, operate, extend, and use it. Master roadmap control, current ecosystem progress, internal decisions, and recovery memory are maintained outside this repository.
 
 ## Core rule
 
@@ -25,4 +16,4 @@ The project begins with documentation, donor recovery, requirement closure, cont
 
 ## Licence
 
-A project licence will be selected during Phase 0A after donor and dependency licence review.
+A project licence will be selected after dependency and donor licence review.

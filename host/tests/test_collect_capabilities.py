@@ -14,6 +14,17 @@ collector = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(collector)
 
 
+def ubuntu_24044_release() -> dict[str, str]:
+    """Return realistic Ubuntu 24.04.4 fields from ``/etc/os-release``."""
+    return {
+        "ID": "ubuntu",
+        "NAME": "Ubuntu",
+        "VERSION_ID": "24.04",
+        "VERSION": "24.04.4 LTS (Noble Numbat)",
+        "PRETTY_NAME": "Ubuntu 24.04.4 LTS",
+    }
+
+
 class HostCollectorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.image_lock = {
@@ -26,16 +37,12 @@ class HostCollectorTests(unittest.TestCase):
 
     @mock.patch.object(collector.platform, "release", return_value="6.8.0-136-generic")
     @mock.patch.object(collector.platform, "machine", return_value="x86_64")
-    def test_exact_pinned_host_match(self, _machine: mock.Mock, _release: mock.Mock) -> None:
+    def test_exact_pinned_host_match(
+        self, _machine: mock.Mock, _release: mock.Mock
+    ) -> None:
         result = collector.pinned_host_match(
             self.image_lock,
-            {
-        "ID": "ubuntu",
-        "NAME": "Ubuntu",
-        "VERSION_ID": "24.04",
-        "VERSION": "24.04.4 LTS (Noble Numbat)",
-        "PRETTY_NAME": "Ubuntu 24.04.4 LTS",
-    },
+            ubuntu_24044_release(),
         )
         self.assertTrue(result["all_match"])
 
@@ -46,13 +53,7 @@ class HostCollectorTests(unittest.TestCase):
     ) -> None:
         result = collector.pinned_host_match(
             self.image_lock,
-            {
-        "ID": "ubuntu",
-        "NAME": "Ubuntu",
-        "VERSION_ID": "24.04",
-        "VERSION": "24.04.4 LTS (Noble Numbat)",
-        "PRETTY_NAME": "Ubuntu 24.04.4 LTS",
-    },
+            ubuntu_24044_release(),
         )
         self.assertFalse(result["kernel"]["match"])
         self.assertFalse(result["all_match"])
@@ -76,15 +77,11 @@ class HostCollectorTests(unittest.TestCase):
     @mock.patch.object(
         collector,
         "os_release",
-        return_value={
-        "ID": "ubuntu",
-        "NAME": "Ubuntu",
-        "VERSION_ID": "24.04",
-        "VERSION": "24.04.4 LTS (Noble Numbat)",
-        "PRETTY_NAME": "Ubuntu 24.04.4 LTS",
-    },
+        return_value=ubuntu_24044_release(),
     )
-    def test_candidate_report_never_authorizes_runtime(self, _os_release: mock.Mock, *_: mock.Mock) -> None:
+    def test_candidate_report_never_authorizes_runtime(
+        self, _os_release: mock.Mock, *_: mock.Mock
+    ) -> None:
         profile = {
             "required": ["fsync"],
             "conditional": [{"capability": "apparmor"}],

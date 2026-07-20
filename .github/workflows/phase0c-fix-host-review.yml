@@ -26,23 +26,16 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          import re
+
+          def replace_function(text: str, start_name: str, next_name: str, replacement: str) -> str:
+              start = text.index(f"def {start_name}(")
+              end = text.index(f"def {next_name}(", start)
+              return text[:start] + replacement.rstrip() + "\n\n\n" + text[end:]
 
           collector_path = Path("host/scripts/collect_capabilities.py")
           collector = collector_path.read_text(encoding="utf-8")
 
-          old_offline = '''def check_offline_schema_resolution() -> dict[str, Any]:
-              lock = read_json(ROOT / "contracts/upstream-lock.json")
-              ok = lock.get("network_resolution_allowed") is False
-              return observation(
-                  "pass" if ok else "fail",
-                  {
-                      "lock_status": lock.get("status"),
-                      "network_resolution_allowed": lock.get("network_resolution_allowed"),
-                  },
-              )
-          '''.replace("          ", "")
-          new_offline = '''def check_offline_schema_resolution() -> dict[str, Any]:
+          offline = '''def check_offline_schema_resolution() -> dict[str, Any]:
               try:
                   lock = read_json(ROOT / "contracts/upstream-lock.json")
               except (OSError, RuntimeError, ValueError) as exc:
@@ -56,11 +49,14 @@ jobs:
                   },
               )
           '''.replace("          ", "")
-          if old_offline not in collector:
-              raise SystemExit("offline schema-resolution marker not found")
-          collector = collector.replace(old_offline, new_offline, 1)
+          collector = replace_function(
+              collector,
+              "check_offline_schema_resolution",
+              "check_apparmor",
+              offline,
+          )
 
-          new_matcher = '''def pinned_host_match(image_lock: dict[str, Any], release: dict[str, str]) -> dict[str, Any]:
+          matcher = '''def pinned_host_match(image_lock: dict[str, Any], release: dict[str, str]) -> dict[str, Any]:
               expected_distribution = str(image_lock.get("distribution", ""))
               expected_release = str(image_lock.get("release", ""))
               expected_architecture = str(image_lock.get("architecture", ""))
@@ -139,15 +135,7 @@ jobs:
                   ),
               }
           '''.replace("          ", "")
-          collector, count = re.subn(
-              r"def pinned_host_match\(.*?\n\n\ndef collect\(",
-              new_matcher + "\n\n\ndef collect(",
-              collector,
-              count=1,
-              flags=re.DOTALL,
-          )
-          if count != 1:
-              raise SystemExit("pinned host matcher marker not found")
+          collector = replace_function(collector, "pinned_host_match", "collect", matcher)
           collector_path.write_text(collector, encoding="utf-8")
 
           test_path = Path("host/tests/test_collect_capabilities.py")
@@ -166,10 +154,10 @@ jobs:
               '{"NAME": "Ubuntu", "VERSION_ID": "24.04.4"}', realistic, 2
           )
           if "test_malformed_contract_lock_becomes_failed_observation" not in tests:
-              marker = '''    @mock.patch.object(collector.platform, "release", return_value="6.11.0-azure")
-              @mock.patch.object(collector.platform, "machine", return_value="x86_64")
-              @mock.patch.object(collector.platform, "node", return_value="ci-runner")
-          '''.replace("              ", "")
+              insertion = tests.index(
+                  '    @mock.patch.object(collector.platform, "release", return_value="6.11.0-azure")',
+                  tests.index("def test_different_kernel_is_not_pinned_proof"),
+              )
               regression = '''    def test_malformed_contract_lock_becomes_failed_observation(self) -> None:
               with mock.patch.object(
                   collector,
@@ -181,9 +169,7 @@ jobs:
               self.assertIn("malformed lock", result["evidence"]["error"])
 
           '''.replace("          ", "")
-              if marker not in tests:
-                  raise SystemExit("collector test insertion marker not found")
-              tests = tests.replace(marker, regression + marker, 1)
+              tests = tests[:insertion] + regression + tests[insertion:]
           test_path.write_text(tests, encoding="utf-8")
 
           Path(".github/workflows/phase0c-fix-host-review.yml").unlink()

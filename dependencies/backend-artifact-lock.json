@@ -7,8 +7,12 @@
     "tool_path": "tools/verify_backend_artifacts.py",
     "workflow_path": ".github/workflows/phase0c-backend-artifacts.yml",
     "strict_https": true,
-    "signed_manifest_digest_derivation": ["nodejs", "git-source"],
-    "runtime_implementation_authorized": false
+    "signed_manifest_digest_derivation": [
+      "nodejs",
+      "git-source"
+    ],
+    "runtime_implementation_authorized": false,
+    "signing_key_lock_path": "dependencies/signing-key-lock.json"
   },
   "artifacts": [
     {
@@ -164,7 +168,6 @@
     "status": "pinned_host_run_open"
   },
   "blockers": [
-    "Cryptographically verify OpenPGP signers against pinned authoritative key material.",
     "Record exact installed package versions and package artifact digests from the pinned Ubuntu host.",
     "Produce a proof-eligible capability report on Ubuntu Server 24.04.4 with 6.8.0-136-generic.",
     "Persist final evidence beyond temporary workflow artifact retention.",

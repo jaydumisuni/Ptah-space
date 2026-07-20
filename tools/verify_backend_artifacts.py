@@ -5,6 +5,8 @@ The verifier is evidence-only. It never installs a Ptah runtime and never
 changes the repository lock. Every network transfer uses strict HTTPS through
 curl and records its final URL, HTTP status, content type, byte count and magic
 bytes so a proxy or CDN substitution cannot masquerade as a digest mismatch.
+Node and Git source hashes are derived from their downloaded signed checksum
+manifests in the same exact-head run.
 """
 from __future__ import annotations
 
@@ -60,7 +62,7 @@ def download(url: str, path: Path) -> dict[str, Any]:
             "=https",
             "--tlsv1.2",
             "--user-agent",
-            "Ptah-Phase0C-Evidence/2",
+            "Ptah-Phase0C-Evidence/3",
             "--output",
             str(path),
             "--write-out",
@@ -121,15 +123,48 @@ def digest(path: Path, algorithm: str) -> str:
     return hasher.hexdigest()
 
 
-def extract_git_sha256(manifest: Path, filename: str) -> str:
+def extract_named_sha256(manifest: Path, filename: str, authority: str) -> str:
     text = manifest.read_text(encoding="utf-8", errors="replace")
+    if "-----BEGIN PGP SIGN" not in text or "-----BEGIN PGP SIGNATURE-----" not in text:
+        raise ArtifactError(f"{authority} checksum manifest is not OpenPGP clear-signed")
     pattern = re.compile(
         rf"^([0-9a-f]{{64}})\s+[*]?{re.escape(filename)}$", re.MULTILINE
     )
     match = pattern.search(text)
     if not match:
-        raise ArtifactError(f"signed Git checksum manifest lacks {filename}")
+        raise ArtifactError(f"{authority} signed checksum manifest lacks {filename}")
     return match.group(1)
+
+
+def verify_signed_manifest_artifact(
+    *,
+    component: str,
+    filename: str,
+    url: str,
+    manifest_url: str,
+    manifest_filename: str,
+    download_root: Path,
+) -> dict[str, Any]:
+    manifest = download_root / manifest_filename
+    manifest_transfer = download(manifest_url, manifest)
+    expected = extract_named_sha256(manifest, filename, component)
+    target = download_root / filename
+    transfer = download(url, target)
+    observed = digest(target, "sha256")
+    if observed != expected:
+        raise ArtifactError(
+            f"{component} artifact does not match signed checksum manifest: "
+            f"expected={expected}, observed={observed}, transfer={json.dumps(transfer, sort_keys=True)}"
+        )
+    return {
+        "component": component,
+        "filename": filename,
+        "status": "verified_candidate_digest",
+        "digest": {"algorithm": "sha256", "value": observed},
+        "transfer": transfer,
+        "signed_checksum_manifest_sha256": digest(manifest, "sha256"),
+        "signed_checksum_manifest_transfer": manifest_transfer,
+    }
 
 
 def verify(lock_path: Path, download_root: Path) -> dict[str, Any]:
@@ -172,32 +207,35 @@ def verify(lock_path: Path, download_root: Path) -> dict[str, Any]:
             )
             continue
 
+        if component == "nodejs":
+            manifest_url = entry.get("checksum_authority")
+            if not all(isinstance(value, str) for value in (filename, url, manifest_url)):
+                raise ArtifactError("Node artifact record is incomplete")
+            results.append(
+                verify_signed_manifest_artifact(
+                    component="nodejs",
+                    filename=filename,
+                    url=url,
+                    manifest_url=manifest_url,
+                    manifest_filename="node-SHASUMS256.txt.asc",
+                    download_root=download_root,
+                )
+            )
+            continue
+
         if component == "git-source":
             manifest_url = entry.get("signed_checksum_manifest")
-            if not isinstance(manifest_url, str):
-                raise ArtifactError("Git signed checksum manifest URL is missing")
-            manifest = download_root / "git-sha256sums.asc"
-            manifest_transfer = download(manifest_url, manifest)
-            if not isinstance(filename, str) or not isinstance(url, str):
+            if not all(isinstance(value, str) for value in (filename, url, manifest_url)):
                 raise ArtifactError("Git source record is incomplete")
-            expected_git = extract_git_sha256(manifest, filename)
-            target = download_root / filename
-            transfer = download(url, target)
-            observed = digest(target, "sha256")
-            if observed != expected_git:
-                raise ArtifactError(
-                    f"Git source does not match signed checksum manifest: expected={expected_git}, observed={observed}"
-                )
             results.append(
-                {
-                    "component": component,
-                    "filename": filename,
-                    "status": "verified_candidate_digest",
-                    "digest": {"algorithm": "sha256", "value": observed},
-                    "transfer": transfer,
-                    "signed_checksum_manifest_sha256": digest(manifest, "sha256"),
-                    "signed_checksum_manifest_transfer": manifest_transfer,
-                }
+                verify_signed_manifest_artifact(
+                    component="git-source",
+                    filename=filename,
+                    url=url,
+                    manifest_url=manifest_url,
+                    manifest_filename="git-sha256sums.asc",
+                    download_root=download_root,
+                )
             )
             continue
 
@@ -229,7 +267,7 @@ def verify(lock_path: Path, download_root: Path) -> dict[str, Any]:
         )
 
     return {
-        "schema_version": "0.2.0",
+        "schema_version": "0.3.0",
         "record_type": "ptah.phase0c.backend_artifact_verification",
         "lock_path": str(lock_path.relative_to(ROOT)),
         "verified_artifact_count": len(results),

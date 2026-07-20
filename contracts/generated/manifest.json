@@ -2,13 +2,13 @@
   "schema_version": "0.1.0",
   "generator": {
     "name": "ptah-phase0c-contract-bindings-alias-aware",
-    "version": "0.2.1",
+    "version": "0.2.3",
     "repository_path": "tools/contract_binding_generator_aliases.py",
-    "sha256": "39abfc01d67eddbe002f7fb694b9c579f43acd3c0c0f26595f420bb4cb08829f",
+    "sha256": "13dab87ecf1aa1ac671273e2ae947a0dc7e1b5063529cde15108d86ff03c0077",
     "sources": [
       {
         "repository_path": "tools/contract_binding_generator_aliases.py",
-        "sha256": "39abfc01d67eddbe002f7fb694b9c579f43acd3c0c0f26595f420bb4cb08829f"
+        "sha256": "13dab87ecf1aa1ac671273e2ae947a0dc7e1b5063529cde15108d86ff03c0077"
       },
       {
         "repository_path": "tools/contract_binding_generator.py",
@@ -22,7 +22,7 @@
     "wp14_merge": "fef387c4f074af7fcf86f2d99f7f9b7637e91f88"
   },
   "catalog_set_sha256": "f0668a5f5d5c68cabf623176608c627a94482faa4f4460e4f0fe0f0969d7c64d",
-  "output_tree_sha256": "be5092febd52861b1199643864af479e83ca2caffb5d87174541fc2f2536e2be",
+  "output_tree_sha256": "0a0ef48306205e1a07b3556a2d20e0c418247eb835617e19835a4d9d7ea364e6",
   "files": [
     {
       "repository_path": "contracts/generated/catalog-index.json",
@@ -31,8 +31,8 @@
     },
     {
       "repository_path": "crates/ptah-contracts/src/generated.rs",
-      "sha256": "739e3fde92ed40377fb8c259aaa627a699f3b1d14b5935d44e1ab7913cd4f813",
-      "size_bytes": 193360
+      "sha256": "be7fcf78898cc619f075a8edcbd97f9c323dc2e16d5b241060d25232d04ab01c",
+      "size_bytes": 193363
     }
   ],
   "catalog_count": 14,

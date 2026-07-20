@@ -185,7 +185,7 @@ pub static CATALOGS: &[CatalogBinding] = &[
         schema_count: 22,
         state_machine_count: 9,
     },
-]
+];
 
 /// Every frozen schema binding.
 pub static SCHEMAS: &[SchemaBinding] = &[
@@ -3303,7 +3303,7 @@ pub static SCHEMAS: &[SchemaBinding] = &[
         sha256: "d95951de4d7e275743791c103b24eb3d348a1b1e033552445c6a8e8e56ab2295",
         size_bytes: 2801,
     },
-]
+];
 
 /// Every frozen lifecycle-machine binding.
 pub static STATE_MACHINES: &[StateMachineBinding] = &[
@@ -4099,7 +4099,7 @@ pub static STATE_MACHINES: &[StateMachineBinding] = &[
         sha256: "369d17b17b8c60dda175b5802ce1445e671ddb95b00e9cdeedd3f9cade165d41",
         size_bytes: 3810,
     },
-]
+];
 
 /// Find a frozen catalog by canonical URN.
 #[must_use]

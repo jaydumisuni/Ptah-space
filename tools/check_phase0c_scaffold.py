@@ -109,6 +109,15 @@ if selection_path.is_file():
     }:
         raise SystemExit("Rust dependency selection has an unknown Phase 0C state")
 
+    cargo_record = selection.get("cargo_lock")
+    cargo_lock_path = ROOT / "Cargo.lock"
+    if not isinstance(cargo_record, dict) or cargo_record.get("repository_path") != "Cargo.lock":
+        raise SystemExit("Rust dependency selection lacks the Cargo lock record")
+    if cargo_record.get("sha256") != sha256(cargo_lock_path):
+        raise SystemExit("Cargo.lock does not match the Rust dependency selection")
+    if cargo_record.get("git_dependency_count") != 0:
+        raise SystemExit("Git dependencies are not allowed in the selected Rust graph")
+
     workspace = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
     members = workspace.get("workspace", {}).get("members", [])
     evidence_member = "evidence/rust-dependency-lock"
@@ -124,6 +133,63 @@ if selection_path.is_file():
             continue
         if "ptah-rust-dependency-lock" in manifest_path.read_text(encoding="utf-8"):
             raise SystemExit(f"Production package links the evidence-only dependency crate: {relative}")
+
+backend_path = ROOT / "dependencies/backend-artifact-lock.json"
+if backend_path.is_file():
+    backend = json.loads(backend_path.read_text(encoding="utf-8"))
+    if backend.get("runtime_implementation_authorized") is not False:
+        raise SystemExit("Backend artifact lock cannot authorize runtime implementation")
+    if backend.get("status") != "static_and_browser_artifacts_locked_pinned_host_packages_open":
+        raise SystemExit("Backend artifact lock is not in the accepted pre-host-proof state")
+    verification = backend.get("verification")
+    if not isinstance(verification, dict):
+        raise SystemExit("Backend verification record is missing")
+    if verification.get("tool_path") != "tools/verify_backend_artifacts.py":
+        raise SystemExit("Backend verifier path is not canonical")
+    if verification.get("workflow_path") != ".github/workflows/phase0c-backend-artifacts.yml":
+        raise SystemExit("Backend evidence workflow path is not canonical")
+    if verification.get("runtime_implementation_authorized") is not False:
+        raise SystemExit("Backend verification cannot authorize runtime implementation")
+
+    artifacts = backend.get("artifacts")
+    if not isinstance(artifacts, list) or len(artifacts) != 9:
+        raise SystemExit("Backend artifact lock must contain exactly nine selected artifacts")
+    components: set[str] = set()
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            raise SystemExit("Backend artifact entry is invalid")
+        component = artifact.get("component")
+        digest_record = artifact.get("digest")
+        if not isinstance(component, str) or component in components:
+            raise SystemExit("Backend artifact identities must be unique")
+        components.add(component)
+        if not isinstance(digest_record, dict):
+            raise SystemExit(f"Backend artifact digest is missing: {component}")
+        value = digest_record.get("value")
+        if not isinstance(value, str) or not value:
+            raise SystemExit(f"Backend artifact digest value is missing: {component}")
+
+    browser = backend.get("browser_binary")
+    if not isinstance(browser, dict):
+        raise SystemExit("Playwright Browser binary lock is missing")
+    if browser.get("runtime_implementation_authorized") is not False:
+        raise SystemExit("Browser binary lock cannot authorize runtime implementation")
+    if browser.get("status") != "installed_tree_locked":
+        raise SystemExit("Browser binary tree is not locked")
+    for key in ("revision", "descriptor_sha256", "installed_tree_sha256"):
+        if not isinstance(browser.get(key), str) or not browser.get(key):
+            raise SystemExit(f"Browser binary lock field is missing: {key}")
+
+    host_packages = backend.get("host_packages")
+    if not isinstance(host_packages, dict):
+        raise SystemExit("Pinned host package record is missing")
+    if host_packages.get("status") != "pinned_host_run_open":
+        raise SystemExit("Pinned host package evidence cannot be claimed before the host run")
+    if host_packages.get("installed_package_manifest") is not None:
+        raise SystemExit("Installed package manifest cannot be claimed before pinned host proof")
+    blockers = backend.get("blockers")
+    if not isinstance(blockers, list) or not any("pinned Ubuntu host" in item for item in blockers):
+        raise SystemExit("Backend lock must retain the pinned-host package blocker")
 
 host = json.loads((ROOT / "host/image-lock.json").read_text(encoding="utf-8"))
 if host.get("runtime_authorized") is not False:

@@ -36,6 +36,14 @@ jobs:
             --output conformance/reports/backend-artifacts/static-artifacts.json \
             2>&1 | tee conformance/reports/backend-artifacts/static-artifacts.txt
 
+      - name: Compare static evidence with immutable lock
+        run: |
+          set -o pipefail
+          python tools/check_backend_artifact_lock.py \
+            --static-report conformance/reports/backend-artifacts/static-artifacts.json \
+            --output conformance/reports/backend-artifacts/static-lock-check.json \
+            2>&1 | tee conformance/reports/backend-artifacts/static-lock-check.txt
+
       - name: Write exact-head static evidence record
         if: always()
         run: |
@@ -49,6 +57,7 @@ jobs:
 
           root = Path("conformance/reports/backend-artifacts")
           report_path = root / "static-artifacts.json"
+          check_path = root / "static-lock-check.json"
           report = json.loads(report_path.read_text()) if report_path.is_file() else None
           expected = os.environ["PTAH_EXACT_SHA"]
           checked_out = subprocess.run(
@@ -63,13 +72,19 @@ jobs:
               "report_present": report is not None,
               "report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest()
                   if report_path.is_file() else None,
+              "lock_check_sha256": hashlib.sha256(check_path.read_bytes()).hexdigest()
+                  if check_path.is_file() else None,
               "verified_artifact_count": report.get("verified_artifact_count") if report else 0,
               "runtime_implementation_authorized": False,
           }
           (root / "static-evidence-record.json").write_text(
               json.dumps(record, indent=2) + "\n", encoding="utf-8"
           )
-          if not record["exact_head_match"] or not record["report_present"]:
+          if (
+              not record["exact_head_match"]
+              or not record["report_present"]
+              or not record["lock_check_sha256"]
+          ):
               raise SystemExit("static artifact evidence is incomplete")
           PY
 
@@ -166,6 +181,15 @@ jobs:
               raise SystemExit("Playwright browser artifact was not installed completely")
           PY
 
+      - name: Compare Browser evidence with immutable lock
+        run: |
+          set -o pipefail
+          python tools/check_backend_artifact_lock.py \
+            --browser-descriptors conformance/reports/playwright-browser/browser-descriptors.json \
+            --browser-tree conformance/reports/playwright-browser/installed-browser-tree.json \
+            --output conformance/reports/playwright-browser/browser-lock-check.json \
+            2>&1 | tee conformance/reports/playwright-browser/browser-lock-check.txt
+
       - name: Write exact-head Browser artifact record
         if: always()
         run: |
@@ -180,6 +204,7 @@ jobs:
           root = Path("conformance/reports/playwright-browser")
           descriptor_path = root / "browser-descriptors.json"
           tree_path = root / "installed-browser-tree.json"
+          check_path = root / "browser-lock-check.json"
           expected = os.environ["PTAH_EXACT_SHA"]
           checked_out = subprocess.run(
               ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
@@ -195,12 +220,18 @@ jobs:
                   if descriptor_path.is_file() else None,
               "installed_tree_sha256": tree.get("tree_sha256") if tree else None,
               "installed_file_count": tree.get("file_count") if tree else 0,
+              "lock_check_sha256": hashlib.sha256(check_path.read_bytes()).hexdigest()
+                  if check_path.is_file() else None,
               "runtime_implementation_authorized": False,
           }
           (root / "browser-evidence-record.json").write_text(
               json.dumps(record, indent=2) + "\n", encoding="utf-8"
           )
-          if not record["exact_head_match"] or not record["installed_tree_sha256"]:
+          if (
+              not record["exact_head_match"]
+              or not record["installed_tree_sha256"]
+              or not record["lock_check_sha256"]
+          ):
               raise SystemExit("Playwright Browser artifact evidence is incomplete")
           PY
 

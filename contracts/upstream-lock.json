@@ -1,6 +1,6 @@
 {
-  "schema_version": "0.2.0",
-  "status": "frozen_catalogs_locked_binding_generation_open",
+  "schema_version": "0.3.0",
+  "status": "frozen_catalogs_and_bindings_locked_runtime_dependencies_open",
   "authority": {
     "repository": "jaydumisuni/ptah-roadmap-",
     "phase_0b_freeze_merge": "dc2db457f1705d0cba80f17ab76e5e93f808aee0",
@@ -153,14 +153,53 @@
   ],
   "generator": {
     "name": "ptah-phase0c-frozen-contract-lock",
-    "version": "0.1.1",
+    "version": "0.2.0",
     "repository_path": "tools/lock_frozen_contracts.py",
-    "sha256": "106342e3fc20acef77f2888e427417e475d9ce64ac2b70785a0278ea40280615"
+    "sha256": "7b64c11ebbe62b36d41212a637a77c359bf4b9ddc8fddf3f73dc3029e3f8fdfa"
   },
-  "generated_bindings": null,
+  "generated_bindings": {
+    "generator": {
+      "name": "ptah-phase0c-contract-bindings-alias-aware",
+      "version": "0.2.3",
+      "repository_path": "tools/contract_binding_generator_aliases.py",
+      "sha256": "13dab87ecf1aa1ac671273e2ae947a0dc7e1b5063529cde15108d86ff03c0077",
+      "sources": [
+        {
+          "repository_path": "tools/contract_binding_generator_aliases.py",
+          "sha256": "13dab87ecf1aa1ac671273e2ae947a0dc7e1b5063529cde15108d86ff03c0077"
+        },
+        {
+          "repository_path": "tools/contract_binding_generator.py",
+          "sha256": "8133d3315d93f096efe5adabc3e3eef62fb74a6988f7ced67ebe2986241120ce"
+        }
+      ]
+    },
+    "manifest": {
+      "repository_path": "contracts/generated/manifest.json",
+      "sha256": "3bdf189189328c8a120f9df307fc99691e228c5f2ca0b86261e145c3008f9e42",
+      "size_bytes": 1561
+    },
+    "catalog_index": {
+      "repository_path": "contracts/generated/catalog-index.json",
+      "sha256": "0f97e222d9baf9f90721d2a30dd2b31920b53489ae343b0430cc9089c8fdaf9c",
+      "size_bytes": 199900
+    },
+    "rust_module": {
+      "repository_path": "crates/ptah-contracts/src/generated.rs",
+      "sha256": "be7fcf78898cc619f075a8edcbd97f9c323dc2e16d5b241060d25232d04ab01c",
+      "size_bytes": 193363
+    },
+    "output_tree_sha256": "0a0ef48306205e1a07b3556a2d20e0c418247eb835617e19835a4d9d7ea364e6",
+    "catalog_count": 14,
+    "schema_count": 346,
+    "state_machine_count": 99,
+    "runtime_implementation_authorized": false
+  },
   "blockers": [
-    "Generate Rust bindings offline from this exact locked catalog set.",
-    "Record generated input and output-tree SHA-256 digests.",
-    "Run generated-binding reproducibility and frozen WP13 conformance at one exact head."
+    "Select and lock the minimal external Rust runtime dependency graph.",
+    "Produce exact dependency licence and advisory evidence.",
+    "Implement and run the host capability collector on the pinned host image.",
+    "Retain final Phase 0C evidence in a durable proof Location.",
+    "Accept the public licence boundary and ADR-0033 before runtime authorization."
   ]
 }

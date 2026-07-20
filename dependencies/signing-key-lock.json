@@ -1,0 +1,46 @@
+{
+  "schema_version": "0.1.0",
+  "status": "node_runc_git_pinned_libarchive_discovery_open",
+  "runtime_implementation_authorized": false,
+  "authorities": [
+    {
+      "component": "nodejs",
+      "key_source_repository": "nodejs/release-keys",
+      "key_source_commit": "b28073028e6d6855cfb53bf7fa0137599c01f967",
+      "keyring_path": "gpg-only-active-keys",
+      "verification_target": "SHASUMS256.txt.asc",
+      "status": "pinned"
+    },
+    {
+      "component": "runc",
+      "key_source_repository": "opencontainers/runc",
+      "key_source_ref": "v1.4.2",
+      "keyring_path": "runc.keyring",
+      "keyring_sha256": null,
+      "verification_target": "runc.amd64.asc + runc.amd64",
+      "status": "pinned_ref_keyring_digest_open"
+    },
+    {
+      "component": "git-source",
+      "signer": "Junio C Hamano",
+      "primary_fingerprint": "35652A262040E066C9A74A7DC0C6D9A4F3119B9A",
+      "fingerprint_authority": "https://git-scm.com/book/en/v2/Git-Tools-Signing-Your-Work",
+      "key_transport": "https://keys.openpgp.org/vks/v1/by-fingerprint/35652A262040E066C9A74A7DC0C6D9A4F3119B9A",
+      "verification_target": "git-2.55.0.tar.sign + uncompressed git-2.55.0.tar.xz",
+      "status": "fingerprint_pinned"
+    },
+    {
+      "component": "libarchive-source",
+      "signer_fingerprint": null,
+      "key_transport": null,
+      "verification_target": "libarchive-3.8.7.tar.xz.asc + libarchive-3.8.7.tar.xz",
+      "status": "signature_issuer_discovery_open"
+    }
+  ],
+  "blockers": [
+    "Verify Node, runc and Git signatures at one exact candidate head.",
+    "Record the exact runc keyring digest.",
+    "Discover and independently validate the libarchive release signer fingerprint.",
+    "Keep runtime implementation unauthorized until ADR-0033 closure."
+  ]
+}

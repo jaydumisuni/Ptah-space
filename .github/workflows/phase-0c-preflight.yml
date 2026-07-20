@@ -1,0 +1,153 @@
+name: Phase 0C Scaffold Preflight
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  scaffold-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out Ptah scaffold
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.11"
+
+      - name: Prepare report directory
+        run: mkdir -p conformance/reports
+
+      - name: Record pinned Rust toolchain
+        run: |
+          rustup show active-toolchain
+          rustc -Vv | tee conformance/reports/rust-toolchain.txt
+          cargo -V | tee -a conformance/reports/rust-toolchain.txt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Run workspace tests
+        run: cargo test --workspace --all-features
+
+      - name: Run documentation tests
+        run: cargo test --workspace --doc
+
+      - name: Verify locked zero-dependency scaffold graph
+        run: |
+          cargo metadata --locked --format-version 1 > conformance/reports/cargo-metadata.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          metadata = json.loads(Path("conformance/reports/cargo-metadata.json").read_text())
+          packages = metadata.get("packages", [])
+          assert len(packages) == 1, f"expected one scaffold package, found {len(packages)}"
+          package = packages[0]
+          assert package["name"] == "ptah-phase0c-preflight"
+          assert package.get("dependencies") == [], "runtime dependencies are not authorized"
+          assert package.get("license") is None, "public licence has not been accepted"
+          assert package.get("publish") == [], "scaffold package must remain non-publishable"
+          PY
+
+      - name: Enforce no-runtime source policy
+        run: |
+          grep -F 'pub const RUNTIME_IMPLEMENTATION_AUTHORIZED: bool = false;' \
+            tools/phase0c-preflight/src/lib.rs
+          test ! -e LICENSE
+          if grep -R --line-number --include='Cargo.toml' -E '^[[:space:]]*license[[:space:]]*=' .; then
+            echo "A public package licence was claimed before owner acceptance" >&2
+            exit 1
+          fi
+
+      - name: Check out frozen Ptah roadmap checkpoint
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: jaydumisuni/ptah-roadmap-
+          ref: dc2db457f1705d0cba80f17ab76e5e93f808aee0
+          path: .ptah-roadmap
+          persist-credentials: false
+
+      - name: Install frozen conformance harness
+        run: python -m pip install ./.ptah-roadmap/conformance/harness
+
+      - name: Run frozen harness unit tests
+        working-directory: .ptah-roadmap/conformance/harness
+        run: python -m unittest -v test_ptah_conformance.py
+
+      - name: Run frozen structural conformance locally
+        run: >-
+          ptah-conformance
+          --root ./.ptah-roadmap
+          --report ./conformance/reports/phase-0b-conformance.json
+
+      - name: Run frozen semantic fixtures locally
+        run: >-
+          python ./.ptah-roadmap/conformance/harness/semantic_fixture_runner.py
+          --root ./.ptah-roadmap
+          --report ./conformance/reports/phase-0b-semantic.json
+
+      - name: Write exact-head scaffold report
+        if: always()
+        env:
+          PTAH_HEAD_SHA: ${{ github.sha }}
+          PTAH_RUN_ID: ${{ github.run_id }}
+          PTAH_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          reports = Path("conformance/reports")
+          reports.mkdir(parents=True, exist_ok=True)
+          payload = {
+              "record_type": "ptah.phase0c.scaffold_preflight",
+              "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "implementation_commit": os.environ.get("PTAH_HEAD_SHA", ""),
+              "workflow_run_id": os.environ.get("PTAH_RUN_ID", ""),
+              "workflow_run_attempt": os.environ.get("PTAH_RUN_ATTEMPT", ""),
+              "phase_0b_freeze_commit": "dc2db457f1705d0cba80f17ab76e5e93f808aee0",
+              "wp14_freeze_commit": "fef387c4f074af7fcf86f2d99f7f9b7637e91f88",
+              "runtime_implementation_authorized": False,
+              "rustc": subprocess.run(
+                  ["rustc", "--version"], capture_output=True, text=True, check=False
+              ).stdout.strip(),
+              "cargo": subprocess.run(
+                  ["cargo", "--version"], capture_output=True, text=True, check=False
+              ).stdout.strip(),
+              "expected_reports": [
+                  "cargo-metadata.json",
+                  "phase-0b-conformance.json",
+                  "phase-0b-semantic.json",
+                  "rust-toolchain.txt",
+              ],
+          }
+          (reports / "phase-0c-scaffold-report.json").write_text(
+              json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Upload immutable preflight reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase-0c-scaffold-${{ github.sha }}-${{ github.run_attempt }}
+          path: conformance/reports/
+          if-no-files-found: error
+          retention-days: 30

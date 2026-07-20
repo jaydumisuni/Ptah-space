@@ -1,0 +1,16 @@
+{
+  "name": "ptah-browser-provider",
+  "version": "0.0.0-phase0c",
+  "private": true,
+  "description": "Non-claiming Phase 0C scaffold for the Ptah Playwright Browser Provider.",
+  "engines": {
+    "node": "24.18.0"
+  },
+  "scripts": {
+    "check": "node --check src/index.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "playwright": "1.60.0"
+  }
+}

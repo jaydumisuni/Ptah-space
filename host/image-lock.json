@@ -1,0 +1,19 @@
+{
+  "schema_version": "0.1.0",
+  "status": "candidate_not_installed",
+  "distribution": "Ubuntu Server",
+  "release": "24.04.4 LTS",
+  "architecture": "amd64",
+  "image": {
+    "filename": "ubuntu-24.04.4-live-server-amd64.iso",
+    "sha256": "e907d92eeec9df64163a7e454cbc8d7755e8ddc7ed42f99dbc80c40f1a138433"
+  },
+  "kernel": {
+    "line": "Noble GA 6.8 generic",
+    "meta_package": "linux-image-generic",
+    "candidate_package_version": "6.8.0-136.136",
+    "expected_uname_family": "6.8.0-136-generic"
+  },
+  "proof_artifact": null,
+  "runtime_authorized": false
+}

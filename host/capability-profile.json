@@ -1,0 +1,31 @@
+{
+  "schema_version": "0.1.0",
+  "status": "requirements_only",
+  "required": [
+    "systemd",
+    "cgroups_v2_unified",
+    "pid_namespace",
+    "mount_namespace",
+    "uts_namespace",
+    "ipc_namespace",
+    "network_namespace",
+    "user_namespace",
+    "seccomp",
+    "overlayfs",
+    "unix_domain_sockets",
+    "pty_resize",
+    "fsync",
+    "atomic_rename",
+    "advisory_locking",
+    "inotify",
+    "monotonic_clock",
+    "offline_schema_resolution"
+  ],
+  "conditional": [
+    {
+      "capability": "apparmor",
+      "policy": "required_or_explicit_reduced_isolation_limitation"
+    }
+  ],
+  "observed": null
+}

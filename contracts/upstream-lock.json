@@ -1,0 +1,19 @@
+{
+  "schema_version": "0.1.0",
+  "status": "incomplete_phase0c_candidate",
+  "authority": {
+    "repository": "jaydumisuni/ptah-roadmap-",
+    "phase_0b_freeze_merge": "dc2db457f1705d0cba80f17ab76e5e93f808aee0",
+    "control_book_baseline": "ff135e84273496511797cfe493291c91619711a6"
+  },
+  "network_resolution_allowed": false,
+  "catalogs": [],
+  "generator": null,
+  "generated_output_digest": null,
+  "blockers": [
+    "Populate every frozen public catalog path, URN and SHA-256 digest.",
+    "Pin generator version and source digest.",
+    "Generate bindings offline and record the output-tree digest.",
+    "Run WP13 exact-head conformance."
+  ]
+}

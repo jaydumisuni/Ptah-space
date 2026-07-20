@@ -6,9 +6,11 @@ Ptah provides the environment and machinery. Humans and compatible software syst
 
 ## Current status
 
-**Initial implementation has not started.**
+**Phase 0C non-claiming scaffold only. Runtime implementation is not authorized.**
 
-This repository contains the public Ptah implementation and the technical documentation required to build, operate, extend, and use it. Master roadmap control, current ecosystem progress, internal decisions, and recovery memory are maintained outside this repository.
+The workspace, dependency locks, contract-lock placeholder, host candidate records, and CI safety checks exist only to close implementation-selection evidence. No Node, Workspace, Provider, Browser, container, transfer, repair, or user interface runtime is claimed as implemented.
+
+Master roadmap control, current ecosystem progress, internal decisions, and recovery memory are maintained in `jaydumisuni/ptah-roadmap-`.
 
 ## Core rule
 
@@ -16,4 +18,4 @@ This repository contains the public Ptah implementation and the technical docume
 
 ## Licence
 
-A project licence will be selected after dependency and donor licence review.
+Apache License 2.0 is the Phase 0C public-source recommendation, but owner acceptance is still pending. Until a licence file is deliberately merged, no broader licence grant should be inferred from this repository.

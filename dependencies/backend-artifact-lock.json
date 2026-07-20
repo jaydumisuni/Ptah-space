@@ -52,11 +52,11 @@
     {
       "component": "nodejs",
       "version": "24.18.0",
-      "filename": "node-v24.18.0-linux-x64.tar.xz",
-      "download_url": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-linux-x64.tar.xz",
+      "filename": "node-v24.18.0-linux-x64.tar.gz",
+      "download_url": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-linux-x64.tar.gz",
       "digest": {
         "algorithm": "sha256",
-        "value": "e5a6701100066156d69da48878e4b95986733b0688e0b83afbe1093778e3fffd"
+        "value": "55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742"
       },
       "checksum_authority": "https://nodejs.org/dist/v24.18.0/SHASUMS256.txt.asc",
       "checksum_signature": "OpenPGP signed",
@@ -157,7 +157,7 @@
   },
   "blockers": [
     "Extract and record the signed SHA-256 for git-2.55.0.tar.xz.",
-    "Complete the static backend artifact exact-head verification after correcting runc evidence.",
+    "Complete the static backend artifact exact-head verification after correcting runc and Node evidence.",
     "Record exact installed package versions and package artifact digests from the pinned Ubuntu host.",
     "Persist final evidence beyond temporary workflow artifact retention.",
     "Runtime implementation remains unauthorized until ADR-0033 closure."

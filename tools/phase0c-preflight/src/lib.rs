@@ -5,12 +5,10 @@
 //! the frozen planning checkpoints and fails closed on runtime authorization.
 
 /// Phase 0B governance freeze accepted for Phase 0C entry.
-pub const PHASE_0B_FREEZE_COMMIT: &str =
-    "dc2db457f1705d0cba80f17ab76e5e93f808aee0";
+pub const PHASE_0B_FREEZE_COMMIT: &str = "dc2db457f1705d0cba80f17ab76e5e93f808aee0";
 
 /// Merge commit containing the frozen WP14 corpus and first-slice proof plan.
-pub const WP14_FREEZE_COMMIT: &str =
-    "fef387c4f074af7fcf86f2d99f7f9b7637e91f88";
+pub const WP14_FREEZE_COMMIT: &str = "fef387c4f074af7fcf86f2d99f7f9b7637e91f88";
 
 /// The selected public implementation repository.
 pub const IMPLEMENTATION_REPOSITORY: &str = "jaydumisuni/Ptah-space";
@@ -25,7 +23,7 @@ pub const RUNTIME_IMPLEMENTATION_AUTHORIZED: bool = false;
 /// # Errors
 ///
 /// Always returns an error while Phase 0C authorization remains false.
-pub fn require_runtime_authorization() -> Result<(), &'static str> {
+pub const fn require_runtime_authorization() -> Result<(), &'static str> {
     if RUNTIME_IMPLEMENTATION_AUTHORIZED {
         Ok(())
     } else {
@@ -41,8 +39,16 @@ mod tests {
     fn frozen_commits_are_full_sha1_values() {
         assert_eq!(PHASE_0B_FREEZE_COMMIT.len(), 40);
         assert_eq!(WP14_FREEZE_COMMIT.len(), 40);
-        assert!(PHASE_0B_FREEZE_COMMIT.chars().all(|item| item.is_ascii_hexdigit()));
-        assert!(WP14_FREEZE_COMMIT.chars().all(|item| item.is_ascii_hexdigit()));
+        assert!(
+            PHASE_0B_FREEZE_COMMIT
+                .chars()
+                .all(|item| item.is_ascii_hexdigit())
+        );
+        assert!(
+            WP14_FREEZE_COMMIT
+                .chars()
+                .all(|item| item.is_ascii_hexdigit())
+        );
     }
 
     #[test]

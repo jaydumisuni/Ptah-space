@@ -53,8 +53,11 @@ mod tests {
 
     #[test]
     fn runtime_remains_fail_closed() {
-        assert!(!RUNTIME_IMPLEMENTATION_AUTHORIZED);
-        assert!(require_runtime_authorization().is_err());
+        let result = require_runtime_authorization();
+        assert_eq!(
+            result,
+            Err("Ptah runtime implementation is not authorized; this branch is Phase 0C scaffold only")
+        );
     }
 
     #[test]

@@ -42,21 +42,13 @@ mod tests {
 
     #[test]
     fn canonical_schema_identity_wins_over_a_legacy_catalog_alias() {
-        assert!(
-            generated::schema_by_id("urn:ptah:schema:conformance:definitions:0.1.0")
-                .is_some()
-        );
-        assert!(
-            generated::schema_by_id("urn:ptah:schema:conformance.definitions:0.1.0")
-                .is_none()
-        );
+        assert!(generated::schema_by_id("urn:ptah:schema:conformance:definitions:0.1.0").is_some());
+        assert!(generated::schema_by_id("urn:ptah:schema:conformance.definitions:0.1.0").is_none());
     }
 
     #[test]
     fn catalog_and_lifecycle_lookups_are_available() {
-        assert!(
-            generated::catalog_by_id("urn:ptah:schema-catalog:domain:0.1.2").is_some()
-        );
+        assert!(generated::catalog_by_id("urn:ptah:schema-catalog:domain:0.1.2").is_some());
         assert!(generated::state_machine("conformance.run.lifecycle", "0.1.0").is_some());
     }
 }

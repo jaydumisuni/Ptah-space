@@ -45,7 +45,7 @@ jobs:
       - name: Verify pinned upstream signing authorities
         run: |
           set -o pipefail
-          python tools/verify_backend_signatures.py \
+          python tools/verify_backend_signatures_final.py \
             --download-root downloads/backend-artifacts \
             --work-root downloads/signature-evidence \
             --output conformance/reports/backend-signatures/signature-evidence.json \

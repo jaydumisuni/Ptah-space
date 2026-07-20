@@ -1,8 +1,15 @@
 {
-  "schema_version": "0.2.0",
-  "status": "static_verification_open_pinned_host_packages_open",
+  "schema_version": "0.3.0",
+  "status": "static_and_browser_artifacts_locked_pinned_host_packages_open",
   "runtime_implementation_authorized": false,
   "architecture": "linux-amd64",
+  "verification": {
+    "tool_path": "tools/verify_backend_artifacts.py",
+    "workflow_path": ".github/workflows/phase0c-backend-artifacts.yml",
+    "strict_https": true,
+    "signed_manifest_digest_derivation": ["nodejs", "git-source"],
+    "runtime_implementation_authorized": false
+  },
   "artifacts": [
     {
       "component": "ubuntu-server",
@@ -47,7 +54,7 @@
       "release_tag": "v1.4.2",
       "release_tag_verified_signature": true,
       "licence": "Apache-2.0",
-      "status": "locked_after_authoritative_download_correction"
+      "status": "locked"
     },
     {
       "component": "nodejs",
@@ -56,12 +63,13 @@
       "download_url": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-linux-x64.tar.gz",
       "digest": {
         "algorithm": "sha256",
-        "value": "55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742"
+        "value": "783130984963db7ba9cbd01089eaf2c2efb055c7c1693c943174b967b3050cb8"
       },
       "checksum_authority": "https://nodejs.org/dist/v24.18.0/SHASUMS256.txt.asc",
-      "checksum_signature": "OpenPGP signed",
+      "checksum_manifest_sha256": "2f70f136714c94decfcc3a6f47e8550375e934c956fb4df9e5a69fafd1e58fcf",
+      "checksum_signature": "OpenPGP clear-signed",
       "licence": "MIT",
-      "status": "locked"
+      "status": "locked_from_same-run_signed_manifest"
     },
     {
       "component": "sqlite-source",
@@ -97,9 +105,13 @@
       "download_url": "https://www.kernel.org/pub/software/scm/git/git-2.55.0.tar.xz",
       "signature_url": "https://www.kernel.org/pub/software/scm/git/git-2.55.0.tar.sign",
       "signed_checksum_manifest": "https://www.kernel.org/pub/software/scm/git/sha256sums.asc",
-      "digest": null,
+      "signed_checksum_manifest_sha256": "f6455ae2aa6dc993191db02aabaa5e249804b4a59b6582d4eebf3a50785e4308",
+      "digest": {
+        "algorithm": "sha256",
+        "value": "457fdb04dc8728e007d4688695e6912e6f680727920f2a40bf11eacc17505357"
+      },
       "licence": "GPL-2.0-only",
-      "status": "signature_authority_locked_digest_extraction_open"
+      "status": "locked_from_same-run_signed_manifest"
     },
     {
       "component": "playwright-npm",
@@ -142,10 +154,6 @@
       "sha256": "adc1c21ceed5c2a67184766376fe816ac03e556cc0ca3f782e8212235fe05c6f",
       "size_bytes": 276917464
     },
-    "evidence_head": "81aa2d822ed4fcbf1fbe35a520244398b0a53fc4",
-    "evidence_run_id": 29731441076,
-    "evidence_artifact_id": 8456437842,
-    "evidence_artifact_sha256": "cabc9323e574075c6127fb301f5ae6e1f3dc5e7064fdcc721d3260bd0f4d432a",
     "runtime_implementation_authorized": false,
     "status": "installed_tree_locked"
   },
@@ -156,10 +164,11 @@
     "status": "pinned_host_run_open"
   },
   "blockers": [
-    "Extract and record the signed SHA-256 for git-2.55.0.tar.xz.",
-    "Complete the static backend artifact exact-head verification after correcting runc and Node evidence.",
+    "Cryptographically verify OpenPGP signers against pinned authoritative key material.",
     "Record exact installed package versions and package artifact digests from the pinned Ubuntu host.",
+    "Produce a proof-eligible capability report on Ubuntu Server 24.04.4 with 6.8.0-136-generic.",
     "Persist final evidence beyond temporary workflow artifact retention.",
+    "Owner acceptance of the public Apache-2.0 and private contribution boundary remains open.",
     "Runtime implementation remains unauthorized until ADR-0033 closure."
   ]
 }

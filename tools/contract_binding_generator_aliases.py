@@ -13,11 +13,44 @@ from typing import Any
 
 import contract_binding_generator as base
 
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 WRAPPER_PATH = Path(__file__)
 BASE_PATH = WRAPPER_PATH.with_name("contract_binding_generator.py")
 WRAPPER_REPOSITORY_PATH = "tools/contract_binding_generator_aliases.py"
 BASE_REPOSITORY_PATH = "tools/contract_binding_generator.py"
+
+
+def validate_lock(lock: dict[str, Any]) -> list[dict[str, Any]]:
+    """Accept only the two non-runtime states used by binding preparation."""
+    allowed_states = {
+        "frozen_catalogs_locked_binding_generation_open",
+        "frozen_catalogs_and_bindings_locked_runtime_dependencies_open",
+    }
+    if lock.get("status") not in allowed_states:
+        raise base.BindingError("lock is not in an accepted binding preparation state")
+    if lock.get("network_resolution_allowed") is not False:
+        raise base.BindingError("network schema resolution must remain disabled")
+    catalogs = lock.get("catalogs")
+    if not isinstance(catalogs, list) or len(catalogs) != 14 or lock.get("catalog_count") != 14:
+        raise base.BindingError("lock must contain exactly fourteen active catalogs")
+
+    generated = lock.get("generated_bindings")
+    if lock.get("status") == "frozen_catalogs_locked_binding_generation_open":
+        if generated is not None:
+            raise base.BindingError("open binding state cannot pre-claim generated bindings")
+    else:
+        if not isinstance(generated, dict):
+            raise base.BindingError("binding-locked state must contain generated binding evidence")
+        if generated.get("runtime_implementation_authorized") is not False:
+            raise base.BindingError("generated bindings cannot authorize the Ptah runtime")
+        if (generated.get("catalog_count"), generated.get("schema_count"), generated.get("state_machine_count")) != (
+            14,
+            346,
+            99,
+        ):
+            raise base.BindingError("generated binding counts do not match the frozen set")
+
+    return [item for item in catalogs if isinstance(item, dict)]
 
 
 def schema_entry(
@@ -131,6 +164,7 @@ def build_outputs(
     lock_path: Path,
 ) -> dict[str, bytes]:
     """Run the base generator with alias-aware identity normalization."""
+    base.validate_lock = validate_lock
     base.schema_entry = schema_entry
     base.machine_entry = machine_entry
     outputs = base.build(roadmap_root, lock_path, WRAPPER_PATH)

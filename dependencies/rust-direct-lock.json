@@ -1,6 +1,6 @@
 {
-  "schema_version": "0.2.0",
-  "status": "exact_versions_and_policy_locked_host_proof_open",
+  "schema_version": "0.3.0",
+  "status": "exact_versions_and_policy_selected_host_proof_open",
   "toolchain": "1.97.1",
   "registry": "https://github.com/rust-lang/crates.io-index",
   "runtime_implementation_authorized": false,
@@ -112,24 +112,15 @@
     "registry_package_count": 81,
     "git_dependency_count": 0
   },
-  "cargo_metadata": {
-    "exact_head": "ccd269c4b8eebad97ecb43cef1c7dbc5f34cd56d",
-    "workspace_manifest_sha256": "018d7d76e7c84839c91df6f114a997396107e46c32bf78fb7768152ca3655504",
-    "evidence_manifest_sha256": "e434ff7f382b894e2b0cdfdab432d43f44e287d0c1ec59d8152915e05a7ce3f3"
-  },
-  "cargo_deny": {
+  "policy": {
+    "tool": "cargo-deny",
     "version": "0.19.4",
     "config_path": "deny.toml",
-    "advisories": "pass",
-    "bans": "pass",
-    "licenses": "pass",
-    "sources": "pass",
+    "required_checks": ["advisories", "bans", "licenses", "sources"],
     "private_workspace_policy": "unpublished workspace members ignored; no public licence granted",
-    "additional_transitive_licence": "Zlib",
-    "workflow_run_id": 29730610604,
-    "artifact_id": 8456161387,
-    "artifact_sha256": "1ba7f6679e2088b812c15f3fc0a42fbf73e258cef0b33ca470574785377c8127"
+    "allowed_transitive_licences": ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib"]
   },
+  "evidence_path": "dependencies/rust-policy-evidence.json",
   "blockers": [
     "Lock authoritative hashes or signatures for every installed or distributed backend artifact.",
     "Produce a proof-eligible capability report on the exact pinned Ubuntu Server 24.04.4 and 6.8.0-136-generic host.",

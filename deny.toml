@@ -1,4 +1,5 @@
-# Candidate Phase 0C policy. Exact licence exceptions remain blocked on owner review.
+# Phase 0C dependency policy. Ptah workspace crates remain private and unlicensed
+# until the owner accepts the public licence and contribution boundary.
 [graph]
 all-features = true
 
@@ -7,6 +8,7 @@ yanked = "deny"
 
 [licenses]
 confidence-threshold = 0.93
+unused-allowed-license = "warn"
 allow = [
   "Apache-2.0",
   "MIT",
@@ -14,7 +16,13 @@ allow = [
   "BSD-3-Clause",
   "ISC",
   "Unicode-3.0",
+  "Zlib",
 ]
+
+[licenses.private]
+# `publish = false` workspace members are Ptah-owned private Phase 0C sources.
+# Ignoring their absent public licence is not a licence grant or acceptance.
+ignore = true
 
 [bans]
 multiple-versions = "warn"

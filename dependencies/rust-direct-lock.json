@@ -1,0 +1,96 @@
+{
+  "schema_version": "0.1.0",
+  "status": "candidate_exact_versions_lock_generation_open",
+  "toolchain": "1.97.1",
+  "registry": "https://github.com/rust-lang/crates.io-index",
+  "runtime_implementation_authorized": false,
+  "selection_policy": {
+    "exact_manifest_versions": true,
+    "default_features_disabled_where_practical": true,
+    "git_dependencies_allowed": false,
+    "unknown_registries_allowed": false,
+    "wildcards_allowed": false,
+    "public_licence_acceptance_required_before_runtime_authorization": true
+  },
+  "direct_dependencies": [
+    {
+      "name": "nix",
+      "version": "0.30.1",
+      "features": ["fs", "process", "signal", "socket", "term", "user"],
+      "purpose": "safe Linux process, signal, PTY, socket and identity primitives",
+      "expected_licence": "MIT"
+    },
+    {
+      "name": "rusqlite",
+      "version": "0.37.0",
+      "features": ["backup", "blob", "hooks", "limits", "trace"],
+      "purpose": "SQLite ledger adapter behind the repository-owned ledger boundary",
+      "expected_licence": "MIT"
+    },
+    {
+      "name": "serde",
+      "version": "1.0.228",
+      "features": ["derive"],
+      "purpose": "typed contract and evidence serialization",
+      "expected_licence": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "serde_json",
+      "version": "1.0.145",
+      "features": [],
+      "purpose": "canonical JSON interchange for frozen contracts and evidence",
+      "expected_licence": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "sha2",
+      "version": "0.10.9",
+      "features": [],
+      "purpose": "content and evidence SHA-256 digests",
+      "expected_licence": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "thiserror",
+      "version": "2.0.17",
+      "features": [],
+      "purpose": "typed internal error boundaries without runtime policy coupling",
+      "expected_licence": "MIT OR Apache-2.0"
+    },
+    {
+      "name": "tokio",
+      "version": "1.48.0",
+      "features": ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"],
+      "purpose": "concurrent one-Node activity, terminal, transfer and local service substrate",
+      "expected_licence": "MIT"
+    },
+    {
+      "name": "tracing",
+      "version": "0.1.41",
+      "features": ["std"],
+      "purpose": "structured activity and provider instrumentation",
+      "expected_licence": "MIT"
+    },
+    {
+      "name": "tracing-subscriber",
+      "version": "0.3.20",
+      "features": ["env-filter", "fmt", "json", "registry"],
+      "purpose": "local structured telemetry collection and filtering",
+      "expected_licence": "MIT"
+    },
+    {
+      "name": "uuid",
+      "version": "1.18.1",
+      "features": ["serde", "v4", "v7"],
+      "purpose": "non-semantic globally unique identifiers and time-ordered local IDs",
+      "expected_licence": "Apache-2.0 OR MIT"
+    }
+  ],
+  "cargo_lock": null,
+  "cargo_metadata": null,
+  "cargo_deny": null,
+  "blockers": [
+    "Generate and commit Cargo.lock from the exact selected dependency set.",
+    "Run source, licence, ban and advisory policy at one exact candidate head.",
+    "Record every resolved package name, version, source and checksum.",
+    "Owner acceptance of the public Apache-2.0 boundary remains separate and open."
+  ]
+}

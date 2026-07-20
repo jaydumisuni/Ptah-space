@@ -1,19 +1,166 @@
 {
-  "schema_version": "0.1.0",
-  "status": "incomplete_phase0c_candidate",
+  "schema_version": "0.2.0",
+  "status": "frozen_catalogs_locked_binding_generation_open",
   "authority": {
     "repository": "jaydumisuni/ptah-roadmap-",
     "phase_0b_freeze_merge": "dc2db457f1705d0cba80f17ab76e5e93f808aee0",
-    "control_book_baseline": "ff135e84273496511797cfe493291c91619711a6"
+    "wp14_merge": "fef387c4f074af7fcf86f2d99f7f9b7637e91f88"
   },
   "network_resolution_allowed": false,
-  "catalogs": [],
-  "generator": null,
-  "generated_output_digest": null,
+  "catalog_count": 14,
+  "catalog_set_sha256": "f0668a5f5d5c68cabf623176608c627a94482faa4f4460e4f0fe0f0969d7c64d",
+  "catalogs": [
+    {
+      "repository_path": "schemas/phase-0b/activity/schema-catalog.v0.1.1.json",
+      "catalog_id": "urn:ptah:schema-catalog:activity:0.1.1",
+      "catalog_version": "0.1.1",
+      "maturity": "candidate",
+      "sha256": "1d7ff151d7d2d96627117ce9af6c4ee04065d50535ea5add3a05b97e20f76518",
+      "size_bytes": 5890,
+      "schema_count": 18,
+      "state_machine_count": 6
+    },
+    {
+      "repository_path": "schemas/phase-0b/application/schema-catalog.v0.1.0.json",
+      "catalog_id": "urn:ptah:schema-catalog:application:0.1.0",
+      "catalog_version": "0.1.0",
+      "maturity": "candidate",
+      "sha256": "5238536ac2ced87cd90b457709631e2e64a3ac444b7c903fb6c42b1710cc9035",
+      "size_bytes": 13995,
+      "schema_count": 51,
+      "state_machine_count": 18
+    },
+    {
+      "repository_path": "schemas/phase-0b/build/schema-catalog.v0.1.1.json",
+      "catalog_id": "urn:ptah:schema-catalog:build:0.1.1",
+      "catalog_version": "0.1.1",
+      "maturity": "candidate",
+      "sha256": "a907b3ebd02505869ab97c39433384a11bbf874d461544359bda31cd88a37a27",
+      "size_bytes": 9038,
+      "schema_count": 30,
+      "state_machine_count": 9
+    },
+    {
+      "repository_path": "schemas/phase-0b/common/schema-catalog.v0.1.0.json",
+      "catalog_id": "urn:ptah:schema-catalog:common:0.1.0",
+      "catalog_version": "0.1.0",
+      "maturity": "candidate",
+      "sha256": "88c58966d2e97967ca3fafbeac56c8237944fd0b014bbad752d1f41c56a93c52",
+      "size_bytes": 2281,
+      "schema_count": 8,
+      "state_machine_count": 0
+    },
+    {
+      "repository_path": "schemas/phase-0b/conformance/schema-catalog.v0.1.0.json",
+      "catalog_id": "urn:ptah:schema-catalog:conformance:0.1.0",
+      "catalog_version": "0.1.0",
+      "maturity": null,
+      "sha256": "55cdb429e3752430d94cd848990dab3577352ab87853060c9cf022212948cd07",
+      "size_bytes": 1710,
+      "schema_count": 7,
+      "state_machine_count": 1
+    },
+    {
+      "repository_path": "schemas/phase-0b/corpus/schema-catalog.v0.1.0.json",
+      "catalog_id": "urn:ptah:schema-catalog:corpus:0.1.0",
+      "catalog_version": "0.1.0",
+      "maturity": "candidate",
+      "sha256": "957d9488edfa43142050e514d5d6b6e62f51797538915537725fe3b4fc23329a",
+      "size_bytes": 1533,
+      "schema_count": 9,
+      "state_machine_count": 2
+    },
+    {
+      "repository_path": "schemas/phase-0b/domain/schema-catalog.v0.1.2.json",
+      "catalog_id": "urn:ptah:schema-catalog:domain:0.1.2",
+      "catalog_version": "0.1.2",
+      "maturity": "candidate",
+      "sha256": "3ebd079c864814852171e52d5e5a6f9589f5bd36aa00f15e0042b69a553052b6",
+      "size_bytes": 12472,
+      "schema_count": 47,
+      "state_machine_count": 15
+    },
+    {
+      "repository_path": "schemas/phase-0b/isolation/schema-catalog.v0.1.0.json",
+      "catalog_id": "urn:ptah:schema-catalog:isolation:0.1.0",
+      "catalog_version": "0.1.0",
+      "maturity": "candidate",
+      "sha256": "35d6d8d370b8f21353ecaca004272ff0c2299e4ac21a4584371b79cd4f31ccf7",
+      "size_bytes": 3012,
+      "schema_count": 28,
+      "state_machine_count": 7
+    },
+    {
+      "repository_path": "schemas/phase-0b/knowledge/schema-catalog.v0.1.0.json",
+      "catalog_id": "urn:ptah:schema-catalog:knowledge:0.1.0",
+      "catalog_version": "0.1.0",
+      "maturity": "candidate",
+      "sha256": "e516d37fba0f4f4ade218094dbce9cf872728a40acc3041130ea62e4229d8a3c",
+      "size_bytes": 10180,
+      "schema_count": 50,
+      "state_machine_count": 9
+    },
+    {
+      "repository_path": "schemas/phase-0b/object/schema-catalog.v0.1.0.json",
+      "catalog_id": "urn:ptah:schema-catalog:object:0.1.0",
+      "catalog_version": "0.1.0",
+      "maturity": "candidate",
+      "sha256": "18d7d117b21d7b950a7af0cde901819453211ccdab5e95ba4318587c2c734e18",
+      "size_bytes": 5117,
+      "schema_count": 20,
+      "state_machine_count": 5
+    },
+    {
+      "repository_path": "schemas/phase-0b/runtime/schema-catalog.v0.1.2.json",
+      "catalog_id": "urn:ptah:schema-catalog:runtime:0.1.2",
+      "catalog_version": "0.1.2",
+      "maturity": "candidate",
+      "sha256": "3201c546d25ca21eb5a23659b00d5b2824e3d1f4592933faf352eee1409c1173",
+      "size_bytes": 6145,
+      "schema_count": 19,
+      "state_machine_count": 6
+    },
+    {
+      "repository_path": "schemas/phase-0b/security/schema-catalog.v0.1.0.json",
+      "catalog_id": "urn:ptah:schema-catalog:security:0.1.0",
+      "catalog_version": "0.1.0",
+      "maturity": "candidate",
+      "sha256": "ef46f5cac75c4178899db721343b21ea03045069620ec054d72145e70c1bd28d",
+      "size_bytes": 2284,
+      "schema_count": 19,
+      "state_machine_count": 5
+    },
+    {
+      "repository_path": "schemas/phase-0b/transfer/schema-catalog.v0.1.0.json",
+      "catalog_id": "urn:ptah:schema-catalog:transfer:0.1.0",
+      "catalog_version": "0.1.0",
+      "maturity": "candidate",
+      "sha256": "0eda58df16488f43d2cc49fe58d5ddf54e6788e89dc90c349b28090ab4d08729",
+      "size_bytes": 5033,
+      "schema_count": 18,
+      "state_machine_count": 7
+    },
+    {
+      "repository_path": "schemas/phase-0b/workspace/schema-catalog.v0.1.1.json",
+      "catalog_id": "urn:ptah:schema-catalog:workspace:0.1.1",
+      "catalog_version": "0.1.1",
+      "maturity": "candidate",
+      "sha256": "de50027d586b22d80eac798cf6e67f280a27f9358b176908ab68fad53a3e509c",
+      "size_bytes": 6756,
+      "schema_count": 22,
+      "state_machine_count": 9
+    }
+  ],
+  "generator": {
+    "name": "ptah-phase0c-frozen-contract-lock",
+    "version": "0.1.1",
+    "repository_path": "tools/lock_frozen_contracts.py",
+    "sha256": "106342e3fc20acef77f2888e427417e475d9ce64ac2b70785a0278ea40280615"
+  },
+  "generated_bindings": null,
   "blockers": [
-    "Populate every frozen public catalog path, URN and SHA-256 digest.",
-    "Pin generator version and source digest.",
-    "Generate bindings offline and record the output-tree digest.",
-    "Run WP13 exact-head conformance."
+    "Generate Rust bindings offline from this exact locked catalog set.",
+    "Record generated input and output-tree SHA-256 digests.",
+    "Run generated-binding reproducibility and frozen WP13 conformance at one exact head."
   ]
 }

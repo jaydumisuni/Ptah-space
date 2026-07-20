@@ -12,10 +12,24 @@ if "Runtime implementation is not authorized" not in readme:
     raise SystemExit("README no-build boundary missing")
 
 lock = json.loads((ROOT / "contracts/upstream-lock.json").read_text(encoding="utf-8"))
-if lock.get("status") != "incomplete_phase0c_candidate":
-    raise SystemExit("Contract lock must remain explicitly incomplete before authorization")
+allowed_lock_states = {
+    "incomplete_phase0c_candidate",
+    "frozen_catalogs_locked_binding_generation_open",
+}
+if lock.get("status") not in allowed_lock_states:
+    raise SystemExit("Contract lock state is not an accepted Phase 0C preparation state")
 if lock.get("network_resolution_allowed") is not False:
     raise SystemExit("Network schema resolution must remain disabled")
+
+if lock.get("status") == "frozen_catalogs_locked_binding_generation_open":
+    catalogs = lock.get("catalogs")
+    if lock.get("catalog_count") != 14 or not isinstance(catalogs, list) or len(catalogs) != 14:
+        raise SystemExit("Frozen catalog lock must contain exactly fourteen active catalogs")
+    if lock.get("generated_bindings") is not None:
+        raise SystemExit("Generated bindings cannot be claimed before the binding gate passes")
+    blockers = lock.get("blockers")
+    if not isinstance(blockers, list) or not any("Generate Rust bindings" in item for item in blockers):
+        raise SystemExit("Catalog-locked state must retain the generated-binding blocker")
 
 host = json.loads((ROOT / "host/image-lock.json").read_text(encoding="utf-8"))
 if host.get("runtime_authorized") is not False:

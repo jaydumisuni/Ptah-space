@@ -18,6 +18,7 @@ members = [
   "adapters/container-oci",
   "adapters/git-cli",
   "adapters/decomposition-libarchive",
+  "evidence/rust-dependency-lock",
 ]
 
 [workspace.package]

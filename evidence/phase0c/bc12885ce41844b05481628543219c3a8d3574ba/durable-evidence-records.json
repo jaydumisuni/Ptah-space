@@ -1,0 +1,138 @@
+{
+  "schema_version": "0.1.0",
+  "record_type": "ptah.phase0c.durable_evidence_records",
+  "implementation_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+  "merge_commit": "c2cd803b5e5c50787b3d8c2d24392d693afdbb3c",
+  "runtime_implementation_authorized": false,
+  "records": [
+    {
+      "path": "phase0c-final-rust-dependencies/dependency-policy-record.json",
+      "sha256": "83b88e57d81a42c81219b3a1be117370370b7d1a6520ebcd4d1183d4a1810d9d",
+      "record": {
+        "record_type": "ptah.phase0c.rust_dependency_policy",
+        "created_at": "2026-07-20T15:11:50+00:00",
+        "implementation_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "checked_out_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "exact_head_match": true,
+        "rust_toolchain": "1.97.1",
+        "cargo_deny": "0.19.4",
+        "cargo_lock_sha256": "d68a06272d417d67049c7879570e3735607166ce1e7eff58e43df21e20c9117a",
+        "selection_sha256": "843927f2a0608dafe16e8a07bd8383e8c9aa1a1c0a59942b2302cd17b5a6f333",
+        "runtime_implementation_authorized": false,
+        "reports_present": ["cargo-deny-advisories.txt","cargo-deny-bans.txt","cargo-deny-install.txt","cargo-deny-licenses.txt","cargo-deny-sources.txt","cargo-deny-version.txt","cargo-metadata.json","cargo-tree.txt","dependency-lock-check.txt","dependency-lock-report.json","rust-toolchain.txt"]
+      }
+    },
+    {
+      "path": "phase0c-final-static-backends/static-evidence-record.json",
+      "sha256": "7938f80f090da8f10345c9156f7ad1f623c44bea0fd9a0362dd70740ca62e854",
+      "record": {
+        "record_type": "ptah.phase0c.static_backend_artifact_evidence",
+        "created_at": "2026-07-20T15:09:52+00:00",
+        "implementation_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "checked_out_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "exact_head_match": true,
+        "report_present": true,
+        "report_sha256": "1f511f61889290f20075af4c0fe686db560e687122ffdd58220cff2dbff94a4b",
+        "lock_check_sha256": "243cd7f752184496db2805e8b80b3089b216f0699259f0087997ff7cbdcbf2e6",
+        "verified_artifact_count": 9,
+        "runtime_implementation_authorized": false
+      }
+    },
+    {
+      "path": "phase0c-final-playwright-browser/browser-evidence-record.json",
+      "sha256": "77b58090ee4213c60ac031bbc1f348e6c768f7765b71dfb5b862e25314efc179",
+      "record": {
+        "record_type": "ptah.phase0c.playwright_browser_evidence",
+        "created_at": "2026-07-20T15:09:59+00:00",
+        "implementation_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "checked_out_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "exact_head_match": true,
+        "descriptors_sha256": "aa17537f6cd5f342009e330606349a6ca8c4bf3e02bf5318d607c865def2b947",
+        "installed_tree_sha256": "953a2e9c1fb18d1e698f0903a62c23c835264e939cdd08a85c41d57719a5de7a",
+        "installed_file_count": 599,
+        "lock_check_sha256": "ad6b0dae2eabccc12d0b6a9ed297937f03578cd815536bd3997f32da1203a016",
+        "runtime_implementation_authorized": false
+      }
+    },
+    {
+      "path": "phase0c-final-signing-lock/signing-lock-record.json",
+      "sha256": "d5224e48c7198c45d0593a8c164a457ee0b20f16a1a029bdf807dc61afd4a15c",
+      "record": {
+        "record_type": "ptah.phase0c.signing_lock_boundary",
+        "created_at": "2026-07-20T15:09:43+00:00",
+        "implementation_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "checked_out_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "exact_head_match": true,
+        "check_sha256": "136c22754d05fe2aa633746f9ed4c866c092f57775c078e0fbde4540e421732a",
+        "runtime_implementation_authorized": false
+      }
+    },
+    {
+      "path": "phase0c-final-backend-signatures/signature-evidence-record.json",
+      "sha256": "83601583fd1f4926aa88797b0f747a85c260c1ecaad336e4e096001e42bbbd9f",
+      "record": {
+        "record_type": "ptah.phase0c.backend_signature_evidence",
+        "created_at": "2026-07-20T15:12:11+00:00",
+        "implementation_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "checked_out_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "exact_head_match": true,
+        "report_present": true,
+        "report_sha256": "bb0062d03c6b779ba82062cb2784f6479e4942ca05964ce8a19423a25f73b648",
+        "verified_signature_count": 4,
+        "discovery_count": 0,
+        "runtime_implementation_authorized": false
+      }
+    },
+    {
+      "path": "phase0c-final-host-capabilities/host-evidence-record.json",
+      "sha256": "5d7111dbb7457d6fa909707ae668311b0eae69c8fd37ebf74ccf48ac37b0c2f8",
+      "record": {
+        "record_type": "ptah.phase0c.host_capability_evidence",
+        "created_at": "2026-07-20T15:09:45+00:00",
+        "implementation_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "checked_out_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "exact_head_match": true,
+        "collector_report_present": true,
+        "collector_report_sha256": "9cdc840bdc0b7e83a37174ff61c18c12aac875b6ac8fd9851f1364d994bcab26",
+        "required_capabilities_passed": true,
+        "pinned_host_match": false,
+        "proof_eligible": false,
+        "runtime_implementation_authorized": false,
+        "claim_boundary": "A hosted CI runner report validates the collector and observable capabilities. It is not the final pinned-image proof unless proof_eligible is true."
+      }
+    },
+    {
+      "path": "phase0c-final-source-policy/source-policy-report.json",
+      "sha256": "f495c8cbe4bb19b4fb879a80be693e61118a7fb3d5f391deb19e3f3228290de7",
+      "record": {
+        "record_type": "ptah.phase0c.source_policy",
+        "created_at": "2026-07-20T15:09:42+00:00",
+        "implementation_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "checked_out_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "exact_head_match": true,
+        "runtime_implementation_authorized": false
+      }
+    },
+    {
+      "path": "phase0c-negative-backend-signatures-http504/signature-evidence-record.json",
+      "sha256": "2db749d22b474bef137e729631178e0e72a27e25db7d865a26afaccc0c7ee9b1",
+      "record": {
+        "record_type": "ptah.phase0c.backend_signature_evidence",
+        "created_at": "2026-07-20T15:10:23+00:00",
+        "implementation_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "checked_out_commit": "bc12885ce41844b05481628543219c3a8d3574ba",
+        "exact_head_match": true,
+        "report_present": false,
+        "report_sha256": null,
+        "verified_signature_count": 0,
+        "discovery_count": 0,
+        "runtime_implementation_authorized": false
+      }
+    }
+  ],
+  "retained_negative_log": {
+    "path": "phase0c-negative-backend-signatures-http504/static-artifacts.txt",
+    "sha256": "f404d66b37ebc9149c531164c2d8cb9453110408cff7daceaa0fe040a2e7a5fa",
+    "content": "Traceback (most recent call last):\n  File \"/home/runner/work/Ptah-space/Ptah-space/tools/verify_backend_artifacts.py\", line 300, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/home/runner/work/Ptah-space/Ptah-space/tools/verify_backend_artifacts.py\", line 291, in main\n    report = verify(args.lock, args.download_root)\n  File \"/home/runner/work/Ptah-space/Ptah-space/tools/verify_backend_artifacts.py\", line 252, in verify\n    transfer = download(url, target)\n  File \"/home/runner/work/Ptah-space/Ptah-space/tools/verify_backend_artifacts.py\", line 78, in download\n    raise ArtifactError(\n        f\"download failed for {url}: curl={result.returncode}, stderr={result.stderr.strip()}\"\n    )\nArtifactError: download failed for https://libarchive.org/downloads/libarchive-3.8.7.tar.xz: curl=22, stderr=curl: (22) The requested URL returned error: 504\ncurl: (22) The requested URL returned error: 504\ncurl: (22) The requested URL returned error: 504\ncurl: (22) The requested URL returned error: 504\n"
+  }
+}

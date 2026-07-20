@@ -1,0 +1,99 @@
+name: Phase 0C frozen contract lock
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  frozen-catalog-lock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out exact Ptah-space head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Check out frozen roadmap checkpoint
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: jaydumisuni/ptah-roadmap-
+          ref: dc2db457f1705d0cba80f17ab76e5e93f808aee0
+          path: .ptah-roadmap
+          persist-credentials: false
+
+      - name: Generate and verify frozen catalog lock
+        run: |
+          mkdir -p conformance/reports/contract-lock
+          python tools/lock_frozen_contracts.py \
+            --roadmap-root .ptah-roadmap \
+            --output conformance/reports/contract-lock/upstream-lock.generated.json \
+            --check contracts/upstream-lock.json \
+            2>&1 | tee conformance/reports/contract-lock/generator.txt
+
+      - name: Write exact-head lock report
+        if: always()
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path("conformance/reports/contract-lock")
+          root.mkdir(parents=True, exist_ok=True)
+          expected = os.environ["PTAH_EXACT_SHA"]
+          checked_out = subprocess.run(
+              ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+          ).stdout.strip()
+          candidate = root / "upstream-lock.generated.json"
+          committed = Path("contracts/upstream-lock.json")
+          payload = {
+              "record_type": "ptah.phase0c.frozen_catalog_lock",
+              "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "implementation_commit": expected,
+              "checked_out_commit": checked_out,
+              "exact_head_match": checked_out == expected,
+              "phase_0b_freeze_commit": "dc2db457f1705d0cba80f17ab76e5e93f808aee0",
+              "candidate_present": candidate.is_file(),
+              "committed_present": committed.is_file(),
+              "candidate_sha256": hashlib.sha256(candidate.read_bytes()).hexdigest()
+                  if candidate.is_file() else None,
+              "committed_sha256": hashlib.sha256(committed.read_bytes()).hexdigest()
+                  if committed.is_file() else None,
+              "exact_lock_match": candidate.is_file()
+                  and committed.is_file()
+                  and candidate.read_bytes() == committed.read_bytes(),
+              "runtime_implementation_authorized": False,
+          }
+          (root / "contract-lock-report.json").write_text(
+              json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+          )
+          if not payload["exact_head_match"]:
+              raise SystemExit("contract-lock job did not test the exact head")
+          PY
+
+      - name: Upload frozen catalog lock evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase-0c-contract-lock-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: conformance/reports/contract-lock/
+          if-no-files-found: error
+          retention-days: 30

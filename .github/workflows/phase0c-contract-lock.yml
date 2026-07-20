@@ -38,6 +38,7 @@ jobs:
 
       - name: Generate and verify frozen catalog lock
         run: |
+          set -o pipefail
           mkdir -p conformance/reports/contract-lock
           python tools/lock_frozen_contracts.py \
             --roadmap-root .ptah-roadmap \

@@ -87,8 +87,12 @@ jobs:
           )
           if not record["exact_head_match"]:
               raise SystemExit("signature evidence job did not test the exact head")
-          if not record["report_present"] or record["verified_signature_count"] != 3:
-              raise SystemExit("required backend signatures were not verified")
+          if (
+              not record["report_present"]
+              or record["verified_signature_count"] != 4
+              or record["discovery_count"] != 0
+          ):
+              raise SystemExit("all four pinned backend signatures were not verified")
           PY
 
       - name: Upload backend signature evidence

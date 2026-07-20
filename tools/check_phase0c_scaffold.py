@@ -21,10 +21,14 @@ host = json.loads((ROOT / "host/image-lock.json").read_text(encoding="utf-8"))
 if host.get("runtime_authorized") is not False:
     raise SystemExit("Host candidate cannot claim runtime authorization")
 
+forbidden_gateway = "applied" + "-caas-gateway"
+skip_roots = {".git", "target", "node_modules"}
 for path in ROOT.rglob("*"):
-    if path.is_file() and path.name not in {"package-lock.json"}:
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        if "applied-caas-gateway" in text:
-            raise SystemExit(f"Internal package gateway leaked into {path.relative_to(ROOT)}")
+    relative = path.relative_to(ROOT)
+    if not path.is_file() or any(part in skip_roots for part in relative.parts):
+        continue
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    if forbidden_gateway in text:
+        raise SystemExit(f"Internal package gateway leaked into {relative}")
 
 print("Phase 0C non-claiming scaffold checks passed")

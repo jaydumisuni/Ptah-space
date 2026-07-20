@@ -1,6 +1,6 @@
 {
-  "schema_version": "0.1.0",
-  "status": "authoritative_sources_partially_locked_browser_binary_and_host_packages_open",
+  "schema_version": "0.2.0",
+  "status": "static_verification_open_pinned_host_packages_open",
   "runtime_implementation_authorized": false,
   "architecture": "linux-amd64",
   "artifacts": [
@@ -39,13 +39,15 @@
       "version": "1.4.2",
       "filename": "runc.amd64",
       "download_url": "https://github.com/opencontainers/runc/releases/download/v1.4.2/runc.amd64",
+      "signature_url": "https://github.com/opencontainers/runc/releases/download/v1.4.2/runc.amd64.asc",
       "digest": {
         "algorithm": "sha256",
-        "value": "52e338fa958128293cbd25d2be189e34da41c4f4abbb1b641cf58f373c001f94"
+        "value": "ac8a90f9e225bb9322189937b230cdc5478d5753f0e31e1bda98a5cf06bd9539"
       },
       "release_tag": "v1.4.2",
+      "release_tag_verified_signature": true,
       "licence": "Apache-2.0",
-      "status": "locked"
+      "status": "locked_after_authoritative_download_correction"
     },
     {
       "component": "nodejs",
@@ -129,11 +131,23 @@
   "browser_binary": {
     "provider": "Playwright 1.60.0",
     "browser": "Chromium",
-    "browser_version": "149.0.7827.55",
-    "revision": null,
-    "archive_digest": null,
-    "installed_tree_digest": null,
-    "status": "exact_revision_and_artifact_digest_open"
+    "browser_version": "148.0.7778.96",
+    "revision": "1223",
+    "descriptor_sha256": "aa17537f6cd5f342009e330606349a6ca8c4bf3e02bf5318d607c865def2b947",
+    "installed_tree_sha256": "953a2e9c1fb18d1e698f0903a62c23c835264e939cdd08a85c41d57719a5de7a",
+    "installed_file_count": 599,
+    "installed_size_bytes": 669473388,
+    "executable": {
+      "path": "chromium-1223/chrome-linux64/chrome",
+      "sha256": "adc1c21ceed5c2a67184766376fe816ac03e556cc0ca3f782e8212235fe05c6f",
+      "size_bytes": 276917464
+    },
+    "evidence_head": "81aa2d822ed4fcbf1fbe35a520244398b0a53fc4",
+    "evidence_run_id": 29731441076,
+    "evidence_artifact_id": 8456437842,
+    "evidence_artifact_sha256": "cabc9323e574075c6127fb301f5ae6e1f3dc5e7064fdcc721d3260bd0f4d432a",
+    "runtime_implementation_authorized": false,
+    "status": "installed_tree_locked"
   },
   "host_packages": {
     "kernel_package": "linux-image-generic=6.8.0-136.136",
@@ -143,9 +157,9 @@
   },
   "blockers": [
     "Extract and record the signed SHA-256 for git-2.55.0.tar.xz.",
-    "Install the exact Playwright 1.60.0 Chromium artifact and record revision plus content digest.",
+    "Complete the static backend artifact exact-head verification after correcting runc evidence.",
     "Record exact installed package versions and package artifact digests from the pinned Ubuntu host.",
-    "Verify signatures and checksums in an exact-head backend artifact workflow.",
+    "Persist final evidence beyond temporary workflow artifact retention.",
     "Runtime implementation remains unauthorized until ADR-0033 closure."
   ]
 }

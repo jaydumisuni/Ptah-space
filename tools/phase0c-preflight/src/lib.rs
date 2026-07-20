@@ -56,7 +56,9 @@ mod tests {
         let result = require_runtime_authorization();
         assert_eq!(
             result,
-            Err("Ptah runtime implementation is not authorized; this branch is Phase 0C scaffold only")
+            Err(
+                "Ptah runtime implementation is not authorized; this branch is Phase 0C scaffold only"
+            )
         );
     }
 

@@ -29,7 +29,13 @@ class HostCollectorTests(unittest.TestCase):
     def test_exact_pinned_host_match(self, _machine: mock.Mock, _release: mock.Mock) -> None:
         result = collector.pinned_host_match(
             self.image_lock,
-            {"NAME": "Ubuntu Server", "VERSION_ID": "24.04.4"},
+            {
+        "ID": "ubuntu",
+        "NAME": "Ubuntu",
+        "VERSION_ID": "24.04",
+        "VERSION": "24.04.4 LTS (Noble Numbat)",
+        "PRETTY_NAME": "Ubuntu 24.04.4 LTS",
+    },
         )
         self.assertTrue(result["all_match"])
 
@@ -40,10 +46,26 @@ class HostCollectorTests(unittest.TestCase):
     ) -> None:
         result = collector.pinned_host_match(
             self.image_lock,
-            {"NAME": "Ubuntu", "VERSION_ID": "24.04.4"},
+            {
+        "ID": "ubuntu",
+        "NAME": "Ubuntu",
+        "VERSION_ID": "24.04",
+        "VERSION": "24.04.4 LTS (Noble Numbat)",
+        "PRETTY_NAME": "Ubuntu 24.04.4 LTS",
+    },
         )
         self.assertFalse(result["kernel"]["match"])
         self.assertFalse(result["all_match"])
+
+    def test_malformed_contract_lock_becomes_failed_observation(self) -> None:
+        with mock.patch.object(
+            collector,
+            "read_json",
+            side_effect=RuntimeError("malformed lock"),
+        ):
+            result = collector.check_offline_schema_resolution()
+        self.assertEqual(result["status"], "fail")
+        self.assertIn("malformed lock", result["evidence"]["error"])
 
     @mock.patch.object(collector.platform, "release", return_value="6.11.0-azure")
     @mock.patch.object(collector.platform, "machine", return_value="x86_64")
@@ -54,7 +76,13 @@ class HostCollectorTests(unittest.TestCase):
     @mock.patch.object(
         collector,
         "os_release",
-        return_value={"NAME": "Ubuntu", "VERSION_ID": "24.04.4"},
+        return_value={
+        "ID": "ubuntu",
+        "NAME": "Ubuntu",
+        "VERSION_ID": "24.04",
+        "VERSION": "24.04.4 LTS (Noble Numbat)",
+        "PRETTY_NAME": "Ubuntu 24.04.4 LTS",
+    },
     )
     def test_candidate_report_never_authorizes_runtime(self, _os_release: mock.Mock, *_: mock.Mock) -> None:
         profile = {

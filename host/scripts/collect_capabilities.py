@@ -240,13 +240,16 @@ def check_monotonic_clock() -> dict[str, Any]:
 
 
 def check_offline_schema_resolution() -> dict[str, Any]:
-    lock = read_json(ROOT / "contracts/upstream-lock.json")
+    try:
+        lock = read_json(ROOT / "contracts/upstream-lock.json")
+    except (OSError, RuntimeError, ValueError) as exc:
+        return observation("fail", {"error": str(exc)})
     ok = lock.get("network_resolution_allowed") is False
     return observation(
         "pass" if ok else "fail",
         {
-            "lock_status": lock.get("status"),
-            "network_resolution_allowed": lock.get("network_resolution_allowed"),
+  "lock_status": lock.get("status"),
+  "network_resolution_allowed": lock.get("network_resolution_allowed"),
         },
     )
 
@@ -288,25 +291,80 @@ CHECKS: dict[str, Callable[[], dict[str, Any]]] = {
 def pinned_host_match(image_lock: dict[str, Any], release: dict[str, str]) -> dict[str, Any]:
     expected_distribution = str(image_lock.get("distribution", ""))
     expected_release = str(image_lock.get("release", ""))
-    expected_arch = str(image_lock.get("architecture", ""))
-    expected_kernel = str(image_lock.get("kernel", {}).get("expected_uname_family", ""))
-    observed_distribution = release.get("NAME", "")
-    observed_release = release.get("VERSION_ID", "")
-    observed_arch = platform.machine()
+    expected_architecture = str(image_lock.get("architecture", ""))
+    kernel_record = image_lock.get("kernel", {})
+    if not isinstance(kernel_record, dict):
+        kernel_record = {}
+    expected_kernel = str(kernel_record.get("expected_uname_family", ""))
+
+    observed_id = release.get("ID", "")
+    observed_name = release.get("NAME", "")
+    observed_version_id = release.get("VERSION_ID", "")
+    observed_version = release.get("VERSION", "")
+    observed_pretty = release.get("PRETTY_NAME", "")
+    observed_architecture = platform.machine()
     observed_kernel = platform.release()
-    distribution_match = expected_distribution.lower() in observed_distribution.lower()
-    release_match = expected_release.split()[0] == observed_release
-    architecture_match = (expected_arch, observed_arch) in {
-        ("amd64", "x86_64"),
-        ("amd64", "amd64"),
+
+    expected_distribution_lower = expected_distribution.lower()
+    distribution_match = (
+        ("ubuntu" in expected_distribution_lower and observed_id.lower() == "ubuntu")
+        or expected_distribution_lower == observed_name.lower()
+    )
+    expected_point_release = expected_release.split()[0]
+    release_match = any(
+        expected_point_release in source
+        for source in (observed_version, observed_pretty)
+    )
+    base_release_match = observed_version_id == ".".join(
+        expected_point_release.split(".")[:2]
+    )
+    architecture_aliases = {
+        "amd64": "amd64",
+        "x86_64": "amd64",
+        "aarch64": "arm64",
+        "arm64": "arm64",
     }
-    kernel_match = observed_kernel.startswith(expected_kernel)
+    architecture_match = architecture_aliases.get(
+        expected_architecture.lower(), expected_architecture.lower()
+    ) == architecture_aliases.get(
+        observed_architecture.lower(), observed_architecture.lower()
+    )
+    kernel_match = bool(expected_kernel) and observed_kernel.startswith(
+        expected_kernel
+    )
     return {
-        "distribution": {"expected": expected_distribution, "observed": observed_distribution, "match": distribution_match},
-        "release": {"expected": expected_release, "observed": observed_release, "match": release_match},
-        "architecture": {"expected": expected_arch, "observed": observed_arch, "match": architecture_match},
-        "kernel": {"expected_family": expected_kernel, "observed": observed_kernel, "match": kernel_match},
-        "all_match": distribution_match and release_match and architecture_match and kernel_match,
+        "distribution": {
+  "expected": expected_distribution,
+  "observed_id": observed_id,
+  "observed_name": observed_name,
+  "match": distribution_match,
+        },
+        "release": {
+  "expected": expected_release,
+  "observed_version_id": observed_version_id,
+  "observed_version": observed_version,
+  "observed_pretty_name": observed_pretty,
+  "base_release_match": base_release_match,
+  "point_release_match": release_match,
+  "match": base_release_match and release_match,
+        },
+        "architecture": {
+  "expected": expected_architecture,
+  "observed": observed_architecture,
+  "match": architecture_match,
+        },
+        "kernel": {
+  "expected_family": expected_kernel,
+  "observed": observed_kernel,
+  "match": kernel_match,
+        },
+        "all_match": (
+  distribution_match
+  and base_release_match
+  and release_match
+  and architecture_match
+  and kernel_match
+        ),
     }
 
 

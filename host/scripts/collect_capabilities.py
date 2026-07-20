@@ -248,8 +248,8 @@ def check_offline_schema_resolution() -> dict[str, Any]:
     return observation(
         "pass" if ok else "fail",
         {
-  "lock_status": lock.get("status"),
-  "network_resolution_allowed": lock.get("network_resolution_allowed"),
+            "lock_status": lock.get("status"),
+            "network_resolution_allowed": lock.get("network_resolution_allowed"),
         },
     )
 
@@ -307,11 +307,11 @@ def pinned_host_match(image_lock: dict[str, Any], release: dict[str, str]) -> di
 
     expected_distribution_lower = expected_distribution.lower()
     distribution_match = (
-        ("ubuntu" in expected_distribution_lower and observed_id.lower() == "ubuntu")
-        or expected_distribution_lower == observed_name.lower()
-    )
+        "ubuntu" in expected_distribution_lower
+        and observed_id.lower() == "ubuntu"
+    ) or expected_distribution_lower == observed_name.lower()
     expected_point_release = expected_release.split()[0]
-    release_match = any(
+    point_release_match = any(
         expected_point_release in source
         for source in (observed_version, observed_pretty)
     )
@@ -334,36 +334,36 @@ def pinned_host_match(image_lock: dict[str, Any], release: dict[str, str]) -> di
     )
     return {
         "distribution": {
-  "expected": expected_distribution,
-  "observed_id": observed_id,
-  "observed_name": observed_name,
-  "match": distribution_match,
+            "expected": expected_distribution,
+            "observed_id": observed_id,
+            "observed_name": observed_name,
+            "match": distribution_match,
         },
         "release": {
-  "expected": expected_release,
-  "observed_version_id": observed_version_id,
-  "observed_version": observed_version,
-  "observed_pretty_name": observed_pretty,
-  "base_release_match": base_release_match,
-  "point_release_match": release_match,
-  "match": base_release_match and release_match,
+            "expected": expected_release,
+            "observed_version_id": observed_version_id,
+            "observed_version": observed_version,
+            "observed_pretty_name": observed_pretty,
+            "base_release_match": base_release_match,
+            "point_release_match": point_release_match,
+            "match": base_release_match and point_release_match,
         },
         "architecture": {
-  "expected": expected_architecture,
-  "observed": observed_architecture,
-  "match": architecture_match,
+            "expected": expected_architecture,
+            "observed": observed_architecture,
+            "match": architecture_match,
         },
         "kernel": {
-  "expected_family": expected_kernel,
-  "observed": observed_kernel,
-  "match": kernel_match,
+            "expected_family": expected_kernel,
+            "observed": observed_kernel,
+            "match": kernel_match,
         },
         "all_match": (
-  distribution_match
-  and base_release_match
-  and release_match
-  and architecture_match
-  and kernel_match
+            distribution_match
+            and base_release_match
+            and point_release_match
+            and architecture_match
+            and kernel_match
         ),
     }
 

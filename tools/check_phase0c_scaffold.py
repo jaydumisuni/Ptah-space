@@ -105,6 +105,7 @@ if selection_path.is_file():
         "candidate_exact_versions_lock_generation_open",
         "exact_versions_locked_policy_evidence_open",
         "exact_versions_and_policy_locked_host_proof_open",
+        "exact_versions_and_policy_selected_host_proof_open",
     }:
         raise SystemExit("Rust dependency selection has an unknown Phase 0C state")
 
@@ -135,6 +136,8 @@ if collector is not None:
         raise SystemExit("Host collector record must be an object")
     if collector.get("repository_path") != "host/scripts/collect_capabilities.py":
         raise SystemExit("Host collector path is not canonical")
+    if collector.get("identity_finalizer_path") != "host/scripts/finalize_capability_report.py":
+        raise SystemExit("Host identity finalizer path is not canonical")
     if collector.get("runtime_implementation_authorized") is not False:
         raise SystemExit("Host collector cannot authorize runtime implementation")
 if host_profile.get("pinned_host_proof") is not None:

@@ -40,7 +40,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p conformance/reports/contract-bindings
-          python tools/contract_binding_generator_aliases.py \
+          python tools/contract_binding_generator_final.py \
             --roadmap-root .ptah-roadmap \
             --output-root conformance/reports/contract-bindings/candidate-a \
             --check-root . \
@@ -50,7 +50,7 @@ jobs:
         if: always()
         run: |
           set -o pipefail
-          python tools/contract_binding_generator_aliases.py \
+          python tools/contract_binding_generator_final.py \
             --roadmap-root .ptah-roadmap \
             --output-root conformance/reports/contract-bindings/candidate-b \
             2>&1 | tee conformance/reports/contract-bindings/generator-b.txt

@@ -1,30 +1,32 @@
 name: Phase 0C apply host review fixes
 
 on:
-  push:
-    branches:
-      - phase-0c-host-dependency-evidence
+  pull_request:
+    types: [synchronize]
 
 permissions:
   contents: write
 
 jobs:
   apply-review-fixes:
-    if: ${{ !contains(github.event.head_commit.message, '[host-review-fixes]') }}
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'phase-0c-host-dependency-evidence'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     steps:
-      - name: Check out evidence branch
+      - name: Check out exact review branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: phase-0c-host-dependency-evidence
           fetch-depth: 0
 
-      - name: Apply exact review fixes
+      - name: Apply reviewed host fixes and remove this workflow
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           collector_path = Path("host/scripts/collect_capabilities.py")
           collector = collector_path.read_text(encoding="utf-8")
@@ -43,7 +45,7 @@ jobs:
           new_offline = '''def check_offline_schema_resolution() -> dict[str, Any]:
               try:
                   lock = read_json(ROOT / "contracts/upstream-lock.json")
-              except (OSError, RuntimeError, json.JSONDecodeError) as exc:
+              except (OSError, RuntimeError, ValueError) as exc:
                   return observation("fail", {"error": str(exc)})
               ok = lock.get("network_resolution_allowed") is False
               return observation(
@@ -58,30 +60,6 @@ jobs:
               raise SystemExit("offline schema-resolution marker not found")
           collector = collector.replace(old_offline, new_offline, 1)
 
-          old_matcher = '''def pinned_host_match(image_lock: dict[str, Any], release: dict[str, str]) -> dict[str, Any]:
-              expected_distribution = str(image_lock.get("distribution", ""))
-              expected_release = str(image_lock.get("release", ""))
-              expected_arch = str(image_lock.get("architecture", ""))
-              expected_kernel = str(image_lock.get("kernel", {}).get("expected_uname_family", ""))
-              observed_distribution = release.get("NAME", "")
-              observed_release = release.get("VERSION_ID", "")
-              observed_arch = platform.machine()
-              observed_kernel = platform.release()
-              distribution_match = expected_distribution.lower() in observed_distribution.lower()
-              release_match = expected_release.split()[0] == observed_release
-              architecture_match = (expected_arch, observed_arch) in {
-                  ("amd64", "x86_64"),
-                  ("amd64", "amd64"),
-              }
-              kernel_match = observed_kernel.startswith(expected_kernel)
-              return {
-                  "distribution": {"expected": expected_distribution, "observed": observed_distribution, "match": distribution_match},
-                  "release": {"expected": expected_release, "observed": observed_release, "match": release_match},
-                  "architecture": {"expected": expected_arch, "observed": observed_arch, "match": architecture_match},
-                  "kernel": {"expected_family": expected_kernel, "observed": observed_kernel, "match": kernel_match},
-                  "all_match": distribution_match and release_match and architecture_match and kernel_match,
-              }
-          '''.replace("          ", "")
           new_matcher = '''def pinned_host_match(image_lock: dict[str, Any], release: dict[str, str]) -> dict[str, Any]:
               expected_distribution = str(image_lock.get("distribution", ""))
               expected_release = str(image_lock.get("release", ""))
@@ -161,28 +139,38 @@ jobs:
                   ),
               }
           '''.replace("          ", "")
-          if old_matcher not in collector:
+          collector, count = re.subn(
+              r"def pinned_host_match\(.*?\n\n\ndef collect\(",
+              new_matcher + "\n\n\ndef collect(",
+              collector,
+              count=1,
+              flags=re.DOTALL,
+          )
+          if count != 1:
               raise SystemExit("pinned host matcher marker not found")
-          collector = collector.replace(old_matcher, new_matcher, 1)
           collector_path.write_text(collector, encoding="utf-8")
 
           test_path = Path("host/tests/test_collect_capabilities.py")
           tests = test_path.read_text(encoding="utf-8")
+          realistic = '''{
+                  "ID": "ubuntu",
+                  "NAME": "Ubuntu",
+                  "VERSION_ID": "24.04",
+                  "VERSION": "24.04.4 LTS (Noble Numbat)",
+                  "PRETTY_NAME": "Ubuntu 24.04.4 LTS",
+              }'''
           tests = tests.replace(
-              '{"NAME": "Ubuntu Server", "VERSION_ID": "24.04.4"}',
-              '{\n                "ID": "ubuntu",\n                "NAME": "Ubuntu",\n                "VERSION_ID": "24.04",\n                "VERSION": "24.04.4 LTS (Noble Numbat)",\n                "PRETTY_NAME": "Ubuntu 24.04.4 LTS",\n            }',
-              1,
+              '{"NAME": "Ubuntu Server", "VERSION_ID": "24.04.4"}', realistic, 1
           )
           tests = tests.replace(
-              '{"NAME": "Ubuntu", "VERSION_ID": "24.04.4"}',
-              '{\n                "ID": "ubuntu",\n                "NAME": "Ubuntu",\n                "VERSION_ID": "24.04",\n                "VERSION": "24.04.4 LTS (Noble Numbat)",\n                "PRETTY_NAME": "Ubuntu 24.04.4 LTS",\n            }',
-              2,
+              '{"NAME": "Ubuntu", "VERSION_ID": "24.04.4"}', realistic, 2
           )
-          insertion_marker = '''    @mock.patch.object(collector.platform, "release", return_value="6.11.0-azure")
+          if "test_malformed_contract_lock_becomes_failed_observation" not in tests:
+              marker = '''    @mock.patch.object(collector.platform, "release", return_value="6.11.0-azure")
               @mock.patch.object(collector.platform, "machine", return_value="x86_64")
               @mock.patch.object(collector.platform, "node", return_value="ci-runner")
           '''.replace("              ", "")
-          new_test = '''    def test_malformed_contract_lock_becomes_failed_observation(self) -> None:
+              regression = '''    def test_malformed_contract_lock_becomes_failed_observation(self) -> None:
               with mock.patch.object(
                   collector,
                   "read_json",
@@ -193,16 +181,31 @@ jobs:
               self.assertIn("malformed lock", result["evidence"]["error"])
 
           '''.replace("          ", "")
-          if insertion_marker not in tests:
-              raise SystemExit("collector test insertion marker not found")
-          tests = tests.replace(insertion_marker, new_test + insertion_marker, 1)
+              if marker not in tests:
+                  raise SystemExit("collector test insertion marker not found")
+              tests = tests.replace(marker, regression + marker, 1)
           test_path.write_text(tests, encoding="utf-8")
+
+          Path(".github/workflows/phase0c-fix-host-review.yml").unlink()
           PY
 
-      - name: Commit review fixes
+      - name: Validate review fixes
         run: |
-          git add host/scripts/collect_capabilities.py host/tests/test_collect_capabilities.py
+          python -m unittest -v \
+            host/tests/test_collect_capabilities.py \
+            host/tests/test_finalize_capability_report.py
+          python tools/check_phase0c_scaffold.py
+
+      - name: Commit exact reviewed fixes
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          git add \
+            host/scripts/collect_capabilities.py \
+            host/tests/test_collect_capabilities.py \
+            .github/workflows/phase0c-fix-host-review.yml
+          git diff --cached --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Phase 0C: fix host collector review findings [host-review-fixes]"
-          git push origin HEAD:phase-0c-host-dependency-evidence
+          git commit -m "Phase 0C: fix host collector review findings"
+          git push origin "HEAD:${HEAD_BRANCH}"

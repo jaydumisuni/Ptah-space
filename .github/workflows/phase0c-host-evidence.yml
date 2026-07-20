@@ -28,12 +28,14 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Run host collector unit tests
+      - name: Run host evidence unit tests
         run: |
           mkdir -p conformance/reports/host
           set -o pipefail
-          python -m unittest -v host/tests/test_collect_capabilities.py 2>&1 \
-            | tee conformance/reports/host/collector-tests.txt
+          python -m unittest -v \
+            host/tests/test_collect_capabilities.py \
+            host/tests/test_finalize_capability_report.py \
+            2>&1 | tee conformance/reports/host/collector-tests.txt
 
       - name: Collect live runner capabilities
         run: |
@@ -42,6 +44,13 @@ jobs:
             --require-capabilities \
             --output conformance/reports/host/host-capability-report.json \
             2>&1 | tee conformance/reports/host/collector-output.txt
+
+      - name: Finalize pinned Ubuntu identity evaluation
+        run: |
+          set -o pipefail
+          python host/scripts/finalize_capability_report.py \
+            --report conformance/reports/host/host-capability-report.json \
+            2>&1 | tee conformance/reports/host/identity-finalizer-output.txt
 
       - name: Write exact-head host evidence record
         if: always()

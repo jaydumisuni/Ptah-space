@@ -6,6 +6,7 @@ import hashlib
 import json
 import tomllib
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCKED_BINDING_STATE = "frozen_catalogs_and_bindings_locked_runtime_dependencies_open"
@@ -14,6 +15,19 @@ LOCKED_BINDING_STATE = "frozen_catalogs_and_bindings_locked_runtime_dependencies
 def sha256(path: Path) -> str:
     """Return one file's lower-case SHA-256 digest."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def string_entries_contain(value: Any, needle: str, *, ignore_case: bool = False) -> bool:
+    """Return whether a list contains a string entry with ``needle``."""
+    if not isinstance(value, list):
+        return False
+    if ignore_case:
+        needle = needle.lower()
+    return any(
+        isinstance(item, str)
+        and needle in (item.lower() if ignore_case else item)
+        for item in value
+    )
 
 
 readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -43,7 +57,7 @@ if lock.get("status") == "frozen_catalogs_locked_binding_generation_open":
     if lock.get("generated_bindings") is not None:
         raise SystemExit("Generated bindings cannot be claimed before the binding gate passes")
     blockers = lock.get("blockers")
-    if not isinstance(blockers, list) or not any("Generate Rust bindings" in item for item in blockers):
+    if not string_entries_contain(blockers, "Generate Rust bindings"):
         raise SystemExit("Catalog-locked state must retain the generated-binding blocker")
 
 if lock.get("status") == LOCKED_BINDING_STATE:
@@ -91,9 +105,11 @@ if lock.get("status") == LOCKED_BINDING_STATE:
         raise SystemExit("Generated manifest cannot authorize runtime implementation")
 
     blockers = lock.get("blockers")
-    if not isinstance(blockers, list) or any("Generate Rust bindings" in item for item in blockers):
+    if not isinstance(blockers, list) or string_entries_contain(
+        blockers, "Generate Rust bindings"
+    ):
         raise SystemExit("Binding-locked state cannot retain an obsolete generation blocker")
-    if not any("runtime dependency" in item.lower() for item in blockers):
+    if not string_entries_contain(blockers, "runtime dependency", ignore_case=True):
         raise SystemExit("Binding-locked state must retain the runtime-dependency blocker")
 
 selection_path = ROOT / "dependencies/rust-direct-lock.json"
@@ -188,7 +204,7 @@ if backend_path.is_file():
     if host_packages.get("installed_package_manifest") is not None:
         raise SystemExit("Installed package manifest cannot be claimed before pinned host proof")
     blockers = backend.get("blockers")
-    if not isinstance(blockers, list) or not any("pinned Ubuntu host" in item for item in blockers):
+    if not string_entries_contain(blockers, "pinned Ubuntu host"):
         raise SystemExit("Backend lock must retain the pinned-host package blocker")
 
 host = json.loads((ROOT / "host/image-lock.json").read_text(encoding="utf-8"))

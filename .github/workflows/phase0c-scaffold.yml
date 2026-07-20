@@ -4,46 +4,333 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  CARGO_TERM_COLOR: always
+
 jobs:
   no-build-boundary:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out exact scaffold head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.13"
-      - run: python tools/check_phase0c_scaffold.py
+
+      - name: Run no-build boundary checks
+        run: |
+          mkdir -p conformance/reports/source-policy
+          set -o pipefail
+          python tools/check_phase0c_scaffold.py 2>&1 \
+            | tee conformance/reports/source-policy/check-phase0c-scaffold.txt
+
+      - name: Write source-policy report
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path("conformance/reports/source-policy")
+          root.mkdir(parents=True, exist_ok=True)
+          checked_out = subprocess.run(
+              ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+          ).stdout.strip()
+          expected = os.environ["PTAH_EXACT_SHA"]
+          payload = {
+              "record_type": "ptah.phase0c.source_policy",
+              "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "implementation_commit": expected,
+              "checked_out_commit": checked_out,
+              "exact_head_match": checked_out == expected,
+              "runtime_implementation_authorized": False,
+          }
+          (root / "source-policy-report.json").write_text(
+              json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+          )
+          if not payload["exact_head_match"]:
+              raise SystemExit("source-policy job did not test the exact head")
+          PY
+
+      - name: Upload source-policy evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase-0c-source-policy-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: conformance/reports/source-policy/
+          if-no-files-found: error
+          retention-days: 30
 
   rust-scaffold:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out exact scaffold head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Prepare report directory
+        run: mkdir -p conformance/reports/rust
+
       - name: Install pinned Rust toolchain
         run: |
           rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
           rustup default 1.97.1
-      - run: cargo fmt --all --check
+          rustc -Vv | tee conformance/reports/rust/rust-toolchain.txt
+          cargo -V | tee -a conformance/reports/rust/rust-toolchain.txt
+
+      - name: Check formatting
+        if: always()
+        run: |
+          set -o pipefail
+          cargo fmt --all --check 2>&1 | tee conformance/reports/rust/rustfmt.txt
+
       - name: Clippy library and binary targets
-        run: cargo clippy --workspace --all-features --locked -- -D warnings
+        if: always()
+        run: |
+          set -o pipefail
+          cargo clippy --workspace --all-features --locked -- -D warnings 2>&1 \
+            | tee conformance/reports/rust/clippy.txt
+
       - name: Compile and execute test targets
-        run: cargo test --workspace --locked
+        if: always()
+        run: |
+          set -o pipefail
+          cargo test --workspace --locked 2>&1 \
+            | tee conformance/reports/rust/cargo-test.txt
+
+      - name: Capture locked Rust graph
+        if: always()
+        run: cargo metadata --locked --format-version 1 > conformance/reports/rust/cargo-metadata.json
+
+      - name: Write Rust scaffold report
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path("conformance/reports/rust")
+          checked_out = subprocess.run(
+              ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+          ).stdout.strip()
+          expected = os.environ["PTAH_EXACT_SHA"]
+          payload = {
+              "record_type": "ptah.phase0c.rust_scaffold",
+              "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "implementation_commit": expected,
+              "checked_out_commit": checked_out,
+              "exact_head_match": checked_out == expected,
+              "toolchain": "1.97.1",
+              "runtime_implementation_authorized": False,
+              "reports_present": sorted(path.name for path in root.iterdir() if path.is_file()),
+          }
+          (root / "rust-scaffold-report.json").write_text(
+              json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+          )
+          if not payload["exact_head_match"]:
+              raise SystemExit("Rust job did not test the exact head")
+          PY
+
+      - name: Upload Rust scaffold evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase-0c-rust-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: conformance/reports/rust/
+          if-no-files-found: error
+          retention-days: 30
 
   browser-scaffold:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: browser-provider
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Check out exact scaffold head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.18.0"
           cache: npm
           cache-dependency-path: browser-provider/package-lock.json
-      - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npm run check
-      - run: npm test
+
+      - name: Prepare report directory
+        run: mkdir -p ../conformance/reports/browser
+
+      - name: Install locked Browser dependencies
+        run: |
+          set -o pipefail
+          npm ci --ignore-scripts --no-audit --no-fund 2>&1 \
+            | tee ../conformance/reports/browser/npm-ci.txt
+
+      - name: Check Browser scaffold
+        if: always()
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee ../conformance/reports/browser/npm-check.txt
+
+      - name: Test Browser scaffold
+        if: always()
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee ../conformance/reports/browser/npm-test.txt
+
+      - name: Capture Browser dependency graph
+        if: always()
+        run: |
+          node --version | tee ../conformance/reports/browser/node-toolchain.txt
+          npm --version | tee -a ../conformance/reports/browser/node-toolchain.txt
+          npm ls --all --json > ../conformance/reports/browser/npm-dependencies.json
+
+      - name: Write Browser scaffold report
+        if: always()
+        run: |
+          node - <<'JS'
+          const fs = require('node:fs');
+          const { execFileSync } = require('node:child_process');
+          const path = require('node:path');
+          const root = path.resolve('../conformance/reports/browser');
+          const checkedOut = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          const expected = process.env.PTAH_EXACT_SHA;
+          const payload = {
+            record_type: 'ptah.phase0c.browser_scaffold',
+            created_at: new Date().toISOString(),
+            implementation_commit: expected,
+            checked_out_commit: checkedOut,
+            exact_head_match: checkedOut === expected,
+            node: '24.18.0',
+            playwright: '1.60.0',
+            runtime_implementation_authorized: false,
+            reports_present: fs.readdirSync(root).sort(),
+          };
+          fs.writeFileSync(path.join(root, 'browser-scaffold-report.json'), `${JSON.stringify(payload, null, 2)}\n`);
+          if (!payload.exact_head_match) process.exit(1);
+          JS
+
+      - name: Upload Browser scaffold evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase-0c-browser-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: conformance/reports/browser/
+          if-no-files-found: error
+          retention-days: 30
+
+  frozen-conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact scaffold head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.11"
+
+      - name: Prepare conformance reports
+        run: mkdir -p conformance/reports/frozen
+
+      - name: Check out frozen roadmap checkpoint
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: jaydumisuni/ptah-roadmap-
+          ref: dc2db457f1705d0cba80f17ab76e5e93f808aee0
+          path: .ptah-roadmap
+          persist-credentials: false
+
+      - name: Install frozen WP13 harness
+        run: python -m pip install ./.ptah-roadmap/conformance/harness
+
+      - name: Run harness unit safety net
+        run: |
+          set -o pipefail
+          cd .ptah-roadmap/conformance/harness
+          python -m unittest -v test_ptah_conformance.py 2>&1 \
+            | tee ../../../conformance/reports/frozen/harness-unit-tests.txt
+
+      - name: Run structural conformance locally
+        run: >-
+          ptah-conformance
+          --root ./.ptah-roadmap
+          --report ./conformance/reports/frozen/phase-0b-conformance.json
+
+      - name: Run semantic fixtures locally
+        run: >-
+          python ./.ptah-roadmap/conformance/harness/semantic_fixture_runner.py
+          --root ./.ptah-roadmap
+          --report ./conformance/reports/frozen/phase-0b-semantic.json
+
+      - name: Write exact-head conformance report
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path("conformance/reports/frozen")
+          checked_out = subprocess.run(
+              ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+          ).stdout.strip()
+          expected = os.environ["PTAH_EXACT_SHA"]
+          payload = {
+              "record_type": "ptah.phase0c.frozen_conformance",
+              "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "implementation_commit": expected,
+              "checked_out_commit": checked_out,
+              "exact_head_match": checked_out == expected,
+              "phase_0b_freeze_commit": "dc2db457f1705d0cba80f17ab76e5e93f808aee0",
+              "wp14_freeze_commit": "fef387c4f074af7fcf86f2d99f7f9b7637e91f88",
+              "schema_resolution": "local",
+              "runtime_implementation_authorized": False,
+              "reports_present": sorted(path.name for path in root.iterdir() if path.is_file()),
+          }
+          (root / "frozen-conformance-report.json").write_text(
+              json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+          )
+          if not payload["exact_head_match"]:
+              raise SystemExit("frozen-conformance job did not test the exact head")
+          PY
+
+      - name: Upload frozen conformance evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase-0c-frozen-conformance-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: conformance/reports/frozen/
+          if-no-files-found: error
+          retention-days: 30

@@ -36,21 +36,21 @@ jobs:
           path: .ptah-roadmap
           persist-credentials: false
 
-      - name: Generate candidate A
+      - name: Generate candidate A and compare with committed tree
         run: |
           set -o pipefail
           mkdir -p conformance/reports/contract-bindings
-          python tools/generate_contract_bindings.py \
+          python tools/contract_binding_generator.py \
             --roadmap-root .ptah-roadmap \
             --output-root conformance/reports/contract-bindings/candidate-a \
             --check-root . \
             2>&1 | tee conformance/reports/contract-bindings/generator-a.txt
 
-      - name: Generate candidate B
+      - name: Generate independent candidate B
         if: always()
         run: |
           set -o pipefail
-          python tools/generate_contract_bindings.py \
+          python tools/contract_binding_generator.py \
             --roadmap-root .ptah-roadmap \
             --output-root conformance/reports/contract-bindings/candidate-b \
             2>&1 | tee conformance/reports/contract-bindings/generator-b.txt
@@ -58,6 +58,7 @@ jobs:
       - name: Verify independent generation is byte-identical
         if: always()
         run: |
+          set -o pipefail
           diff -ru \
             conformance/reports/contract-bindings/candidate-a \
             conformance/reports/contract-bindings/candidate-b \

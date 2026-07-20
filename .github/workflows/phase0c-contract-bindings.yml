@@ -1,0 +1,117 @@
+name: Phase 0C generated contract bindings
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  generated-contract-bindings:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out exact Ptah-space head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Check out frozen roadmap checkpoint
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: jaydumisuni/ptah-roadmap-
+          ref: dc2db457f1705d0cba80f17ab76e5e93f808aee0
+          path: .ptah-roadmap
+          persist-credentials: false
+
+      - name: Generate candidate A
+        run: |
+          set -o pipefail
+          mkdir -p conformance/reports/contract-bindings
+          python tools/generate_contract_bindings.py \
+            --roadmap-root .ptah-roadmap \
+            --output-root conformance/reports/contract-bindings/candidate-a \
+            --check-root . \
+            2>&1 | tee conformance/reports/contract-bindings/generator-a.txt
+
+      - name: Generate candidate B
+        if: always()
+        run: |
+          set -o pipefail
+          python tools/generate_contract_bindings.py \
+            --roadmap-root .ptah-roadmap \
+            --output-root conformance/reports/contract-bindings/candidate-b \
+            2>&1 | tee conformance/reports/contract-bindings/generator-b.txt
+
+      - name: Verify independent generation is byte-identical
+        if: always()
+        run: |
+          diff -ru \
+            conformance/reports/contract-bindings/candidate-a \
+            conformance/reports/contract-bindings/candidate-b \
+            | tee conformance/reports/contract-bindings/reproducibility-diff.txt
+
+      - name: Write exact-head binding report
+        if: always()
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path("conformance/reports/contract-bindings")
+          candidate = root / "candidate-a"
+          manifest_path = candidate / "contracts/generated/manifest.json"
+          expected = os.environ["PTAH_EXACT_SHA"]
+          checked_out = subprocess.run(
+              ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+          ).stdout.strip()
+          manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else None
+          committed_manifest = Path("contracts/generated/manifest.json")
+          payload = {
+              "record_type": "ptah.phase0c.generated_contract_bindings",
+              "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "implementation_commit": expected,
+              "checked_out_commit": checked_out,
+              "exact_head_match": checked_out == expected,
+              "phase_0b_freeze_commit": "dc2db457f1705d0cba80f17ab76e5e93f808aee0",
+              "candidate_present": manifest is not None,
+              "candidate_output_tree_sha256": manifest.get("output_tree_sha256") if manifest else None,
+              "catalog_count": manifest.get("catalog_count") if manifest else None,
+              "schema_count": manifest.get("schema_count") if manifest else None,
+              "state_machine_count": manifest.get("state_machine_count") if manifest else None,
+              "committed_manifest_present": committed_manifest.is_file(),
+              "committed_manifest_sha256": hashlib.sha256(committed_manifest.read_bytes()).hexdigest()
+                  if committed_manifest.is_file() else None,
+              "runtime_implementation_authorized": False,
+          }
+          (root / "binding-report.json").write_text(
+              json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+          )
+          if not payload["exact_head_match"]:
+              raise SystemExit("binding job did not test the exact head")
+          PY
+
+      - name: Upload generated binding evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase-0c-contract-bindings-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: conformance/reports/contract-bindings/
+          if-no-files-found: error
+          retention-days: 30

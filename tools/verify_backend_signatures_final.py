@@ -2,25 +2,51 @@
 """Final Phase 0C backend signature verifier.
 
 This wrapper keeps the base verifier intact while normalizing runc's
-human-readable armored ``runc.keyring`` into an isolated GPG home and capturing
-libarchive packet metadata from both GPG output streams.
+human-readable armored keyring and enforcing the independently pinned
+libarchive release signer.
 """
 from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
 import verify_backend_signatures as base
 
 
+def imported_fingerprints(home: Path) -> list[str]:
+    listing = base.run(
+        [
+            "gpg",
+            "--batch",
+            "--homedir",
+            str(home),
+            "--with-colons",
+            "--fingerprint",
+        ]
+    ).stdout.decode("utf-8", errors="replace")
+    return sorted(
+        {
+            line.split(":")[9]
+            for line in listing.splitlines()
+            if line.startswith("fpr:") and len(line.split(":")) > 9
+        }
+    )
+
+
 def verify_runc(
     authority: dict[str, Any], download_root: Path, work_root: Path
 ) -> dict[str, Any]:
     ref = authority.get("key_source_ref")
-    if not isinstance(ref, str):
-        raise base.SignatureError("runc signing authority ref is missing")
+    expected_keyring_sha256 = authority.get("keyring_sha256")
+    expected_primary = authority.get("verified_primary_fingerprint")
+    if not all(
+        isinstance(value, str)
+        for value in (ref, expected_keyring_sha256, expected_primary)
+    ):
+        raise base.SignatureError("runc signing authority record is incomplete")
     binary = download_root / "runc.amd64"
     if not binary.is_file():
         raise base.SignatureError("runc binary was not downloaded")
@@ -35,6 +61,8 @@ def verify_runc(
         f"https://raw.githubusercontent.com/opencontainers/runc/{ref}/runc.keyring",
         keyring,
     )
+    if base.sha256(keyring) != expected_keyring_sha256:
+        raise base.SignatureError("runc keyring digest does not match the pinned lock")
 
     keyring_text = keyring.read_text(encoding="utf-8", errors="replace")
     blocks = re.findall(
@@ -49,25 +77,11 @@ def verify_runc(
 
     home = base.make_home(work_root, "runc-gnupg")
     base.run(["gpg", "--batch", "--homedir", str(home), "--import", str(normalized)])
-    key_listing = base.run(
-        [
-            "gpg",
-            "--batch",
-            "--homedir",
-            str(home),
-            "--with-colons",
-            "--fingerprint",
-        ]
-    ).stdout.decode("utf-8", errors="replace")
-    imported_fingerprints = sorted(
-        {
-            line.split(":")[9]
-            for line in key_listing.splitlines()
-            if line.startswith("fpr:") and len(line.split(":")) > 9
-        }
-    )
-    if not imported_fingerprints:
-        raise base.SignatureError("runc keyring import produced no fingerprints")
+    fingerprints = imported_fingerprints(home)
+    if expected_primary not in fingerprints:
+        raise base.SignatureError(
+            f"pinned runc signer is absent from the release keyring: {expected_primary}"
+        )
 
     result = base.run(
         [
@@ -83,10 +97,10 @@ def verify_runc(
         ]
     )
     valid = base.parse_validsig(result.stdout)
-    if valid["primary_fingerprint"] not in imported_fingerprints:
+    if valid["primary_fingerprint"] != expected_primary:
         raise base.SignatureError(
-            "runc signature was valid but its primary fingerprint was not in the pinned keyring: "
-            f"signature={json.dumps(valid, sort_keys=True)}, imported={imported_fingerprints}"
+            "runc signature fingerprint mismatch: "
+            f"expected={expected_primary}, observed={json.dumps(valid, sort_keys=True)}"
         )
     return {
         "component": "runc",
@@ -94,7 +108,7 @@ def verify_runc(
         "key_source_ref": ref,
         "keyring_sha256": base.sha256(keyring),
         "normalized_keyring_sha256": base.sha256(normalized),
-        "imported_fingerprints": imported_fingerprints,
+        "imported_fingerprints": fingerprints,
         "keyring_transfer": keyring_transfer,
         "signature_sha256": base.sha256(signature),
         "signature_transfer": signature_transfer,
@@ -102,42 +116,105 @@ def verify_runc(
     }
 
 
-def discover_libarchive(
-    authority: dict[str, Any], work_root: Path
+def verify_libarchive(
+    authority: dict[str, Any], download_root: Path, work_root: Path
 ) -> dict[str, Any]:
+    expected_primary = authority.get("signer_fingerprint")
+    key_transport = authority.get("key_transport")
+    if not isinstance(expected_primary, str) or not isinstance(key_transport, str):
+        raise base.SignatureError("libarchive signing authority record is incomplete")
+    archive = download_root / "libarchive-3.8.7.tar.xz"
+    if not archive.is_file():
+        raise base.SignatureError("libarchive source archive was not downloaded")
+
     signature = work_root / "libarchive-3.8.7.tar.xz.asc"
-    transfer = base.download(
+    key = work_root / "libarchive-release-key.asc"
+    signature_transfer = base.download(
         "https://libarchive.org/downloads/libarchive-3.8.7.tar.xz.asc", signature
     )
-    result = base.run(["gpg", "--batch", "--list-packets", str(signature)])
-    packet_output = (
-        result.stdout.decode("utf-8", errors="replace")
-        + "\n"
-        + result.stderr.decode("utf-8", errors="replace")
+    key_transfer = base.download(key_transport, key)
+    home = base.make_home(work_root, "libarchive-gnupg")
+    base.run(["gpg", "--batch", "--homedir", str(home), "--import", str(key)])
+    fingerprints = imported_fingerprints(home)
+    if expected_primary not in fingerprints:
+        raise base.SignatureError(
+            "libarchive key fingerprint mismatch: "
+            f"expected={expected_primary}, imported={fingerprints}"
+        )
+
+    result = base.run(
+        [
+            "gpg",
+            "--batch",
+            "--homedir",
+            str(home),
+            "--status-fd",
+            "1",
+            "--verify",
+            str(signature),
+            str(archive),
+        ]
     )
-    fingerprint_matches = re.findall(
-        r"issuer fpr v\d+ ([0-9A-Fa-f]+)", packet_output
-    )
-    key_id_matches = re.findall(r"keyid ([0-9A-Fa-f]+)", packet_output)
+    valid = base.parse_validsig(result.stdout)
+    if valid["primary_fingerprint"] != expected_primary:
+        raise base.SignatureError(
+            "libarchive signature fingerprint mismatch: "
+            f"expected={expected_primary}, observed={json.dumps(valid, sort_keys=True)}"
+        )
     return {
         "component": "libarchive-source",
-        "status": "signature_issuer_discovered_not_verified",
+        "status": "signature_verified",
+        "expected_primary_fingerprint": expected_primary,
+        "key_sha256": base.sha256(key),
+        "key_transfer": key_transfer,
         "signature_sha256": base.sha256(signature),
-        "signature_transfer": transfer,
-        "issuer_fingerprints": sorted(
-            {value.upper() for value in fingerprint_matches}
+        "signature_transfer": signature_transfer,
+        "signature": valid,
+    }
+
+
+def verify_all(key_lock: Path, download_root: Path, work_root: Path) -> dict[str, Any]:
+    if (
+        shutil.which("gpg") is None
+        or shutil.which("git") is None
+        or shutil.which("xz") is None
+    ):
+        raise base.SignatureError("gpg, git and xz are required for signature evidence")
+    lock = base.load_object(key_lock)
+    if lock.get("runtime_implementation_authorized") is not False:
+        raise base.SignatureError("signing-key lock cannot authorize runtime implementation")
+    authorities = lock.get("authorities")
+    if not isinstance(authorities, list):
+        raise base.SignatureError("signing authority array is missing")
+    by_component = {
+        item.get("component"): item for item in authorities if isinstance(item, dict)
+    }
+    required = {"nodejs", "runc", "git-source", "libarchive-source"}
+    if not required.issubset(by_component):
+        raise base.SignatureError("one or more signing authority records are missing")
+
+    work_root.mkdir(parents=True, exist_ok=True)
+    results = [
+        base.verify_node(by_component["nodejs"], download_root, work_root),
+        verify_runc(by_component["runc"], download_root, work_root),
+        base.verify_git(by_component["git-source"], download_root, work_root),
+        verify_libarchive(
+            by_component["libarchive-source"], download_root, work_root
         ),
-        "issuer_key_ids": sorted({value.upper() for value in key_id_matches}),
-        "locked_fingerprint": authority.get("signer_fingerprint"),
-        "packet_metadata_sha256": base.hashlib.sha256(
-            packet_output.encode("utf-8")
-        ).hexdigest(),
+    ]
+    return {
+        "schema_version": "0.2.0",
+        "record_type": "ptah.phase0c.backend_signature_verification",
+        "verified_signature_count": 4,
+        "discovery_count": 0,
+        "results": results,
+        "runtime_implementation_authorized": False,
     }
 
 
 def main() -> int:
     base.verify_runc = verify_runc
-    base.discover_libarchive = discover_libarchive
+    base.verify = verify_all
     return base.main()
 
 

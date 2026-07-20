@@ -1,0 +1,151 @@
+{
+  "schema_version": "0.1.0",
+  "status": "authoritative_sources_partially_locked_browser_binary_and_host_packages_open",
+  "runtime_implementation_authorized": false,
+  "architecture": "linux-amd64",
+  "artifacts": [
+    {
+      "component": "ubuntu-server",
+      "version": "24.04.4 LTS",
+      "filename": "ubuntu-24.04.4-live-server-amd64.iso",
+      "digest": {
+        "algorithm": "sha256",
+        "value": "e907d92eeec9df64163a7e454cbc8d7755e8ddc7ed42f99dbc80c40f1a138433"
+      },
+      "authority": "Ubuntu release image checksum",
+      "repository_record": "host/image-lock.json",
+      "status": "locked"
+    },
+    {
+      "component": "containerd",
+      "version": "2.3.1",
+      "filename": "containerd-2.3.1-linux-amd64.tar.gz",
+      "download_url": "https://github.com/containerd/containerd/releases/download/v2.3.1/containerd-2.3.1-linux-amd64.tar.gz",
+      "digest": {
+        "algorithm": "sha256",
+        "value": "628448bd973610c656c1cbea8e88b32fafd85b23cc1aa4a3372eb7198478c054"
+      },
+      "release_tag": "v2.3.1",
+      "release_tag_verified_signature": true,
+      "attestation": {
+        "filename": "containerd-2.3.1-attestation.intoto.jsonl",
+        "sha256": "4f71700103fa46e8a51cda02c6fb14af878ccd62da729ab6b0b49da16b45834d"
+      },
+      "licence": "Apache-2.0",
+      "status": "locked"
+    },
+    {
+      "component": "runc",
+      "version": "1.4.2",
+      "filename": "runc.amd64",
+      "download_url": "https://github.com/opencontainers/runc/releases/download/v1.4.2/runc.amd64",
+      "digest": {
+        "algorithm": "sha256",
+        "value": "52e338fa958128293cbd25d2be189e34da41c4f4abbb1b641cf58f373c001f94"
+      },
+      "release_tag": "v1.4.2",
+      "licence": "Apache-2.0",
+      "status": "locked"
+    },
+    {
+      "component": "nodejs",
+      "version": "24.18.0",
+      "filename": "node-v24.18.0-linux-x64.tar.xz",
+      "download_url": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-linux-x64.tar.xz",
+      "digest": {
+        "algorithm": "sha256",
+        "value": "e5a6701100066156d69da48878e4b95986733b0688e0b83afbe1093778e3fffd"
+      },
+      "checksum_authority": "https://nodejs.org/dist/v24.18.0/SHASUMS256.txt.asc",
+      "checksum_signature": "OpenPGP signed",
+      "licence": "MIT",
+      "status": "locked"
+    },
+    {
+      "component": "sqlite-source",
+      "version": "3.53.3",
+      "filename": "sqlite-src-3530300.zip",
+      "download_url": "https://www.sqlite.org/2026/sqlite-src-3530300.zip",
+      "digest": {
+        "algorithm": "sha3-256",
+        "value": "2daecfa16e3b19e058dc2e2cb717b80ade361e0315aa5376c3619f66aa81e181"
+      },
+      "source_id": "2026-06-26 20:14:12 d4c0e51e4aeb96955b99185ab9cde75c339e2c29c3f3f12428d364a10d782c62",
+      "licence": "public-domain",
+      "status": "locked"
+    },
+    {
+      "component": "libarchive-source",
+      "version": "3.8.7",
+      "filename": "libarchive-3.8.7.tar.xz",
+      "download_url": "https://libarchive.org/downloads/libarchive-3.8.7.tar.xz",
+      "digest": {
+        "algorithm": "sha256",
+        "value": "d3a8ba457ae25c27c84fd2830a2efdcc5b1d40bf585d4eb0d35f47e99e5d4774"
+      },
+      "checksum_authority": "https://libarchive.org/downloads/libarchive-3.8.7.tar.xz.sums.txt",
+      "signature_url": "https://libarchive.org/downloads/libarchive-3.8.7.tar.xz.asc",
+      "licence": "BSD-2-Clause",
+      "status": "locked"
+    },
+    {
+      "component": "git-source",
+      "version": "2.55.0",
+      "filename": "git-2.55.0.tar.xz",
+      "download_url": "https://www.kernel.org/pub/software/scm/git/git-2.55.0.tar.xz",
+      "signature_url": "https://www.kernel.org/pub/software/scm/git/git-2.55.0.tar.sign",
+      "signed_checksum_manifest": "https://www.kernel.org/pub/software/scm/git/sha256sums.asc",
+      "digest": null,
+      "licence": "GPL-2.0-only",
+      "status": "signature_authority_locked_digest_extraction_open"
+    },
+    {
+      "component": "playwright-npm",
+      "version": "1.60.0",
+      "filename": "playwright-1.60.0.tgz",
+      "download_url": "https://registry.npmjs.org/playwright/-/playwright-1.60.0.tgz",
+      "digest": {
+        "algorithm": "sha512-base64",
+        "value": "hheHdokM8cdqCb0lcE3s+zT4t4W+vvjpGxsZlDnikarzx8tSzMebh3UiFtgqwFwnTnjYQcsyMF8ei2mCO/tpeA=="
+      },
+      "licence": "Apache-2.0",
+      "repository_record": "browser-provider/package-lock.json",
+      "status": "locked"
+    },
+    {
+      "component": "playwright-core-npm",
+      "version": "1.60.0",
+      "filename": "playwright-core-1.60.0.tgz",
+      "download_url": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.60.0.tgz",
+      "digest": {
+        "algorithm": "sha512-base64",
+        "value": "9bW6zvX/m0lEbgTKJ6YppOKx8H3VOPBMOCFh2irXFOT4BbHgrx5hPjwJYLT40Lu+4qtD36qKc/Hn56StUW57IA=="
+      },
+      "licence": "Apache-2.0",
+      "repository_record": "browser-provider/package-lock.json",
+      "status": "locked"
+    }
+  ],
+  "browser_binary": {
+    "provider": "Playwright 1.60.0",
+    "browser": "Chromium",
+    "browser_version": "149.0.7827.55",
+    "revision": null,
+    "archive_digest": null,
+    "installed_tree_digest": null,
+    "status": "exact_revision_and_artifact_digest_open"
+  },
+  "host_packages": {
+    "kernel_package": "linux-image-generic=6.8.0-136.136",
+    "installed_package_manifest": null,
+    "package_artifact_digests": null,
+    "status": "pinned_host_run_open"
+  },
+  "blockers": [
+    "Extract and record the signed SHA-256 for git-2.55.0.tar.xz.",
+    "Install the exact Playwright 1.60.0 Chromium artifact and record revision plus content digest.",
+    "Record exact installed package versions and package artifact digests from the pinned Ubuntu host.",
+    "Verify signatures and checksums in an exact-head backend artifact workflow.",
+    "Runtime implementation remains unauthorized until ADR-0033 closure."
+  ]
+}

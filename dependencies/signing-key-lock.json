@@ -1,6 +1,6 @@
 {
-  "schema_version": "0.2.1",
-  "status": "node_runc_git_pinned_libarchive_discovery_open",
+  "schema_version": "0.3.0",
+  "status": "all_selected_signers_pinned_verification_open",
   "runtime_implementation_authorized": false,
   "authorities": [
     {
@@ -16,9 +16,10 @@
       "key_source_repository": "opencontainers/runc",
       "key_source_ref": "v1.4.2",
       "keyring_path": "runc.keyring",
-      "keyring_sha256": null,
+      "keyring_sha256": "9bd9742cb79b215cf5f7f71ea71a51a2a95ab573412d54c2905be072d8fcab7c",
+      "verified_primary_fingerprint": "C2428CD75720FACDCF76B6EA17DE5ECB75A1100E",
       "verification_target": "runc.amd64.asc + runc.amd64",
-      "status": "pinned_ref_keyring_digest_open"
+      "status": "pinned"
     },
     {
       "component": "git-source",
@@ -28,20 +29,21 @@
       "key_transport": "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x96E07AF25771955980DAD10020D04E5A713660A7",
       "key_transport_trust": "transport_untrusted_fingerprint_must_match_kernel_org_anchor",
       "verification_target": "git-2.55.0.tar.sign + uncompressed git-2.55.0.tar.xz",
-      "status": "current_kernel_org_fingerprint_pinned"
+      "status": "pinned"
     },
     {
       "component": "libarchive-source",
-      "signer_fingerprint": null,
-      "key_transport": null,
+      "signer_fingerprint": "659C84C0E23EA1FA97E0B58CC040B508D63D2B36",
+      "fingerprint_authority": "Gentoo sec-keys/openpgp-keys-libarchive package metadata",
+      "key_transport": "https://gentoo.osuosl.org/distfiles/3b/libarchive-659C84C0E23EA1FA97E0B58CC040B508D63D2B36.asc",
+      "key_transport_trust": "transport_untrusted_fingerprint_must_match_pinned_authority",
       "verification_target": "libarchive-3.8.7.tar.xz.asc + libarchive-3.8.7.tar.xz",
-      "status": "signature_issuer_discovery_open"
+      "status": "pinned"
     }
   ],
   "blockers": [
-    "Verify Node, runc and Git signatures at one exact candidate head.",
-    "Record the exact runc keyring digest and verified signer fingerprints.",
-    "Discover and independently validate the libarchive release signer fingerprint.",
+    "Verify all four selected backend signatures at one exact candidate head.",
+    "Record stable key and signature digests after the four-signature run.",
     "Keep runtime implementation unauthorized until ADR-0033 closure."
   ]
 }

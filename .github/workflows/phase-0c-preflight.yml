@@ -35,18 +35,34 @@ jobs:
           cargo -V | tee -a conformance/reports/rust-toolchain.txt
 
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        if: always()
+        run: |
+          set -o pipefail
+          cargo fmt --all -- --check 2>&1 | tee conformance/reports/rustfmt.txt
 
       - name: Run Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        if: always()
+        run: |
+          set -o pipefail
+          cargo clippy --workspace --all-targets --all-features -- -D warnings 2>&1 \
+            | tee conformance/reports/clippy.txt
 
       - name: Run workspace tests
-        run: cargo test --workspace --all-features
+        if: always()
+        run: |
+          set -o pipefail
+          cargo test --workspace --all-features 2>&1 \
+            | tee conformance/reports/cargo-test.txt
 
       - name: Run documentation tests
-        run: cargo test --workspace --doc
+        if: always()
+        run: |
+          set -o pipefail
+          cargo test --workspace --doc 2>&1 \
+            | tee conformance/reports/cargo-doc-test.txt
 
       - name: Verify locked zero-dependency scaffold graph
+        if: always()
         run: |
           cargo metadata --locked --format-version 1 > conformance/reports/cargo-metadata.json
           python - <<'PY'
@@ -64,6 +80,7 @@ jobs:
           PY
 
       - name: Enforce no-runtime source policy
+        if: always()
         run: |
           grep -F 'pub const RUNTIME_IMPLEMENTATION_AUTHORIZED: bool = false;' \
             tools/phase0c-preflight/src/lib.rs
@@ -74,6 +91,7 @@ jobs:
           fi
 
       - name: Check out frozen Ptah roadmap checkpoint
+        if: always()
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: jaydumisuni/ptah-roadmap-
@@ -82,19 +100,26 @@ jobs:
           persist-credentials: false
 
       - name: Install frozen conformance harness
+        if: always()
         run: python -m pip install ./.ptah-roadmap/conformance/harness
 
       - name: Run frozen harness unit tests
+        if: always()
         working-directory: .ptah-roadmap/conformance/harness
-        run: python -m unittest -v test_ptah_conformance.py
+        run: |
+          set -o pipefail
+          python -m unittest -v test_ptah_conformance.py 2>&1 \
+            | tee ../../../conformance/reports/harness-unit-tests.txt
 
       - name: Run frozen structural conformance locally
+        if: always()
         run: >-
           ptah-conformance
           --root ./.ptah-roadmap
           --report ./conformance/reports/phase-0b-conformance.json
 
       - name: Run frozen semantic fixtures locally
+        if: always()
         run: >-
           python ./.ptah-roadmap/conformance/harness/semantic_fixture_runner.py
           --root ./.ptah-roadmap
@@ -131,12 +156,9 @@ jobs:
               "cargo": subprocess.run(
                   ["cargo", "--version"], capture_output=True, text=True, check=False
               ).stdout.strip(),
-              "expected_reports": [
-                  "cargo-metadata.json",
-                  "phase-0b-conformance.json",
-                  "phase-0b-semantic.json",
-                  "rust-toolchain.txt",
-              ],
+              "reports_present": sorted(
+                  path.name for path in reports.iterdir() if path.is_file()
+              ),
           }
           (reports / "phase-0c-scaffold-report.json").write_text(
               json.dumps(payload, indent=2) + "\n", encoding="utf-8"

@@ -13,7 +13,7 @@ from typing import Any
 
 import contract_binding_generator as base
 
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 WRAPPER_PATH = Path(__file__)
 BASE_PATH = WRAPPER_PATH.with_name("contract_binding_generator.py")
 WRAPPER_REPOSITORY_PATH = "tools/contract_binding_generator_aliases.py"
@@ -43,11 +43,11 @@ def validate_lock(lock: dict[str, Any]) -> list[dict[str, Any]]:
             raise base.BindingError("binding-locked state must contain generated binding evidence")
         if generated.get("runtime_implementation_authorized") is not False:
             raise base.BindingError("generated bindings cannot authorize the Ptah runtime")
-        if (generated.get("catalog_count"), generated.get("schema_count"), generated.get("state_machine_count")) != (
-            14,
-            346,
-            99,
-        ):
+        if (
+            generated.get("catalog_count"),
+            generated.get("schema_count"),
+            generated.get("state_machine_count"),
+        ) != (14, 346, 99):
             raise base.BindingError("generated binding counts do not match the frozen set")
 
     return [item for item in catalogs if isinstance(item, dict)]
@@ -159,6 +159,23 @@ def machine_entry(root: Path, catalog_id: str, entry: Any) -> dict[str, Any]:
     }
 
 
+def terminate_rust_arrays(source: bytes) -> bytes:
+    """Terminate generated static slices without changing their contents."""
+    replacements = (
+        (b"\n]\n\n/// Every frozen schema binding.", b"\n];\n\n/// Every frozen schema binding."),
+        (
+            b"\n]\n\n/// Every frozen lifecycle-machine binding.",
+            b"\n];\n\n/// Every frozen lifecycle-machine binding.",
+        ),
+        (b"\n]\n\n/// Find a frozen catalog by canonical URN.", b"\n];\n\n/// Find a frozen catalog by canonical URN."),
+    )
+    for before, after in replacements:
+        if before not in source:
+            raise base.BindingError(f"generated Rust terminator marker is missing: {before!r}")
+        source = source.replace(before, after, 1)
+    return source
+
+
 def build_outputs(
     roadmap_root: Path,
     lock_path: Path,
@@ -174,6 +191,7 @@ def build_outputs(
         b"tools/contract_binding_generator.py",
         WRAPPER_REPOSITORY_PATH.encode("utf-8"),
     )
+    outputs[rust_path] = terminate_rust_arrays(outputs[rust_path])
 
     file_records = [
         {

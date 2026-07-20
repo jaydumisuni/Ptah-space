@@ -1,0 +1,113 @@
+name: Phase 0C host capability evidence
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  host-capability-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Run host evidence unit tests
+        run: |
+          mkdir -p conformance/reports/host
+          set -o pipefail
+          python -m unittest -v \
+            host/tests/test_collect_capabilities.py \
+            host/tests/test_finalize_capability_report.py \
+            2>&1 | tee conformance/reports/host/collector-tests.txt
+
+      - name: Collect live runner capabilities
+        run: |
+          set -o pipefail
+          python host/scripts/collect_capabilities.py \
+            --require-capabilities \
+            --output conformance/reports/host/host-capability-report.json \
+            2>&1 | tee conformance/reports/host/collector-output.txt
+
+      - name: Finalize pinned Ubuntu identity evaluation
+        run: |
+          set -o pipefail
+          python host/scripts/finalize_capability_report.py \
+            --report conformance/reports/host/host-capability-report.json \
+            2>&1 | tee conformance/reports/host/identity-finalizer-output.txt
+
+      - name: Write exact-head host evidence record
+        if: always()
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path("conformance/reports/host")
+          report_path = root / "host-capability-report.json"
+          report = json.loads(report_path.read_text()) if report_path.is_file() else None
+          expected = os.environ["PTAH_EXACT_SHA"]
+          checked_out = subprocess.run(
+              ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+          ).stdout.strip()
+          payload = {
+              "record_type": "ptah.phase0c.host_capability_evidence",
+              "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "implementation_commit": expected,
+              "checked_out_commit": checked_out,
+              "exact_head_match": checked_out == expected,
+              "collector_report_present": report is not None,
+              "collector_report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest()
+                  if report_path.is_file() else None,
+              "required_capabilities_passed": report.get("required_capabilities_passed")
+                  if report else False,
+              "pinned_host_match": report.get("pinned_host_match", {}).get("all_match")
+                  if report else False,
+              "proof_eligible": report.get("proof_eligible") if report else False,
+              "runtime_implementation_authorized": False,
+              "claim_boundary": (
+                  "A hosted CI runner report validates the collector and observable capabilities. "
+                  "It is not the final pinned-image proof unless proof_eligible is true."
+              ),
+          }
+          (root / "host-evidence-record.json").write_text(
+              json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+          )
+          if not payload["exact_head_match"]:
+              raise SystemExit("host evidence job did not test the exact head")
+          if not payload["collector_report_present"]:
+              raise SystemExit("host capability report was not produced")
+          if not payload["required_capabilities_passed"]:
+              raise SystemExit("one or more required host capabilities failed")
+          if payload["runtime_implementation_authorized"]:
+              raise SystemExit("host evidence cannot authorize runtime implementation")
+          PY
+
+      - name: Upload host capability evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase-0c-host-capabilities-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: conformance/reports/host/
+          if-no-files-found: error
+          retention-days: 30

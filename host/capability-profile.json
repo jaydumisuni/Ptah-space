@@ -1,6 +1,11 @@
 {
-  "schema_version": "0.1.0",
-  "status": "requirements_only",
+  "schema_version": "0.3.0",
+  "status": "collector_implemented_pinned_host_proof_open",
+  "collector": {
+    "repository_path": "host/scripts/collect_capabilities.py",
+    "identity_finalizer_path": "host/scripts/finalize_capability_report.py",
+    "runtime_implementation_authorized": false
+  },
   "required": [
     "systemd",
     "cgroups_v2_unified",
@@ -27,5 +32,6 @@
       "policy": "required_or_explicit_reduced_isolation_limitation"
     }
   ],
-  "observed": null
+  "observed": null,
+  "pinned_host_proof": null
 }

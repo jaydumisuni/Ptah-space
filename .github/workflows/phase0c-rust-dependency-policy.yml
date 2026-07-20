@@ -1,0 +1,128 @@
+name: Phase 0C Rust dependency policy
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-dependency-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+          mkdir -p conformance/reports/rust-dependencies
+          rustc -Vv | tee conformance/reports/rust-dependencies/rust-toolchain.txt
+          cargo -V | tee -a conformance/reports/rust-dependencies/rust-toolchain.txt
+
+      - name: Verify exact direct selection and Cargo lock
+        run: |
+          set -o pipefail
+          python tools/check_rust_dependency_lock.py \
+            --output conformance/reports/rust-dependencies/dependency-lock-report.json \
+            2>&1 | tee conformance/reports/rust-dependencies/dependency-lock-check.txt
+
+      - name: Capture locked dependency graph
+        run: |
+          cargo metadata --locked --format-version 1 \
+            > conformance/reports/rust-dependencies/cargo-metadata.json
+          cargo tree --workspace --all-features --locked \
+            > conformance/reports/rust-dependencies/cargo-tree.txt
+
+      - name: Install exact cargo-deny release
+        run: |
+          set -o pipefail
+          cargo install cargo-deny --version 0.19.4 --locked 2>&1 \
+            | tee conformance/reports/rust-dependencies/cargo-deny-install.txt
+          cargo deny --version \
+            | tee conformance/reports/rust-dependencies/cargo-deny-version.txt
+
+      - name: Check advisories
+        run: |
+          set -o pipefail
+          cargo deny check advisories 2>&1 \
+            | tee conformance/reports/rust-dependencies/cargo-deny-advisories.txt
+
+      - name: Check bans
+        if: always()
+        run: |
+          set -o pipefail
+          cargo deny check bans 2>&1 \
+            | tee conformance/reports/rust-dependencies/cargo-deny-bans.txt
+
+      - name: Check licences
+        if: always()
+        run: |
+          set -o pipefail
+          cargo deny check licenses 2>&1 \
+            | tee conformance/reports/rust-dependencies/cargo-deny-licenses.txt
+
+      - name: Check sources
+        if: always()
+        run: |
+          set -o pipefail
+          cargo deny check sources 2>&1 \
+            | tee conformance/reports/rust-dependencies/cargo-deny-sources.txt
+
+      - name: Write exact-head dependency evidence record
+        if: always()
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path("conformance/reports/rust-dependencies")
+          expected = os.environ["PTAH_EXACT_SHA"]
+          checked_out = subprocess.run(
+              ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+          ).stdout.strip()
+          lock_path = Path("Cargo.lock")
+          selection_path = Path("dependencies/rust-direct-lock.json")
+          payload = {
+              "record_type": "ptah.phase0c.rust_dependency_policy",
+              "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "implementation_commit": expected,
+              "checked_out_commit": checked_out,
+              "exact_head_match": checked_out == expected,
+              "rust_toolchain": "1.97.1",
+              "cargo_deny": "0.19.4",
+              "cargo_lock_sha256": hashlib.sha256(lock_path.read_bytes()).hexdigest(),
+              "selection_sha256": hashlib.sha256(selection_path.read_bytes()).hexdigest(),
+              "runtime_implementation_authorized": False,
+              "reports_present": sorted(path.name for path in root.iterdir() if path.is_file()),
+          }
+          (root / "dependency-policy-record.json").write_text(
+              json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+          )
+          if not payload["exact_head_match"]:
+              raise SystemExit("dependency policy job did not test the exact head")
+          PY
+
+      - name: Upload Rust dependency evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase-0c-rust-dependencies-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: conformance/reports/rust-dependencies/
+          if-no-files-found: error
+          retention-days: 30

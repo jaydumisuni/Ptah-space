@@ -1,0 +1,70 @@
+{
+  "schema_version": "0.4.0",
+  "status": "all_selected_signatures_locked_pinned_host_proof_open",
+  "runtime_implementation_authorized": false,
+  "verification": {
+    "base_tool_path": "tools/verify_backend_signatures.py",
+    "final_tool_path": "tools/verify_backend_signatures_final.py",
+    "workflow_path": ".github/workflows/phase0c-backend-signatures.yml",
+    "required_signature_count": 4,
+    "runtime_implementation_authorized": false
+  },
+  "authorities": [
+    {
+      "component": "nodejs",
+      "key_source_repository": "nodejs/release-keys",
+      "key_source_commit": "b28073028e6d6855cfb53bf7fa0137599c01f967",
+      "keyring_path": "gpg-only-active-keys",
+      "verified_primary_fingerprint": "C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C",
+      "signed_manifest_sha256": "2f70f136714c94decfcc3a6f47e8550375e934c956fb4df9e5a69fafd1e58fcf",
+      "signature_date": "2026-06-23",
+      "verification_target": "SHASUMS256.txt.asc",
+      "status": "signature_locked"
+    },
+    {
+      "component": "runc",
+      "key_source_repository": "opencontainers/runc",
+      "key_source_ref": "v1.4.2",
+      "keyring_path": "runc.keyring",
+      "keyring_sha256": "9bd9742cb79b215cf5f7f71ea71a51a2a95ab573412d54c2905be072d8fcab7c",
+      "normalized_keyring_sha256": "df1ee09fbd7498c7702fefd2b3a17cbcf81dc493d11426a2dd1999327d7cd315",
+      "verified_primary_fingerprint": "C2428CD75720FACDCF76B6EA17DE5ECB75A1100E",
+      "signature_sha256": "0becca6d10b27214b077aa1b9334ad15e4881006619893f9ce53f3d44707e0a4",
+      "signature_date": "2026-04-03",
+      "verification_target": "runc.amd64.asc + runc.amd64",
+      "status": "signature_locked"
+    },
+    {
+      "component": "git-source",
+      "signer": "Junio C Hamano",
+      "primary_fingerprint": "96E07AF25771955980DAD10020D04E5A713660A7",
+      "signing_subkey_fingerprint": "E1F036B1FEE7221FC778ECEFB0B5E88696AFE6CB",
+      "fingerprint_authority": "https://www.kernel.org/doc/wot/junio.html",
+      "key_transport": "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x96E07AF25771955980DAD10020D04E5A713660A7",
+      "key_transport_trust": "transport_untrusted_fingerprint_must_match_kernel_org_anchor",
+      "signature_sha256": "8673501946204c38ebfed09603c1f3a041ed8d12b31f0aa06a474d41e359e254",
+      "signature_date": "2026-06-29",
+      "verification_target": "git-2.55.0.tar.sign + uncompressed git-2.55.0.tar.xz",
+      "status": "signature_locked"
+    },
+    {
+      "component": "libarchive-source",
+      "signer_fingerprint": "659C84C0E23EA1FA97E0B58CC040B508D63D2B36",
+      "fingerprint_authority": "Gentoo sec-keys/openpgp-keys-libarchive package metadata",
+      "key_transport": "https://gentoo.osuosl.org/distfiles/3b/libarchive-659C84C0E23EA1FA97E0B58CC040B508D63D2B36.asc",
+      "key_transport_trust": "transport_untrusted_fingerprint_must_match_pinned_authority",
+      "key_sha256": "b2c91d075f112508442384dd1649735a84e81aea7ce1593d49a8f658ab66779f",
+      "signature_sha256": "09eafe305f7f1bb1622d5247b6acf275e1a24b88f76f124269fd0dd94828079d",
+      "signature_date": "2026-04-13",
+      "verification_target": "libarchive-3.8.7.tar.xz.asc + libarchive-3.8.7.tar.xz",
+      "status": "signature_locked"
+    }
+  ],
+  "blockers": [
+    "Record exact installed package versions and package artifact digests from the pinned Ubuntu host.",
+    "Produce a proof-eligible capability report on Ubuntu Server 24.04.4 with 6.8.0-136-generic.",
+    "Persist final accepted evidence beyond temporary workflow artifact retention.",
+    "Obtain owner acceptance of the public Apache-2.0 and private contribution boundary.",
+    "Keep runtime implementation unauthorized until ADR-0033 closure."
+  ]
+}

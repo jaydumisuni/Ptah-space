@@ -1,0 +1,245 @@
+name: Phase 0C backend artifact evidence
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  static-backend-artifacts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Verify authoritative backend downloads
+        run: |
+          mkdir -p conformance/reports/backend-artifacts downloads/backend-artifacts
+          set -o pipefail
+          python tools/verify_backend_artifacts.py \
+            --download-root downloads/backend-artifacts \
+            --output conformance/reports/backend-artifacts/static-artifacts.json \
+            2>&1 | tee conformance/reports/backend-artifacts/static-artifacts.txt
+
+      - name: Compare static evidence with immutable lock
+        run: |
+          set -o pipefail
+          python tools/check_backend_artifact_lock.py \
+            --static-report conformance/reports/backend-artifacts/static-artifacts.json \
+            --output conformance/reports/backend-artifacts/static-lock-check.json \
+            2>&1 | tee conformance/reports/backend-artifacts/static-lock-check.txt
+
+      - name: Write exact-head static evidence record
+        if: always()
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path("conformance/reports/backend-artifacts")
+          report_path = root / "static-artifacts.json"
+          check_path = root / "static-lock-check.json"
+          report = json.loads(report_path.read_text()) if report_path.is_file() else None
+          expected = os.environ["PTAH_EXACT_SHA"]
+          checked_out = subprocess.run(
+              ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+          ).stdout.strip()
+          record = {
+              "record_type": "ptah.phase0c.static_backend_artifact_evidence",
+              "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "implementation_commit": expected,
+              "checked_out_commit": checked_out,
+              "exact_head_match": checked_out == expected,
+              "report_present": report is not None,
+              "report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest()
+                  if report_path.is_file() else None,
+              "lock_check_sha256": hashlib.sha256(check_path.read_bytes()).hexdigest()
+                  if check_path.is_file() else None,
+              "verified_artifact_count": report.get("verified_artifact_count") if report else 0,
+              "runtime_implementation_authorized": False,
+          }
+          (root / "static-evidence-record.json").write_text(
+              json.dumps(record, indent=2) + "\n", encoding="utf-8"
+          )
+          if (
+              not record["exact_head_match"]
+              or not record["report_present"]
+              or not record["lock_check_sha256"]
+          ):
+              raise SystemExit("static artifact evidence is incomplete")
+          PY
+
+      - name: Upload static backend evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase-0c-static-backends-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: conformance/reports/backend-artifacts/
+          if-no-files-found: error
+          retention-days: 30
+
+  playwright-browser-artifact:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.3.0
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: browser-provider/package-lock.json
+
+      - name: Install exact Playwright package without browser side effects
+        working-directory: browser-provider
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Capture Playwright browser descriptors
+        working-directory: browser-provider
+        run: |
+          mkdir -p ../conformance/reports/playwright-browser
+          node - <<'JS'
+          const fs = require('fs');
+          const browsers = require('./node_modules/playwright-core/browsers.json');
+          const selected = browsers.browsers.filter(browser =>
+            browser.name === 'chromium' || browser.name === 'chromium-headless-shell'
+          );
+          fs.writeFileSync(
+            '../conformance/reports/playwright-browser/browser-descriptors.json',
+            JSON.stringify({ playwright: '1.60.0', browsers: selected }, null, 2) + '\n'
+          );
+          console.log(JSON.stringify(selected, null, 2));
+          JS
+
+      - name: Install exact Playwright Chromium artifact
+        working-directory: browser-provider
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.ptah-playwright-browsers
+        run: npx playwright install chromium
+
+      - name: Hash installed browser tree
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.ptah-playwright-browsers
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["PLAYWRIGHT_BROWSERS_PATH"])
+          records = []
+          executables = []
+          for path in sorted(root.rglob("*")):
+              if not path.is_file():
+                  continue
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              relative = path.relative_to(root).as_posix()
+              records.append({"path": relative, "sha256": digest, "size_bytes": path.stat().st_size})
+              if path.name in {"chrome", "headless_shell"} and os.access(path, os.X_OK):
+                  executables.append(records[-1])
+          canonical = json.dumps(records, sort_keys=True, separators=(",", ":")).encode()
+          report = {
+              "schema_version": "0.1.0",
+              "record_type": "ptah.phase0c.playwright_browser_artifact",
+              "playwright_version": "1.60.0",
+              "tree_sha256": hashlib.sha256(canonical).hexdigest(),
+              "file_count": len(records),
+              "size_bytes": sum(item["size_bytes"] for item in records),
+              "executables": executables,
+              "runtime_implementation_authorized": False,
+          }
+          output = Path("conformance/reports/playwright-browser/installed-browser-tree.json")
+          output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(report, indent=2))
+          if not records or not executables:
+              raise SystemExit("Playwright browser artifact was not installed completely")
+          PY
+
+      - name: Compare Browser evidence with immutable lock
+        run: |
+          set -o pipefail
+          python tools/check_backend_artifact_lock.py \
+            --browser-descriptors conformance/reports/playwright-browser/browser-descriptors.json \
+            --browser-tree conformance/reports/playwright-browser/installed-browser-tree.json \
+            --output conformance/reports/playwright-browser/browser-lock-check.json \
+            2>&1 | tee conformance/reports/playwright-browser/browser-lock-check.txt
+
+      - name: Write exact-head Browser artifact record
+        if: always()
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path("conformance/reports/playwright-browser")
+          descriptor_path = root / "browser-descriptors.json"
+          tree_path = root / "installed-browser-tree.json"
+          check_path = root / "browser-lock-check.json"
+          expected = os.environ["PTAH_EXACT_SHA"]
+          checked_out = subprocess.run(
+              ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+          ).stdout.strip()
+          tree = json.loads(tree_path.read_text()) if tree_path.is_file() else None
+          record = {
+              "record_type": "ptah.phase0c.playwright_browser_evidence",
+              "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "implementation_commit": expected,
+              "checked_out_commit": checked_out,
+              "exact_head_match": checked_out == expected,
+              "descriptors_sha256": hashlib.sha256(descriptor_path.read_bytes()).hexdigest()
+                  if descriptor_path.is_file() else None,
+              "installed_tree_sha256": tree.get("tree_sha256") if tree else None,
+              "installed_file_count": tree.get("file_count") if tree else 0,
+              "lock_check_sha256": hashlib.sha256(check_path.read_bytes()).hexdigest()
+                  if check_path.is_file() else None,
+              "runtime_implementation_authorized": False,
+          }
+          (root / "browser-evidence-record.json").write_text(
+              json.dumps(record, indent=2) + "\n", encoding="utf-8"
+          )
+          if (
+              not record["exact_head_match"]
+              or not record["installed_tree_sha256"]
+              or not record["lock_check_sha256"]
+          ):
+              raise SystemExit("Playwright Browser artifact evidence is incomplete")
+          PY
+
+      - name: Upload Playwright Browser evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase-0c-playwright-browser-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: conformance/reports/playwright-browser/
+          if-no-files-found: error
+          retention-days: 30

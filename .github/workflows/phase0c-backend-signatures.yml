@@ -1,0 +1,105 @@
+name: Phase 0C backend signature evidence
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  backend-signatures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Prepare signature evidence directories
+        run: |
+          mkdir -p \
+            downloads/backend-artifacts \
+            downloads/signature-evidence \
+            conformance/reports/backend-signatures
+
+      - name: Download and verify locked backend artifacts
+        run: |
+          set -o pipefail
+          python tools/verify_backend_artifacts.py \
+            --download-root downloads/backend-artifacts \
+            --output conformance/reports/backend-signatures/static-artifacts.json \
+            2>&1 | tee conformance/reports/backend-signatures/static-artifacts.txt
+
+      - name: Verify pinned upstream signing authorities
+        run: |
+          set -o pipefail
+          python tools/verify_backend_signatures_final.py \
+            --download-root downloads/backend-artifacts \
+            --work-root downloads/signature-evidence \
+            --output conformance/reports/backend-signatures/signature-evidence.json \
+            2>&1 | tee conformance/reports/backend-signatures/signature-evidence.txt
+
+      - name: Write exact-head signature evidence record
+        if: always()
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path("conformance/reports/backend-signatures")
+          report_path = root / "signature-evidence.json"
+          report = json.loads(report_path.read_text()) if report_path.is_file() else None
+          expected = os.environ["PTAH_EXACT_SHA"]
+          checked_out = subprocess.run(
+              ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+          ).stdout.strip()
+          record = {
+              "record_type": "ptah.phase0c.backend_signature_evidence",
+              "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "implementation_commit": expected,
+              "checked_out_commit": checked_out,
+              "exact_head_match": checked_out == expected,
+              "report_present": report is not None,
+              "report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest()
+                  if report_path.is_file() else None,
+              "verified_signature_count": report.get("verified_signature_count") if report else 0,
+              "discovery_count": report.get("discovery_count") if report else 0,
+              "runtime_implementation_authorized": False,
+          }
+          (root / "signature-evidence-record.json").write_text(
+              json.dumps(record, indent=2) + "\n", encoding="utf-8"
+          )
+          if not record["exact_head_match"]:
+              raise SystemExit("signature evidence job did not test the exact head")
+          if (
+              not record["report_present"]
+              or record["verified_signature_count"] != 4
+              or record["discovery_count"] != 0
+          ):
+              raise SystemExit("all four pinned backend signatures were not verified")
+          PY
+
+      - name: Upload backend signature evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase-0c-backend-signatures-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: conformance/reports/backend-signatures/
+          if-no-files-found: error
+          retention-days: 30

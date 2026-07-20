@@ -2,8 +2,9 @@
 """Download and verify selected Phase 0C backend artifacts.
 
 The verifier is evidence-only. It never installs a Ptah runtime and never
-changes the repository lock. Unknown or incomplete digests are reported as
-candidate evidence for a later reviewed lock update.
+changes the repository lock. Every network transfer uses strict HTTPS through
+curl and records its final URL, HTTP status, content type, byte count and magic
+bytes so a proxy or CDN substitution cannot masquerade as a digest mismatch.
 """
 from __future__ import annotations
 
@@ -12,7 +13,8 @@ import base64
 import hashlib
 import json
 import re
-import urllib.request
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -30,11 +32,76 @@ def load_object(path: Path) -> dict[str, Any]:
     return value
 
 
-def download(url: str, path: Path) -> None:
-    request = urllib.request.Request(url, headers={"User-Agent": "Ptah-Phase0C-Evidence/1"})
-    with urllib.request.urlopen(request, timeout=120) as response, path.open("wb") as handle:
-        while chunk := response.read(1024 * 1024):
-            handle.write(chunk)
+def file_magic(path: Path, length: int = 16) -> str:
+    with path.open("rb") as handle:
+        return handle.read(length).hex()
+
+
+def download(url: str, path: Path) -> dict[str, Any]:
+    curl = shutil.which("curl")
+    if curl is None:
+        raise ArtifactError("curl is required for strict artifact downloads")
+    marker = "PTAH_CURL_META"
+    write_out = (
+        f"\\n{marker}"
+        "%{url_effective}\\n%{http_code}\\n%{content_type}\\n%{size_download}\\n"
+    )
+    result = subprocess.run(
+        [
+            curl,
+            "--fail",
+            "--location",
+            "--silent",
+            "--show-error",
+            "--retry",
+            "3",
+            "--retry-all-errors",
+            "--proto",
+            "=https",
+            "--tlsv1.2",
+            "--user-agent",
+            "Ptah-Phase0C-Evidence/2",
+            "--output",
+            str(path),
+            "--write-out",
+            write_out,
+            url,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ArtifactError(
+            f"download failed for {url}: curl={result.returncode}, stderr={result.stderr.strip()}"
+        )
+    if marker not in result.stdout:
+        raise ArtifactError(f"curl metadata marker missing for {url}")
+    metadata_text = result.stdout.split(marker, 1)[1].strip().splitlines()
+    if len(metadata_text) < 4:
+        raise ArtifactError(f"curl metadata incomplete for {url}: {metadata_text}")
+    final_url, http_code, content_type, size_download = metadata_text[:4]
+    if http_code != "200":
+        raise ArtifactError(f"unexpected HTTP status for {url}: {http_code}")
+    if not path.is_file() or path.stat().st_size == 0:
+        raise ArtifactError(f"downloaded artifact is empty: {url}")
+    try:
+        reported_size = int(float(size_download))
+    except ValueError as exc:
+        raise ArtifactError(f"invalid curl size for {url}: {size_download}") from exc
+    if reported_size != path.stat().st_size:
+        raise ArtifactError(
+            f"curl byte count mismatch for {url}: reported={reported_size}, file={path.stat().st_size}"
+        )
+    return {
+        "requested_url": url,
+        "final_url": final_url,
+        "http_code": int(http_code),
+        "content_type": content_type,
+        "size_bytes": path.stat().st_size,
+        "magic_hex": file_magic(path),
+    }
 
 
 def digest(path: Path, algorithm: str) -> str:
@@ -56,7 +123,9 @@ def digest(path: Path, algorithm: str) -> str:
 
 def extract_git_sha256(manifest: Path, filename: str) -> str:
     text = manifest.read_text(encoding="utf-8", errors="replace")
-    pattern = re.compile(rf"^([0-9a-f]{{64}})\s+{re.escape(filename)}$", re.MULTILINE)
+    pattern = re.compile(
+        rf"^([0-9a-f]{{64}})\s+[*]?{re.escape(filename)}$", re.MULTILINE
+    )
     match = pattern.search(text)
     if not match:
         raise ArtifactError(f"signed Git checksum manifest lacks {filename}")
@@ -73,7 +142,6 @@ def verify(lock_path: Path, download_root: Path) -> dict[str, Any]:
 
     download_root.mkdir(parents=True, exist_ok=True)
     results: list[dict[str, Any]] = []
-    git_manifest: Path | None = None
 
     for entry in artifacts:
         if not isinstance(entry, dict):
@@ -86,9 +154,12 @@ def verify(lock_path: Path, download_root: Path) -> dict[str, Any]:
         if component == "ubuntu-server":
             image_lock = load_object(ROOT / "host/image-lock.json")
             image = image_lock.get("image", {})
-            if not isinstance(image, dict):
-                raise ArtifactError("host image lock is invalid")
-            matches = image.get("filename") == filename and image.get("sha256") == expected.get("value")
+            if not isinstance(image, dict) or not isinstance(expected, dict):
+                raise ArtifactError("host image or backend Ubuntu record is invalid")
+            matches = (
+                image.get("filename") == filename
+                and image.get("sha256") == expected.get("value")
+            )
             if not matches:
                 raise ArtifactError("backend Ubuntu record does not match host/image-lock.json")
             results.append(
@@ -105,23 +176,27 @@ def verify(lock_path: Path, download_root: Path) -> dict[str, Any]:
             manifest_url = entry.get("signed_checksum_manifest")
             if not isinstance(manifest_url, str):
                 raise ArtifactError("Git signed checksum manifest URL is missing")
-            git_manifest = download_root / "git-sha256sums.asc"
-            download(manifest_url, git_manifest)
+            manifest = download_root / "git-sha256sums.asc"
+            manifest_transfer = download(manifest_url, manifest)
             if not isinstance(filename, str) or not isinstance(url, str):
                 raise ArtifactError("Git source record is incomplete")
-            expected_git = extract_git_sha256(git_manifest, filename)
+            expected_git = extract_git_sha256(manifest, filename)
             target = download_root / filename
-            download(url, target)
+            transfer = download(url, target)
             observed = digest(target, "sha256")
             if observed != expected_git:
-                raise ArtifactError("Git source does not match signed checksum manifest")
+                raise ArtifactError(
+                    f"Git source does not match signed checksum manifest: expected={expected_git}, observed={observed}"
+                )
             results.append(
                 {
                     "component": component,
                     "filename": filename,
                     "status": "verified_candidate_digest",
                     "digest": {"algorithm": "sha256", "value": observed},
-                    "signed_checksum_manifest_sha256": digest(git_manifest, "sha256"),
+                    "transfer": transfer,
+                    "signed_checksum_manifest_sha256": digest(manifest, "sha256"),
+                    "signed_checksum_manifest_transfer": manifest_transfer,
                 }
             )
             continue
@@ -136,11 +211,12 @@ def verify(lock_path: Path, download_root: Path) -> dict[str, Any]:
             raise ArtifactError(f"digest record invalid: {component}")
 
         target = download_root / filename
-        download(url, target)
+        transfer = download(url, target)
         observed = digest(target, algorithm)
         if observed != expected_value:
             raise ArtifactError(
-                f"digest mismatch for {component}: expected {expected_value}, observed {observed}"
+                f"digest mismatch for {component}: expected={expected_value}, observed={observed}, "
+                f"transfer={json.dumps(transfer, sort_keys=True)}"
             )
         results.append(
             {
@@ -148,12 +224,12 @@ def verify(lock_path: Path, download_root: Path) -> dict[str, Any]:
                 "filename": filename,
                 "status": "verified",
                 "digest": expected,
-                "size_bytes": target.stat().st_size,
+                "transfer": transfer,
             }
         )
 
     return {
-        "schema_version": "0.1.0",
+        "schema_version": "0.2.0",
         "record_type": "ptah.phase0c.backend_artifact_verification",
         "lock_path": str(lock_path.relative_to(ROOT)),
         "verified_artifact_count": len(results),

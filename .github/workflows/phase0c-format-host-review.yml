@@ -1,0 +1,165 @@
+name: Phase 0C format host review fixes
+
+on:
+  pull_request:
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  format-review-fixes:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'phase-0c-host-dependency-evidence'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out exact review branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: phase-0c-host-dependency-evidence
+          fetch-depth: 0
+
+      - name: Normalize reviewed collector functions and remove this workflow
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          def replace_function(text: str, start_name: str, next_name: str, replacement: str) -> str:
+              start = text.index(f"def {start_name}(")
+              end = text.index(f"def {next_name}(", start)
+              return text[:start] + dedent(replacement).strip() + "\n\n\n" + text[end:]
+
+          path = Path("host/scripts/collect_capabilities.py")
+          text = path.read_text(encoding="utf-8")
+          text = replace_function(
+              text,
+              "check_offline_schema_resolution",
+              "check_apparmor",
+              '''
+              def check_offline_schema_resolution() -> dict[str, Any]:
+                  try:
+                      lock = read_json(ROOT / "contracts/upstream-lock.json")
+                  except (OSError, RuntimeError, ValueError) as exc:
+                      return observation("fail", {"error": str(exc)})
+                  ok = lock.get("network_resolution_allowed") is False
+                  return observation(
+                      "pass" if ok else "fail",
+                      {
+                          "lock_status": lock.get("status"),
+                          "network_resolution_allowed": lock.get("network_resolution_allowed"),
+                      },
+                  )
+              ''',
+          )
+          text = replace_function(
+              text,
+              "pinned_host_match",
+              "collect",
+              '''
+              def pinned_host_match(image_lock: dict[str, Any], release: dict[str, str]) -> dict[str, Any]:
+                  expected_distribution = str(image_lock.get("distribution", ""))
+                  expected_release = str(image_lock.get("release", ""))
+                  expected_architecture = str(image_lock.get("architecture", ""))
+                  kernel_record = image_lock.get("kernel", {})
+                  if not isinstance(kernel_record, dict):
+                      kernel_record = {}
+                  expected_kernel = str(kernel_record.get("expected_uname_family", ""))
+
+                  observed_id = release.get("ID", "")
+                  observed_name = release.get("NAME", "")
+                  observed_version_id = release.get("VERSION_ID", "")
+                  observed_version = release.get("VERSION", "")
+                  observed_pretty = release.get("PRETTY_NAME", "")
+                  observed_architecture = platform.machine()
+                  observed_kernel = platform.release()
+
+                  expected_distribution_lower = expected_distribution.lower()
+                  distribution_match = (
+                      "ubuntu" in expected_distribution_lower
+                      and observed_id.lower() == "ubuntu"
+                  ) or expected_distribution_lower == observed_name.lower()
+                  expected_point_release = expected_release.split()[0]
+                  point_release_match = any(
+                      expected_point_release in source
+                      for source in (observed_version, observed_pretty)
+                  )
+                  base_release_match = observed_version_id == ".".join(
+                      expected_point_release.split(".")[:2]
+                  )
+                  architecture_aliases = {
+                      "amd64": "amd64",
+                      "x86_64": "amd64",
+                      "aarch64": "arm64",
+                      "arm64": "arm64",
+                  }
+                  architecture_match = architecture_aliases.get(
+                      expected_architecture.lower(), expected_architecture.lower()
+                  ) == architecture_aliases.get(
+                      observed_architecture.lower(), observed_architecture.lower()
+                  )
+                  kernel_match = bool(expected_kernel) and observed_kernel.startswith(
+                      expected_kernel
+                  )
+                  return {
+                      "distribution": {
+                          "expected": expected_distribution,
+                          "observed_id": observed_id,
+                          "observed_name": observed_name,
+                          "match": distribution_match,
+                      },
+                      "release": {
+                          "expected": expected_release,
+                          "observed_version_id": observed_version_id,
+                          "observed_version": observed_version,
+                          "observed_pretty_name": observed_pretty,
+                          "base_release_match": base_release_match,
+                          "point_release_match": point_release_match,
+                          "match": base_release_match and point_release_match,
+                      },
+                      "architecture": {
+                          "expected": expected_architecture,
+                          "observed": observed_architecture,
+                          "match": architecture_match,
+                      },
+                      "kernel": {
+                          "expected_family": expected_kernel,
+                          "observed": observed_kernel,
+                          "match": kernel_match,
+                      },
+                      "all_match": (
+                          distribution_match
+                          and base_release_match
+                          and point_release_match
+                          and architecture_match
+                          and kernel_match
+                      ),
+                  }
+              ''',
+          )
+          path.write_text(text, encoding="utf-8")
+          Path(".github/workflows/phase0c-format-host-review.yml").unlink()
+          PY
+
+      - name: Validate normalized collector
+        run: |
+          python -m unittest -v \
+            host/tests/test_collect_capabilities.py \
+            host/tests/test_finalize_capability_report.py
+          python tools/check_phase0c_scaffold.py
+
+      - name: Commit normalized collector
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          git add \
+            host/scripts/collect_capabilities.py \
+            .github/workflows/phase0c-format-host-review.yml
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Phase 0C: normalize reviewed host collector"
+          git push origin "HEAD:${HEAD_BRANCH}"

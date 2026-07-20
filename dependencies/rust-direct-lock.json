@@ -1,6 +1,6 @@
 {
-  "schema_version": "0.1.0",
-  "status": "candidate_exact_versions_lock_generation_open",
+  "schema_version": "0.2.0",
+  "status": "exact_versions_and_policy_locked_host_proof_open",
   "toolchain": "1.97.1",
   "registry": "https://github.com/rust-lang/crates.io-index",
   "runtime_implementation_authorized": false,
@@ -10,87 +10,131 @@
     "git_dependencies_allowed": false,
     "unknown_registries_allowed": false,
     "wildcards_allowed": false,
+    "private_workspace_licences_ignored_until_owner_decision": true,
     "public_licence_acceptance_required_before_runtime_authorization": true
   },
   "direct_dependencies": [
     {
-      "name": "nix",
-      "version": "0.30.1",
+      "checksum": "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6",
+      "expected_licence": "MIT",
       "features": ["fs", "process", "signal", "socket", "term", "user"],
+      "name": "nix",
       "purpose": "safe Linux process, signal, PTY, socket and identity primitives",
-      "expected_licence": "MIT"
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.30.1"
     },
     {
-      "name": "rusqlite",
-      "version": "0.37.0",
+      "checksum": "165ca6e57b20e1351573e3729b958bc62f0e48025386970b6e4d29e7a7e71f3f",
+      "expected_licence": "MIT",
       "features": ["backup", "blob", "hooks", "limits", "trace"],
+      "name": "rusqlite",
       "purpose": "SQLite ledger adapter behind the repository-owned ledger boundary",
-      "expected_licence": "MIT"
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.37.0"
     },
     {
-      "name": "serde",
-      "version": "1.0.228",
+      "checksum": "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e",
+      "expected_licence": "MIT OR Apache-2.0",
       "features": ["derive"],
+      "name": "serde",
       "purpose": "typed contract and evidence serialization",
-      "expected_licence": "MIT OR Apache-2.0"
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.0.228"
     },
     {
+      "checksum": "402a6f66d8c709116cf22f558eab210f5a50187f702eb4d7e5ef38d9a7f1c79c",
+      "expected_licence": "MIT OR Apache-2.0",
+      "features": [],
       "name": "serde_json",
-      "version": "1.0.145",
-      "features": [],
       "purpose": "canonical JSON interchange for frozen contracts and evidence",
-      "expected_licence": "MIT OR Apache-2.0"
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.0.145"
     },
     {
+      "checksum": "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283",
+      "expected_licence": "MIT OR Apache-2.0",
+      "features": [],
       "name": "sha2",
-      "version": "0.10.9",
-      "features": [],
       "purpose": "content and evidence SHA-256 digests",
-      "expected_licence": "MIT OR Apache-2.0"
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.10.9"
     },
     {
-      "name": "thiserror",
-      "version": "2.0.17",
+      "checksum": "f63587ca0f12b72a0600bcba1d40081f830876000bb46dd2337a3051618f4fc8",
+      "expected_licence": "MIT OR Apache-2.0",
       "features": [],
+      "name": "thiserror",
       "purpose": "typed internal error boundaries without runtime policy coupling",
-      "expected_licence": "MIT OR Apache-2.0"
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.17"
     },
     {
-      "name": "tokio",
-      "version": "1.48.0",
+      "checksum": "ff360e02eab121e0bc37a2d3b4d4dc622e6eda3a8e5253d5435ecf5bd4c68408",
+      "expected_licence": "MIT",
       "features": ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"],
+      "name": "tokio",
       "purpose": "concurrent one-Node activity, terminal, transfer and local service substrate",
-      "expected_licence": "MIT"
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.48.0"
     },
     {
-      "name": "tracing",
-      "version": "0.1.41",
+      "checksum": "784e0ac535deb450455cbfa28a6f0df145ea1bb7ae51b821cf5e7927fdcfbdd0",
+      "expected_licence": "MIT",
       "features": ["std"],
+      "name": "tracing",
       "purpose": "structured activity and provider instrumentation",
-      "expected_licence": "MIT"
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.1.41"
     },
     {
-      "name": "tracing-subscriber",
-      "version": "0.3.20",
+      "checksum": "2054a14f5307d601f88daf0553e1cbf472acc4f2c51afab632431cdcd72124d5",
+      "expected_licence": "MIT",
       "features": ["env-filter", "fmt", "json", "registry"],
+      "name": "tracing-subscriber",
       "purpose": "local structured telemetry collection and filtering",
-      "expected_licence": "MIT"
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.3.20"
     },
     {
-      "name": "uuid",
-      "version": "1.18.1",
+      "checksum": "2f87b8aa10b915a06587d0dec516c282ff295b475d94abf425d62b57710070a2",
+      "expected_licence": "Apache-2.0 OR MIT",
       "features": ["serde", "v4", "v7"],
+      "name": "uuid",
       "purpose": "non-semantic globally unique identifiers and time-ordered local IDs",
-      "expected_licence": "Apache-2.0 OR MIT"
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.18.1"
     }
   ],
-  "cargo_lock": null,
-  "cargo_metadata": null,
-  "cargo_deny": null,
+  "cargo_lock": {
+    "repository_path": "Cargo.lock",
+    "sha256": "d68a06272d417d67049c7879570e3735607166ce1e7eff58e43df21e20c9117a",
+    "resolved_package_count": 99,
+    "registry_package_count": 81,
+    "git_dependency_count": 0
+  },
+  "cargo_metadata": {
+    "exact_head": "ccd269c4b8eebad97ecb43cef1c7dbc5f34cd56d",
+    "workspace_manifest_sha256": "018d7d76e7c84839c91df6f114a997396107e46c32bf78fb7768152ca3655504",
+    "evidence_manifest_sha256": "e434ff7f382b894e2b0cdfdab432d43f44e287d0c1ec59d8152915e05a7ce3f3"
+  },
+  "cargo_deny": {
+    "version": "0.19.4",
+    "config_path": "deny.toml",
+    "advisories": "pass",
+    "bans": "pass",
+    "licenses": "pass",
+    "sources": "pass",
+    "private_workspace_policy": "unpublished workspace members ignored; no public licence granted",
+    "additional_transitive_licence": "Zlib",
+    "workflow_run_id": 29730610604,
+    "artifact_id": 8456161387,
+    "artifact_sha256": "1ba7f6679e2088b812c15f3fc0a42fbf73e258cef0b33ca470574785377c8127"
+  },
   "blockers": [
-    "Generate and commit Cargo.lock from the exact selected dependency set.",
-    "Run source, licence, ban and advisory policy at one exact candidate head.",
-    "Record every resolved package name, version, source and checksum.",
-    "Owner acceptance of the public Apache-2.0 boundary remains separate and open."
+    "Lock authoritative hashes or signatures for every installed or distributed backend artifact.",
+    "Produce a proof-eligible capability report on the exact pinned Ubuntu Server 24.04.4 and 6.8.0-136-generic host.",
+    "Persist final evidence beyond temporary workflow artifact retention.",
+    "Owner acceptance of the public Apache-2.0 and private contribution boundary remains separate and open.",
+    "Complete the Phase 0C closure consistency review before runtime authorization."
   ]
 }

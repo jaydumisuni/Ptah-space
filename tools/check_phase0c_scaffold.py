@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -95,9 +96,49 @@ if lock.get("status") == LOCKED_BINDING_STATE:
     if not any("runtime dependency" in item.lower() for item in blockers):
         raise SystemExit("Binding-locked state must retain the runtime-dependency blocker")
 
+selection_path = ROOT / "dependencies/rust-direct-lock.json"
+if selection_path.is_file():
+    selection = json.loads(selection_path.read_text(encoding="utf-8"))
+    if selection.get("runtime_implementation_authorized") is not False:
+        raise SystemExit("Rust dependency evidence cannot authorize runtime implementation")
+    if selection.get("status") not in {
+        "candidate_exact_versions_lock_generation_open",
+        "exact_versions_locked_policy_evidence_open",
+        "exact_versions_and_policy_locked_host_proof_open",
+    }:
+        raise SystemExit("Rust dependency selection has an unknown Phase 0C state")
+
+    workspace = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+    members = workspace.get("workspace", {}).get("members", [])
+    evidence_member = "evidence/rust-dependency-lock"
+    if evidence_member not in members:
+        raise SystemExit("Dependency lock evidence package is not a workspace member")
+    evidence_manifest = ROOT / evidence_member / "Cargo.toml"
+    if not evidence_manifest.is_file():
+        raise SystemExit("Dependency lock evidence package is missing")
+
+    for manifest_path in ROOT.rglob("Cargo.toml"):
+        relative = manifest_path.relative_to(ROOT).as_posix()
+        if relative in {"Cargo.toml", f"{evidence_member}/Cargo.toml"}:
+            continue
+        if "ptah-rust-dependency-lock" in manifest_path.read_text(encoding="utf-8"):
+            raise SystemExit(f"Production package links the evidence-only dependency crate: {relative}")
+
 host = json.loads((ROOT / "host/image-lock.json").read_text(encoding="utf-8"))
 if host.get("runtime_authorized") is not False:
     raise SystemExit("Host candidate cannot claim runtime authorization")
+
+host_profile = json.loads((ROOT / "host/capability-profile.json").read_text(encoding="utf-8"))
+collector = host_profile.get("collector")
+if collector is not None:
+    if not isinstance(collector, dict):
+        raise SystemExit("Host collector record must be an object")
+    if collector.get("repository_path") != "host/scripts/collect_capabilities.py":
+        raise SystemExit("Host collector path is not canonical")
+    if collector.get("runtime_implementation_authorized") is not False:
+        raise SystemExit("Host collector cannot authorize runtime implementation")
+if host_profile.get("pinned_host_proof") is not None:
+    raise SystemExit("Pinned host proof cannot be claimed before the reviewed host run")
 
 forbidden_gateway = "applied" + "-caas-gateway"
 skip_roots = {".git", "target", "node_modules"}

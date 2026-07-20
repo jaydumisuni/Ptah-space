@@ -63,7 +63,8 @@ pub const PHASE_0B_FREEZE_COMMIT: &str = "dc2db457f1705d0cba80f17ab76e5e93f808ae
 /// WP14 merge containing the frozen proof burden.
 pub const WP14_MERGE_COMMIT: &str = "fef387c4f074af7fcf86f2d99f7f9b7637e91f88";
 /// Aggregate digest of the fourteen locked catalog entries.
-pub const CATALOG_SET_SHA256: &str = "f0668a5f5d5c68cabf623176608c627a94482faa4f4460e4f0fe0f0969d7c64d";
+pub const CATALOG_SET_SHA256: &str =
+    "f0668a5f5d5c68cabf623176608c627a94482faa4f4460e4f0fe0f0969d7c64d";
 /// Number of active frozen catalogs.
 pub const CATALOG_COUNT: usize = 14;
 /// Number of frozen schema bindings.
@@ -4104,21 +4105,22 @@ pub static STATE_MACHINES: &[StateMachineBinding] = &[
 /// Find a frozen catalog by canonical URN.
 #[must_use]
 pub fn catalog_by_id(catalog_id: &str) -> Option<&'static CatalogBinding> {
-    CATALOGS.iter().find(|binding| binding.catalog_id == catalog_id)
+    CATALOGS
+        .iter()
+        .find(|binding| binding.catalog_id == catalog_id)
 }
 
 /// Find a frozen schema by canonical URN.
 #[must_use]
 pub fn schema_by_id(schema_id: &str) -> Option<&'static SchemaBinding> {
-    SCHEMAS.iter().find(|binding| binding.schema_id == schema_id)
+    SCHEMAS
+        .iter()
+        .find(|binding| binding.schema_id == schema_id)
 }
 
 /// Find a frozen lifecycle machine by name and version.
 #[must_use]
-pub fn state_machine(
-    name: &str,
-    version: &str,
-) -> Option<&'static StateMachineBinding> {
+pub fn state_machine(name: &str, version: &str) -> Option<&'static StateMachineBinding> {
     STATE_MACHINES.iter().find(|binding| {
         binding.state_machine_name == name && binding.state_machine_version == version
     })

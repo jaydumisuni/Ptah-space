@@ -1,0 +1,42 @@
+{
+  "schema_version": "0.1.0",
+  "generator": {
+    "name": "ptah-phase0c-contract-bindings-alias-aware",
+    "version": "0.2.1",
+    "repository_path": "tools/contract_binding_generator_aliases.py",
+    "sha256": "39abfc01d67eddbe002f7fb694b9c579f43acd3c0c0f26595f420bb4cb08829f",
+    "sources": [
+      {
+        "repository_path": "tools/contract_binding_generator_aliases.py",
+        "sha256": "39abfc01d67eddbe002f7fb694b9c579f43acd3c0c0f26595f420bb4cb08829f"
+      },
+      {
+        "repository_path": "tools/contract_binding_generator.py",
+        "sha256": "8133d3315d93f096efe5adabc3e3eef62fb74a6988f7ced67ebe2986241120ce"
+      }
+    ]
+  },
+  "authority": {
+    "repository": "jaydumisuni/ptah-roadmap-",
+    "phase_0b_freeze_merge": "dc2db457f1705d0cba80f17ab76e5e93f808aee0",
+    "wp14_merge": "fef387c4f074af7fcf86f2d99f7f9b7637e91f88"
+  },
+  "catalog_set_sha256": "f0668a5f5d5c68cabf623176608c627a94482faa4f4460e4f0fe0f0969d7c64d",
+  "output_tree_sha256": "be5092febd52861b1199643864af479e83ca2caffb5d87174541fc2f2536e2be",
+  "files": [
+    {
+      "repository_path": "contracts/generated/catalog-index.json",
+      "sha256": "0f97e222d9baf9f90721d2a30dd2b31920b53489ae343b0430cc9089c8fdaf9c",
+      "size_bytes": 199900
+    },
+    {
+      "repository_path": "crates/ptah-contracts/src/generated.rs",
+      "sha256": "739e3fde92ed40377fb8c259aaa627a699f3b1d14b5935d44e1ab7913cd4f813",
+      "size_bytes": 193360
+    }
+  ],
+  "catalog_count": 14,
+  "schema_count": 346,
+  "state_machine_count": 99,
+  "runtime_implementation_authorized": false
+}

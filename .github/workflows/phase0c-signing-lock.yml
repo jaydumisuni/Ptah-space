@@ -1,0 +1,75 @@
+name: Phase 0C signer lock boundary
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  signing-lock-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Validate immutable signing lock
+        run: |
+          mkdir -p conformance/reports/signing-lock
+          set -o pipefail
+          python tools/check_phase0c_signing_lock.py 2>&1 \
+            | tee conformance/reports/signing-lock/signing-lock-check.json
+
+      - name: Write exact-head signing boundary record
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path("conformance/reports/signing-lock")
+          check_path = root / "signing-lock-check.json"
+          expected = os.environ["PTAH_EXACT_SHA"]
+          checked_out = subprocess.run(
+              ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+          ).stdout.strip()
+          record = {
+              "record_type": "ptah.phase0c.signing_lock_boundary",
+              "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "implementation_commit": expected,
+              "checked_out_commit": checked_out,
+              "exact_head_match": checked_out == expected,
+              "check_sha256": hashlib.sha256(check_path.read_bytes()).hexdigest(),
+              "runtime_implementation_authorized": False,
+          }
+          (root / "signing-lock-record.json").write_text(
+              json.dumps(record, indent=2) + "\n", encoding="utf-8"
+          )
+          if not record["exact_head_match"]:
+              raise SystemExit("signing lock boundary did not test the exact head")
+          PY
+
+      - name: Upload signing lock evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase-0c-signing-lock-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: conformance/reports/signing-lock/
+          if-no-files-found: error
+          retention-days: 30

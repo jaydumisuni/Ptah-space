@@ -63,15 +63,9 @@ def read_os_release() -> dict[str, str]:
 
 
 def locate_capability_collector(repo_root: Path) -> Path:
-    candidates = [
-        repo_root / "host" / "scripts" / "collect_capabilities.py",
-        repo_root / "tools" / "collect_host_capabilities.py",
-        repo_root / "tools" / "collect_host_capability_evidence.py",
-        repo_root / "tools" / "host_capability_collector.py",
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
+    collector = repo_root / "host" / "scripts" / "collect_capabilities.py"
+    if collector.is_file():
+        return collector
     raise ProofError(
         "accepted Ptah host-capability collector was not found at "
         "host/scripts/collect_capabilities.py"

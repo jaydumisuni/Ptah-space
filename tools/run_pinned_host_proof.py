@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Create a fail-closed Phase 0C pinned-host proof bundle.
 
-This script collects host identity, installed package inventory, repository state,
-and existing Ptah host-capability evidence. It never authorizes runtime behavior.
-Run it only on the exact frozen Ubuntu host candidate.
+This script collects host identity, installed package inventory, exact APT
+package-artifact digests, repository state, and existing Ptah host-capability
+evidence. It never authorizes runtime behavior. Run it only on the exact frozen
+Ubuntu host candidate.
 """
 from __future__ import annotations
 
@@ -24,6 +25,9 @@ EXPECTED_POINT_RELEASE = "24.04.4"
 EXPECTED_ARCH = "x86_64"
 EXPECTED_KERNEL_PREFIX = "6.8.0-136-generic"
 EXPECTED_CAPABILITY_RECORD_TYPE = "ptah.phase0c.host_capability_report"
+EXPECTED_PACKAGE_ARTIFACT_RECORD_TYPE = (
+    "ptah.phase0c.installed_package_artifact_manifest"
+)
 
 
 class ProofError(RuntimeError):
@@ -31,6 +35,7 @@ class ProofError(RuntimeError):
 
 
 def run(command: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """Run one command without a shell and optionally fail on non-zero status."""
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     if check and result.returncode != 0:
         raise ProofError(
@@ -40,6 +45,7 @@ def run(command: list[str], *, check: bool = True) -> subprocess.CompletedProces
 
 
 def sha256_file(path: Path) -> str:
+    """Return the SHA-256 digest of one file."""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -48,11 +54,13 @@ def sha256_file(path: Path) -> str:
 
 
 def canonical_sha256(value: Any) -> str:
+    """Hash one JSON value with deterministic encoding."""
     raw = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     return hashlib.sha256(raw).hexdigest()
 
 
 def read_os_release() -> dict[str, str]:
+    """Read the candidate host's os-release fields."""
     values: dict[str, str] = {}
     for line in Path("/etc/os-release").read_text(encoding="utf-8").splitlines():
         if not line or line.startswith("#") or "=" not in line:
@@ -63,6 +71,7 @@ def read_os_release() -> dict[str, str]:
 
 
 def locate_capability_collector(repo_root: Path) -> Path:
+    """Resolve only the accepted host-capability collector path."""
     collector = repo_root / "host" / "scripts" / "collect_capabilities.py"
     if collector.is_file():
         return collector
@@ -72,7 +81,19 @@ def locate_capability_collector(repo_root: Path) -> Path:
     )
 
 
+def locate_package_artifact_collector(repo_root: Path) -> Path:
+    """Resolve only the accepted installed-package artifact collector path."""
+    collector = repo_root / "tools" / "collect_apt_package_artifacts.py"
+    if collector.is_file():
+        return collector
+    raise ProofError(
+        "accepted installed-package artifact collector was not found at "
+        "tools/collect_apt_package_artifacts.py"
+    )
+
+
 def collect_packages() -> list[dict[str, str]]:
+    """Collect exact installed dpkg package/version/architecture records."""
     if shutil.which("dpkg-query") is None:
         raise ProofError("dpkg-query is unavailable on the candidate host")
     result = run(
@@ -102,6 +123,7 @@ def collect_packages() -> list[dict[str, str]]:
 
 
 def collect_apt_sources() -> list[str]:
+    """Capture active APT source lines without comments."""
     paths = [Path("/etc/apt/sources.list")]
     paths.extend(sorted(Path("/etc/apt/sources.list.d").glob("*")))
     records: list[str] = []
@@ -116,6 +138,7 @@ def collect_apt_sources() -> list[str]:
 
 
 def collect_boot_identity() -> dict[str, Any]:
+    """Capture privacy-preserving machine and boot identity evidence."""
     result: dict[str, Any] = {
         "machine_id_sha256": None,
         "boot_id_sha256": None,
@@ -134,6 +157,7 @@ def collect_boot_identity() -> dict[str, Any]:
 
 
 def validate_host(os_release: dict[str, str], kernel: str, arch: str) -> list[str]:
+    """Return exact frozen-host identity mismatches."""
     failures: list[str] = []
     pretty = " ".join(
         [os_release.get("VERSION", ""), os_release.get("PRETTY_NAME", "")]
@@ -152,6 +176,7 @@ def validate_host(os_release: dict[str, str], kernel: str, arch: str) -> list[st
 
 
 def sanitize_capability_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Remove raw hostname identity before retaining capability evidence."""
     sanitized = json.loads(json.dumps(payload))
     host = sanitized.get("host")
     if isinstance(host, dict):
@@ -162,6 +187,7 @@ def sanitize_capability_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def repository_state(repo_root: Path, output_root: Path) -> dict[str, Any]:
+    """Capture tracked, staged, and unexpected untracked repository changes."""
     worktree_dirty = run(
         ["git", "-C", str(repo_root), "diff", "--quiet"], check=False
     ).returncode != 0
@@ -199,6 +225,7 @@ def repository_state(repo_root: Path, output_root: Path) -> dict[str, Any]:
 
 
 def validate_capability_payload(payload: dict[str, Any]) -> list[str]:
+    """Validate the accepted host-capability report's proof boundary."""
     failures: list[str] = []
     if payload.get("record_type") != EXPECTED_CAPABILITY_RECORD_TYPE:
         failures.append("capability_record_type_mismatch")
@@ -217,17 +244,53 @@ def validate_capability_payload(payload: dict[str, Any]) -> list[str]:
     return failures
 
 
-def proof_failures(
-    host_failures: list[str], repository_dirty: bool, capability_failures: list[str]
+def validate_package_artifact_payload(
+    payload: dict[str, Any], expected_package_count: int
 ) -> list[str]:
+    """Validate exact APT package-artifact digest completeness."""
+    failures: list[str] = []
+    if payload.get("record_type") != EXPECTED_PACKAGE_ARTIFACT_RECORD_TYPE:
+        failures.append("package_artifact_record_type_mismatch")
+    if payload.get("runtime_implementation_authorized") is not False:
+        failures.append("package_artifact_authorization_boundary_invalid")
+    if payload.get("network_used") is not False:
+        failures.append("package_artifact_network_boundary_invalid")
+    if payload.get("package_count") != expected_package_count:
+        failures.append("package_artifact_package_count_mismatch")
+    if payload.get("artifact_count") != expected_package_count:
+        failures.append("package_artifact_count_incomplete")
+    if payload.get("missing_count") != 0:
+        failures.append("package_artifact_missing_count_nonzero")
+    if payload.get("complete") is not True:
+        failures.append("package_artifact_manifest_incomplete")
+    missing = payload.get("missing")
+    if not isinstance(missing, list) or missing:
+        failures.append("package_artifact_missing_records_present_or_invalid")
+    inventory = payload.get("apt_index_inventory")
+    if not isinstance(inventory, dict) or inventory.get("present") is not True:
+        failures.append("apt_index_inventory_missing")
+    return failures
+
+
+def proof_failures(
+    host_failures: list[str],
+    repository_dirty: bool,
+    capability_failures: list[str],
+    package_artifact_failures: list[str],
+) -> list[str]:
+    """Combine all fail-closed proof eligibility failures."""
     failures = [f"host:{failure}" for failure in host_failures]
     if repository_dirty:
         failures.append("repository_dirty")
     failures.extend(f"capability:{failure}" for failure in capability_failures)
+    failures.extend(
+        f"package_artifact:{failure}" for failure in package_artifact_failures
+    )
     return failures
 
 
 def invoke_capability_collector(repo_root: Path, output_root: Path) -> dict[str, Any]:
+    """Invoke and validate the accepted host-capability collector."""
     collector = locate_capability_collector(repo_root)
     output = output_root / "host-capabilities.json"
     command = [sys.executable, str(collector), "--output", str(output)]
@@ -259,11 +322,60 @@ def invoke_capability_collector(repo_root: Path, output_root: Path) -> dict[str,
     }
 
 
+def invoke_package_artifact_collector(
+    repo_root: Path,
+    installed_packages_path: Path,
+    output_root: Path,
+    expected_package_count: int,
+) -> dict[str, Any]:
+    """Invoke and validate the exact installed-package artifact collector."""
+    collector = locate_package_artifact_collector(repo_root)
+    output = output_root / "package-artifacts.json"
+    command = [
+        sys.executable,
+        str(collector),
+        "--installed-packages",
+        str(installed_packages_path),
+        "--output",
+        str(output),
+    ]
+    result = run(command, check=False)
+    if result.returncode != 0:
+        raise ProofError(
+            "installed-package artifact collector failed "
+            f"({result.returncode}): {(result.stderr or result.stdout).strip()}"
+        )
+    if not output.is_file():
+        raise ProofError(
+            "installed-package artifact collector did not produce package-artifacts.json"
+        )
+    try:
+        payload = json.loads(output.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ProofError(f"package artifact collector emitted invalid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ProofError("package artifact collector JSON root is not an object")
+    validation_failures = validate_package_artifact_payload(
+        payload, expected_package_count
+    )
+    return {
+        "collector_path": collector.relative_to(repo_root).as_posix(),
+        "collector_sha256": sha256_file(collector),
+        "collector_returncode": result.returncode,
+        "report_path": output.name,
+        "report_sha256": sha256_file(output),
+        "validation_failures": validation_failures,
+        "payload": payload,
+    }
+
+
 def write_json(path: Path, value: Any) -> None:
+    """Write stable UTF-8 JSON with a final newline."""
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def build_bundle(repo_root: Path, output_root: Path) -> dict[str, Any]:
+    """Collect the complete pinned-host proof candidate bundle."""
     if output_root.exists() and any(output_root.iterdir()):
         raise ProofError(f"output directory is not empty: {output_root}")
     commit_before = run(["git", "-C", str(repo_root), "rev-parse", "HEAD"]).stdout.strip()
@@ -287,6 +399,11 @@ def build_bundle(repo_root: Path, output_root: Path) -> dict[str, Any]:
     package_path = output_root / "installed-packages.json"
     write_json(package_path, package_record)
 
+    package_artifacts = invoke_package_artifact_collector(
+        repo_root, package_path, output_root, len(packages)
+    )
+    package_artifact_failures = list(package_artifacts["validation_failures"])
+
     apt_sources = collect_apt_sources()
     apt_record = {
         "schema_version": "0.1.0",
@@ -304,7 +421,12 @@ def build_bundle(repo_root: Path, output_root: Path) -> dict[str, Any]:
     repository_after = repository_state(repo_root, output_root)
     commit_changed = commit_before != commit_after
     dirty = repository_before["dirty"] or repository_after["dirty"] or commit_changed
-    eligibility_failures = proof_failures(host_failures, dirty, capability_failures)
+    eligibility_failures = proof_failures(
+        host_failures,
+        dirty,
+        capability_failures,
+        package_artifact_failures,
+    )
     if commit_changed:
         eligibility_failures.append("repository_commit_changed_during_collection")
 
@@ -344,7 +466,7 @@ def build_bundle(repo_root: Path, output_root: Path) -> dict[str, Any]:
         )
 
     manifest = {
-        "schema_version": "0.2.0",
+        "schema_version": "0.3.0",
         "record_type": "ptah.phase0c.pinned_host_proof_bundle",
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "implementation_commit": commit_before,
@@ -357,10 +479,15 @@ def build_bundle(repo_root: Path, output_root: Path) -> dict[str, Any]:
         "eligibility_failures": eligibility_failures,
         "host_identity_failures": host_failures,
         "capability_failures": capability_failures,
+        "package_artifact_failures": package_artifact_failures,
         "capability_report": {
             key: value for key, value in capabilities.items() if key != "payload"
         },
+        "package_artifact_report": {
+            key: value for key, value in package_artifacts.items() if key != "payload"
+        },
         "package_count": len(packages),
+        "package_artifact_count": package_artifacts["payload"].get("artifact_count"),
         "files": file_records,
         "bundle_sha256": canonical_sha256(file_records),
         "runtime_implementation_authorized": False,
@@ -370,6 +497,7 @@ def build_bundle(repo_root: Path, output_root: Path) -> dict[str, Any]:
 
 
 def main() -> int:
+    """Run collection and fail closed when the bundle is not proof-eligible."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     parser.add_argument("--output", type=Path, required=True)

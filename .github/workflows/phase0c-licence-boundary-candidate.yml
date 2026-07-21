@@ -1,4 +1,4 @@
-name: Phase 0C licence boundary candidate
+name: Phase 0C licence boundary acceptance
 
 on:
   pull_request:
@@ -12,12 +12,12 @@ env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 jobs:
-  apache2-boundary-candidate:
+  apache2-boundary-acceptance:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
-      - name: Check out exact candidate head
+      - name: Check out exact acceptance head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.PTAH_EXACT_SHA }}
@@ -28,22 +28,22 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Run candidate regressions
+      - name: Run acceptance regressions
         run: |
           mkdir -p conformance/reports/licence
           set -o pipefail
-          python -m unittest -v tools/test_check_apache2_boundary_candidate.py \
-            2>&1 | tee conformance/reports/licence/candidate-tests.txt
+          python -m unittest -v tools/test_check_apache2_boundary_acceptance.py \
+            2>&1 | tee conformance/reports/licence/acceptance-tests.txt
 
-      - name: Verify non-operative boundary candidate
+      - name: Verify operative owner acceptance
         run: |
           set -o pipefail
-          python tools/check_apache2_boundary_candidate.py \
+          python tools/check_apache2_boundary_acceptance.py \
             --repo-root . \
-            --output conformance/reports/licence/apache2-boundary-candidate-report.json \
-            2>&1 | tee conformance/reports/licence/candidate-check-output.txt
+            --output conformance/reports/licence/apache2-boundary-acceptance-report.json \
+            2>&1 | tee conformance/reports/licence/acceptance-check-output.txt
 
-      - name: Bind report to exact candidate head
+      - name: Bind acceptance report to exact head
         run: |
           python - <<'PY'
           import hashlib
@@ -54,7 +54,7 @@ jobs:
           from pathlib import Path
 
           root = Path("conformance/reports/licence")
-          report_path = root / "apache2-boundary-candidate-report.json"
+          report_path = root / "apache2-boundary-acceptance-report.json"
           report = json.loads(report_path.read_text(encoding="utf-8"))
           expected = os.environ["PTAH_EXACT_SHA"]
           checked_out = subprocess.run(
@@ -65,43 +65,40 @@ jobs:
           ).stdout.strip()
           evidence = {
               "schema_version": "0.1.0",
-              "record_type": "ptah.phase0c.apache_2_0_boundary_candidate_evidence",
+              "record_type": "ptah.phase0c.apache_2_0_boundary_acceptance_evidence",
               "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
               "implementation_commit": expected,
               "checked_out_commit": checked_out,
               "exact_head_match": checked_out == expected,
-              "candidate_report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest(),
-              "candidate_status": report.get("status"),
+              "acceptance_report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest(),
+              "acceptance_status": report.get("status"),
+              "owner_identity": report.get("owner_identity"),
               "official_license_sha256": report.get("official_license_sha256"),
-              "owner_confirmation_required": report.get("owner_confirmation_required"),
-              "operative_root_files_present": report.get("operative_root_files_present"),
               "apache_2_0_accepted": report.get("apache_2_0_accepted"),
               "runtime_implementation_authorized": report.get(
                   "runtime_implementation_authorized"
               ),
           }
-          (root / "exact-head-evidence.json").write_text(
+          (root / "exact-head-acceptance-evidence.json").write_text(
               json.dumps(evidence, indent=2) + "\n", encoding="utf-8"
           )
           if not evidence["exact_head_match"]:
-              raise SystemExit("licence candidate did not test exact head")
-          if evidence["candidate_status"] != "candidate_valid_non_operative":
-              raise SystemExit("licence candidate status is invalid")
-          if evidence["owner_confirmation_required"] is not True:
-              raise SystemExit("owner confirmation boundary is missing")
-          if evidence["operative_root_files_present"] is not False:
-              raise SystemExit("operative root licence files appeared prematurely")
-          if evidence["apache_2_0_accepted"] is not False:
-              raise SystemExit("candidate cannot accept Apache-2.0")
+              raise SystemExit("licence acceptance did not test exact head")
+          if evidence["acceptance_status"] != "owner_accepted_operative_verified":
+              raise SystemExit("licence acceptance status is invalid")
+          if evidence["owner_identity"] != "John Dumisuni trading as THETECHGUY DIGITAL SOLUTIONS":
+              raise SystemExit("accepted owner identity is invalid")
+          if evidence["apache_2_0_accepted"] is not True:
+              raise SystemExit("Apache-2.0 owner acceptance is missing")
           if evidence["runtime_implementation_authorized"] is not False:
-              raise SystemExit("licence candidate cannot authorize runtime")
+              raise SystemExit("licence acceptance cannot authorize runtime")
           PY
 
-      - name: Upload licence boundary candidate evidence
+      - name: Upload licence acceptance evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: phase-0c-licence-boundary-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          name: phase-0c-licence-acceptance-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
           path: conformance/reports/licence/
           if-no-files-found: error
           retention-days: 30

@@ -25,6 +25,13 @@ if SPEC is None or SPEC.loader is None:
 HELPER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(HELPER)
 
+EXPECTED_OUTPUT_FILES = {
+    "README.md",
+    "durable-pinned-host-bundle.json",
+    "pinned-host-review-record.json",
+    "repository-binding.json",
+}
+
 
 class BindingError(RuntimeError):
     """Raised when durable evidence is not bound to the reviewed repository."""
@@ -186,13 +193,69 @@ def validate_repository_binding(
     }
 
 
+def validate_final_output(output_dir: Path) -> dict[str, str]:
+    """Require the exact final durable output set and pending boundaries."""
+    require(output_dir.is_dir() and not output_dir.is_symlink(), "final durable output directory is invalid")
+    entries = list(output_dir.iterdir())
+    require(not any(entry.is_symlink() for entry in entries), "final durable output contains a symlink")
+    require(not any(entry.is_dir() for entry in entries), "final durable output contains a subdirectory")
+    present = {entry.name for entry in entries if entry.is_file()}
+    require(
+        present == EXPECTED_OUTPUT_FILES,
+        f"final durable output set mismatch: expected {sorted(EXPECTED_OUTPUT_FILES)}, got {sorted(present)}",
+    )
+    durable = HELPER.load_json(output_dir / "durable-pinned-host-bundle.json")
+    review = HELPER.load_json(output_dir / "pinned-host-review-record.json")
+    binding = HELPER.load_json(output_dir / "repository-binding.json")
+    require(
+        durable.get("retention_status") == "durable_candidate_pending_review",
+        "durable bundle is not pending review",
+    )
+    require(durable.get("proof_eligible_source_verified") is True, "durable bundle did not retain a verified source")
+    require(review.get("review_status") == "pending", "review record is not pending")
+    for field in (
+        "physical_host_identity_accepted",
+        "installed_package_manifest_accepted",
+        "package_artifact_manifest_accepted",
+        "durable_retention_accepted",
+        "adr0033_accepted",
+        "runtime_implementation_authorized",
+    ):
+        require(review.get(field) is False, f"review field must remain false: {field}")
+    require(binding.get("review_status") == "pending", "repository binding is not pending review")
+    require(
+        binding.get("runtime_implementation_authorized") is False,
+        "repository binding authorizes runtime implementation",
+    )
+    return {
+        "durable_bundle_file_sha256": HELPER.sha256_file(
+            output_dir / "durable-pinned-host-bundle.json"
+        ),
+        "review_record_file_sha256": HELPER.sha256_file(
+            output_dir / "pinned-host-review-record.json"
+        ),
+        "repository_binding_file_sha256": HELPER.sha256_file(
+            output_dir / "repository-binding.json"
+        ),
+        "readme_file_sha256": HELPER.sha256_file(output_dir / "README.md"),
+    }
+
+
 def retain_verified(
     repo_root: Path, bundle_dir: Path, output_dir: Path
 ) -> dict[str, Any]:
     """Perform internal verification, repository binding and durable retention."""
-    repo_root = repo_root.resolve()
-    bundle_dir = bundle_dir.resolve()
-    output_dir = output_dir.resolve()
+    raw_repo_root = Path(repo_root)
+    raw_bundle_dir = Path(bundle_dir)
+    raw_output_dir = Path(output_dir)
+    require(not raw_repo_root.is_symlink(), "repository root cannot be a symlink")
+    require(not raw_bundle_dir.is_symlink(), "source bundle directory cannot be a symlink")
+    if raw_output_dir.exists():
+        require(not raw_output_dir.is_symlink(), "durable output directory cannot be a symlink")
+
+    repo_root = raw_repo_root.resolve()
+    bundle_dir = raw_bundle_dir.resolve()
+    output_dir = raw_output_dir.resolve()
     verification = HELPER.verify_bundle(bundle_dir)
     before = validate_repository_binding(
         repo_root,
@@ -232,10 +295,18 @@ def retain_verified(
     }
     binding_path = output_dir / "repository-binding.json"
     HELPER.write_json(binding_path, binding)
+    final_hashes = validate_final_output(output_dir)
+    final_state = repository_state(
+        repo_root, (before["bundle_relative"], before["output_relative"])
+    )
+    require(not final_state["dirty"], f"repository changed after durable retention: {final_state}")
+    final_commit = run(["git", "-C", str(repo_root), "rev-parse", "HEAD"]).stdout.strip()
+    require(final_commit == before["implementation_commit"], "repository HEAD changed after durable retention")
     return {
         **retained,
-        "repository_binding_file_sha256": HELPER.sha256_file(binding_path),
+        **final_hashes,
         "repository_binding_verified": True,
+        "final_repository_state": final_state,
         "review_status": "pending",
         "runtime_implementation_authorized": False,
     }

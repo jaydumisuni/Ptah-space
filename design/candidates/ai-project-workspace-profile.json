@@ -1,0 +1,103 @@
+{
+  "schema_version": "0.1.0",
+  "record_type": "ptah.phase0c.ai_project_workspace_profile_candidate",
+  "profile_id": "ptah.workspace.ai_project.v1",
+  "status": "candidate_non_operative",
+  "purpose": "Compose frozen Ptah primitives into an inspectable long-running human-and-agent project workspace.",
+  "donor_record": "design/donors/openai-chatgpt-projects-work.md",
+  "new_core_entity_required": false,
+  "frozen_contract_change_required": false,
+  "composed_primitives": [
+    "Workspace",
+    "Session",
+    "Activity",
+    "Event",
+    "Attempt",
+    "Object",
+    "Revision",
+    "View",
+    "Artifact",
+    "Knowledge",
+    "Policy",
+    "Facility",
+    "Provider",
+    "Grant",
+    "Recipe",
+    "Receipt"
+  ],
+  "memory_scopes": [
+    "workspace_only",
+    "workspace_plus_explicit_shared",
+    "temporary_session"
+  ],
+  "source_authority_classes": [
+    "canonical",
+    "accepted_evidence",
+    "recovery_copy",
+    "reference",
+    "generated_candidate",
+    "temporary_context",
+    "rejected",
+    "superseded"
+  ],
+  "context_packet_required_fields": [
+    "workspace_identity",
+    "purpose",
+    "actor_role",
+    "current_objective",
+    "accepted_decisions",
+    "open_blockers",
+    "authoritative_sources",
+    "relevant_sessions",
+    "active_activities",
+    "pending_approvals",
+    "facility_grants",
+    "evidence_requirements",
+    "last_handoff"
+  ],
+  "thread_inheritance": [
+    "workspace purpose",
+    "accepted policies",
+    "authoritative source index",
+    "member role",
+    "facility grants",
+    "privacy boundary"
+  ],
+  "thread_local_state": [
+    "temporary reasoning context",
+    "activity history",
+    "draft artifacts",
+    "unresolved questions",
+    "handoff checkpoint"
+  ],
+  "facility_grant_rules": {
+    "read": "explicit workspace or role grant",
+    "write": "explicit workspace or role grant",
+    "protected_action": "human approval or accepted policy",
+    "private_export": "denied unless explicitly authorized",
+    "destructive_action": "fail closed with evidence and approval"
+  },
+  "scheduled_activity_rule": "A scheduled Activity receives only explicitly granted Workspace Artifacts, prior run state and Provider Grants.",
+  "handoff_required_fields": [
+    "completed",
+    "current_state",
+    "next_action",
+    "blockers",
+    "authority",
+    "generated_artifacts"
+  ],
+  "privacy_rules": [
+    "workspace_only memory cannot be retrieved by another Workspace",
+    "private Hunter knowledge cannot enter a public Workspace without explicit release",
+    "customer, device, payment and secret material requires restrictive audience and Grants",
+    "context selection must retain source authority and provenance"
+  ],
+  "non_claims": [
+    "no runtime implementation",
+    "no frozen contract modification",
+    "no OpenAI source-code reuse",
+    "no proprietary internal architecture claim",
+    "no model-provider dependency"
+  ],
+  "runtime_implementation_authorized": false
+}

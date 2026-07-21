@@ -8,7 +8,7 @@ Ptah provides the environment and machinery. Humans and compatible software syst
 
 **Phase 0C non-claiming scaffold only. Runtime implementation is not authorized.**
 
-The workspace, dependency locks, contract-lock placeholder, host candidate records, and CI safety checks exist only to close implementation-selection evidence. No Node, Workspace, Provider, Browser, container, transfer, repair, or user interface runtime is claimed as implemented.
+The workspace, dependency locks, contract locks, host candidate records, governance candidates, and CI safety checks exist only to close implementation-selection evidence. No Node, Workspace, Provider, Browser, container, transfer, repair, or user interface runtime is claimed as implemented.
 
 Master roadmap control, current ecosystem progress, internal decisions, and recovery memory are maintained in `jaydumisuni/ptah-roadmap-`.
 
@@ -18,4 +18,6 @@ Master roadmap control, current ecosystem progress, internal decisions, and reco
 
 ## Licence
 
-Apache License 2.0 is the Phase 0C public-source recommendation, but owner acceptance is still pending. Until a licence file is deliberately merged, no broader licence grant should be inferred from this repository.
+Repository-owned public Ptah source is licensed under the Apache License, Version 2.0. See `LICENSE`, `NOTICE`, `CONTRIBUTING.md`, `SECURITY.md`, `REUSE.toml`, and `legal/apache-2.0-boundary.json`.
+
+Private THETECHGUY systems, Hunter private knowledge, customer/device/payment data, restricted adapters, unlicensed donor source, and THETECHGUY/Ptah/Hunter trademarks are not automatically licensed by this public repository.

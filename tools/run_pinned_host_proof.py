@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import platform
 import shutil
 import subprocess
@@ -24,6 +23,7 @@ EXPECTED_VERSION_ID = "24.04"
 EXPECTED_POINT_RELEASE = "24.04.4"
 EXPECTED_ARCH = "x86_64"
 EXPECTED_KERNEL_PREFIX = "6.8.0-136-generic"
+EXPECTED_CAPABILITY_RECORD_TYPE = "ptah.phase0c.host_capability_report"
 
 
 class ProofError(RuntimeError):
@@ -64,6 +64,7 @@ def read_os_release() -> dict[str, str]:
 
 def locate_capability_collector(repo_root: Path) -> Path:
     candidates = [
+        repo_root / "host" / "scripts" / "collect_capabilities.py",
         repo_root / "tools" / "collect_host_capabilities.py",
         repo_root / "tools" / "collect_host_capability_evidence.py",
         repo_root / "tools" / "host_capability_collector.py",
@@ -71,10 +72,10 @@ def locate_capability_collector(repo_root: Path) -> Path:
     for candidate in candidates:
         if candidate.is_file():
             return candidate
-    for candidate in sorted((repo_root / "tools").glob("*host*capabilit*.py")):
-        if candidate.is_file() and candidate.name != Path(__file__).name:
-            return candidate
-    raise ProofError("existing Ptah host-capability collector was not found")
+    raise ProofError(
+        "accepted Ptah host-capability collector was not found at "
+        "host/scripts/collect_capabilities.py"
+    )
 
 
 def collect_packages() -> list[dict[str, str]]:
@@ -156,32 +157,62 @@ def validate_host(os_release: dict[str, str], kernel: str, arch: str) -> list[st
     return failures
 
 
+def validate_capability_payload(payload: dict[str, Any]) -> list[str]:
+    failures: list[str] = []
+    if payload.get("record_type") != EXPECTED_CAPABILITY_RECORD_TYPE:
+        failures.append("capability_record_type_mismatch")
+    if payload.get("runtime_implementation_authorized") is not False:
+        failures.append("capability_report_authorization_boundary_invalid")
+    if payload.get("required_capabilities_passed") is not True:
+        failures.append("required_capabilities_not_passed")
+    if payload.get("proof_eligible") is not True:
+        failures.append("capability_report_not_proof_eligible")
+    pinned_match = payload.get("pinned_host_match")
+    if not isinstance(pinned_match, dict) or pinned_match.get("all_match") is not True:
+        failures.append("capability_pinned_host_identity_not_matched")
+    required_failures = payload.get("required_failures")
+    if not isinstance(required_failures, list) or required_failures:
+        failures.append("capability_required_failures_present_or_invalid")
+    return failures
+
+
+def proof_failures(
+    host_failures: list[str], repository_dirty: bool, capability_failures: list[str]
+) -> list[str]:
+    failures = [f"host:{failure}" for failure in host_failures]
+    if repository_dirty:
+        failures.append("repository_dirty")
+    failures.extend(f"capability:{failure}" for failure in capability_failures)
+    return failures
+
+
 def invoke_capability_collector(repo_root: Path, output_root: Path) -> dict[str, Any]:
     collector = locate_capability_collector(repo_root)
     output = output_root / "host-capabilities.json"
-    attempts = [
-        [sys.executable, str(collector), "--output", str(output)],
-        [sys.executable, str(collector), str(output)],
-    ]
-    errors: list[str] = []
-    for command in attempts:
-        result = run(command, check=False)
-        if result.returncode == 0 and output.is_file():
-            try:
-                payload = json.loads(output.read_text(encoding="utf-8"))
-            except json.JSONDecodeError as exc:
-                raise ProofError(f"capability collector emitted invalid JSON: {exc}") from exc
-            return {
-                "collector_path": collector.relative_to(repo_root).as_posix(),
-                "collector_sha256": sha256_file(collector),
-                "report_path": output.name,
-                "report_sha256": sha256_file(output),
-                "payload": payload,
-            }
-        errors.append(
-            f"{' '.join(command)} -> {result.returncode}: {(result.stderr or result.stdout).strip()}"
+    command = [sys.executable, str(collector), "--output", str(output)]
+    result = run(command, check=False)
+    if result.returncode != 0:
+        raise ProofError(
+            "host-capability collector failed "
+            f"({result.returncode}): {(result.stderr or result.stdout).strip()}"
         )
-    raise ProofError("host-capability collector failed:\n" + "\n".join(errors))
+    if not output.is_file():
+        raise ProofError("host-capability collector did not produce host-capabilities.json")
+    try:
+        payload = json.loads(output.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ProofError(f"capability collector emitted invalid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ProofError("capability collector JSON root is not an object")
+    return {
+        "collector_path": collector.relative_to(repo_root).as_posix(),
+        "collector_sha256": sha256_file(collector),
+        "collector_returncode": result.returncode,
+        "report_path": output.name,
+        "report_sha256": sha256_file(output),
+        "validation_failures": validate_capability_payload(payload),
+        "payload": payload,
+    }
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -220,8 +251,10 @@ def build_bundle(repo_root: Path, output_root: Path) -> dict[str, Any]:
     write_json(apt_path, apt_record)
 
     capabilities = invoke_capability_collector(repo_root, output_root)
+    capability_failures = list(capabilities["validation_failures"])
     commit = run(["git", "-C", str(repo_root), "rev-parse", "HEAD"]).stdout.strip()
     dirty = bool(run(["git", "-C", str(repo_root), "status", "--porcelain"]).stdout.strip())
+    eligibility_failures = proof_failures(host_failures, dirty, capability_failures)
 
     host_record = {
         "schema_version": "0.1.0",
@@ -259,13 +292,15 @@ def build_bundle(repo_root: Path, output_root: Path) -> dict[str, Any]:
         )
 
     manifest = {
-        "schema_version": "0.1.0",
+        "schema_version": "0.2.0",
         "record_type": "ptah.phase0c.pinned_host_proof_bundle",
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "implementation_commit": commit,
         "repository_dirty": dirty,
-        "proof_eligible": not host_failures and not dirty,
+        "proof_eligible": not eligibility_failures,
+        "eligibility_failures": eligibility_failures,
         "host_identity_failures": host_failures,
+        "capability_failures": capability_failures,
         "capability_report": {
             key: value for key, value in capabilities.items() if key != "payload"
         },
@@ -291,7 +326,7 @@ def main() -> int:
     if not manifest["proof_eligible"]:
         raise ProofError(
             "candidate host evidence was collected but is not proof-eligible: "
-            + ", ".join(manifest["host_identity_failures"] or ["repository_dirty"])
+            + ", ".join(manifest["eligibility_failures"])
         )
     return 0
 

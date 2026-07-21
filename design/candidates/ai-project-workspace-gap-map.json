@@ -1,0 +1,87 @@
+{
+  "schema_version": "0.1.0",
+  "record_type": "ptah.phase0c.ai_project_workspace_gap_map",
+  "status": "candidate_complete_no_contract_reopen",
+  "profile_id": "ptah.workspace.ai_project.v1",
+  "frozen_contract_change_required": false,
+  "summary": {
+    "covered_by_existing_primitive": 4,
+    "covered_by_profile_composition": 8,
+    "candidate_extension": 0,
+    "rejected_or_not_adopted": 2
+  },
+  "mappings": [
+    {
+      "capability": "project envelope",
+      "classification": "covered_by_existing_primitive",
+      "ptah_mapping": ["Workspace"]
+    },
+    {
+      "capability": "chat/work thread",
+      "classification": "covered_by_existing_primitive",
+      "ptah_mapping": ["Session", "Activity", "Event"]
+    },
+    {
+      "capability": "uploaded/generated files",
+      "classification": "covered_by_existing_primitive",
+      "ptah_mapping": ["Object", "Revision", "Artifact"]
+    },
+    {
+      "capability": "tools and connected services",
+      "classification": "covered_by_existing_primitive",
+      "ptah_mapping": ["Facility", "Provider", "Grant"]
+    },
+    {
+      "capability": "project instructions",
+      "classification": "covered_by_profile_composition",
+      "ptah_mapping": ["Policy", "Artifact", "Workspace"]
+    },
+    {
+      "capability": "project memory",
+      "classification": "covered_by_profile_composition",
+      "ptah_mapping": ["Knowledge", "View", "Workspace", "Grant"]
+    },
+    {
+      "capability": "project-only isolation",
+      "classification": "covered_by_profile_composition",
+      "ptah_mapping": ["Workspace", "Policy", "Grant", "Knowledge"]
+    },
+    {
+      "capability": "parallel shared threads",
+      "classification": "covered_by_profile_composition",
+      "ptah_mapping": ["Workspace", "Session", "Grant", "Policy"]
+    },
+    {
+      "capability": "reusable file library",
+      "classification": "covered_by_profile_composition",
+      "ptah_mapping": ["Object", "Artifact", "View", "Knowledge"]
+    },
+    {
+      "capability": "long-running agent work",
+      "classification": "covered_by_profile_composition",
+      "ptah_mapping": ["Recipe", "Activity", "Attempt", "Receipt"]
+    },
+    {
+      "capability": "editable canvas view",
+      "classification": "covered_by_profile_composition",
+      "ptah_mapping": ["View", "Revision", "Object", "Artifact"]
+    },
+    {
+      "capability": "scheduled continuation",
+      "classification": "covered_by_profile_composition",
+      "ptah_mapping": ["Activity", "Event", "Policy", "Grant"]
+    },
+    {
+      "capability": "hidden provider memory",
+      "classification": "rejected_or_not_adopted",
+      "reason": "Ptah context must be inspectable and exportable."
+    },
+    {
+      "capability": "implicit global tool access",
+      "classification": "rejected_or_not_adopted",
+      "reason": "Facilities require explicit Workspace or role Grants."
+    }
+  ],
+  "reopen_rule": "Any implementation discovery that cannot be expressed by the listed frozen primitives must stop and request a versioned contract reopening ADR.",
+  "runtime_implementation_authorized": false
+}

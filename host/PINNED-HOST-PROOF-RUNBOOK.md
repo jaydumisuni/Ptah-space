@@ -38,15 +38,31 @@ python3 tools/run_pinned_host_proof.py \
   --output evidence/phase0c/pinned-host-candidate
 ```
 
-The command intentionally exits non-zero after collecting diagnostics when the host identity or repository state does not match the frozen proof target.
+The runner invokes the accepted collector at:
+
+```text
+host/scripts/collect_capabilities.py
+```
+
+The command intentionally exits non-zero after collecting diagnostics when the host identity, repository state or required capability result does not match the frozen proof target.
+
+## Proof-integrity gate
+
+A bundle can report `proof_eligible: true` only when all three independent gates pass:
+
+1. the runner's exact Ubuntu point-release, architecture and kernel check;
+2. the existing host-capability report itself records `required_capabilities_passed: true`, `pinned_host_match.all_match: true` and `proof_eligible: true`;
+3. the repository is clean at the exact recorded commit.
+
+Capability failures are copied into `bundle-manifest.json` under `capability_failures` and the combined fail-closed reasons are recorded under `eligibility_failures`. A host-identity match alone is insufficient.
 
 ## Produced records
 
 - `host-identity.json` — OS, kernel, architecture, privacy-preserving machine identity, boot identity and exact match result;
-- `host-capabilities.json` — output of the existing fail-closed Ptah host-capability collector;
+- `host-capabilities.json` — output of the accepted fail-closed Ptah collector;
 - `installed-packages.json` — exact installed `dpkg` package/version/architecture inventory and aggregate digest;
 - `apt-sources.json` — active APT source configuration and aggregate digest;
-- `bundle-manifest.json` — exact implementation commit, file hashes, bundle digest and proof eligibility.
+- `bundle-manifest.json` — exact implementation commit, file hashes, bundle digest, capability validation and proof eligibility.
 
 Every record retains:
 
@@ -59,13 +75,14 @@ Every record retains:
 The pinned-host evidence may close the host blocker only when:
 
 1. `proof_eligible` is `true` in the bundle manifest;
-2. every host-capability requirement passes;
-3. the implementation commit is the exact reviewed Phase 0C candidate;
-4. the repository was clean during collection;
-5. the installed-package manifest is reviewed against the selected package boundary;
-6. the bundle and each contained file are retained in a durable evidence Location;
-7. a roadmap evidence record cites the bundle digest and exact commit;
-8. the Phase 0C closure review confirms that no frozen contract or WP14 proof burden was weakened.
+2. `eligibility_failures`, `host_identity_failures` and `capability_failures` are empty;
+3. every host-capability requirement passes in `host-capabilities.json`;
+4. the implementation commit is the exact reviewed Phase 0C candidate;
+5. the repository was clean during collection;
+6. the installed-package manifest is reviewed against the selected package boundary;
+7. the bundle and each contained file are retained in a durable evidence Location;
+8. a roadmap evidence record cites the bundle digest and exact commit;
+9. the Phase 0C closure review confirms that no frozen contract or WP14 proof burden was weakened.
 
 ## Non-claims
 

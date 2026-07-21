@@ -25,6 +25,20 @@ def passing_capability_payload() -> dict[str, object]:
     }
 
 
+def passing_package_artifact_payload(count: int = 1) -> dict[str, object]:
+    return {
+        "record_type": "ptah.phase0c.installed_package_artifact_manifest",
+        "runtime_implementation_authorized": False,
+        "network_used": False,
+        "package_count": count,
+        "artifact_count": count,
+        "missing_count": 0,
+        "complete": True,
+        "missing": [],
+        "apt_index_inventory": {"present": True},
+    }
+
+
 class PinnedHostProofTests(unittest.TestCase):
     def test_exact_frozen_host_identity_passes(self) -> None:
         os_release = {
@@ -96,6 +110,21 @@ class PinnedHostProofTests(unittest.TestCase):
             ):
                 MODULE.locate_capability_collector(root)
 
+    def test_package_artifact_collector_path_is_exact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            collector = root / "tools" / "collect_apt_package_artifacts.py"
+            collector.parent.mkdir(parents=True)
+            collector.write_text("# accepted\n", encoding="utf-8")
+            self.assertEqual(MODULE.locate_package_artifact_collector(root), collector)
+
+    def test_missing_package_artifact_collector_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(
+                MODULE.ProofError, "tools/collect_apt_package_artifacts.py"
+            ):
+                MODULE.locate_package_artifact_collector(Path(directory))
+
     def test_capability_payload_must_be_proof_eligible(self) -> None:
         self.assertEqual(MODULE.validate_capability_payload(passing_capability_payload()), [])
         payload = passing_capability_payload()
@@ -109,16 +138,47 @@ class PinnedHostProofTests(unittest.TestCase):
         self.assertIn("capability_pinned_host_identity_not_matched", failures)
         self.assertIn("capability_required_failures_present_or_invalid", failures)
 
+    def test_package_artifact_payload_must_be_complete(self) -> None:
+        self.assertEqual(
+            MODULE.validate_package_artifact_payload(
+                passing_package_artifact_payload(2), 2
+            ),
+            [],
+        )
+        payload = passing_package_artifact_payload(2)
+        payload["artifact_count"] = 1
+        payload["missing_count"] = 1
+        payload["complete"] = False
+        payload["missing"] = [{"package": "beta"}]
+        payload["apt_index_inventory"] = {"present": False}
+        failures = MODULE.validate_package_artifact_payload(payload, 2)
+        self.assertIn("package_artifact_count_incomplete", failures)
+        self.assertIn("package_artifact_missing_count_nonzero", failures)
+        self.assertIn("package_artifact_manifest_incomplete", failures)
+        self.assertIn("package_artifact_missing_records_present_or_invalid", failures)
+        self.assertIn("apt_index_inventory_missing", failures)
+
     def test_capability_failure_blocks_bundle_eligibility(self) -> None:
         failures = MODULE.proof_failures(
-            [], False, ["required_capabilities_not_passed"]
+            [], False, ["required_capabilities_not_passed"], []
         )
         self.assertEqual(
             failures, ["capability:required_capabilities_not_passed"]
         )
 
+    def test_package_artifact_failure_blocks_bundle_eligibility(self) -> None:
+        failures = MODULE.proof_failures(
+            [], False, [], ["package_artifact_manifest_incomplete"]
+        )
+        self.assertEqual(
+            failures,
+            ["package_artifact:package_artifact_manifest_incomplete"],
+        )
+
     def test_dirty_repository_blocks_bundle_eligibility(self) -> None:
-        self.assertEqual(MODULE.proof_failures([], True, []), ["repository_dirty"])
+        self.assertEqual(
+            MODULE.proof_failures([], True, [], []), ["repository_dirty"]
+        )
 
     def test_invoke_uses_real_collector_cli_and_validates_payload(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -150,6 +210,48 @@ args.output.write_text(json.dumps(payload) + '\\n', encoding='utf-8')
             result = MODULE.invoke_capability_collector(root, output)
             self.assertEqual(
                 result["collector_path"], "host/scripts/collect_capabilities.py"
+            )
+            self.assertEqual(result["collector_returncode"], 0)
+            self.assertEqual(result["validation_failures"], [])
+
+    def test_invoke_package_artifact_collector_validates_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            collector = root / "tools" / "collect_apt_package_artifacts.py"
+            collector.parent.mkdir(parents=True)
+            collector.write_text(
+                """#!/usr/bin/env python3
+import argparse
+import json
+from pathlib import Path
+parser = argparse.ArgumentParser()
+parser.add_argument('--installed-packages', type=Path, required=True)
+parser.add_argument('--output', type=Path, required=True)
+args = parser.parse_args()
+payload = {
+    'record_type': 'ptah.phase0c.installed_package_artifact_manifest',
+    'runtime_implementation_authorized': False,
+    'network_used': False,
+    'package_count': 1,
+    'artifact_count': 1,
+    'missing_count': 0,
+    'complete': True,
+    'missing': [],
+    'apt_index_inventory': {'present': True},
+}
+args.output.write_text(json.dumps(payload) + '\\n', encoding='utf-8')
+""",
+                encoding="utf-8",
+            )
+            output = root / "evidence"
+            output.mkdir()
+            installed = output / "installed-packages.json"
+            installed.write_text("{}\n", encoding="utf-8")
+            result = MODULE.invoke_package_artifact_collector(
+                root, installed, output, 1
+            )
+            self.assertEqual(
+                result["collector_path"], "tools/collect_apt_package_artifacts.py"
             )
             self.assertEqual(result["collector_returncode"], 0)
             self.assertEqual(result["validation_failures"], [])

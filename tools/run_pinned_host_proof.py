@@ -124,7 +124,7 @@ def collect_apt_sources() -> list[str]:
 def collect_boot_identity() -> dict[str, Any]:
     result: dict[str, Any] = {
         "machine_id_sha256": None,
-        "boot_id": None,
+        "boot_id_sha256": None,
         "secure_boot": "unknown",
     }
     machine_id = Path("/etc/machine-id")
@@ -132,7 +132,7 @@ def collect_boot_identity() -> dict[str, Any]:
         result["machine_id_sha256"] = hashlib.sha256(machine_id.read_bytes().strip()).hexdigest()
     boot_id = Path("/proc/sys/kernel/random/boot_id")
     if boot_id.is_file():
-        result["boot_id"] = boot_id.read_text(encoding="utf-8").strip()
+        result["boot_id_sha256"] = hashlib.sha256(boot_id.read_bytes().strip()).hexdigest()
     if shutil.which("mokutil"):
         secure = run(["mokutil", "--sb-state"], check=False)
         result["secure_boot"] = (secure.stdout or secure.stderr).strip()
@@ -155,6 +155,53 @@ def validate_host(os_release: dict[str, str], kernel: str, arch: str) -> list[st
     if not kernel.startswith(EXPECTED_KERNEL_PREFIX):
         failures.append(f"kernel={kernel!r}")
     return failures
+
+
+def sanitize_capability_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    sanitized = json.loads(json.dumps(payload))
+    host = sanitized.get("host")
+    if isinstance(host, dict):
+        hostname = host.pop("hostname", None)
+        if isinstance(hostname, str) and hostname:
+            host["hostname_sha256"] = hashlib.sha256(hostname.encode()).hexdigest()
+    return sanitized
+
+
+def repository_state(repo_root: Path, output_root: Path) -> dict[str, Any]:
+    worktree_dirty = run(
+        ["git", "-C", str(repo_root), "diff", "--quiet"], check=False
+    ).returncode != 0
+    index_dirty = run(
+        ["git", "-C", str(repo_root), "diff", "--cached", "--quiet"], check=False
+    ).returncode != 0
+    untracked_result = run(
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ]
+    )
+    untracked = [item for item in untracked_result.stdout.split("\0") if item]
+    try:
+        output_relative = output_root.relative_to(repo_root).as_posix().rstrip("/")
+    except ValueError:
+        output_relative = None
+    unexpected_untracked = [
+        item
+        for item in untracked
+        if output_relative is None
+        or not (item == output_relative or item.startswith(output_relative + "/"))
+    ]
+    return {
+        "worktree_dirty": worktree_dirty,
+        "index_dirty": index_dirty,
+        "unexpected_untracked": sorted(unexpected_untracked),
+        "dirty": worktree_dirty or index_dirty or bool(unexpected_untracked),
+    }
 
 
 def validate_capability_payload(payload: dict[str, Any]) -> list[str]:
@@ -204,14 +251,17 @@ def invoke_capability_collector(repo_root: Path, output_root: Path) -> dict[str,
         raise ProofError(f"capability collector emitted invalid JSON: {exc}") from exc
     if not isinstance(payload, dict):
         raise ProofError("capability collector JSON root is not an object")
+    validation_failures = validate_capability_payload(payload)
+    sanitized = sanitize_capability_payload(payload)
+    write_json(output, sanitized)
     return {
         "collector_path": collector.relative_to(repo_root).as_posix(),
         "collector_sha256": sha256_file(collector),
         "collector_returncode": result.returncode,
         "report_path": output.name,
         "report_sha256": sha256_file(output),
-        "validation_failures": validate_capability_payload(payload),
-        "payload": payload,
+        "validation_failures": validation_failures,
+        "payload": sanitized,
     }
 
 
@@ -220,6 +270,10 @@ def write_json(path: Path, value: Any) -> None:
 
 
 def build_bundle(repo_root: Path, output_root: Path) -> dict[str, Any]:
+    if output_root.exists() and any(output_root.iterdir()):
+        raise ProofError(f"output directory is not empty: {output_root}")
+    commit_before = run(["git", "-C", str(repo_root), "rev-parse", "HEAD"]).stdout.strip()
+    repository_before = repository_state(repo_root, output_root)
     output_root.mkdir(parents=True, exist_ok=True)
     os_release = read_os_release()
     kernel = platform.release()
@@ -252,9 +306,13 @@ def build_bundle(repo_root: Path, output_root: Path) -> dict[str, Any]:
 
     capabilities = invoke_capability_collector(repo_root, output_root)
     capability_failures = list(capabilities["validation_failures"])
-    commit = run(["git", "-C", str(repo_root), "rev-parse", "HEAD"]).stdout.strip()
-    dirty = bool(run(["git", "-C", str(repo_root), "status", "--porcelain"]).stdout.strip())
+    commit_after = run(["git", "-C", str(repo_root), "rev-parse", "HEAD"]).stdout.strip()
+    repository_after = repository_state(repo_root, output_root)
+    commit_changed = commit_before != commit_after
+    dirty = repository_before["dirty"] or repository_after["dirty"] or commit_changed
     eligibility_failures = proof_failures(host_failures, dirty, capability_failures)
+    if commit_changed:
+        eligibility_failures.append("repository_commit_changed_during_collection")
 
     host_record = {
         "schema_version": "0.1.0",
@@ -295,7 +353,11 @@ def build_bundle(repo_root: Path, output_root: Path) -> dict[str, Any]:
         "schema_version": "0.2.0",
         "record_type": "ptah.phase0c.pinned_host_proof_bundle",
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "implementation_commit": commit,
+        "implementation_commit": commit_before,
+        "repository_commit_after_collection": commit_after,
+        "repository_commit_changed_during_collection": commit_changed,
+        "repository_state_before_collection": repository_before,
+        "repository_state_after_collection": repository_after,
         "repository_dirty": dirty,
         "proof_eligible": not eligibility_failures,
         "eligibility_failures": eligibility_failures,

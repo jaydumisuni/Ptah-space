@@ -1,0 +1,94 @@
+{
+  "schema_version": "0.1.0",
+  "record_type": "ptah.phase0c.apache_2_0_boundary_candidate",
+  "status": "candidate_owner_acceptance_required",
+  "proposed_spdx_license": "Apache-2.0",
+  "official_license_source": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+  "official_license_size_bytes": 11358,
+  "official_license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+  "operative_root_files_present": false,
+  "owner_identity": {
+    "status": "owner_confirmation_required",
+    "recommended_candidate": "John Dumisuni trading as THETECHGUY DIGITAL SOLUTIONS",
+    "alternative_candidate": "THETECHGUY DIGITAL SOLUTIONS",
+    "accepted_value": null
+  },
+  "public_default_scope": {
+    "rule": "Repository-owned source, tests, documentation, configuration, schemas, generated metadata bindings, CI definitions and proof tooling in the public Ptah-space repository are proposed for Apache-2.0 unless a file or subtree carries a different compatible licence notice.",
+    "paths": [
+      ".github/",
+      "browser-provider/",
+      "conformance/",
+      "contracts/",
+      "crates/",
+      "dependencies/",
+      "docs/",
+      "evidence/",
+      "generated/",
+      "host/",
+      "legal/",
+      "tools/",
+      "Cargo.toml",
+      "Cargo.lock",
+      "README.md",
+      "rust-toolchain.toml"
+    ]
+  },
+  "third_party_boundary": {
+    "rule": "Third-party source, binary artifacts, generated notices and dependency metadata remain under their own licences and are not relicensed merely because they are referenced, downloaded, verified or described by Ptah.",
+    "required_records": [
+      "dependency identity and version",
+      "upstream source",
+      "upstream licence",
+      "required copyright or attribution notice",
+      "artifact digest where applicable"
+    ]
+  },
+  "private_not_permitted_in_public_repository": [
+    "customer or client personal data",
+    "device identifiers or customer device evidence",
+    "credentials, secrets, tokens, private keys or production configuration",
+    "Hunter private memory, prompts, knowledge stores or model data",
+    "THETECHGUY private Domain Packs",
+    "restricted device-recovery, bypass or unlock adapters",
+    "payment-provider secrets, transaction records or internal finance data",
+    "private technician procedures, customer cases or forensic records",
+    "production deployment state, infrastructure inventory or incident evidence",
+    "unlicensed donor source or proprietary third-party material"
+  ],
+  "private_repository_boundary": {
+    "rule": "Private THETECHGUY repositories and data are not licensed by the public Ptah-space licence unless an explicit file-level or repository-level licence says otherwise.",
+    "examples": [
+      "Hunter AI private services and knowledge",
+      "TechGuy repair, IMEI, ADB, META, DIAG, MTP, Fastboot and recovery adapters",
+      "customer, sales, repair, payment, logistics and employee-operating-system records",
+      "private Domain Packs, credentials, deployment manifests and operational evidence"
+    ]
+  },
+  "trademark_boundary": {
+    "rule": "Apache-2.0 does not grant permission to use THETECHGUY, THETECHGUY DIGITAL SOLUTIONS, Ptah, Hunter or related names, marks, logos or product branding except for reasonable descriptive attribution as allowed by Apache-2.0 section 6.",
+    "brand_assets_in_public_licence_scope": false
+  },
+  "contribution_boundary": {
+    "rule": "Unless conspicuously marked otherwise, intentional contributions accepted into the public Work are proposed to be licensed under Apache-2.0 section 5. Contributors must have the right to submit the material and must not include private or restricted THETECHGUY data.",
+    "cla_required_initially": false,
+    "dco_required_initially": false
+  },
+  "notice_boundary": {
+    "rule": "NOTICE is informational and may contain only applicable attribution notices. It must not add licence restrictions, confidentiality terms, support promises or private operational information.",
+    "owner_notice_pending": true,
+    "third_party_notice_inventory_pending": true
+  },
+  "acceptance_requirements": [
+    "owner confirms the copyright owner wording",
+    "owner accepts Apache-2.0 for the public default scope",
+    "owner accepts the private and trademark exclusions",
+    "third-party notice inventory is reviewed",
+    "candidate LICENSE bytes match the official source and digest",
+    "candidate NOTICE, CONTRIBUTING and SECURITY boundaries are reviewed",
+    "root operative files are created only in the same reviewed acceptance change",
+    "ADR-0033 remains proposed until the physical-host and all other Phase 0C blockers pass"
+  ],
+  "apache_2_0_accepted": false,
+  "runtime_implementation_authorized": false
+}

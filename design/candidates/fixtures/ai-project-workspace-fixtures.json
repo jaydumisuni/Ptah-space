@@ -1,0 +1,109 @@
+{
+  "schema_version": "0.1.0",
+  "record_type": "ptah.phase0c.ai_project_workspace_candidate_fixtures",
+  "profile_id": "ptah.workspace.ai_project.v1",
+  "runtime_implementation_authorized": false,
+  "fixtures": [
+    {
+      "id": "workspace-isolation",
+      "kind": "negative",
+      "given": "Workspace A has project-only private memory and Workspace B requests it.",
+      "expected": "deny",
+      "proof": [
+        "no source from Workspace A selected",
+        "denial Receipt retained"
+      ]
+    },
+    {
+      "id": "accepted-decision-inheritance",
+      "kind": "positive",
+      "given": "A new Session starts inside a Workspace with accepted decisions.",
+      "expected": "pass",
+      "proof": [
+        "accepted decisions appear in context packet",
+        "source authority remains canonical"
+      ]
+    },
+    {
+      "id": "superseded-source-rejection",
+      "kind": "negative",
+      "given": "A superseded file conflicts with a canonical current-state record.",
+      "expected": "canonical_wins",
+      "proof": [
+        "superseded source remains traceable",
+        "context packet excludes it from authority"
+      ]
+    },
+    {
+      "id": "model-independent-resume",
+      "kind": "positive",
+      "given": "Hunter local hands a Session to a different compatible model.",
+      "expected": "pass",
+      "proof": [
+        "same Workspace identity",
+        "same accepted handoff",
+        "provider identity recorded"
+      ]
+    },
+    {
+      "id": "grant-survives-agent-change",
+      "kind": "positive",
+      "given": "An agent Provider changes while Workspace Facility Grants remain unchanged.",
+      "expected": "pass",
+      "proof": [
+        "new agent receives only existing Grants",
+        "no implicit privilege escalation"
+      ]
+    },
+    {
+      "id": "scheduled-artifact-least-privilege",
+      "kind": "negative",
+      "given": "A scheduled Activity requests a project Artifact that was not granted.",
+      "expected": "deny",
+      "proof": [
+        "Artifact omitted",
+        "denial Receipt retained"
+      ]
+    },
+    {
+      "id": "private-hunter-public-workspace",
+      "kind": "negative",
+      "given": "Private Hunter memory is proposed for a public Ptah Workspace.",
+      "expected": "deny_until_explicit_release",
+      "proof": [
+        "private source not copied",
+        "release decision required"
+      ]
+    },
+    {
+      "id": "archived-session-context",
+      "kind": "positive",
+      "given": "A Session is archived and no longer relevant to the active objective.",
+      "expected": "exclude_by_default",
+      "proof": [
+        "archive remains discoverable",
+        "context compiler records exclusion reason"
+      ]
+    },
+    {
+      "id": "failed-activity-visible",
+      "kind": "positive",
+      "given": "A long-running Activity fails after producing partial Artifacts.",
+      "expected": "retain_failure",
+      "proof": [
+        "Attempt and failure Event retained",
+        "partial Artifacts preserve provenance"
+      ]
+    },
+    {
+      "id": "artifact-activity-lineage",
+      "kind": "positive",
+      "given": "Hunter creates a finished report from Workspace sources.",
+      "expected": "pass",
+      "proof": [
+        "Artifact links to Activity",
+        "Receipt lists source revisions and policy"
+      ]
+    }
+  ]
+}

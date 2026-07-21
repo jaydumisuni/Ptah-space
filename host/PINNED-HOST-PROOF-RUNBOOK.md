@@ -103,6 +103,38 @@ Every record retains:
 "runtime_implementation_authorized": false
 ```
 
+## Independent durable retention preparation
+
+Do not commit the raw candidate directory directly. First independently verify every source byte and cross-record proof condition, then create a durable candidate package:
+
+```bash
+python3 tools/prepare_durable_pinned_host_evidence.py \
+  --bundle-dir evidence/phase0c/pinned-host-candidate \
+  --output-dir evidence/phase0c/pinned-host-durable-candidate
+```
+
+The retention tool requires the exact six-file source bundle and independently checks:
+
+- every source file size and SHA-256 against `bundle-manifest.json`;
+- the aggregate source bundle digest;
+- one clean unchanged exact Git commit before and after collection;
+- exact Ubuntu point release, architecture and kernel identity;
+- hashed host, machine and boot identity with no raw hostname;
+- the capability report's own proof-eligible state and zero required failures;
+- the installed-package aggregate digest and unique installed identities;
+- one exact package-artifact SHA-256 record per installed identity;
+- the package-artifact aggregate digest and local APT release/package index inventory;
+- APT source and index aggregate digests;
+- explicit non-authorization boundaries on every source record.
+
+It writes:
+
+- `durable-pinned-host-bundle.json` — exact base64-encoded source bytes, individual digests, aggregate retained-file digest and source bundle bindings;
+- `pinned-host-review-record.json` — a separate review record beginning with `review_status: pending` and every acceptance field set to `false`;
+- `README.md` — the implementation commit and durable/source digest summary.
+
+The durable candidate may be committed for retention after this independent verification. It does not become accepted host proof merely because it is retained. The review record must remain pending until the owner and Phase 0C closure review explicitly accept the host identity, installed-package boundary, package-artifact boundary and durable retention.
+
 ## Acceptance conditions
 
 The pinned-host evidence may close the host blocker only when:
@@ -114,9 +146,11 @@ The pinned-host evidence may close the host blocker only when:
 5. the implementation commit is the exact reviewed Phase 0C candidate and did not change during collection;
 6. the repository was clean before and after collection, excluding only the generated bundle directory;
 7. the installed-package and package-artifact manifests are reviewed against the selected package boundary;
-8. the bundle and each contained file are retained in a durable evidence Location;
-9. a roadmap evidence record cites the bundle digest and exact commit;
-10. the Phase 0C closure review confirms that no frozen contract or WP14 proof burden was weakened.
+8. the exact source bytes pass the independent durable-retention verifier;
+9. the durable candidate and review record are committed to a durable evidence Location;
+10. the review record explicitly accepts physical host identity, installed packages, package artifacts and durable retention;
+11. a roadmap evidence record cites the source bundle, durable bundle and exact implementation commit digests;
+12. the Phase 0C closure review confirms that no frozen contract or WP14 proof burden was weakened.
 
 ## Non-claims
 
@@ -124,6 +158,7 @@ This package does not:
 
 - install or configure the Ptah runtime;
 - deploy a Node, Workspace or Provider;
+- accept a retained candidate without review;
 - accept the public licence decision;
 - execute WP14 runtime proofs;
 - change ADR-0033 to accepted;

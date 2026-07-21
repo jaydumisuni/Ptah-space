@@ -1,0 +1,113 @@
+name: Phase 0C AI project workspace candidate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  ai-project-workspace-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Run candidate regressions
+        run: |
+          mkdir -p conformance/reports/ai-project-workspace
+          set -o pipefail
+          python -m unittest -v tools/test_check_ai_project_workspace_candidate.py \
+            2>&1 | tee conformance/reports/ai-project-workspace/candidate-tests.txt
+
+      - name: Validate non-operative donor and profile
+        run: |
+          set -o pipefail
+          python tools/check_ai_project_workspace_candidate.py \
+            --repo-root . \
+            --output conformance/reports/ai-project-workspace/candidate-report.json \
+            2>&1 | tee conformance/reports/ai-project-workspace/candidate-check-output.txt
+
+      - name: Bind report to exact candidate head
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path("conformance/reports/ai-project-workspace")
+          report_path = root / "candidate-report.json"
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          expected = os.environ["PTAH_EXACT_SHA"]
+          checked_out = subprocess.run(
+              ["git", "rev-parse", "HEAD"],
+              capture_output=True,
+              text=True,
+              check=True,
+          ).stdout.strip()
+          evidence = {
+              "schema_version": "0.1.0",
+              "record_type": "ptah.phase0c.ai_project_workspace_candidate_evidence",
+              "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "implementation_commit": expected,
+              "checked_out_commit": checked_out,
+              "exact_head_match": checked_out == expected,
+              "candidate_report_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest(),
+              "candidate_status": report.get("status"),
+              "profile_id": report.get("profile_id"),
+              "official_source_count": report.get("official_source_count"),
+              "composed_primitive_count": report.get("composed_primitive_count"),
+              "mapping_count": report.get("mapping_count"),
+              "fixture_count": report.get("fixture_count"),
+              "frozen_contract_change_required": report.get(
+                  "frozen_contract_change_required"
+              ),
+              "runtime_implementation_authorized": report.get(
+                  "runtime_implementation_authorized"
+              ),
+          }
+          (root / "exact-head-evidence.json").write_text(
+              json.dumps(evidence, indent=2) + "\n", encoding="utf-8"
+          )
+          if not evidence["exact_head_match"]:
+              raise SystemExit("AI project workspace candidate did not test exact head")
+          if evidence["candidate_status"] != "candidate_valid_non_operative":
+              raise SystemExit("AI project workspace candidate is invalid")
+          if evidence["profile_id"] != "ptah.workspace.ai_project.v1":
+              raise SystemExit("AI project workspace profile identity changed")
+          if evidence["official_source_count"] != 5:
+              raise SystemExit("official behavioural donor source set is incomplete")
+          if evidence["mapping_count"] != 14 or evidence["fixture_count"] != 10:
+              raise SystemExit("candidate mapping or fixture counts changed")
+          if evidence["frozen_contract_change_required"] is not False:
+              raise SystemExit("candidate cannot reopen frozen contracts")
+          if evidence["runtime_implementation_authorized"] is not False:
+              raise SystemExit("candidate cannot authorize runtime implementation")
+          PY
+
+      - name: Upload candidate evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase-0c-ai-project-workspace-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: conformance/reports/ai-project-workspace/
+          if-no-files-found: error
+          retention-days: 30

@@ -85,6 +85,17 @@ class PinnedHostProofTests(unittest.TestCase):
             ):
                 MODULE.locate_capability_collector(Path(directory))
 
+    def test_legacy_only_collector_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            legacy = root / "tools" / "collect_host_capabilities.py"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text("# stale legacy collector\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                MODULE.ProofError, "host/scripts/collect_capabilities.py"
+            ):
+                MODULE.locate_capability_collector(root)
+
     def test_capability_payload_must_be_proof_eligible(self) -> None:
         self.assertEqual(MODULE.validate_capability_payload(passing_capability_payload()), [])
         payload = passing_capability_payload()

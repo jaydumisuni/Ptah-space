@@ -1,0 +1,6 @@
+Ptah
+Copyright 2026 [COPYRIGHT OWNER TO CONFIRM]
+
+This product includes software developed for the Ptah project.
+
+[THIRD-PARTY ATTRIBUTION NOTICES TO BE INSERTED ONLY WHEN REVIEW CONFIRMS THEY ARE REQUIRED]

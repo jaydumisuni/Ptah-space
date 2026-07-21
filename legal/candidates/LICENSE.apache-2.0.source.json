@@ -1,0 +1,13 @@
+{
+  "schema_version": "0.1.0",
+  "record_type": "ptah.phase0c.apache_2_0_official_source_candidate",
+  "status": "candidate_owner_acceptance_required",
+  "spdx_license_id": "Apache-2.0",
+  "source_url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+  "size_bytes": 11358,
+  "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+  "materialization_rule": "During the reviewed owner-acceptance change, fetch the exact source URL, require the frozen size and SHA-256, and write those exact bytes to root LICENSE. Do not use a manually retyped copy.",
+  "root_license_present": false,
+  "apache_2_0_accepted": false,
+  "runtime_implementation_authorized": false
+}

@@ -28,13 +28,14 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Run host and pinned-proof unit tests
+      - name: Run host, package-artifact and pinned-proof unit tests
         run: |
           mkdir -p conformance/reports/host
           set -o pipefail
           python -m unittest -v \
             host/tests/test_collect_capabilities.py \
             host/tests/test_finalize_capability_report.py \
+            tools/test_collect_apt_package_artifacts.py \
             tools/test_run_pinned_host_proof.py \
             2>&1 | tee conformance/reports/host/collector-tests.txt
 

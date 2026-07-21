@@ -21,6 +21,9 @@ from typing import Any, Callable
 
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 RECORD_TYPE = "ptah.phase0c.installed_package_artifact_manifest"
+APT_QUERY_BATCH_SIZE = 128
+PackageIdentity = tuple[str, str, str]
+Resolution = dict[PackageIdentity, tuple[list[dict[str, Any]], list[dict[str, Any]]]]
 
 
 class ArtifactError(RuntimeError):
@@ -107,43 +110,43 @@ def load_installed_packages(path: Path) -> list[dict[str, str]]:
     if payload.get("package_count") != len(packages):
         raise ArtifactError("installed package count does not match package records")
     normalized: list[dict[str, str]] = []
-    identities: set[tuple[str, str, str]] = set()
+    identities: set[PackageIdentity] = set()
     for item in packages:
         if not isinstance(item, dict):
             raise ArtifactError("installed package record must be an object")
-        record = {
-            "package": str(item.get("package", "")).strip(),
-            "version": str(item.get("version", "")).strip(),
-            "architecture": str(item.get("architecture", "")).strip(),
-        }
-        if not all(record.values()):
-            raise ArtifactError(f"installed package record is incomplete: {item!r}")
-        identity = (record["package"], record["version"], record["architecture"])
+        record: dict[str, str] = {}
+        for field in ("package", "version", "architecture"):
+            value = item.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise ArtifactError(
+                    f"installed package record field {field!r} is invalid: {item!r}"
+                )
+            record[field] = value.strip()
+        identity = package_identity(record)
         if identity in identities:
             raise ArtifactError(f"duplicate installed package identity: {identity!r}")
         identities.add(identity)
         normalized.append(record)
-    return sorted(
-        normalized,
-        key=lambda item: (item["package"], item["architecture"], item["version"]),
-    )
+    return sorted(normalized, key=package_identity)
 
 
-def package_queries(package: dict[str, str]) -> list[str]:
-    """Build deterministic exact-version APT queries for one binary package."""
+def package_identity(package: dict[str, str]) -> PackageIdentity:
+    """Return the stable identity tuple for one installed binary package."""
+    return (package["package"], package["architecture"], package["version"])
+
+
+def architecture_query(package: dict[str, str]) -> str:
+    """Build the preferred exact-version, exact-architecture APT selector."""
     name = package["package"]
-    version = package["version"]
-    architecture = package["architecture"]
-    base_name = name.split(":", 1)[0]
-    candidates = [f"{name}={version}"]
     if ":" not in name:
-        candidates.insert(0, f"{name}:{architecture}={version}")
-    candidates.append(f"{base_name}={version}")
-    unique: list[str] = []
-    for candidate in candidates:
-        if candidate not in unique:
-            unique.append(candidate)
-    return unique
+        name = f"{name}:{package['architecture']}"
+    return f"{name}={package['version']}"
+
+
+def plain_query(package: dict[str, str]) -> str:
+    """Build the architecture-neutral exact-version fallback selector."""
+    base_name = package["package"].split(":", 1)[0]
+    return f"{base_name}={package['version']}"
 
 
 def exact_artifacts(
@@ -186,42 +189,76 @@ def exact_artifacts(
     return matches
 
 
+def _chunks(items: list[dict[str, str]], size: int) -> list[list[dict[str, str]]]:
+    """Split package records into bounded APT command batches."""
+    return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def _query_batches(
+    packages: list[dict[str, str]],
+    apt_cache: str,
+    query_builder: Callable[[dict[str, str]], str],
+) -> Resolution:
+    """Query exact package metadata in bounded local APT batches."""
+    resolution: Resolution = {
+        package_identity(package): ([], []) for package in packages
+    }
+    for batch in _chunks(packages, APT_QUERY_BATCH_SIZE):
+        queries = [query_builder(package) for package in batch]
+        result = run([apt_cache, "show", *queries], check=False)
+        paragraphs = parse_deb822(result.stdout) if result.stdout.strip() else []
+        stderr = result.stderr.strip()
+        for package, query in zip(batch, queries, strict=True):
+            identity = package_identity(package)
+            matches, attempts = resolution[identity]
+            matches.extend(exact_artifacts(package, paragraphs, query))
+            attempts.append(
+                {
+                    "query": query,
+                    "batch_returncode": result.returncode,
+                    "stderr": stderr,
+                }
+            )
+    return resolution
+
+
 def query_package_artifacts(
-    package: dict[str, str], apt_cache: str
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Query local APT metadata for one exact installed package identity."""
-    attempts: list[dict[str, Any]] = []
-    matches: list[dict[str, Any]] = []
-    for query in package_queries(package):
-        result = run([apt_cache, "show", query], check=False)
-        attempts.append(
-            {
-                "query": query,
-                "returncode": result.returncode,
-                "stderr": result.stderr.strip(),
-            }
-        )
-        if result.returncode != 0 or not result.stdout.strip():
-            continue
-        paragraphs = parse_deb822(result.stdout)
-        matches.extend(exact_artifacts(package, paragraphs, query))
-    unique_by_digest: dict[tuple[str, int], dict[str, Any]] = {}
-    for match in matches:
-        identity = (match["sha256"], match["size_bytes"])
-        existing = unique_by_digest.get(identity)
-        if existing is None or match["filename"] < existing["filename"]:
-            unique_by_digest[identity] = match
-    if len(unique_by_digest) > 1:
-        raise ArtifactError(
-            "conflicting APT SHA-256 metadata for "
-            f"{package['package']}={package['version']}:{package['architecture']}"
-        )
-    return list(unique_by_digest.values()), attempts
+    packages: list[dict[str, str]], apt_cache: str
+) -> Resolution:
+    """Resolve exact installed artifacts using architecture-first batched queries."""
+    primary = _query_batches(packages, apt_cache, architecture_query)
+    unresolved = [
+        package for package in packages if not primary[package_identity(package)][0]
+    ]
+    fallback = _query_batches(unresolved, apt_cache, plain_query) if unresolved else {}
+    resolution: Resolution = {}
+    for package in packages:
+        identity = package_identity(package)
+        matches, attempts = primary[identity]
+        if identity in fallback:
+            fallback_matches, fallback_attempts = fallback[identity]
+            matches.extend(fallback_matches)
+            attempts.extend(fallback_attempts)
+        unique_by_digest: dict[tuple[str, int], dict[str, Any]] = {}
+        for match in matches:
+            digest_identity = (match["sha256"], match["size_bytes"])
+            existing = unique_by_digest.get(digest_identity)
+            if existing is None or match["filename"] < existing["filename"]:
+                unique_by_digest[digest_identity] = match
+        if len(unique_by_digest) > 1:
+            raise ArtifactError(
+                "conflicting APT SHA-256 metadata for "
+                f"{package['package']}={package['version']}:{package['architecture']}"
+            )
+        resolution[identity] = (list(unique_by_digest.values()), attempts)
+    return resolution
 
 
 def collect_apt_index_inventory(root: Path) -> dict[str, Any]:
-    """Hash the local APT list files that make exact artifact metadata reproducible."""
+    """Hash APT list files and require both release and package-index evidence."""
     files: list[dict[str, Any]] = []
+    release_count = 0
+    package_index_count = 0
     if root.is_dir():
         for path in sorted(root.rglob("*")):
             if not path.is_file():
@@ -231,19 +268,35 @@ def collect_apt_index_inventory(root: Path) -> dict[str, Any]:
                 continue
             if path.name == "lock":
                 continue
+            name = path.name
+            is_release = (
+                name.endswith("InRelease")
+                or name.endswith("Release")
+                or name.endswith("Release.gpg")
+            )
+            is_package_index = "Packages" in name
+            if is_release:
+                release_count += 1
+            if is_package_index:
+                package_index_count += 1
             files.append(
                 {
                     "path": relative.as_posix(),
                     "size_bytes": path.stat().st_size,
                     "sha256": sha256_file(path),
+                    "release_metadata": is_release,
+                    "package_index": is_package_index,
                 }
             )
+    present = bool(files) and release_count > 0 and package_index_count > 0
     return {
         "root": str(root),
         "file_count": len(files),
+        "release_file_count": release_count,
+        "package_index_file_count": package_index_count,
         "files": files,
         "files_sha256": canonical_sha256(files),
-        "present": bool(files),
+        "present": present,
     }
 
 
@@ -252,15 +305,16 @@ def build_manifest(
     *,
     apt_cache: str,
     apt_lists_root: Path,
-    query_fn: Callable[
-        [dict[str, str], str], tuple[list[dict[str, Any]], list[dict[str, Any]]]
+    resolver: Callable[
+        [list[dict[str, str]], str], Resolution
     ] = query_package_artifacts,
 ) -> dict[str, Any]:
     """Build the complete fail-closed installed-package artifact manifest."""
+    resolution = resolver(packages, apt_cache)
     artifacts: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
     for package in packages:
-        matches, attempts = query_fn(package, apt_cache)
+        matches, attempts = resolution.get(package_identity(package), ([], []))
         if len(matches) == 1:
             artifact = matches[0]
             artifact["queries_attempted"] = [attempt["query"] for attempt in attempts]
@@ -273,21 +327,22 @@ def build_manifest(
                     "attempts": attempts,
                 }
             )
-    artifacts.sort(
-        key=lambda item: (item["package"], item["architecture"], item["version"])
-    )
-    missing.sort(
-        key=lambda item: (item["package"], item["architecture"], item["version"])
-    )
+    artifacts.sort(key=package_identity)
+    missing.sort(key=package_identity)
     index_inventory = collect_apt_index_inventory(apt_lists_root)
-    complete = len(artifacts) == len(packages) and not missing and index_inventory["present"]
+    complete = (
+        len(artifacts) == len(packages)
+        and not missing
+        and index_inventory["present"]
+    )
     return {
-        "schema_version": "0.1.0",
+        "schema_version": "0.2.0",
         "record_type": RECORD_TYPE,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "collection_mode": "local_apt_cache_exact_version_metadata",
         "network_used": False,
         "apt_cache": apt_cache,
+        "apt_query_batch_size": APT_QUERY_BATCH_SIZE,
         "package_count": len(packages),
         "artifact_count": len(artifacts),
         "missing_count": len(missing),

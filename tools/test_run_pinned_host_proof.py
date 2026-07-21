@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 MODULE_PATH = Path(__file__).with_name("run_pinned_host_proof.py")
@@ -132,3 +133,30 @@ args.output.write_text(json.dumps(payload) + '\\n', encoding='utf-8')
     assert result["collector_path"] == "host/scripts/collect_capabilities.py"
     assert result["collector_returncode"] == 0
     assert result["validation_failures"] == []
+
+
+def test_capability_hostname_is_hashed_before_bundle_retention() -> None:
+    payload = passing_capability_payload()
+    payload["host"] = {"hostname": "ptah-proof-host", "python": "3.12"}
+    sanitized = MODULE.sanitize_capability_payload(payload)
+    assert "hostname" not in sanitized["host"]
+    assert len(sanitized["host"]["hostname_sha256"]) == 64
+    assert payload["host"]["hostname"] == "ptah-proof-host"
+
+
+def test_bundle_output_does_not_make_clean_repository_dirty(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "Ptah Test"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.email", "ptah@example.invalid"], check=True)
+    tracked = tmp_path / "tracked.txt"
+    tracked.write_text("frozen\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "tracked.txt"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "freeze"], check=True)
+    output = tmp_path / "evidence" / "phase0c" / "pinned-host-candidate"
+    output.mkdir(parents=True)
+    (output / "bundle-manifest.json").write_text("{}\n", encoding="utf-8")
+    assert MODULE.repository_state(tmp_path, output)["dirty"] is False
+    (tmp_path / "unexpected.txt").write_text("unsafe\n", encoding="utf-8")
+    state = MODULE.repository_state(tmp_path, output)
+    assert state["dirty"] is True
+    assert state["unexpected_untracked"] == ["unexpected.txt"]

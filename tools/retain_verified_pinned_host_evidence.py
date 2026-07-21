@@ -58,7 +58,11 @@ def relative_lane(repo_root: Path, path: Path, label: str) -> str:
 
 
 def validate_paths(
-    repo_root: Path, bundle_dir: Path, output_dir: Path
+    repo_root: Path,
+    bundle_dir: Path,
+    output_dir: Path,
+    *,
+    allow_populated_output: bool,
 ) -> tuple[str, str]:
     """Reject symlink, nesting and overwrite ambiguities."""
     require(repo_root.is_dir() and not repo_root.is_symlink(), "repository root is invalid")
@@ -73,7 +77,10 @@ def validate_paths(
         require(not entry.is_symlink(), f"source bundle contains a symlink: {entry.name}")
     if output_dir.exists():
         require(output_dir.is_dir() and not output_dir.is_symlink(), "durable output path is invalid")
-        require(not any(output_dir.iterdir()), f"durable output directory is not empty: {output_dir}")
+        if not allow_populated_output:
+            require(not any(output_dir.iterdir()), f"durable output directory is not empty: {output_dir}")
+    elif allow_populated_output:
+        raise BindingError("durable output directory disappeared during retention")
     return bundle_relative, output_relative
 
 
@@ -121,9 +128,16 @@ def validate_repository_binding(
     bundle_dir: Path,
     output_dir: Path,
     verification: dict[str, Any],
+    *,
+    allow_populated_output: bool,
 ) -> dict[str, Any]:
     """Bind one internally valid bundle to exact reviewed repository bytes."""
-    bundle_relative, output_relative = validate_paths(repo_root, bundle_dir, output_dir)
+    bundle_relative, output_relative = validate_paths(
+        repo_root,
+        bundle_dir,
+        output_dir,
+        allow_populated_output=allow_populated_output,
+    )
     commit = run(["git", "-C", str(repo_root), "rev-parse", "HEAD"]).stdout.strip()
     require(
         commit == verification["implementation_commit"],
@@ -181,10 +195,20 @@ def retain_verified(
     output_dir = output_dir.resolve()
     verification = HELPER.verify_bundle(bundle_dir)
     before = validate_repository_binding(
-        repo_root, bundle_dir, output_dir, verification
+        repo_root,
+        bundle_dir,
+        output_dir,
+        verification,
+        allow_populated_output=False,
     )
     retained = HELPER.prepare_retention(bundle_dir, output_dir)
-    after = validate_repository_binding(repo_root, bundle_dir, output_dir, verification)
+    after = validate_repository_binding(
+        repo_root,
+        bundle_dir,
+        output_dir,
+        verification,
+        allow_populated_output=True,
+    )
     require(
         before["implementation_commit"] == after["implementation_commit"],
         "repository HEAD changed during durable retention",

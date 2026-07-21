@@ -1,0 +1,84 @@
+{
+  "schema_version": "0.2.0",
+  "record_type": "ptah.phase0c.apache_2_0_boundary",
+  "status": "owner_accepted_operative",
+  "accepted_at": "2026-07-21",
+  "owner_authorization": {
+    "decision": "authorized",
+    "decision_source": "Owner instruction in the Ptah project conversation: 'authorised', followed by 'Ok proceed'",
+    "engineering_interpretation": "Accept the Apache-2.0 public/private boundary and the recommended copyright-owner wording; do not bypass independent physical-host, evidence, ADR or runtime-authorization gates."
+  },
+  "spdx_license": "Apache-2.0",
+  "official_license_source": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+  "official_license_size_bytes": 11358,
+  "official_license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+  "operative_root_files_present": true,
+  "operative_files": [
+    "LICENSE",
+    "NOTICE",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "REUSE.toml",
+    "LICENSES/Apache-2.0.txt"
+  ],
+  "owner_identity": {
+    "status": "owner_confirmed",
+    "accepted_value": "John Dumisuni trading as THETECHGUY DIGITAL SOLUTIONS",
+    "notice": "Copyright 2026 John Dumisuni trading as THETECHGUY DIGITAL SOLUTIONS",
+    "basis": "THETECHGUY DIGITAL SOLUTIONS is the owner's registered Zambia business name rather than a separately incorporated limited company. This is an owner-approved engineering record and not legal advice."
+  },
+  "public_default_scope": {
+    "rule": "Repository-owned source, tests, documentation, configuration, schemas, generated metadata bindings, CI definitions and proof tooling intentionally published in the public Ptah-space repository are licensed under Apache-2.0 unless a file or subtree carries a different explicit licence notice.",
+    "repository": "jaydumisuni/Ptah-space"
+  },
+  "third_party_boundary": {
+    "rule": "Third-party source, binary artifacts, generated notices and dependency metadata remain under their own licences and are not relicensed merely because they are referenced, downloaded, verified, executed or described by Ptah.",
+    "notice_review": "legal/THIRD-PARTY-NOTICE-REVIEW.md",
+    "root_notice_status": "reviewed_no_entries_required_at_phase0c_acceptance_checkpoint"
+  },
+  "private_not_permitted_in_public_repository": [
+    "customer or client personal data",
+    "device identifiers or customer device evidence",
+    "credentials, secrets, tokens, private keys or production configuration",
+    "Hunter private memory, prompts, knowledge stores or model data",
+    "THETECHGUY private Domain Packs",
+    "restricted device-recovery, bypass or unlock adapters",
+    "payment-provider secrets, transaction records or internal finance data",
+    "private technician procedures, customer cases or forensic records",
+    "production deployment state, infrastructure inventory or incident evidence",
+    "unlicensed donor source or proprietary third-party material"
+  ],
+  "private_repository_boundary": {
+    "rule": "Private THETECHGUY repositories and data are not licensed by the public Ptah-space licence unless an explicit file-level or repository-level licence says otherwise.",
+    "examples": [
+      "Hunter AI private services and knowledge",
+      "TechGuy repair, IMEI, ADB, META, DIAG, MTP, Fastboot and recovery adapters",
+      "customer, sales, repair, payment, logistics and employee-operating-system records",
+      "private Domain Packs, credentials, deployment manifests and operational evidence"
+    ]
+  },
+  "trademark_boundary": {
+    "rule": "Apache-2.0 does not grant permission to use THETECHGUY, THETECHGUY DIGITAL SOLUTIONS, Ptah, Hunter or related names, marks, logos or product branding except for reasonable descriptive attribution allowed by the licence.",
+    "brand_assets_in_public_licence_scope": false
+  },
+  "contribution_boundary": {
+    "rule": "Unless conspicuously marked otherwise, intentional contributions accepted into the public Work are licensed under Apache-2.0 section 5. Contributors must have the right to submit the material and must not include private or restricted THETECHGUY data.",
+    "cla_required_initially": false,
+    "dco_required_initially": false
+  },
+  "source_annotation": {
+    "repository_default": "REUSE.toml",
+    "license_text": "LICENSES/Apache-2.0.txt",
+    "new_or_substantially_modified_source_header": "SPDX-License-Identifier: Apache-2.0"
+  },
+  "remaining_phase0c_blockers": [
+    "run the proof kit on the exact physical Ubuntu Server 24.04.4 / 6.8.0-136-generic host",
+    "review and accept the resulting installed-package and package-artifact manifests",
+    "retain and explicitly accept the resulting physical-host evidence bundle",
+    "complete the final Phase 0C closure consistency review",
+    "accept ADR-0033",
+    "explicitly change the canonical roadmap to Runtime implementation: AUTHORIZED"
+  ],
+  "apache_2_0_accepted": true,
+  "runtime_implementation_authorized": false
+}

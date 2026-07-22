@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the non-operative AI Project Workspace donor/profile candidate."""
+"""Validate the corrected non-operative AI Project Workspace donor/profile."""
 from __future__ import annotations
 
 import argparse
@@ -17,44 +17,33 @@ EXPECTED_OFFICIAL_URLS = {
     "https://help.openai.com/en/articles/9930697/what-is-the-canvas-feature-in-chatgpt-and-how-do-i-use-it",
     "https://help.openai.com/en/articles/10291617/tasks-in-chatgpt",
 }
-EXPECTED_AUTHORITY_CLASSES = {
-    "canonical",
-    "accepted_evidence",
-    "recovery_copy",
-    "reference",
-    "generated_candidate",
-    "temporary_context",
-    "rejected",
-    "superseded",
-}
 EXPECTED_PRIMITIVES = {
-    "Workspace",
-    "Session",
-    "Activity",
-    "Event",
-    "Attempt",
-    "Object",
-    "Revision",
-    "View",
-    "Artifact",
-    "Knowledge",
-    "Policy",
-    "Facility",
-    "Provider",
-    "Grant",
-    "Recipe",
-    "Receipt",
+    "Workspace", "Session", "Activity", "Event", "Attempt", "Object",
+    "Revision", "View", "Artifact", "Knowledge", "Policy", "Facility",
+    "Provider", "Grant", "Recipe", "Receipt",
 }
 EXPECTED_CLASS_COUNTS = {
-    "covered_by_existing_primitive": 4,
-    "covered_by_profile_composition": 8,
+    "covered_by_neutral_substrate": 8,
+    "caller_application_composition": 4,
     "candidate_extension": 0,
     "rejected_or_not_adopted": 2,
+}
+EXPECTED_FIXTURES = {
+    "workspace-isolation",
+    "caller-label-roundtrip",
+    "conflicting-labels-no-ranking",
+    "model-independent-resume",
+    "grant-survives-agent-change",
+    "scheduled-exact-inputs",
+    "private-hunter-public-workspace",
+    "archived-session-discoverability",
+    "failed-activity-visible",
+    "sergeant-review-no-ptah-verdict",
 }
 
 
 class CandidateError(RuntimeError):
-    """Raised when the candidate violates its frozen non-operative boundary."""
+    """Raised when the candidate violates the neutral non-operative boundary."""
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -71,9 +60,14 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def require_text(text: str, needle: str, label: str) -> None:
+def require(text: str, needle: str, label: str) -> None:
     if needle not in text:
         raise CandidateError(f"{label}: missing required text: {needle}")
+
+
+def forbid(text: str, needle: str, label: str) -> None:
+    if needle in text:
+        raise CandidateError(f"{label}: forbidden decision-authority text remains: {needle}")
 
 
 def validate_candidate(repo_root: Path) -> dict[str, Any]:
@@ -92,88 +86,119 @@ def validate_candidate(repo_root: Path) -> dict[str, Any]:
         raise CandidateError(f"candidate files missing: {', '.join(sorted(missing))}")
 
     readme = paths["readme"].read_text(encoding="utf-8")
-    require_text(readme, "Runtime implementation is not authorized", "README")
-    require_text(readme, "licensed under the Apache License, Version 2.0", "README")
+    require(readme, "Runtime implementation is not authorized", "README")
+    require(readme, "licensed under the Apache License, Version 2.0", "README")
     if "owner acceptance is still pending" in readme:
         raise CandidateError("README retains obsolete Apache-2.0 pending text")
 
     donor = paths["donor"].read_text(encoding="utf-8")
-    require_text(donor, "architecture study only", "donor")
-    require_text(donor, "Code reuse: none", "donor")
-    require_text(donor, "Integration decision: Study only", "donor")
-    require_text(donor, "does not authorize any runtime implementation", "donor")
-    found_urls = {url for url in EXPECTED_OFFICIAL_URLS if url in donor}
-    if found_urls != EXPECTED_OFFICIAL_URLS:
-        raise CandidateError("donor record does not contain the complete official-source set")
-    if "OpenAI source code" not in donor or "must be copied" in donor:
-        raise CandidateError("donor source-code boundary is missing or inverted")
+    for token in (
+        "application-experience study only",
+        "Integration decision: Study only",
+        "Code reuse: none",
+        "Ptah provides neutral storage, execution, isolation, access enforcement",
+        "does not assign context, authority, review or approval decisions to Ptah",
+        "does not authorize any runtime implementation",
+    ):
+        require(donor, token, "donor")
+    for url in EXPECTED_OFFICIAL_URLS:
+        require(donor, url, "donor official-source set")
+    forbid(donor, "Ptah subsystem: Workspace composition, context compilation", "donor")
+    forbid(donor, "Ptah must implement the capability", "donor")
 
     profile = load_json(paths["profile"])
     if profile.get("record_type") != "ptah.phase0c.ai_project_workspace_profile_candidate":
         raise CandidateError("profile record type mismatch")
     if profile.get("profile_id") != EXPECTED_PROFILE_ID:
         raise CandidateError("profile identity mismatch")
-    if profile.get("status") != "candidate_non_operative":
-        raise CandidateError("profile must remain non-operative")
+    if profile.get("status") != "corrected_candidate_non_operative":
+        raise CandidateError("profile must remain corrected and non-operative")
     if profile.get("runtime_implementation_authorized") is not False:
         raise CandidateError("profile cannot authorize runtime implementation")
     if profile.get("new_core_entity_required") is not False:
-        raise CandidateError("candidate cannot silently add a new core entity")
+        raise CandidateError("candidate cannot silently add a new Core entity")
     if profile.get("frozen_contract_change_required") is not False:
         raise CandidateError("candidate cannot silently reopen frozen contracts")
+    if profile.get("ptah_role") != "neutral_workspace_and_execution_substrate":
+        raise CandidateError("Ptah neutral substrate role is missing")
+    if profile.get("decision_authority") is not False:
+        raise CandidateError("Ptah cannot have decision authority")
+
+    expected_owners = {
+        "context_selection_owner": "caller_application",
+        "source_authority_owner": "caller_application",
+        "review_authority_owner": "reviewer_application",
+        "approval_authority_owner": "human_or_calling_application",
+        "next_action_owner": "caller_application",
+    }
+    for key, value in expected_owners.items():
+        if profile.get(key) != value:
+            raise CandidateError(f"profile responsibility owner mismatch: {key}")
+
     primitives = profile.get("composed_primitives")
     if not isinstance(primitives, list) or set(primitives) != EXPECTED_PRIMITIVES:
         raise CandidateError("profile primitive composition does not match the reviewed set")
-    authority = profile.get("source_authority_classes")
-    if not isinstance(authority, list) or set(authority) != EXPECTED_AUTHORITY_CLASSES:
-        raise CandidateError("profile authority classes are incomplete")
-    context_fields = profile.get("context_packet_required_fields")
-    if not isinstance(context_fields, list) or len(context_fields) < 10:
-        raise CandidateError("context packet field set is incomplete")
-    if len(context_fields) != len(set(context_fields)):
-        raise CandidateError("context packet fields must be unique")
-    privacy_rules = profile.get("privacy_rules")
-    if not isinstance(privacy_rules, list) or not any(
-        "cannot be retrieved by another Workspace" in item
-        for item in privacy_rules
-        if isinstance(item, str)
-    ):
-        raise CandidateError("cross-Workspace privacy rule is missing")
+
+    surfaces = profile.get("mechanical_workspace_surfaces")
+    if not isinstance(surfaces, list) or len(surfaces) < 10 or len(surfaces) != len(set(surfaces)):
+        raise CandidateError("mechanical Workspace surface set is incomplete or duplicated")
+
+    caller_functions = profile.get("caller_owned_functions")
+    required_caller_functions = {
+        "intent interpretation", "context search and selection",
+        "source authority and trust labels", "review and verdict",
+        "approval and rejection", "next-action selection",
+    }
+    if not isinstance(caller_functions, list) or not required_caller_functions.issubset(caller_functions):
+        raise CandidateError("caller-owned decision functions are incomplete")
+
     grant_rules = profile.get("facility_grant_rules")
     if not isinstance(grant_rules, dict) or set(grant_rules) != {
         "read", "write", "protected_action", "private_export", "destructive_action"
     }:
-        raise CandidateError("Facility Grant rules are incomplete")
+        raise CandidateError("mechanical Facility Grant rules are incomplete")
+    if any("decide" in str(value).lower() and "without deciding" not in str(value).lower() for value in grant_rules.values()):
+        raise CandidateError("Grant rule assigns judgment to Ptah")
+
+    non_claims = profile.get("non_claims")
+    required_non_claims = {
+        "no Ptah context compiler",
+        "no Ptah source-authority ranking",
+        "no Ptah review or approval authority",
+        "no Ptah next-action selection",
+    }
+    if not isinstance(non_claims, list) or not required_non_claims.issubset(non_claims):
+        raise CandidateError("neutral Ptah non-claims are incomplete")
 
     gap_map = load_json(paths["gap_map"])
     if gap_map.get("profile_id") != EXPECTED_PROFILE_ID:
         raise CandidateError("gap map profile identity mismatch")
-    if gap_map.get("status") != "candidate_complete_no_contract_reopen":
-        raise CandidateError("gap map status must preserve the no-reopen conclusion")
+    if gap_map.get("status") != "corrected_candidate_complete_no_contract_reopen":
+        raise CandidateError("gap map corrected status is missing")
     if gap_map.get("frozen_contract_change_required") is not False:
         raise CandidateError("gap map cannot claim a frozen contract change")
     if gap_map.get("runtime_implementation_authorized") is not False:
         raise CandidateError("gap map cannot authorize runtime implementation")
+    require(str(gap_map.get("core_boundary", "")), "Ptah provides neutral storage", "gap map boundary")
+
     mappings = gap_map.get("mappings")
-    if not isinstance(mappings, list) or not mappings:
-        raise CandidateError("gap map mappings are missing")
+    if not isinstance(mappings, list) or len(mappings) != 14:
+        raise CandidateError("exactly fourteen donor mappings are required")
     capabilities = [item.get("capability") for item in mappings if isinstance(item, dict)]
     if len(capabilities) != len(mappings) or len(capabilities) != len(set(capabilities)):
         raise CandidateError("gap map capabilities must be unique non-empty records")
     classifications = Counter(item.get("classification") for item in mappings)
-    summary = gap_map.get("summary")
-    if not isinstance(summary, dict) or summary != EXPECTED_CLASS_COUNTS:
-        raise CandidateError("gap map summary does not match the reviewed counts")
-    if dict(classifications) != {k: v for k, v in EXPECTED_CLASS_COUNTS.items() if v}:
+    if gap_map.get("summary") != EXPECTED_CLASS_COUNTS:
+        raise CandidateError("gap map summary does not match the corrected counts")
+    if dict(classifications) != {key: value for key, value in EXPECTED_CLASS_COUNTS.items() if value}:
         raise CandidateError("gap map classification counts do not match its summary")
     if classifications.get("candidate_extension", 0) != 0:
         raise CandidateError("candidate extension requires a separate contract reopening review")
-    hidden = next(
-        (item for item in mappings if item.get("capability") == "hidden provider memory"),
-        None,
-    )
-    if not isinstance(hidden, dict) or hidden.get("classification") != "rejected_or_not_adopted":
-        raise CandidateError("hidden provider memory must remain rejected")
+    for capability in ("project instructions", "project memory", "long-running agent work", "scheduled continuation"):
+        item = next((record for record in mappings if record.get("capability") == capability), None)
+        if not isinstance(item, dict) or item.get("classification") != "caller_application_composition":
+            raise CandidateError(f"decision-bearing donor behavior must remain caller-owned: {capability}")
+        require(str(item.get("boundary", "")), "Ptah", f"{capability} boundary")
 
     fixtures = load_json(paths["fixtures"])
     if fixtures.get("profile_id") != EXPECTED_PROFILE_ID:
@@ -182,46 +207,67 @@ def validate_candidate(repo_root: Path) -> dict[str, Any]:
         raise CandidateError("fixtures cannot authorize runtime implementation")
     fixture_list = fixtures.get("fixtures")
     if not isinstance(fixture_list, list) or len(fixture_list) != 10:
-        raise CandidateError("exactly ten reviewed fixtures are required")
-    fixture_ids = [item.get("id") for item in fixture_list if isinstance(item, dict)]
-    if len(fixture_ids) != len(fixture_list) or len(fixture_ids) != len(set(fixture_ids)):
-        raise CandidateError("fixture identities must be unique")
-    kinds = {item.get("kind") for item in fixture_list}
-    if kinds != {"positive", "negative"}:
+        raise CandidateError("exactly ten corrected fixtures are required")
+    fixture_ids = {item.get("id") for item in fixture_list if isinstance(item, dict)}
+    if fixture_ids != EXPECTED_FIXTURES:
+        raise CandidateError("corrected fixture identities do not match the reviewed set")
+    if {item.get("kind") for item in fixture_list} != {"positive", "negative"}:
         raise CandidateError("positive and negative fixture classes are both required")
     for item in fixture_list:
         if not isinstance(item.get("proof"), list) or not item["proof"]:
             raise CandidateError(f"fixture proof is missing: {item.get('id')}")
-    isolation = next((item for item in fixture_list if item.get("id") == "workspace-isolation"), None)
-    if not isinstance(isolation, dict) or isolation.get("expected") != "deny":
-        raise CandidateError("cross-Workspace isolation fixture must fail closed")
-    scheduled = next(
-        (item for item in fixture_list if item.get("id") == "scheduled-artifact-least-privilege"),
-        None,
-    )
-    if not isinstance(scheduled, dict) or scheduled.get("expected") != "deny":
-        raise CandidateError("scheduled Artifact access must remain least privilege")
+
+    conflict = next(item for item in fixture_list if item.get("id") == "conflicting-labels-no-ranking")
+    if conflict.get("expected") != "retain_both_no_winner":
+        raise CandidateError("Ptah must not rank conflicting caller labels")
+    sergeant = next(item for item in fixture_list if item.get("id") == "sergeant-review-no-ptah-verdict")
+    if sergeant.get("expected") != "store_review_without_promotion":
+        raise CandidateError("Sergeant review must not become a Ptah verdict")
+    archived = next(item for item in fixture_list if item.get("id") == "archived-session-discoverability")
+    if archived.get("expected") != "return_if_authorized":
+        raise CandidateError("Ptah must not make archived-Session relevance decisions")
 
     profile_doc = paths["profile_doc"].read_text(encoding="utf-8")
     bridge_doc = paths["bridge_doc"].read_text(encoding="utf-8")
     for label, text in (("profile document", profile_doc), ("Hunter bridge", bridge_doc)):
-        require_text(text, "non-operative", label)
-        require_text(text, "does not authorize", label)
-    require_text(profile_doc, EXPECTED_PROFILE_ID, "profile document")
-    require_text(profile_doc, "No WP01–WP14 reopening is proposed", "profile document")
-    require_text(bridge_doc, "Candidate-to-truth rule", "Hunter bridge")
-    require_text(bridge_doc, "No model response directly changes canonical truth", "Hunter bridge")
+        require(text, "non-operative", label)
+        require(text, "does not authorize", label)
+    require(profile_doc, "Ptah is the world and machinery, not the thinker", "profile document")
+    require(profile_doc, "Ptah Core does not compile context", "profile document")
+    require(profile_doc, "Ptah does not perform the review", "profile document")
+    require(bridge_doc, "Ptah does not interpret intent, select context, rank sources", "Hunter bridge")
+    require(bridge_doc, "Ptah does not perform the review", "Hunter bridge")
+    require(bridge_doc, "Ptah does not promote a candidate", "Hunter bridge")
 
-    report_files = {}
-    for name, path in paths.items():
-        report_files[name] = {
+    forbidden_phrases = {
+        "profile document": (
+            "Ptah should compile a bounded context packet",
+            "A lower-authority record cannot silently override",
+            "sharing the same accepted Workspace truth",
+        ),
+        "Hunter bridge": (
+            "authoritative source index",
+            "pending approval or denial",
+            "candidate authority promotion request",
+            "Promotion requires the Workspace's applicable acceptance policy",
+        ),
+    }
+    for label, phrases in forbidden_phrases.items():
+        text = profile_doc if label == "profile document" else bridge_doc
+        for phrase in phrases:
+            forbid(text, phrase, label)
+
+    report_files = {
+        name: {
             "repository_path": path.relative_to(repo_root).as_posix(),
             "size_bytes": path.stat().st_size,
             "sha256": sha256(path),
         }
+        for name, path in paths.items()
+    }
 
     return {
-        "schema_version": "0.1.0",
+        "schema_version": "0.2.0",
         "record_type": "ptah.phase0c.ai_project_workspace_candidate_validation",
         "status": "candidate_valid_non_operative",
         "profile_id": EXPECTED_PROFILE_ID,
@@ -229,6 +275,10 @@ def validate_candidate(repo_root: Path) -> dict[str, Any]:
         "composed_primitive_count": len(EXPECTED_PRIMITIVES),
         "mapping_count": len(mappings),
         "fixture_count": len(fixture_list),
+        "neutral_substrate_boundary_restored": True,
+        "ptah_decision_authority": False,
+        "ptah_context_selection_authority": False,
+        "ptah_review_authority": False,
         "frozen_contract_change_required": False,
         "runtime_implementation_authorized": False,
         "files": report_files,

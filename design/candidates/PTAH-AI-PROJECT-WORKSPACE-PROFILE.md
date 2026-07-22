@@ -1,6 +1,6 @@
-# Ptah AI Project Workspace Profile candidate
+# Ptah AI Project Workspace substrate profile candidate
 
-Status: candidate, non-operative — frozen-contract composition only
+Status: corrected candidate, non-operative — frozen-contract composition only
 
 Profile identity:
 
@@ -10,60 +10,53 @@ ptah.workspace.ai_project.v1
 
 ## Purpose
 
-This profile composes existing Ptah primitives into one durable project environment where a human, Hunter and other compatible agents can continue work across Sessions, files, tools, Activities and restarts without rebuilding context manually.
+This profile composes existing Ptah primitives into a durable project **platform** where humans, Hunter, Sergeant, other agents and ordinary applications may store and run work across Sessions, files, tools, Activities and restarts.
 
-It is a profile over frozen primitives, not a new Ptah Core entity.
+It is a profile over frozen primitives, not a new Ptah Core entity and not an intelligence, coordinator, reviewer or approval system.
 
 ## Primary rule
 
-> Workspace truth belongs to Ptah and the owner, not to the active model provider.
+> Ptah is the world and machinery, not the thinker.
 
-Hunter, Sergeant, an OpenAI model, a local model or a specialist Provider may consume the same bounded context packet. None becomes the owner of Workspace memory.
+Ptah supplies neutral workspace capabilities. The caller decides what the work means, which records matter, what is authoritative, what should happen next and whether a result is accepted.
 
-## Workspace envelope
+Hunter, Sergeant, a human, a local model, an OpenAI model or another application may use the same Ptah Workspace. Ptah does not become any of them and does not agree with, rank or approve their conclusions.
 
-An AI Project Workspace binds:
+## Workspace substrate
 
-- purpose and objectives;
-- members, roles and Grants;
-- accepted policies and decisions;
-- authoritative and reference sources;
+The profile exposes mechanical composition for:
+
+- stable Workspace identity;
+- configured membership and access Grants;
 - parallel Sessions;
-- active, pending and completed Activities;
-- uploaded, generated and retained Artifacts;
-- Workspace-scoped Knowledge Views;
+- caller-created Activities and Attempts;
+- Events, Receipts and logs;
+- Objects, Revisions, Views and Artifacts;
 - Facilities and Providers;
-- approvals, Receipts and evidence requirements;
-- handoff and recovery checkpoints.
+- schedules and triggers submitted by callers;
+- checkpoints, snapshots, exports and recovery;
+- arbitrary caller-owned metadata and labels.
 
-## Context compiler
+Ptah may store purpose, objective, policy, decision, authority, blocker, approval or handoff records as bytes and metadata. It does not interpret those records or decide their truth.
 
-Before an agent begins or resumes an Activity, Ptah should compile a bounded context packet from explicit Workspace records.
+## Caller-built context
 
-Required packet fields are frozen in:
+Ptah Core does not compile context for an agent.
 
-```text
-design/candidates/ai-project-workspace-profile.json
-```
+A caller such as Hunter, Sergeant, a human-facing application or another agent may:
 
-The compiler must:
+1. request specific Workspace records;
+2. search or index records through an explicitly selected Facility;
+3. choose which records are relevant;
+4. assign its own authority or trust labels;
+5. construct a bounded prompt, review packet or handoff;
+6. store the resulting packet as an Artifact when useful.
 
-1. identify the Workspace and actor role;
-2. resolve current purpose, objective and blockers;
-3. select accepted decisions and authoritative sources;
-4. retrieve only relevant Sessions and Activities;
-5. include pending approvals and Facility Grants;
-6. retain source authority, revision and provenance;
-7. include the last accepted handoff;
-8. record why sources were included or excluded;
-9. refuse cross-Workspace private retrieval;
-10. remain exportable across model Providers.
+Ptah returns requested records and enforces configured mechanical access. It does not resolve objectives, select accepted decisions, rank sources, identify blockers, choose a next action or explain why a caller included or excluded a record.
 
-The compiler must not silently concatenate all historical messages.
+## Caller-owned labels
 
-## Source authority
-
-Every source used by the compiler has one authority class:
+Labels such as:
 
 - `canonical`
 - `accepted_evidence`
@@ -74,77 +67,71 @@ Every source used by the compiler has one authority class:
 - `rejected`
 - `superseded`
 
-A lower-authority record cannot silently override a higher-authority record. Conflicts remain visible and evidenced.
+may be stored by applications as ordinary metadata.
+
+Ptah preserves the supplied label, author, revision and provenance. It does not decide whether the label is correct and does not make one labelled record override another.
 
 ## Session model
 
-Each project thread is a Ptah `Session`.
+Each project thread may be represented as a Ptah `Session`.
 
-Sessions inherit:
+A Session mechanically links caller-supplied references such as:
 
-- Workspace purpose;
-- accepted policies;
-- authoritative source index;
-- member role;
-- Facility Grants;
-- privacy boundary.
-
-Sessions keep local:
-
+- Workspace identity;
+- participant identities;
 - Activity and Event history;
-- temporary reasoning context;
-- draft Artifacts;
-- unresolved questions;
-- handoff checkpoint.
+- Object and Artifact references;
+- Facility and Provider references;
+- Grants applied by the configured access system;
+- checkpoints and caller-produced handoffs.
 
-Parallel Sessions may work on different concerns while sharing the same accepted Workspace truth.
+Parallel Sessions share the same Workspace substrate without Ptah deciding that they share one purpose, truth hierarchy or objective.
 
 ## Artifact Library composition
 
-The Workspace library is a View over Ptah Objects, Revisions and Artifacts. It should support:
+The Workspace library is a View over Ptah Objects, Revisions and Artifacts. It may expose:
 
 - Workspace-owned Artifacts;
 - explicitly shared Artifacts;
-- private/restricted Artifacts;
-- generated candidates;
-- accepted evidence bundles;
+- private or restricted Artifacts;
+- generated outputs;
+- evidence bundles;
 - archived revisions;
 - external references without copied bytes.
 
-Every reusable Artifact must retain stable identity, owner, Workspace, digest, revision, source, licence, audience, retention, provenance and Grants.
+Every reusable Artifact retains stable identity, owner, Workspace, digest, revision, source, licence, audience, retention, provenance and configured Grants where those fields are supplied or required by the contract.
 
-## Facility Grants
+Ptah stores and retrieves the Artifact. The caller decides whether it is useful, correct, accepted, authoritative or safe to reuse.
 
-Tool availability is not global.
+## Mechanical access enforcement
+
+Tool availability is not global. Ptah enforces Grants, Leases, Fences and other access records configured by the operator or calling application.
 
 Examples:
 
 ```text
-GitHub read               allowed by Workspace Grant
-GitHub branch creation    allowed by maintainer role
-GitHub merge              protected action / owner policy
-Payment read              finance role
-Payment refund            explicit owner approval
-Device destructive action technician role + evidence + approval
-Private Hunter export     denied unless explicitly released
+GitHub read               permitted when the configured Grant allows it
+GitHub branch creation    permitted when the configured Grant allows it
+Payment refund            executed only when the caller supplies required authorization state
+Device destructive action executed only within configured adapter and access boundaries
+Private export            blocked when the configured access rule denies it
 ```
 
-Changing the active agent must not change the Workspace Grant set.
+Ptah does not decide who deserves a Grant or whether an approval is wise. It only enforces the configured mechanical condition.
+
+Changing the active agent does not implicitly change the configured Grant set.
 
 ## Scheduled Activities
 
-A scheduled or condition-triggered Activity may receive only:
+A caller may submit a scheduled or condition-triggered Activity with exact inputs, Artifact references, Provider references and access requirements.
 
-- explicitly granted Workspace Artifacts;
-- its prior accepted run state;
-- relevant Provider Grants;
-- the minimum Workspace context required by its Recipe.
+Ptah may persist the schedule and execute or dispatch it when the configured trigger fires. Ptah does not choose the task, infer the desired context or decide which Artifacts are relevant.
 
-A timer or condition does not expand authority.
+A timer or condition does not expand configured access.
 
-## Handoff
+## Handoffs
 
-Every resumable Session or long-running Activity should produce a handoff containing:
+A human, Hunter, Sergeant or another application may create a handoff Artifact containing fields such as:
 
 ```yaml
 completed: []
@@ -155,49 +142,47 @@ authority: []
 generated_artifacts: []
 ```
 
-A handoff is an Artifact with provenance, not an untracked summary string.
+Ptah stores, versions and retrieves that Artifact. It does not generate the next action, verify the authority list or decide that the handoff is accepted.
 
-## Hunter role
+## Hunter and Sergeant use
 
-Hunter acts as a Workspace participant and coordinator:
+Hunter may use Ptah to store project state, run tools, create Activities, retrieve records and persist outputs. Hunter owns its planning, context selection, source ranking, coordination and approval requests.
 
-- reads the bounded context packet;
-- proposes or starts Activities within Grants;
-- chooses compatible specialist Providers;
-- creates candidate Artifacts and Receipts;
-- requests approval for protected actions;
-- writes explicit handoffs;
-- never silently promotes a candidate into canonical truth.
+Sergeant may use Ptah to obtain a frozen candidate, run independent review Facilities, retain findings and publish its own review result. Ptah does not perform the review, issue the verdict or approve the candidate.
 
-Sergeant or another reviewer should receive an independently compiled review packet and cannot silently edit Hunter's result.
+A human or another configured process decides what to do with Hunter or Sergeant outputs.
 
 ## Proof obligations
 
-The candidate fixture set requires proof for:
+The corrected fixture set requires proof for:
 
-- cross-Workspace memory isolation;
-- accepted-decision inheritance;
-- superseded-source handling;
-- provider-independent resume;
+- cross-Workspace access isolation;
+- exact caller-requested record retrieval;
+- preservation of caller-supplied labels without Ptah interpretation;
+- provider-independent state and Artifact resume;
 - Grant stability across agent replacement;
-- least-privilege scheduled Activities;
-- private Hunter/public Workspace separation;
-- archived Session selection;
-- visible failed Activities;
-- Artifact-to-Activity lineage.
+- scheduled execution limited to caller-specified inputs;
+- private/public Workspace separation;
+- archived Session discoverability without automatic relevance judgment;
+- visible failed Activities and partial Artifacts;
+- Artifact-to-Activity lineage;
+- no Ptah context, authority, approval, review or next-action decision.
 
 ## Contract-gap conclusion
 
-The gap map concludes that the donor behaviours can be expressed with existing frozen primitives and profile composition. No WP01–WP14 reopening is proposed.
+The project/workspace experience can be built by applications using existing frozen Ptah primitives. No WP01–WP14 reopening is proposed.
 
-If implementation discovers a missing primitive, work must stop and request a versioned reopening ADR with migration, fixtures and conformance evidence.
+The behavioural donor informs application and user-experience design. It does not transfer context selection, source authority, approval or coordination into Ptah Core.
+
+If implementation discovers a missing mechanical primitive, work must stop and request a versioned reopening ADR with migration, fixtures and conformance evidence.
 
 ## Non-claims
 
 This candidate:
 
 - does not implement a Workspace runtime;
-- does not implement a context compiler;
+- does not implement a Ptah context compiler;
+- does not make Ptah an agent, coordinator, reviewer or approver;
 - does not change frozen schemas or lifecycles;
 - does not authorize T01 or any WP14 runtime proof;
 - does not depend on OpenAI;

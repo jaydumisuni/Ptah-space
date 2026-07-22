@@ -1,12 +1,19 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "record_type": "ptah.phase0c.ai_project_workspace_profile_candidate",
   "profile_id": "ptah.workspace.ai_project.v1",
-  "status": "candidate_non_operative",
-  "purpose": "Compose frozen Ptah primitives into an inspectable long-running human-and-agent project workspace.",
+  "status": "corrected_candidate_non_operative",
+  "purpose": "Compose frozen Ptah primitives into a neutral durable project platform used by humans, agents and applications.",
   "donor_record": "design/donors/openai-chatgpt-projects-work.md",
   "new_core_entity_required": false,
   "frozen_contract_change_required": false,
+  "ptah_role": "neutral_workspace_and_execution_substrate",
+  "decision_authority": false,
+  "context_selection_owner": "caller_application",
+  "source_authority_owner": "caller_application",
+  "review_authority_owner": "reviewer_application",
+  "approval_authority_owner": "human_or_calling_application",
+  "next_action_owner": "caller_application",
   "composed_primitives": [
     "Workspace",
     "Session",
@@ -25,12 +32,33 @@
     "Recipe",
     "Receipt"
   ],
-  "memory_scopes": [
-    "workspace_only",
-    "workspace_plus_explicit_shared",
-    "temporary_session"
+  "mechanical_workspace_surfaces": [
+    "workspace_identity",
+    "membership_records",
+    "configured_grants",
+    "session_references",
+    "activity_references",
+    "event_references",
+    "object_references",
+    "artifact_references",
+    "facility_references",
+    "provider_references",
+    "receipt_references",
+    "checkpoint_references",
+    "caller_metadata"
   ],
-  "source_authority_classes": [
+  "caller_owned_functions": [
+    "intent interpretation",
+    "context search and selection",
+    "source authority and trust labels",
+    "objective and blocker identification",
+    "provider choice",
+    "review and verdict",
+    "approval and rejection",
+    "next-action selection",
+    "handoff content"
+  ],
+  "caller_metadata_examples": [
     "canonical",
     "accepted_evidence",
     "recovery_copy",
@@ -40,60 +68,30 @@
     "rejected",
     "superseded"
   ],
-  "context_packet_required_fields": [
-    "workspace_identity",
-    "purpose",
-    "actor_role",
-    "current_objective",
-    "accepted_decisions",
-    "open_blockers",
-    "authoritative_sources",
-    "relevant_sessions",
-    "active_activities",
-    "pending_approvals",
-    "facility_grants",
-    "evidence_requirements",
-    "last_handoff"
-  ],
-  "thread_inheritance": [
-    "workspace purpose",
-    "accepted policies",
-    "authoritative source index",
-    "member role",
-    "facility grants",
-    "privacy boundary"
-  ],
-  "thread_local_state": [
-    "temporary reasoning context",
-    "activity history",
-    "draft artifacts",
-    "unresolved questions",
-    "handoff checkpoint"
-  ],
+  "metadata_rule": "Ptah stores and returns caller-supplied labels with provenance but does not interpret, rank or enforce their meaning.",
   "facility_grant_rules": {
-    "read": "explicit workspace or role grant",
-    "write": "explicit workspace or role grant",
-    "protected_action": "human approval or accepted policy",
-    "private_export": "denied unless explicitly authorized",
-    "destructive_action": "fail closed with evidence and approval"
+    "read": "enforce the configured Grant without deciding who deserves it",
+    "write": "enforce the configured Grant without deciding whether the write is strategically correct",
+    "protected_action": "execute only when the caller supplies the configured authorization state",
+    "private_export": "deny when configured access records deny it",
+    "destructive_action": "execute only within configured adapter, Grant, Lease and Fence boundaries"
   },
-  "scheduled_activity_rule": "A scheduled Activity receives only explicitly granted Workspace Artifacts, prior run state and Provider Grants.",
-  "handoff_required_fields": [
-    "completed",
-    "current_state",
-    "next_action",
-    "blockers",
-    "authority",
-    "generated_artifacts"
-  ],
+  "scheduled_activity_rule": "Ptah persists and dispatches the exact caller-submitted schedule and inputs; it does not choose the task or infer relevant context.",
+  "handoff_rule": "Ptah stores a caller-produced handoff Artifact; it does not generate or validate its next action, blockers or authority claims.",
   "privacy_rules": [
-    "workspace_only memory cannot be retrieved by another Workspace",
-    "private Hunter knowledge cannot enter a public Workspace without explicit release",
-    "customer, device, payment and secret material requires restrictive audience and Grants",
-    "context selection must retain source authority and provenance"
+    "cross-Workspace retrieval is mechanically denied without a configured Grant",
+    "private Hunter data is not readable from a public Workspace without an explicit configured release and Grant",
+    "customer, device, payment and secret material requires restrictive configured access",
+    "Ptah does not decide what should be public or private"
   ],
+  "sergeant_rule": "Sergeant may use Ptah Facilities to review a frozen candidate and store findings; Ptah does not review, issue the verdict or approve the candidate.",
+  "hunter_rule": "Hunter performs planning, context selection, authority judgments and coordination while Ptah supplies requested platform operations.",
   "non_claims": [
     "no runtime implementation",
+    "no Ptah context compiler",
+    "no Ptah source-authority ranking",
+    "no Ptah review or approval authority",
+    "no Ptah next-action selection",
     "no frozen contract modification",
     "no OpenAI source-code reuse",
     "no proprietary internal architecture claim",

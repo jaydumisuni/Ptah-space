@@ -1,25 +1,27 @@
 # Hunter–Ptah Workspace Bridge candidate
 
-Status: candidate, non-operative — interface and evidence design only
+Status: corrected candidate, non-operative — interface and evidence design only
 
 ## Purpose
 
-Define how Hunter may use `ptah.workspace.ai_project.v1` without storing project truth inside one model prompt, one provider account or one private chat history.
+Define how Hunter may use `ptah.workspace.ai_project.v1` as a neutral platform without assigning Hunter’s intelligence, Sergeant’s review authority or a human’s decisions to Ptah.
 
 ## Responsibility split
 
 ### Ptah
 
-Ptah owns and enforces:
+Ptah provides and mechanically enforces configured platform capabilities:
 
-- Workspace identity and membership;
-- authoritative source index;
-- Objects, Revisions, Views and Artifacts;
-- Activities, Attempts, Events and Receipts;
-- Knowledge Views and context-selection evidence;
-- Facilities, Providers and Grants;
-- privacy, audience and retention policy;
-- checkpoints, handoffs and recovery.
+- stable Workspace, Session, Activity, Object and Artifact identities;
+- storage, revisions, locations, transfers and recovery;
+- Processes, terminals, browsers, containers, Devices and other Facilities;
+- caller-created Activities, Attempts, Events and Receipts;
+- Provider registration and exact Generation identity;
+- configured Grants, Leases and Fences;
+- logs, checkpoints, snapshots, exports and retained failure state;
+- retrieval of exact records requested by an authorized caller.
+
+Ptah does not interpret intent, select context, rank sources, identify authority, choose Providers, decide blockers, approve actions, review results or select a next action.
 
 ### Hunter
 
@@ -27,22 +29,36 @@ Hunter provides:
 
 - intent interpretation;
 - planning and coordination;
-- relevant context requests;
-- Activity proposals;
+- context search and selection;
+- source and authority judgments;
+- Activity definitions submitted to Ptah;
 - Provider selection;
 - candidate Artifact production;
-- approval requests;
-- handoff summaries grounded in Ptah records.
+- approval requests to the applicable human or application;
+- next-action proposals;
+- handoff summaries grounded in records retrieved from Ptah.
 
-### Human owner
+### Sergeant
 
-The owner provides:
+Sergeant is an independent application that may run on Ptah. Sergeant:
+
+- receives a frozen candidate and explicitly selected evidence;
+- requests review Facilities and execution environments;
+- performs its own analysis and adversarial checks;
+- creates its own findings and verdict;
+- retains review evidence through Ptah.
+
+Ptah supplies the platform. Ptah does not perform the review, agree with the findings or approve the candidate.
+
+### Human or calling application
+
+The human or calling application provides:
 
 - goals and acceptance criteria;
-- protected-action approval;
+- access and approval configuration;
 - authority decisions;
 - candidate acceptance or rejection;
-- licence/private-release decisions;
+- licence and release decisions;
 - final runtime authorization.
 
 ## Candidate bridge operations
@@ -55,178 +71,157 @@ Input:
 
 - Workspace identity;
 - actor identity;
-- requested role;
-- intended Activity class.
+- requested Session or Activity references.
 
 Output:
 
-- Workspace access decision;
-- bounded context packet reference;
-- available Facility Grants;
-- active blockers;
-- pending approvals;
-- last accepted handoff.
+- mechanical access result under configured Grants;
+- Workspace metadata;
+- requested Session, Object, Artifact and Activity references;
+- available Facilities and Providers visible to that caller.
 
-### `request_context`
+Ptah does not return “the active blocker,” “the accepted handoff” or “the correct objective” unless the caller explicitly requests records carrying those caller-owned labels.
+
+### `list_records`
 
 Input:
 
-- Workspace and Session identity;
-- objective;
-- relevance query;
-- maximum context budget;
-- required authority classes.
+- Workspace identity;
+- exact record classes, identifiers or query constraints;
+- pagination and byte limits.
 
 Output:
 
-- selected source revisions;
-- exclusion reasons;
-- context packet Artifact;
-- selection Receipt.
+- matching records the caller is mechanically permitted to read;
+- exact revisions, locations and provenance;
+- access failures where configured Grants deny retrieval.
 
-### `propose_activity`
+The caller decides relevance and authority.
+
+### `create_activity`
 
 Input:
 
-- objective;
-- Recipe or Activity class;
-- requested Facilities;
-- expected Artifacts;
-- approval requirements;
-- evidence plan.
+- caller-defined Activity payload;
+- selected Recipe or Facility calls;
+- exact input Object and Artifact references;
+- selected Provider constraints;
+- configured access references;
+- requested evidence and retention settings.
 
 Output:
 
-- candidate Activity;
-- Grant decision;
-- required approvals;
-- accepted proof obligations.
+- stored Activity identity;
+- accepted or rejected mechanical admission under configured capacity and access constraints;
+- Attempt, Event and Receipt references as execution proceeds.
+
+Ptah does not decide whether the Activity is strategically useful or whether its proof plan is sufficient.
 
 ### `record_progress`
 
 Input:
 
 - Activity and Attempt identity;
-- progress Event;
+- caller or Provider-supplied progress Event;
 - produced partial Artifacts;
-- new blockers;
-- owner questions.
+- caller-supplied labels such as blocker or question.
 
 Output:
 
-- retained Event/Artifact references;
-- updated handoff candidate.
+- retained Event and Artifact references.
 
-### `request_protected_action`
+Ptah does not infer blockers or generate a handoff.
 
-Input:
+### `submit_approval_request`
 
-- exact proposed action;
-- target;
-- justification;
-- expected side effects;
-- rollback or containment;
-- evidence to retain.
+A caller may store an approval request and route it to a human or approval application.
 
-Output:
-
-- pending approval or denial;
-- approval policy;
-- immutable decision Receipt.
+Ptah may enforce a configured rule that prevents a protected Facility action until a required Grant, Lease, Fence or approval record exists. Ptah does not decide whether approval should be granted.
 
 ### `complete_activity`
 
 Input:
 
-- result state;
+- caller or Provider-supplied result state;
 - produced Artifacts;
 - source and dependency revisions;
-- proof results;
-- remaining blockers;
-- next-action proposal.
+- test or proof outputs;
+- any caller-supplied remaining-work metadata.
 
 Output:
 
-- final Receipt;
-- candidate handoff;
-- candidate authority promotion request.
+- retained final Events, Receipts and Artifact references.
 
-### `handoff_session`
+Ptah does not promote the result into truth or decide the next action.
+
+### `store_handoff`
 
 Input:
 
-- completed work;
-- current state;
-- next action;
-- blockers;
-- authority references;
-- generated Artifacts.
+- a handoff Artifact created by Hunter, Sergeant, a human or another application.
 
 Output:
 
-- versioned handoff Artifact suitable for another compatible agent.
+- stable Artifact identity, revision, digest, provenance and retrieval reference.
 
-## Context packet rule
+Ptah stores the handoff. It does not verify that the handoff’s conclusions, authority list or next action are correct.
 
-Hunter must receive references and bounded content, not unrestricted Workspace storage access.
+## Context construction rule
 
-Every packet must identify:
+Hunter constructs its own bounded context packet from records it explicitly retrieves from Ptah.
 
-- compiler version;
+A Hunter packet may identify:
+
+- Hunter compiler version;
 - Workspace and Session;
 - actor and role;
 - source identities and revisions;
-- authority classes;
+- Hunter-assigned authority labels;
 - privacy labels;
-- Grants applied;
-- selection/exclusion reasons;
-- creation time and expiry or invalidation conditions.
+- Grants applied by Ptah;
+- Hunter’s selection and exclusion reasons;
+- creation time and invalidation conditions.
 
-## Candidate-to-truth rule
+Those are Hunter records stored on Ptah, not decisions made by Ptah Core.
 
-Hunter-created output begins as `generated_candidate`.
+Sergeant constructs a separate review packet. It should not reuse Hunter’s unchallenged conclusions as review authority.
 
-Promotion requires the Workspace's applicable acceptance policy. Depending on the Artifact, acceptance may require:
+## Candidate and acceptance rule
 
-- owner approval;
-- independent Sergeant review;
-- passing exact-head workflows;
-- licence review;
-- privacy review;
-- physical evidence;
-- a merged control-book decision.
+Hunter may label its output `generated_candidate`. Sergeant may label its output as a review result. A human or another configured application may accept, reject or supersede either output.
 
-No model response directly changes canonical truth.
+Ptah preserves the supplied records, labels and provenance. Ptah does not promote a candidate, issue a verdict or define canonical truth.
 
 ## Provider replacement
 
-A Provider change must not change:
+Changing a Provider must not erase mechanically durable Ptah state:
 
-- Workspace identity;
-- canonical decisions;
-- Facility Grants;
-- privacy policy;
-- Artifact lineage;
-- pending approvals;
-- handoff state.
+- Workspace and Session identity;
+- Object and Artifact lineage;
+- Activities, Events and Receipts;
+- configured Grants;
+- retained caller metadata;
+- stored handoffs.
 
-The new Provider receives a newly compiled packet and its identity is recorded in the Attempt.
+Hunter or Sergeant decides what context to rebuild for the new Provider. Ptah returns the requested records and records the Provider identity in the Attempt.
 
 ## Local-first and offline behaviour
 
-The bridge must allow Hunter to continue with:
+The bridge allows applications to continue using:
 
 - local Workspace metadata;
-- local authoritative files;
-- local search/index state;
+- local files and Artifacts;
+- local indexes selected by the application;
 - local model Providers;
-- queued Activities and handoffs.
+- queued Activities and stored handoffs.
 
-Cloud Facilities may be unavailable without invalidating local truth. Only actions that require the missing Facility are blocked.
+Cloud Facilities may be unavailable. Ptah reports the mechanical unavailability; the calling application decides how to adapt.
 
 ## Public/private boundary
 
-A public Ptah Workspace must not receive private Hunter memory, THETECHGUY Domain Packs, customer/device/payment records or restricted adapters unless an explicit release decision creates a properly licensed and audience-scoped Artifact.
+Configured access rules must prevent a public Workspace caller from reading private Hunter memory, THETECHGUY Domain Packs, customer/device/payment records or restricted adapters unless an authorized operator or application has explicitly created an appropriately scoped release Artifact and Grant.
+
+Ptah enforces the configured boundary. It does not decide what should be public.
 
 ## Proof requirements
 
@@ -238,14 +233,15 @@ design/candidates/fixtures/ai-project-workspace-fixtures.json
 
 It must also prove:
 
-- exact packet source lineage;
-- deterministic authority conflict handling;
+- exact requested-record lineage;
+- no Ptah-owned context selection or authority ranking;
 - no privilege increase on Provider replacement;
 - recovery after process and machine restart;
 - failure and partial-Artifact retention;
-- human approval enforcement;
-- no cross-Workspace private retrieval.
+- mechanical enforcement of configured Grants;
+- no cross-Workspace private retrieval;
+- Sergeant review outputs remain Sergeant outputs, not Ptah verdicts.
 
 ## Non-claims
 
-This document defines no network API, persistence format or runtime implementation. It does not authorize Hunter integration work before Phase 0C closure and ADR-0033 authorization.
+This document defines no network API, persistence format or runtime implementation. It does not authorize Hunter or Sergeant integration work before Phase 0C closure and ADR-0033 authorization. It does not make Ptah an intelligence, coordinator, reviewer or approval authority.

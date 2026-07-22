@@ -28,14 +28,14 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Run candidate regressions
+      - name: Run corrected boundary regressions
         run: |
           mkdir -p conformance/reports/ai-project-workspace
           set -o pipefail
           python -m unittest -v tools/test_check_ai_project_workspace_candidate.py \
             2>&1 | tee conformance/reports/ai-project-workspace/candidate-tests.txt
 
-      - name: Validate non-operative donor and profile
+      - name: Validate neutral non-operative donor and profile
         run: |
           set -o pipefail
           python tools/check_ai_project_workspace_candidate.py \
@@ -64,7 +64,7 @@ jobs:
               check=True,
           ).stdout.strip()
           evidence = {
-              "schema_version": "0.1.0",
+              "schema_version": "0.2.0",
               "record_type": "ptah.phase0c.ai_project_workspace_candidate_evidence",
               "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
               "implementation_commit": expected,
@@ -77,6 +77,14 @@ jobs:
               "composed_primitive_count": report.get("composed_primitive_count"),
               "mapping_count": report.get("mapping_count"),
               "fixture_count": report.get("fixture_count"),
+              "neutral_substrate_boundary_restored": report.get(
+                  "neutral_substrate_boundary_restored"
+              ),
+              "ptah_decision_authority": report.get("ptah_decision_authority"),
+              "ptah_context_selection_authority": report.get(
+                  "ptah_context_selection_authority"
+              ),
+              "ptah_review_authority": report.get("ptah_review_authority"),
               "frozen_contract_change_required": report.get(
                   "frozen_contract_change_required"
               ),
@@ -97,10 +105,17 @@ jobs:
               raise SystemExit("official behavioural donor source set is incomplete")
           if evidence["mapping_count"] != 14 or evidence["fixture_count"] != 10:
               raise SystemExit("candidate mapping or fixture counts changed")
-          if evidence["frozen_contract_change_required"] is not False:
-              raise SystemExit("candidate cannot reopen frozen contracts")
-          if evidence["runtime_implementation_authorized"] is not False:
-              raise SystemExit("candidate cannot authorize runtime implementation")
+          if evidence["neutral_substrate_boundary_restored"] is not True:
+              raise SystemExit("neutral Ptah substrate boundary was not restored")
+          for key in (
+              "ptah_decision_authority",
+              "ptah_context_selection_authority",
+              "ptah_review_authority",
+              "frozen_contract_change_required",
+              "runtime_implementation_authorized",
+          ):
+              if evidence[key] is not False:
+                  raise SystemExit(f"forbidden Ptah authority or implementation state: {key}")
           PY
 
       - name: Upload candidate evidence

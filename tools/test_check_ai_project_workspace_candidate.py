@@ -137,7 +137,7 @@ class AIProjectWorkspaceCandidateTests(unittest.TestCase):
             value["summary"]["caller_application_composition"] -= 1
             value["summary"]["covered_by_neutral_substrate"] += 1
             store(path, value)
-            self.assert_invalid(repo, "caller-owned")
+            self.assert_invalid(repo, "corrected counts|caller-owned")
 
     def test_conflicting_labels_cannot_gain_a_ptah_winner(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

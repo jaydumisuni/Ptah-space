@@ -1,0 +1,108 @@
+name: Phase 0C Workspace Deep Study V2
+
+on:
+  pull_request:
+    paths:
+      - "design/donors/openai-chatgpt-workspace-deep-study.md"
+      - "design/candidates/PTAH-WORKSPACE-OPERATIONS-PROFILE-V2.md"
+      - "design/candidates/workspace-operations-profile-v2.json"
+      - "design/candidates/workspace-operations-gap-map-v2.json"
+      - "design/candidates/fixtures/workspace-operations-fixtures-v2.json"
+      - "tools/check_workspace_operations_donor_v2.py"
+      - "tools/test_check_workspace_operations_donor_v2.py"
+      - ".github/workflows/phase0c-workspace-deep-study-v2.yml"
+      - "design/donors/openai-chatgpt-projects-work.md"
+      - "design/candidates/ai-project-workspace-profile.json"
+      - "contracts/generated/catalog-index.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact pull-request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Capture exact head
+        id: head
+        shell: bash
+        run: |
+          set -euo pipefail
+          HEAD_SHA="$(git rev-parse HEAD)"
+          EXPECTED_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$HEAD_SHA" = "$EXPECTED_SHA"
+          echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$HEAD_SHA" > exact-head.txt
+
+      - name: Run 26 valid and adversarial cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/test_check_workspace_operations_donor_v2.py -v 2>&1 | tee regressions.txt
+
+      - name: Validate deep Workspace study
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/check_workspace_operations_donor_v2.py \
+            --repo-root . \
+            --output workspace-deep-study-validation.json \
+            | tee validator-output.txt
+
+      - name: Bind exact-head evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("workspace-deep-study-validation.json").read_text())
+          if report["status"] != "pass":
+              raise SystemExit("validation did not pass")
+          if report["study_method"] != "10 primary + 10 independent verifier lanes":
+              raise SystemExit("study method mismatch")
+          if report["mechanical_capability_count"] != 22:
+              raise SystemExit("mechanical capability count mismatch")
+          if report["gap_mapping_count"] != 28:
+              raise SystemExit("gap mapping count mismatch")
+          if report["fixture_count"] != 20:
+              raise SystemExit("fixture count mismatch")
+          for key in ("new_core_entity_required", "frozen_contract_change_required", "runtime_implementation_authorized"):
+              if report[key] is not False:
+                  raise SystemExit(f"forbidden authority state: {key}")
+          report_bytes = Path("workspace-deep-study-validation.json").read_bytes()
+          evidence = {
+              "schema_version": "0.1.0",
+              "record_type": "ptah.phase0c.workspace_deep_study_exact_head_evidence",
+              "head_sha": Path("exact-head.txt").read_text().strip(),
+              "validation_sha256": hashlib.sha256(report_bytes).hexdigest(),
+              "regression_case_count": 26,
+              "primary_lanes": 10,
+              "independent_verifier_lanes": 10,
+              "new_core_entity_required": False,
+              "frozen_contract_change_required": False,
+              "runtime_implementation_authorized": False,
+          }
+          Path("exact-head-evidence.json").write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
+          PY
+
+      - name: Upload retained evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase0c-workspace-deep-study-v2-${{ steps.head.outputs.sha }}
+          path: |
+            exact-head.txt
+            exact-head-evidence.json
+            workspace-deep-study-validation.json
+            validator-output.txt
+            regressions.txt
+          if-no-files-found: error
+          retention-days: 90

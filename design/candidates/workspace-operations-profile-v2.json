@@ -1,0 +1,124 @@
+{
+  "schema_version": "0.1.0",
+  "record_type": "ptah.phase0c.workspace_operations_profile_candidate",
+  "profile_id": "ptah.workspace.operations.v2",
+  "status": "candidate_non_operative",
+  "study_method": {
+    "name": "ten_for_two",
+    "primary_lanes": 10,
+    "independent_verifier_lanes": 10,
+    "purpose": "Study observable workspace behaviour, challenge each mapping against frozen Ptah contracts, and reconcile improvements without copying proprietary implementation."
+  },
+  "source_boundary": {
+    "basis": [
+      "direct observable product behaviour",
+      "official public OpenAI documentation",
+      "existing accepted Ptah Workspace donor and neutral-substrate correction"
+    ],
+    "openai_private_source_used": false,
+    "hidden_implementation_inferred": false,
+    "code_reuse": "none",
+    "integration": "behavioural and interaction-pattern adaptation only"
+  },
+  "ptah_role": "neutral_workspace_and_execution_substrate",
+  "decision_authority": false,
+  "context_selection_authority": false,
+  "review_authority": false,
+  "approval_authority": false,
+  "new_core_entity_required": false,
+  "frozen_contract_change_required": false,
+  "mechanical_capabilities_to_borrow": [
+    "bounded_workspace_envelope",
+    "parallel_session_continuity",
+    "cross_device_resume",
+    "reusable_artifact_library",
+    "external_reference_vs_materialized_object",
+    "typed_operation_catalog",
+    "lazy_capability_schema_discovery",
+    "operation_effect_classification",
+    "external_permission_preservation",
+    "configured_confirmation_policy",
+    "activity_progress_events",
+    "partial_output_and_failure_retention",
+    "large_result_resource_handles",
+    "paged_and_searchable_result_access",
+    "render_independent_typed_views",
+    "one_off_recurring_and_condition_schedules",
+    "exact_flexible_and_condition_timing_modes",
+    "optimistic_concurrency_and_exact_revision_preconditions",
+    "read_draft_simulate_execute_verify_lifecycle",
+    "distinct_declined_failed_cancelled_and_not_run_receipts",
+    "connector_source_and_account_provenance",
+    "explicit_resource_and_product_limit_reporting"
+  ],
+  "operation_effect_classes": [
+    "observe",
+    "draft",
+    "simulate",
+    "mutate",
+    "publish",
+    "destructive",
+    "external_side_effect"
+  ],
+  "object_availability_states": [
+    "external_reference",
+    "indexed_reference",
+    "mounted_read_only",
+    "materialized_copy",
+    "generated_artifact"
+  ],
+  "activity_result_states": [
+    "succeeded",
+    "failed",
+    "declined",
+    "cancelled",
+    "not_run",
+    "partially_completed"
+  ],
+  "caller_owned_functions": [
+    "intent interpretation",
+    "job definition",
+    "context search and selection",
+    "source authority and trust judgment",
+    "tool and Provider selection",
+    "semantic merge and reconciliation",
+    "approval and rejection",
+    "result acceptance",
+    "next-action selection",
+    "schedule purpose and desired outcome"
+  ],
+  "mechanical_composition": {
+    "workspace_and_threads": ["Workspace", "Session", "Grant"],
+    "files_and_reuse": ["Object", "Revision", "Artifact", "View"],
+    "work_and_progress": ["Recipe", "Activity", "Attempt", "Event", "Receipt"],
+    "tools_and_connections": ["Facility", "Provider", "Grant"],
+    "retrieval_and_large_results": ["Knowledge", "View", "Artifact", "Receipt"],
+    "scheduled_execution": ["Recipe", "Activity", "Event", "Grant"],
+    "interaction_surfaces": ["View", "Object", "Artifact", "Receipt"]
+  },
+  "required_rules": [
+    "A connector file reference is not silently represented as locally materialized bytes.",
+    "An operation invocation is not evidence that the external effect succeeded.",
+    "Approval prompting changes when execution may proceed; it does not expand the Provider's external access.",
+    "A View renders underlying state but does not become the authority for that state.",
+    "Retry creates a new Attempt and does not erase the failed Attempt.",
+    "Exact revision or head preconditions fail closed when the target moved.",
+    "Large results may be retained behind stable resource handles and accessed incrementally.",
+    "Scheduled Activities receive exact caller-specified inputs and configured Grants.",
+    "Ptah reports product, Provider and resource limits instead of silently changing the job.",
+    "Hunter or another caller performs semantic context selection, reconciliation and next-action choice."
+  ],
+  "rejected_patterns": [
+    "hidden provider memory as canonical Workspace state",
+    "implicit global tool access",
+    "chat transcript as the sole operational database",
+    "silent materialization or copying of external files",
+    "success inferred from tool invocation alone",
+    "UI cards or previews treated as authority",
+    "Ptah-owned context ranking or semantic merge",
+    "Ptah approval, verdict or next-action authority"
+  ],
+  "existing_profile": "ptah.workspace.ai_project.v1",
+  "relationship_to_existing_profile": "deep compatible supplement; does not supersede the neutral-substrate correction",
+  "runtime_implementation_authorized": false
+}

@@ -130,6 +130,20 @@ This donor record:
 - does not authorize any runtime implementation;
 - does not weaken the current physical-host, closure-review or ADR-0033 gates.
 
+## Deep observable Workspace supplement
+
+A second ten-for-two study now examines the deeper operating behaviour visible in the current Workspace: typed operation discovery, action-effect metadata, external permission preservation, reference-versus-materialized files, progress and partial output retention, large-result handles, render-independent Views, schedule modes, exact mutation preconditions and honest result states.
+
+The supplement is recorded in:
+
+- `design/donors/openai-chatgpt-workspace-deep-study.md`
+- `design/candidates/PTAH-WORKSPACE-OPERATIONS-PROFILE-V2.md`
+- `design/candidates/workspace-operations-profile-v2.json`
+- `design/candidates/workspace-operations-gap-map-v2.json`
+- `design/candidates/fixtures/workspace-operations-fixtures-v2.json`
+
+It is compatible with this corrected donor, uses no OpenAI private source code, adds no Core entity, reopens no frozen contract and preserves Ptah's neutral-platform boundary.
+
 ## Conclusion
 
 ChatGPT Projects and Work remain useful as a behavioural donor for **applications** that let humans and agents remain inside one long-running project. Ptah supplies the neutral, inspectable and provider-independent platform underneath those applications; it does not decide what the project means or whether any result is correct.

@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "design/donors/openai-chatgpt-workspace-deep-study.md"
+      - "design/candidates/PTAH-WORKSPACE-OPERATIONS-PROFILE-V2.md"
       - "design/candidates/workspace-operations-profile-v2.json"
       - "design/candidates/workspace-operations-gap-map-v2.json"
       - "design/candidates/fixtures/workspace-operations-fixtures-v2.json"

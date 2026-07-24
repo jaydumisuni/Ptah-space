@@ -1,0 +1,154 @@
+{
+  "schema_version": "0.1.0",
+  "record_type": "ptah.phase0c.workspace_operations_fixtures_candidate",
+  "profile_id": "ptah.workspace.operations.v2",
+  "study_method": {
+    "primary_lanes": 10,
+    "independent_verifier_lanes": 10
+  },
+  "fixtures": [
+    {
+      "id": "lazy-operation-discovery",
+      "kind": "positive",
+      "given": "A caller requests GitHub pull-request operations without loading every installed Facility schema.",
+      "expected": "return_bounded_operation_descriptors",
+      "proof": ["only matching operation schemas are returned", "schema version and Provider identity are retained", "Ptah does not choose the operation"]
+    },
+    {
+      "id": "effect-class-grant-denial",
+      "kind": "negative",
+      "given": "A Grant permits observe operations but a caller submits a destructive operation.",
+      "expected": "deny_before_execution",
+      "proof": ["no Attempt with external effect begins", "denial Receipt names the effect class and configured boundary"]
+    },
+    {
+      "id": "external-permission-preservation",
+      "kind": "positive",
+      "given": "A connected account can read only a subset of external records.",
+      "expected": "return_only_provider_permitted_records",
+      "proof": ["Ptah does not expand external access", "Provider account and scope provenance remain visible"]
+    },
+    {
+      "id": "confirmation-does-not-expand-access",
+      "kind": "negative",
+      "given": "A human approves one app action whose external account lacks the requested scope.",
+      "expected": "external_access_still_denied",
+      "proof": ["approval does not create Provider permission", "failed effect is retained separately from the approval record"]
+    },
+    {
+      "id": "reference-is-not-materialized-by-name",
+      "kind": "negative",
+      "given": "A connector returns a file reference but no bytes have been mounted or copied into the execution Environment.",
+      "expected": "no_local_path_claim",
+      "proof": ["availability state remains external_reference", "a separate materialization Activity is required"]
+    },
+    {
+      "id": "materialization-retains-provenance",
+      "kind": "positive",
+      "given": "A caller explicitly materializes an external file for a sandboxed Activity.",
+      "expected": "create_materialized_revision",
+      "proof": ["source Provider and external identity remain linked", "digest and materialization Receipt are retained"]
+    },
+    {
+      "id": "partial-output-survives-failure",
+      "kind": "positive",
+      "given": "A long-running Activity produces two Artifacts and then fails.",
+      "expected": "retain_failed_attempt_and_partial_artifacts",
+      "proof": ["failed Attempt remains visible", "partial Artifacts retain lineage", "no success claim is generated"]
+    },
+    {
+      "id": "large-result-resource-handle",
+      "kind": "positive",
+      "given": "A Facility returns a result larger than the active Session budget.",
+      "expected": "retain_stable_handle_and_bounded_access",
+      "proof": ["result can be paged or searched", "bounded reads cite the same retained result identity"]
+    },
+    {
+      "id": "exact-revision-conflict",
+      "kind": "negative",
+      "given": "A write Activity targets Revision A but the Object moved to Revision B before execution.",
+      "expected": "fail_precondition",
+      "proof": ["Revision B is not overwritten", "conflict Receipt retains both expected and observed revision identities"]
+    },
+    {
+      "id": "draft-before-publish",
+      "kind": "positive",
+      "given": "A caller asks an application to prepare a customer message without sending it.",
+      "expected": "create_draft_artifact_only",
+      "proof": ["draft and publish are separate Activities", "no external-side-effect Receipt exists"]
+    },
+    {
+      "id": "invocation-is-not-success",
+      "kind": "negative",
+      "given": "A tool call was submitted but the Provider returned no completion response.",
+      "expected": "not_run_or_unknown_effect_not_success",
+      "proof": ["no succeeded Receipt is fabricated", "verification may be requested as a separate Activity"]
+    },
+    {
+      "id": "declined-failed-cancelled-distinction",
+      "kind": "positive",
+      "given": "Three Attempts respectively receive human denial, Provider failure and caller cancellation.",
+      "expected": "three_distinct_result_states",
+      "proof": ["declined, failed and cancelled remain distinguishable", "none is rewritten as successful"]
+    },
+    {
+      "id": "render-independent-view",
+      "kind": "positive",
+      "given": "One Receipt is displayed as a chat card, table and mobile summary.",
+      "expected": "same_underlying_receipt",
+      "proof": ["all Views cite the same record identity", "removing one View does not remove the Receipt"]
+    },
+    {
+      "id": "view-cannot-promote-authority",
+      "kind": "negative",
+      "given": "A UI card labels a candidate green while the underlying acceptance record remains pending.",
+      "expected": "underlying_state_remains_pending",
+      "proof": ["View styling creates no acceptance record", "caller must issue the authority decision"]
+    },
+    {
+      "id": "condition-watch-no-notification",
+      "kind": "positive",
+      "given": "A condition-triggered Activity checks its source and the configured condition is false.",
+      "expected": "retain_check_without_user_notification",
+      "proof": ["check Attempt is retained", "no notification Artifact is emitted"]
+    },
+    {
+      "id": "scheduled-task-exact-input-boundary",
+      "kind": "negative",
+      "given": "A scheduled Activity requests a Workspace file that was not supplied in its immutable input set.",
+      "expected": "deny_unconfigured_input",
+      "proof": ["schedule does not inherit hidden Session context", "missing input is reported"]
+    },
+    {
+      "id": "cross-device-resume",
+      "kind": "positive",
+      "given": "A Session created on mobile is resumed through a desktop application using the same Workspace records.",
+      "expected": "resume_same_session_and_artifacts",
+      "proof": ["stable identities survive UI replacement", "Provider and device changes create no authority change"]
+    },
+    {
+      "id": "semantic-merge-remains-caller-owned",
+      "kind": "negative",
+      "given": "Two independent workers return conflicting conclusions.",
+      "expected": "retain_both_without_ptah_verdict",
+      "proof": ["Ptah may execute a caller-supplied merge Recipe", "Ptah does not decide which conclusion is correct"]
+    },
+    {
+      "id": "resource-limit-is-visible",
+      "kind": "positive",
+      "given": "An Activity exceeds its configured execution or product limit.",
+      "expected": "retain_limit_receipt",
+      "proof": ["limit class and measured value are reported", "Ptah does not silently reduce semantic scope"]
+    },
+    {
+      "id": "retry-preserves-prior-attempt",
+      "kind": "negative",
+      "given": "A configured retry begins after a failed Attempt.",
+      "expected": "new_attempt_without_erasure",
+      "proof": ["failed Attempt remains retained", "retry has a new identity and links to its predecessor"]
+    }
+  ],
+  "new_core_entity_required": false,
+  "frozen_contract_change_required": false,
+  "runtime_implementation_authorized": false
+}

@@ -1,45 +1,16 @@
-# Third-party NOTICE review
+# Third-party notices
 
-Status: reviewed
+Third-party components used with Ptah remain under their own licences and notice requirements.
 
-Reviewed: 2026-07-21
+The root [`NOTICE`](../NOTICE) file covers Ptah-owned material only. A dependency, tool, service, package, binary, dataset, font, image, document, firmware file, or other third-party work is not relicensed merely because Ptah references, downloads, verifies, tests, or interoperates with it.
 
-## Scope
+Before redistributing third-party material from this repository, maintainers must verify:
 
-This review covers the public `jaydumisuni/Ptah-space` repository at the Apache-2.0 owner-acceptance checkpoint.
+- the canonical source and exact version;
+- the applicable licence;
+- required copyright and attribution notices;
+- redistribution and modification rights;
+- source-offer or notice-propagation obligations;
+- whether modifications must be identified.
 
-The repository currently contains Ptah-owned source, generated metadata, contracts, policy and proof tooling, plus dependency and artifact identity records. It references or downloads third-party components behind replaceable boundaries, but does not copy their source into the public Work merely by recording names, versions, checksums, signatures or package metadata.
-
-## Root NOTICE conclusion
-
-No root NOTICE attribution entries are required at this Phase 0C acceptance checkpoint beyond the Ptah project and accepted owner notice.
-
-This conclusion is limited to the current repository contents. It does not declare that third-party dependencies have no licence or NOTICE obligations in their own distributions.
-
-## Third-party material remains separate
-
-The following classes retain their upstream licences and notices:
-
-- Rust crates and their registry metadata;
-- Node.js and npm dependencies;
-- Playwright and Chromium distributions;
-- Ubuntu packages and APT artifacts;
-- containerd, runc, Git, libarchive and SQLite;
-- any later copied, adapted or redistributed upstream material.
-
-Dependency and artifact lock records do not relicense those works.
-
-## Re-review triggers
-
-The root NOTICE and this review must be updated before merging any change that:
-
-- copies or adapts third-party source into the repository;
-- distributes a third-party binary or bundled asset from the repository;
-- introduces an upstream NOTICE propagation requirement;
-- changes a dependency licence or distribution model;
-- adds third-party artwork, fonts, media, datasets or documentation;
-- imports donor code rather than studying or wrapping it.
-
-## Boundary
-
-Runtime implementation remains unauthorized. This notice review does not accept the physical host, installed-package boundary, ADR-0033 or any runtime behavior.
+This file must be updated when Ptah begins distributing third-party source, binaries, assets, or documentation that require additional notices.

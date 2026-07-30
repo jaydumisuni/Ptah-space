@@ -1,23 +1,27 @@
-# Ptah Space
+# Ptah
 
-Ptah Space is an independent, open-source, online-first execution world for persistent workspaces, concurrent activities, files, repositories, browsers, terminals, containers, applications, firmware, devices, media, documents, storage, sessions, and artifacts.
+Ptah is an open-source workspace and execution platform for keeping digital work, tools and environments together in one place.
 
-Ptah provides the environment and machinery. Humans and compatible software systems provide the intent, reasoning, instructions, priorities, and acceptance criteria.
+## What Ptah can do
 
-## Current status
+- Create persistent workspaces for files, repositories, sessions and generated artifacts.
+- Run multiple activities concurrently without losing their progress or results.
+- Connect replaceable providers for terminals, browsers, containers, applications, storage and other services.
+- Work with software, documents, media, firmware and connected devices through scoped capabilities.
+- Preserve activity history, outputs, failures, checkpoints and recovery information.
+- Separate observation, drafting, simulation and external actions so permissions remain clear.
+- Support local, online and distributed environments without tying the workspace to one provider.
 
-**Phase 0C non-claiming scaffold only. Runtime implementation is not authorized.**
+Ptah provides the platform and execution machinery. The user or connected software supplies the work and decides what is accepted.
 
-The workspace, dependency locks, contract locks, host candidate records, governance candidates, and CI safety checks exist only to close implementation-selection evidence. No Node, Workspace, Provider, Browser, container, transfer, repair, or user interface runtime is claimed as implemented.
+## Status
 
-Master roadmap control, current ecosystem progress, internal decisions, and recovery memory are maintained in `jaydumisuni/ptah-roadmap-`.
-
-## Core rule
-
-> Ptah is the world where work happens, not the intelligence that decides what work should happen.
+Ptah is in pre-release development. Public builds, setup instructions and supported-platform details will be published here when they are ready.
 
 ## Licence
 
-Repository-owned public Ptah source is licensed under the Apache License, Version 2.0. See `LICENSE`, `NOTICE`, `CONTRIBUTING.md`, `SECURITY.md`, `REUSE.toml`, and `legal/apache-2.0-boundary.json`.
+Repository-owned public Ptah source is licensed under the Apache License, Version 2.0.
 
-Private THETECHGUY systems, Hunter private knowledge, customer/device/payment data, restricted adapters, unlicensed donor source, and THETECHGUY/Ptah/Hunter trademarks are not automatically licensed by this public repository.
+See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Contributions are covered by [`CONTRIBUTING.md`](CONTRIBUTING.md), and security reports are handled according to [`SECURITY.md`](SECURITY.md).
+
+THETECHGUY, Ptah and Hunter names and branding are not granted for reuse by the Apache-2.0 licence.

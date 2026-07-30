@@ -1,22 +1,35 @@
 # Ptah
 
-Ptah is an open-source workspace and execution platform for keeping digital work, tools and environments together in one place.
+**One workspace for software, files, browsers, terminals, containers, devices and long-running digital work.**
 
-## What Ptah can do
+Ptah is an open-source workspace and execution platform. It keeps work, tools, environments, progress and outputs together instead of scattering them across unrelated applications and machines.
 
-- Create persistent workspaces for files, repositories, sessions and generated artifacts.
-- Run multiple activities concurrently without losing their progress or results.
-- Connect replaceable providers for terminals, browsers, containers, applications, storage and other services.
-- Work with software, documents, media, firmware and connected devices through scoped capabilities.
-- Preserve activity history, outputs, failures, checkpoints and recovery information.
-- Separate observation, drafting, simulation and external actions so permissions remain clear.
-- Support local, online and distributed environments without tying the workspace to one provider.
+## Capabilities
 
-Ptah provides the platform and execution machinery. The user or connected software supplies the work and decides what is accepted.
+| Capability | What it provides |
+|---|---|
+| Persistent workspaces | Keep files, repositories, sessions, settings and generated artifacts together. |
+| Concurrent activities | Run multiple jobs while preserving their individual progress, results and failures. |
+| Replaceable providers | Connect terminals, browsers, containers, applications, storage and other services through scoped interfaces. |
+| Artifact handling | Retain documents, media, reports, patches, logs and other outputs with their producing activity. |
+| Recovery | Preserve checkpoints, attempts, failures and continuation information for interrupted work. |
+| Scoped actions | Separate observation, drafting, simulation and external changes so access remains clear. |
+| Local and distributed operation | Support work on local machines, owned servers and connected remote environments without binding Ptah to one provider. |
+
+Ptah provides the workspace and execution machinery. People and connected software choose the work and decide what is accepted.
+
+## Designed for
+
+- software, repository, build and test workflows;
+- documents, data, media and generated reports;
+- browser, terminal and container-based work;
+- firmware and connected-device workflows;
+- work that moves between local, online and distributed environments;
+- shared human and automated activity inside the same workspace.
 
 ## Status
 
-Ptah is in pre-release development. Public builds, setup instructions and supported-platform details will be published here when they are ready.
+Ptah is in pre-release development. Public builds, setup instructions, supported-platform details and release notes will be published here when they are ready.
 
 ## Licence
 

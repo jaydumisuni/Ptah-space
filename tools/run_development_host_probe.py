@@ -477,7 +477,7 @@ def build_report(
 
     portable_pass = not probe_failures
     return {
-        "schema_version": "0.3.0",
+        "schema_version": "0.3.1",
         "record_type": RECORD_TYPE,
         "created_at": datetime.now(timezone.utc).isoformat(
             timespec="seconds"
@@ -500,7 +500,7 @@ def build_report(
         "required_observations": required_observations,
         "observation_failures": observation_failures,
         "repository_binding": {
-            "repo_root": str(repo_root),
+            "repo_root": ".",
             "expected_commit": expected_commit,
             "before": repository_before,
             "after": repository_after,
@@ -513,6 +513,7 @@ def build_report(
         "claim_boundary": {
             "public_probe_contains_no_external_machine_identity": True,
             "public_probe_contains_no_external_transport_identity": True,
+            "public_probe_contains_no_absolute_repository_path": True,
             "portable_pass_does_not_prove_physical_machine_identity": True,
             "external_execution_receipt_requires_independent_review": True,
             "development_host_accepted": False,

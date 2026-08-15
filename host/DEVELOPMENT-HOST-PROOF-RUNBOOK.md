@@ -110,7 +110,7 @@ The repository binding must show:
 - a clean checkout after collection;
 - no change of HEAD during collection.
 
-The report must not contain external machine identity or external transport identity fields.
+The report must not contain external machine identity, external transport identity, or absolute/local filesystem paths from the executing machine. `repository_binding.repo_root` must be the provider-neutral value `.`; physical machine and local path binding remain in the separately retained private execution receipt.
 
 ## 5. Review the observations without turning them into OS predicates
 

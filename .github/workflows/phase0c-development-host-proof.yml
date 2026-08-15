@@ -79,7 +79,10 @@ jobs:
           assert "external_execution_observation" not in report
           assert report["claim_boundary"]["public_probe_contains_no_external_machine_identity"] is True
           assert report["claim_boundary"]["public_probe_contains_no_external_transport_identity"] is True
+          assert report["claim_boundary"]["public_probe_contains_no_absolute_repository_path"] is True
           binding = report["repository_binding"]
+          assert binding["repo_root"] == "."
+          assert str(Path.cwd().resolve()) not in json.dumps(report)
           assert binding["expected_commit"] == expected
           assert binding["before"]["head"] == expected
           assert binding["after"]["head"] == expected

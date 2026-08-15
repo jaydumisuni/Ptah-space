@@ -1,0 +1,3 @@
+# Repository-owned Clippy vocabulary.
+# This does not disable doc_markdown; it records legitimate technical identifiers.
+doc-valid-idents = ["ARMv7"]

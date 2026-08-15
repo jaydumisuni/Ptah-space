@@ -12,6 +12,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "a01/scaffold-contract.json"
 ACTION_PIN = re.compile(r"^[0-9a-f]{40}$")
+A01_EXTERNAL_CARGO_UNIVERSE_SHA256 = "06f6b4c9f8f2ad70de76d6d3f79241503414744fdc5b567eb5e5512960dce459"
+A01_EXTERNAL_CARGO_PACKAGE_COUNT = 81
 
 
 class ValidationError(RuntimeError):
@@ -96,6 +98,31 @@ def validate_contract_lock(contract: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def cargo_external_universe() -> list[dict[str, Any]]:
+    lock = tomllib.loads((ROOT / "Cargo.lock").read_text(encoding="utf-8"))
+    packages = lock.get("package")
+    require(isinstance(packages, list), "Cargo.lock package array is missing")
+    external: list[dict[str, Any]] = []
+    for package in packages:
+        if not isinstance(package, dict):
+            continue
+        source = package.get("source")
+        if not isinstance(source, str):
+            continue
+        name = package.get("name")
+        version = package.get("version")
+        checksum = package.get("checksum")
+        require(isinstance(name, str) and isinstance(version, str), "external Cargo package identity missing")
+        require(isinstance(checksum, str) and len(checksum) == 64, f"external Cargo checksum missing: {name}@{version}")
+        external.append({"name": name, "version": version, "source": source, "checksum": checksum})
+    return sorted(external, key=lambda item: (item["name"], item["version"], item["source"]))
+
+
+def external_universe_sha256(external: list[dict[str, Any]]) -> str:
+    rendered = (json.dumps(external, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    return hashlib.sha256(rendered).hexdigest()
+
+
 def validate_dependency_lock(contract: dict[str, Any]) -> dict[str, Any]:
     record = load_json(ROOT / "dependencies/rust-direct-lock.json")
     require(record.get("toolchain") == contract["required_rust_toolchain"], "Rust dependency evidence toolchain mismatch")
@@ -114,11 +141,34 @@ def validate_dependency_lock(contract: dict[str, Any]) -> dict[str, Any]:
         require(isinstance(version, str) and version, f"Rust dependency version missing: {name}")
         require(isinstance(checksum, str) and len(checksum) == 64, f"Rust dependency checksum missing: {name}")
         names.add(name)
-    cargo = record.get("cargo_lock", {})
-    require(cargo.get("repository_path") == "Cargo.lock", "Cargo.lock evidence path mismatch")
-    require(cargo.get("sha256") == sha256(ROOT / "Cargo.lock"), "Cargo.lock digest mismatch")
-    require(cargo.get("git_dependency_count") == 0, "Cargo.lock contains Git dependencies")
-    return {"direct_dependency_count": len(dependencies), "cargo_lock_sha256": cargo.get("sha256")}
+
+    historical_cargo = record.get("cargo_lock", {})
+    require(historical_cargo.get("repository_path") == "Cargo.lock", "Cargo.lock evidence path mismatch")
+    historical_sha = historical_cargo.get("sha256")
+    require(isinstance(historical_sha, str) and len(historical_sha) == 64, "historical A01 Cargo.lock digest missing")
+    require(historical_cargo.get("git_dependency_count") == 0, "historical A01 Cargo.lock contains Git dependencies")
+
+    external = cargo_external_universe()
+    require(len(external) == A01_EXTERNAL_CARGO_PACKAGE_COUNT, "A01 external Cargo package count drifted")
+    require(not any(item["source"].startswith("git+") for item in external), "Git Cargo dependency introduced")
+    universe_sha = external_universe_sha256(external)
+    require(universe_sha == A01_EXTERNAL_CARGO_UNIVERSE_SHA256, "A01 external Cargo dependency universe drifted")
+
+    resolved = {(item["name"], item["version"]): item for item in external}
+    for item in dependencies:
+        key = (item["name"], item["version"])
+        require(key in resolved, f"selected A01 dependency missing from current Cargo.lock: {key[0]}@{key[1]}")
+        require(resolved[key]["source"] == item.get("source"), f"selected A01 dependency source drifted: {key[0]}@{key[1]}")
+        require(resolved[key]["checksum"] == item.get("checksum"), f"selected A01 dependency checksum drifted: {key[0]}@{key[1]}")
+
+    return {
+        "direct_dependency_count": len(dependencies),
+        "historical_cargo_lock_sha256": historical_sha,
+        "current_cargo_lock_sha256": sha256(ROOT / "Cargo.lock"),
+        "external_dependency_count": len(external),
+        "external_universe_sha256": universe_sha,
+        "git_dependency_count": 0,
+    }
 
 
 def validate_licence(contract: dict[str, Any]) -> dict[str, Any]:

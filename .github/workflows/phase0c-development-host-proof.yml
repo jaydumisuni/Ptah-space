@@ -1,0 +1,108 @@
+name: Phase 0C development-host proof tooling
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PYTHONDONTWRITEBYTECODE: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  development-host-regression:
+    name: development-host-${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Require clean exact checkout
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Run development-host regression suite
+        shell: bash
+        run: |
+          python -m unittest -v tools/test_run_development_host_probe.py
+
+      - name: Collect hosted-runner portable diagnostic report
+        shell: bash
+        run: |
+          python tools/run_development_host_probe.py \
+            --repo-root . \
+            --expected-commit "$PTAH_EXACT_SHA" \
+            --output "${RUNNER_TEMP}/development-host-report.json" \
+            --require-portable-pass
+
+      - name: Verify claim boundary and exact repository binding
+        shell: bash
+        run: |
+          python - "${RUNNER_TEMP}/development-host-report.json" "$PTAH_EXACT_SHA" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          expected = sys.argv[2]
+          assert report["record_type"] == "ptah.phase0c.development_host_probe"
+          assert report["portable_capabilities_passed"] is True
+          assert report["physical_host_identity_verified"] is False
+          assert report["development_host_accepted"] is False
+          assert report["runtime_implementation_authorized"] is False
+          assert report["deployment_host_qualified"] is False
+          assert report["release_accepted"] is False
+          assert report["probe_failures"] == []
+          assert "machine_label" not in report
+          assert "control_plane_observation" not in report
+          assert "external_execution_observation" not in report
+          assert report["claim_boundary"]["public_probe_contains_no_external_machine_identity"] is True
+          assert report["claim_boundary"]["public_probe_contains_no_external_transport_identity"] is True
+          binding = report["repository_binding"]
+          assert binding["expected_commit"] == expected
+          assert binding["before"]["head"] == expected
+          assert binding["after"]["head"] == expected
+          assert binding["before"]["clean"] is True
+          assert binding["after"]["clean"] is True
+          PY
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Stage diagnostic evidence for upload
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p conformance/reports/development-host
+          if [ -f "${RUNNER_TEMP}/development-host-report.json" ]; then
+            cp "${RUNNER_TEMP}/development-host-report.json" \
+              conformance/reports/development-host/development-host-${RUNNER_OS}.json
+          fi
+
+      - name: Upload hosted-runner diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase-0c-development-host-${{ runner.os }}-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: conformance/reports/development-host/
+          if-no-files-found: warn
+          retention-days: 30

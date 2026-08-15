@@ -97,7 +97,7 @@ jobs:
           path: .ptah-roadmap
           persist-credentials: false
 
-      - name: Prepare evidence and offline Python guard
+      - name: Install network-denial guard for generation
         run: |
           mkdir -p evidence/a01/generated/offline-guard
           cat > evidence/a01/generated/offline-guard/sitecustomize.py <<'PY'
@@ -105,8 +105,8 @@ jobs:
           def blocked(*args, **kwargs):
               raise RuntimeError("A01 offline generation attempted network access")
           socket.create_connection = blocked
-          _original_socket = socket.socket
-          class OfflineSocket(_original_socket):
+          _socket = socket.socket
+          class OfflineSocket(_socket):
               def connect(self, *args, **kwargs):
                   raise RuntimeError("A01 offline generation attempted network access")
               def connect_ex(self, *args, **kwargs):
@@ -168,7 +168,6 @@ jobs:
           from pathlib import Path
           root = Path('evidence/a01/generated')
           manifest = json.loads((root/'candidate-a/contracts/generated/manifest.json').read_text())
-          committed = Path('contracts/generated/manifest.json')
           report = {
               'record_type': 'ptah.a01.generated_binding_proof',
               'implementation_commit': os.environ['PTAH_EXACT_SHA'],
@@ -180,7 +179,7 @@ jobs:
               'schema_count': manifest['schema_count'],
               'state_machine_count': manifest['state_machine_count'],
               'output_tree_sha256': manifest['output_tree_sha256'],
-              'committed_manifest_sha256': hashlib.sha256(committed.read_bytes()).hexdigest(),
+              'committed_manifest_sha256': hashlib.sha256(Path('contracts/generated/manifest.json').read_bytes()).hexdigest(),
               'runtime_semantics_implemented': False,
               'production_or_release_accepted': False,
           }
@@ -226,14 +225,16 @@ jobs:
           path: .ptah-roadmap
           persist-credentials: false
 
-      - name: Run frozen harness regressions and conformance directly from local source
+      - name: Install frozen WP13 harness
+        run: python -m pip install --no-build-isolation ./.ptah-roadmap/conformance/harness
+
+      - name: Run frozen harness regressions and conformance
         run: |
           mkdir -p evidence/a01/conformance
           set -o pipefail
           (cd .ptah-roadmap/conformance/harness && python -m unittest -v test_ptah_conformance.py) 2>&1 \
             | tee evidence/a01/conformance/harness-tests.txt
-          python ./.ptah-roadmap/conformance/harness/ptah_conformance.py \
-            --root ./.ptah-roadmap \
+          ptah-conformance --root ./.ptah-roadmap \
             --report ./evidence/a01/conformance/structural.json
           python ./.ptah-roadmap/conformance/harness/semantic_fixture_runner.py \
             --root ./.ptah-roadmap \
@@ -249,7 +250,7 @@ jobs:
               'implementation_commit': os.environ['PTAH_EXACT_SHA'],
               'checked_out_commit': subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip(),
               'phase_0b_freeze_commit': 'dc2db457f1705d0cba80f17ab76e5e93f808aee0',
-              'wp13_harness_execution': 'direct_local_source',
+              'wp13_harness_version': '0.1.3',
               'schema_resolution': 'local',
               'runtime_semantics_implemented': False,
           }

@@ -1,4 +1,4 @@
-name: A02 lock candidate proof
+name: A02 exact-head runtime proof
 
 on:
   pull_request:
@@ -20,7 +20,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  lock-candidate:
+  prove-a02:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -29,126 +29,125 @@ jobs:
         with:
           ref: ${{ env.PTAH_EXACT_SHA }}
           persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify exact clean committed head
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+          test ! -e .github/workflows/a02-promote-candidate.yml
 
       - name: Install pinned Rust toolchain
         run: |
           rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
           rustup default 1.97.1
 
-      - name: Capture frozen external dependency universe
+      - name: Verify committed dependency universe
         run: |
-          mkdir -p evidence/a02-lock/formatted/crates/ptah-identifiers/src
-          mkdir -p evidence/a02-lock/formatted/crates/ptah-node-agent/src
-          python - <<'PY'
-          import json, re
-          from pathlib import Path
-          def external(path):
-              text = Path(path).read_text()
-              packages = []
-              for block in text.split('[[package]]')[1:]:
-                  block = '\n' + block
-                  name = re.search(r'\nname = "([^"]+)"', block)
-                  version = re.search(r'\nversion = "([^"]+)"', block)
-                  source = re.search(r'\nsource = "([^"]+)"', block)
-                  checksum = re.search(r'\nchecksum = "([^"]+)"', block)
-                  if name and version and source:
-                      packages.append({
-                          'name': name.group(1),
-                          'version': version.group(1),
-                          'source': source.group(1),
-                          'checksum': checksum.group(1) if checksum else None,
-                      })
-              return sorted(packages, key=lambda x: (x['name'],x['version'],x['source']))
-          before = external('Cargo.lock')
-          Path('evidence/a02-lock/external-before.json').write_text(json.dumps(before, indent=2, sort_keys=True)+'\n')
-          print(json.dumps({'external_before': len(before), 'git_before': sum(p['source'].startswith('git+') for p in before)}, sort_keys=True))
-          PY
-
-      - name: Refresh workspace/path-package lock metadata only
-        run: |
-          cargo metadata --format-version 1 > evidence/a02-lock/cargo-metadata-unlocked.json
-          cp Cargo.lock evidence/a02-lock/Cargo.lock.candidate
-
-      - name: Prove external dependency universe and checksums are unchanged
-        run: |
+          mkdir -p evidence/a02-exact-head
           python - <<'PY'
           import hashlib, json, re
           from pathlib import Path
-          before = json.loads(Path('evidence/a02-lock/external-before.json').read_text())
-          text = Path('Cargo.lock').read_text()
-          packages = []
+          text=Path('Cargo.lock').read_text()
+          packages=[]
           for block in text.split('[[package]]')[1:]:
-              block = '\n' + block
-              name = re.search(r'\nname = "([^"]+)"', block)
-              version = re.search(r'\nversion = "([^"]+)"', block)
-              source = re.search(r'\nsource = "([^"]+)"', block)
-              checksum = re.search(r'\nchecksum = "([^"]+)"', block)
+              block='\n'+block
+              name=re.search(r'\nname = "([^"]+)"', block)
+              version=re.search(r'\nversion = "([^"]+)"', block)
+              source=re.search(r'\nsource = "([^"]+)"', block)
+              checksum=re.search(r'\nchecksum = "([^"]+)"', block)
               if name and version and source:
-                  packages.append({
-                      'name': name.group(1),
-                      'version': version.group(1),
-                      'source': source.group(1),
-                      'checksum': checksum.group(1) if checksum else None,
-                  })
-          after = sorted(packages, key=lambda x: (x['name'],x['version'],x['source']))
-          assert after == before, 'external Cargo dependency identity/checksum universe changed'
-          assert len(after) == 81, f'unexpected external dependency count: {len(after)}'
-          assert not any(p['source'].startswith('git+') for p in after), 'Git dependency introduced'
-          report = {
-              'record_type': 'ptah.a02.lock_candidate_proof',
-              'external_dependency_count': len(after),
-              'git_dependency_count': 0,
-              'external_identity_and_checksums_unchanged': True,
-              'candidate_lock_sha256': hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
-              'historical_selection_record_preserved': True,
+                  packages.append({'name':name.group(1),'version':version.group(1),'source':source.group(1),'checksum':checksum.group(1) if checksum else None})
+          packages=sorted(packages,key=lambda x:(x['name'],x['version'],x['source']))
+          assert len(packages)==81, len(packages)
+          assert not any(p['source'].startswith('git+') for p in packages)
+          selected=json.loads(Path('dependencies/rust-direct-lock.json').read_text())['direct_dependencies']
+          resolved={(p['name'],p['version']):p for p in packages}
+          for item in selected:
+              key=(item['name'],item['version'])
+              assert key in resolved, key
+              assert resolved[key]['source']==item['source'], key
+              assert resolved[key]['checksum']==item['checksum'], key
+          report={
+              'record_type':'ptah.a02.dependency_universe',
+              'external_dependency_count':len(packages),
+              'git_dependency_count':0,
+              'selected_direct_dependency_count':len(selected),
+              'cargo_lock_sha256':hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
+              'historical_selection_record_preserved':True,
           }
-          Path('evidence/a02-lock/report.json').write_text(json.dumps(report, indent=2, sort_keys=True)+'\n')
-          print(json.dumps(report, indent=2, sort_keys=True))
+          Path('evidence/a02-exact-head/dependencies.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(report,indent=2,sort_keys=True))
           PY
 
-      - name: Apply pinned rustfmt and retain exact formatted bytes
-        run: |
-          cargo fmt --all
-          cp crates/ptah-identifiers/src/lib.rs evidence/a02-lock/formatted/crates/ptah-identifiers/src/lib.rs
-          cp crates/ptah-node-agent/src/lib.rs evidence/a02-lock/formatted/crates/ptah-node-agent/src/lib.rs
-          cargo fmt --all --check
-
-      - name: Compile-test A02 crates against candidate lock
-        run: |
-          set -o pipefail
-          cargo clippy -p ptah-identifiers -p ptah-node-agent --all-features --locked -- -D warnings 2>&1 \
-            | tee evidence/a02-lock/clippy.txt
-          cargo test -p ptah-identifiers -p ptah-node-agent --locked 2>&1 \
-            | tee evidence/a02-lock/tests.txt
-
-      - name: Bind candidate to exact source head
+      - name: Verify A02 ownership boundary
         run: |
           python - <<'PY'
-          import json, os, subprocess
+          import tomllib
           from pathlib import Path
-          report = json.loads(Path('evidence/a02-lock/report.json').read_text())
-          changed = subprocess.check_output(['git','status','--porcelain','--untracked-files=no'], text=True).splitlines()
-          report.update({
-              'source_head': os.environ['PTAH_EXACT_SHA'],
-              'checked_out_head': subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip(),
-              'source_files_changed_by_candidate_build': changed,
-              'rustfmt_applied': True,
-          })
-          assert report['source_head'] == report['checked_out_head']
-          expected = {
-              ' M Cargo.lock',
-              ' M crates/ptah-identifiers/src/lib.rs',
-              ' M crates/ptah-node-agent/src/lib.rs',
-          }
-          assert set(changed) == expected, changed
-          Path('evidence/a02-lock/report.json').write_text(json.dumps(report, indent=2, sort_keys=True)+'\n')
+          identifiers=tomllib.loads(Path('crates/ptah-identifiers/Cargo.toml').read_text())
+          node=tomllib.loads(Path('crates/ptah-node-agent/Cargo.toml').read_text())
+          assert set(identifiers.get('dependencies',{})) == {'serde','thiserror','uuid'}
+          assert set(identifiers.get('dev-dependencies',{})) == {'serde_json'}
+          assert set(node.get('dependencies',{})) == {'ptah-contracts','ptah-identifiers','serde','serde_json','thiserror'}
+          source=Path('crates/ptah-node-agent/src/lib.rs').read_text()
+          for forbidden in ['rusqlite', 'ptah_ledger', 'std::fs::', 'tokio::process']:
+              assert forbidden not in source, forbidden
+          for required in ['PTAH_STALE_NODE_GENERATION', 'automatic_upgrade_authorized: false', 'self_approved: false']:
+              assert required in source, required
           PY
 
-      - name: Upload A02 lock and formatted candidates
-        if: always()
+      - name: Prove format lint and runtime semantics
+        run: |
+          set -euo pipefail
+          cargo fmt --all --check
+          cargo clippy -p ptah-identifiers -p ptah-node-agent --all-features --locked -- -D warnings 2>&1 | tee evidence/a02-exact-head/clippy.txt
+          cargo test -p ptah-identifiers -p ptah-node-agent --locked 2>&1 | tee evidence/a02-exact-head/tests.txt
+
+      - name: Bind exact-head evidence
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          root=Path('evidence/a02-exact-head')
+          deps=json.loads((root/'dependencies.json').read_text())
+          def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+          report={
+              'record_type':'ptah.a02.exact_head_proof',
+              'status':'pass',
+              'tested_head':os.environ['PTAH_EXACT_SHA'],
+              'checked_out_head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+              'workflow_run_id':os.environ['RUN_ID'],
+              'workflow_run_attempt':os.environ['RUN_ATTEMPT'],
+              'cargo_lock_sha256':deps['cargo_lock_sha256'],
+              'identifiers_sha256':sha('crates/ptah-identifiers/src/lib.rs'),
+              'node_agent_sha256':sha('crates/ptah-node-agent/src/lib.rs'),
+              'external_dependency_count':deps['external_dependency_count'],
+              'git_dependency_count':deps['git_dependency_count'],
+              'a03_persistence_implemented':False,
+              'a04_activity_execution_implemented':False,
+              'prime_native_integration_qualified':False,
+              'production_authorized':False,
+          }
+          assert report['tested_head']==report['checked_out_head']
+          (root/'exact-head-evidence.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(report,indent=2,sort_keys=True))
+          PY
+
+      - name: Confirm proof did not mutate repository
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Retain A02 exact-head evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: a02-lock-candidate-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
-          path: evidence/a02-lock/
+          name: a02-exact-head-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: evidence/a02-exact-head/
           if-no-files-found: error
           retention-days: 30

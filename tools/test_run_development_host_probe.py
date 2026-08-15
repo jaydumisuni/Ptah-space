@@ -64,15 +64,11 @@ class DevelopmentHostProbeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(
             prefix="ptah-dev-host-test-"
         ) as directory:
-            output = Path(directory) / "report.json"
             report = probe.build_report(
                 repo_root=ROOT,
                 contract_path=Path("host/development-host-contract.json"),
-                output=output,
+                output=Path(directory) / "report.json",
                 expected_commit=head,
-                machine_label="ci-test-host",
-                control_transport="ci-diagnostic",
-                transport_receipt_id=None,
             )
         self.assertTrue(
             report["portable_capabilities_passed"], report["probe_failures"]
@@ -89,6 +85,16 @@ class DevelopmentHostProbeTests(unittest.TestCase):
         )
         self.assertTrue(report["repository_binding"]["before"]["clean"])
         self.assertTrue(report["repository_binding"]["after"]["clean"])
+        self.assertTrue(
+            report["claim_boundary"][
+                "public_probe_contains_no_external_machine_identity"
+            ]
+        )
+        self.assertTrue(
+            report["claim_boundary"][
+                "public_probe_contains_no_external_transport_identity"
+            ]
+        )
 
     def test_acceptance_style_probe_rejects_output_inside_checkout(self) -> None:
         head = subprocess.run(
@@ -102,9 +108,6 @@ class DevelopmentHostProbeTests(unittest.TestCase):
             contract_path=Path("host/development-host-contract.json"),
             output=ROOT / "evidence" / "development-host-probe.json",
             expected_commit=head,
-            machine_label="ci-test-host",
-            control_transport=None,
-            transport_receipt_id=None,
         )
         self.assertFalse(report["portable_capabilities_passed"])
         self.assertIn(
@@ -112,7 +115,7 @@ class DevelopmentHostProbeTests(unittest.TestCase):
             report["probe_failures"],
         )
 
-    def test_external_receipt_metadata_never_accepts_host(self) -> None:
+    def test_report_has_no_external_identity_fields(self) -> None:
         head = subprocess.run(
             ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
             capture_output=True,
@@ -127,15 +130,10 @@ class DevelopmentHostProbeTests(unittest.TestCase):
                 contract_path=Path("host/development-host-contract.json"),
                 output=Path(directory) / "report.json",
                 expected_commit=head,
-                machine_label="ci-test-host",
-                control_transport="example-rpc",
-                transport_receipt_id="example-receipt",
             )
-        external = report["external_execution_observation"]
-        self.assertEqual(external["transport"], "example-rpc")
-        self.assertEqual(external["external_receipt_id"], "example-receipt")
-        self.assertTrue(external["caller_supplied_metadata_only"])
-        self.assertTrue(external["receipt_not_validated_by_public_probe"])
+        self.assertNotIn("machine_label", report)
+        self.assertNotIn("control_plane_observation", report)
+        self.assertNotIn("external_execution_observation", report)
         self.assertFalse(report["physical_host_identity_verified"])
         self.assertFalse(report["development_host_accepted"])
         self.assertFalse(report["runtime_implementation_authorized"])

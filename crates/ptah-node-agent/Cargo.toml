@@ -9,8 +9,8 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-ptah-contracts = { path = "../ptah-contracts" }
-ptah-identifiers = { path = "../ptah-identifiers" }
+ptah-contracts = { version = "=0.0.0-phase0c", path = "../ptah-contracts" }
+ptah-identifiers = { version = "=0.0.0-phase0c", path = "../ptah-identifiers" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

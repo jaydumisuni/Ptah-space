@@ -42,6 +42,13 @@ class DevelopmentHostProbeTests(unittest.TestCase):
         self.assertFalse(
             contract["claim_boundary"]["runtime_implementation_authorized"]
         )
+        self.assertEqual(
+            contract["repository_binding"]["public_report_repository_root"],
+            ".",
+        )
+        self.assertTrue(
+            contract["repository_binding"]["absolute_local_path_disclosure_forbidden"]
+        )
 
     def test_required_portable_checks_pass_on_supported_ci_host(self) -> None:
         contract = json.loads(
@@ -85,6 +92,9 @@ class DevelopmentHostProbeTests(unittest.TestCase):
         )
         self.assertTrue(report["repository_binding"]["before"]["clean"])
         self.assertTrue(report["repository_binding"]["after"]["clean"])
+        self.assertEqual(report["repository_binding"]["repo_root"], ".")
+        self.assertFalse(Path(report["repository_binding"]["repo_root"]).is_absolute())
+        self.assertNotIn(str(ROOT.resolve()), json.dumps(report))
         self.assertTrue(
             report["claim_boundary"][
                 "public_probe_contains_no_external_machine_identity"
@@ -93,6 +103,11 @@ class DevelopmentHostProbeTests(unittest.TestCase):
         self.assertTrue(
             report["claim_boundary"][
                 "public_probe_contains_no_external_transport_identity"
+            ]
+        )
+        self.assertTrue(
+            report["claim_boundary"][
+                "public_probe_contains_no_absolute_repository_path"
             ]
         )
 
@@ -134,6 +149,13 @@ class DevelopmentHostProbeTests(unittest.TestCase):
         self.assertNotIn("machine_label", report)
         self.assertNotIn("control_plane_observation", report)
         self.assertNotIn("external_execution_observation", report)
+        self.assertEqual(report["repository_binding"]["repo_root"], ".")
+        self.assertNotIn(str(ROOT.resolve()), json.dumps(report))
+        self.assertTrue(
+            report["claim_boundary"][
+                "public_probe_contains_no_absolute_repository_path"
+            ]
+        )
         self.assertFalse(report["physical_host_identity_verified"])
         self.assertFalse(report["development_host_accepted"])
         self.assertFalse(report["runtime_implementation_authorized"])

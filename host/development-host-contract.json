@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2.0",
+  "schema_version": "0.2.1",
   "record_type": "ptah.phase0c.development_host_contract",
   "status": "candidate_for_physical_proof",
   "purpose": "Measure the portable mechanical prerequisites for first Ptah runtime implementation without binding Ptah identity to a specific operating-system distribution or kernel.",
@@ -33,7 +33,9 @@
   "repository_binding": {
     "clean_checkout_required_for_acceptance_run": true,
     "exact_commit_required_for_acceptance_run": true,
-    "evidence_output_outside_checkout_required": true
+    "evidence_output_outside_checkout_required": true,
+    "public_report_repository_root": ".",
+    "absolute_local_path_disclosure_forbidden": true
   },
   "external_acceptance_evidence": {
     "execution_receipt_required": true,
@@ -57,6 +59,7 @@
     "portable_capabilities_passed_does_not_mean_runtime_authorized": true,
     "portable_capabilities_passed_does_not_mean_deployment_qualified": true,
     "portable_capabilities_passed_does_not_mean_release_accepted": true,
-    "runtime_implementation_authorized": false
+    "runtime_implementation_authorized": false,
+    "public_probe_contains_no_absolute_repository_path": true
   }
 }

@@ -1,10 +1,11 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "record_type": "ptah.phase0c.development_host_contract",
   "status": "candidate_for_physical_proof",
-  "purpose": "Qualify a real physical development host for first Ptah runtime implementation without binding Ptah identity to a specific operating-system distribution or kernel.",
+  "purpose": "Measure the portable mechanical prerequisites for first Ptah runtime implementation without binding Ptah identity to a specific operating-system distribution or kernel.",
   "host_model": {
-    "physical_or_bare_host_required": true,
+    "physical_host_required_by_external_acceptance": true,
+    "probe_can_prove_physical_machine_identity": false,
     "specific_os_distribution_required": false,
     "specific_kernel_required": false,
     "dedicated_guest_os_required": false,
@@ -30,12 +31,14 @@
     "free_disk_bytes"
   ],
   "repository_binding": {
-    "clean_checkout_required_for_physical_proof": true,
-    "exact_commit_required_for_physical_proof": true
+    "clean_checkout_required_for_acceptance_run": true,
+    "exact_commit_required_for_acceptance_run": true,
+    "evidence_output_outside_checkout_required": true
   },
-  "control_plane": {
-    "provider_neutral": true,
-    "external_transport_receipt_required_by_private_acceptance_policy": true,
+  "external_acceptance_evidence": {
+    "execution_receipt_required": true,
+    "receipt_must_establish_selected_physical_machine": true,
+    "receipt_review_is_external_to_public_probe": true,
     "transport_receipt_is_not_runtime_correctness_proof": true
   },
   "deferred_deployment_capabilities": [
@@ -49,9 +52,11 @@
     "restart_and_recovery_integration"
   ],
   "claim_boundary": {
-    "development_host_eligible_does_not_mean_runtime_authorized": true,
-    "development_host_eligible_does_not_mean_deployment_qualified": true,
-    "development_host_eligible_does_not_mean_release_accepted": true,
+    "portable_capabilities_passed_does_not_prove_physical_host_identity": true,
+    "portable_capabilities_passed_does_not_mean_development_host_accepted": true,
+    "portable_capabilities_passed_does_not_mean_runtime_authorized": true,
+    "portable_capabilities_passed_does_not_mean_deployment_qualified": true,
+    "portable_capabilities_passed_does_not_mean_release_accepted": true,
     "runtime_implementation_authorized": false
   }
 }

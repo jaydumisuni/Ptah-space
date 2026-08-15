@@ -36,7 +36,8 @@ jobs:
 
       - name: Capture frozen external dependency universe
         run: |
-          mkdir -p evidence/a02-lock
+          mkdir -p evidence/a02-lock/formatted/crates/ptah-identifiers/src
+          mkdir -p evidence/a02-lock/formatted/crates/ptah-node-agent/src
           python - <<'PY'
           import json, re
           from pathlib import Path
@@ -64,8 +65,6 @@ jobs:
 
       - name: Refresh workspace/path-package lock metadata only
         run: |
-          # Start from the accepted lock and let Cargo update only what the changed
-          # workspace manifests require. Do not discard/re-resolve the transitive lock.
           cargo metadata --format-version 1 > evidence/a02-lock/cargo-metadata-unlocked.json
           cp Cargo.lock evidence/a02-lock/Cargo.lock.candidate
 
@@ -106,10 +105,16 @@ jobs:
           print(json.dumps(report, indent=2, sort_keys=True))
           PY
 
-      - name: Format and compile-test A02 crates against candidate lock
+      - name: Apply pinned rustfmt and retain exact formatted bytes
+        run: |
+          cargo fmt --all
+          cp crates/ptah-identifiers/src/lib.rs evidence/a02-lock/formatted/crates/ptah-identifiers/src/lib.rs
+          cp crates/ptah-node-agent/src/lib.rs evidence/a02-lock/formatted/crates/ptah-node-agent/src/lib.rs
+          cargo fmt --all --check
+
+      - name: Compile-test A02 crates against candidate lock
         run: |
           set -o pipefail
-          cargo fmt --all --check 2>&1 | tee evidence/a02-lock/rustfmt.txt
           cargo clippy -p ptah-identifiers -p ptah-node-agent --all-features --locked -- -D warnings 2>&1 \
             | tee evidence/a02-lock/clippy.txt
           cargo test -p ptah-identifiers -p ptah-node-agent --locked 2>&1 \
@@ -121,17 +126,24 @@ jobs:
           import json, os, subprocess
           from pathlib import Path
           report = json.loads(Path('evidence/a02-lock/report.json').read_text())
+          changed = subprocess.check_output(['git','status','--porcelain','--untracked-files=no'], text=True).splitlines()
           report.update({
               'source_head': os.environ['PTAH_EXACT_SHA'],
               'checked_out_head': subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip(),
-              'source_files_changed_by_lock_refresh': subprocess.check_output(['git','status','--porcelain','--untracked-files=no'], text=True).splitlines(),
+              'source_files_changed_by_candidate_build': changed,
+              'rustfmt_applied': True,
           })
           assert report['source_head'] == report['checked_out_head']
-          assert report['source_files_changed_by_lock_refresh'] == [' M Cargo.lock']
+          expected = {
+              ' M Cargo.lock',
+              ' M crates/ptah-identifiers/src/lib.rs',
+              ' M crates/ptah-node-agent/src/lib.rs',
+          }
+          assert set(changed) == expected, changed
           Path('evidence/a02-lock/report.json').write_text(json.dumps(report, indent=2, sort_keys=True)+'\n')
           PY
 
-      - name: Upload A02 lock candidate
+      - name: Upload A02 lock and formatted candidates
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:

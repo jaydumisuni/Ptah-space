@@ -8,7 +8,7 @@ It deliberately does **not** require a particular operating-system distribution,
 
 A passing Ptah report proves that the machine on which it executed satisfies the portable mechanical baseline in `host/development-host-contract.json` and that the tested repository checkout remained clean and exact.
 
-The public probe cannot establish that the machine was the externally selected physical host. Physical-machine identity comes from independently reviewed external execution evidence.
+The public probe cannot establish which external physical machine or control transport produced the report. Those identities come from independently reviewed external execution evidence that is retained separately.
 
 A passing report therefore does **not** by itself:
 
@@ -23,7 +23,7 @@ A passing report therefore does **not** by itself:
 
 Use the externally selected real physical development machine and an exact clean checkout of the selected Ptah proof-tool commit.
 
-The external caller/control system is responsible for retaining an invocation receipt that establishes which physical machine executed the probe. That receipt is reviewed separately from the Ptah report.
+The external caller/control system is responsible for retaining an invocation receipt that establishes which physical machine executed the probe and how that execution was controlled. Do not encode those private identities into the public Ptah report.
 
 Do not place the acceptance-candidate output inside the repository checkout. The probe intentionally rejects that layout when `--expected-commit` is supplied because proof generation must not make the checkout dirty.
 
@@ -66,25 +66,15 @@ Any equivalent external path is acceptable as long as it is not inside the repos
 
 ## 3. Run the portable capability probe
 
-Provider-neutral form:
-
 ```text
 python tools/run_development_host_probe.py \
   --repo-root . \
   --expected-commit <EXACT_PROOF_COMMIT> \
   --output ../ptah-development-host-evidence/development-host-report.json \
-  --machine-label <LOCAL_LABEL> \
   --require-portable-pass
 ```
 
-An external controller may additionally attach non-authoritative transport metadata:
-
-```text
-  --control-transport <TRANSPORT_CLASS> \
-  --transport-receipt-id <EXTERNAL_RECEIPT_ID>
-```
-
-These values are caller-supplied metadata. The Ptah report does not validate the external transport receipt, prove the physical machine identity, accept the host or convert the receipt into runtime authorization.
+The public probe accepts no machine-name, controller-name, transport-name or external-receipt arguments. That separation is intentional.
 
 ## 4. Required portable result
 
@@ -120,6 +110,8 @@ The repository binding must show:
 - a clean checkout after collection;
 - no change of HEAD during collection.
 
+The report must not contain external machine identity or external transport identity fields.
+
 ## 5. Review the observations without turning them into OS predicates
 
 The report records operating system, kernel/version, architecture, CPU count, total memory and free local storage.
@@ -130,9 +122,9 @@ The portable checks are the mechanical capabilities defined by `host/development
 
 ## 6. Establish physical-machine identity externally
 
-The public probe deliberately refuses to claim physical-host identity.
+The public probe deliberately refuses to claim physical-host or controller identity.
 
-For a physical acceptance candidate, the external evidence system must retain a receipt that binds the invocation to the selected physical machine and the exact probe run. The independent reviewer must validate that receipt against the Ptah report.
+For a physical acceptance candidate, the external evidence system must retain a receipt that binds the invocation to the selected physical machine, the exact Ptah commit and the exact probe run. The independent reviewer validates that external receipt against the Ptah report.
 
 A hosted CI runner may produce `portable_capabilities_passed: true`. That is expected and useful regression evidence, but it cannot become the physical development-host acceptance proof.
 
@@ -143,7 +135,7 @@ If the probe fails:
 - retain the generated report if one exists;
 - retain command output and exit status in the external evidence system;
 - do not edit the report to make it pass;
-- correct the machine/tooling condition or the approved contract, then run a new proof with a new receipt.
+- correct the machine/tooling condition or the approved contract, then run a new proof with a new external receipt.
 
 A retry does not erase the failed attempt.
 
@@ -155,7 +147,7 @@ After a passing report exists on the selected physical machine, an independent r
 2. the clean repository binding;
 3. every required capability result;
 4. required host observations;
-5. the external execution receipt proving the selected physical machine;
+5. the separately retained external execution receipt proving the selected physical machine and control path;
 6. retained failed/partial attempts, if any;
 7. the applicable external authorization record.
 

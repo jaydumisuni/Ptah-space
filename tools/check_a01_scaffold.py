@@ -141,7 +141,8 @@ def validate_action_pins() -> dict[str, Any]:
             line = raw.strip()
             if not line.startswith("uses:") and " uses:" not in raw:
                 continue
-            value = line.split("uses:", 1)[1].strip().strip('"\'')
+            value = line.split("uses:", 1)[1].strip()
+            value = value.split(" #", 1)[0].strip().strip('"\'')
             if value.startswith("./"):
                 continue
             require("@" in value, f"workflow Action reference lacks ref: {path.name}: {value}")

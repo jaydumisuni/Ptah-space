@@ -34,37 +34,42 @@ jobs:
           rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
           rustup default 1.97.1
 
-      - name: Capture historical external dependency universe
+      - name: Capture frozen external dependency universe
         run: |
           mkdir -p evidence/a02-lock
           python - <<'PY'
           import json, re
           from pathlib import Path
-          text = Path('Cargo.lock').read_text()
-          packages = []
-          for block in text.split('[[package]]')[1:]:
-              name = re.search(r'\nname = "([^"]+)"', '\n'+block)
-              version = re.search(r'\nversion = "([^"]+)"', '\n'+block)
-              source = re.search(r'\nsource = "([^"]+)"', '\n'+block)
-              checksum = re.search(r'\nchecksum = "([^"]+)"', '\n'+block)
-              if name and version and source:
-                  packages.append({
-                      'name': name.group(1),
-                      'version': version.group(1),
-                      'source': source.group(1),
-                      'checksum': checksum.group(1) if checksum else None,
-                  })
-          external = sorted(packages, key=lambda x: (x['name'],x['version'],x['source']))
-          Path('evidence/a02-lock/external-before.json').write_text(json.dumps(external, indent=2, sort_keys=True)+'\n')
-          print(json.dumps({'external_before': len(external), 'git_before': sum(p['source'].startswith('git+') for p in external)}, sort_keys=True))
+          def external(path):
+              text = Path(path).read_text()
+              packages = []
+              for block in text.split('[[package]]')[1:]:
+                  block = '\n' + block
+                  name = re.search(r'\nname = "([^"]+)"', block)
+                  version = re.search(r'\nversion = "([^"]+)"', block)
+                  source = re.search(r'\nsource = "([^"]+)"', block)
+                  checksum = re.search(r'\nchecksum = "([^"]+)"', block)
+                  if name and version and source:
+                      packages.append({
+                          'name': name.group(1),
+                          'version': version.group(1),
+                          'source': source.group(1),
+                          'checksum': checksum.group(1) if checksum else None,
+                      })
+              return sorted(packages, key=lambda x: (x['name'],x['version'],x['source']))
+          before = external('Cargo.lock')
+          Path('evidence/a02-lock/external-before.json').write_text(json.dumps(before, indent=2, sort_keys=True)+'\n')
+          print(json.dumps({'external_before': len(before), 'git_before': sum(p['source'].startswith('git+') for p in before)}, sort_keys=True))
           PY
 
-      - name: Generate candidate lock
+      - name: Refresh workspace/path-package lock metadata only
         run: |
-          cargo generate-lockfile
+          # Start from the accepted lock and let Cargo update only what the changed
+          # workspace manifests require. Do not discard/re-resolve the transitive lock.
+          cargo metadata --format-version 1 > evidence/a02-lock/cargo-metadata-unlocked.json
           cp Cargo.lock evidence/a02-lock/Cargo.lock.candidate
 
-      - name: Prove external dependency universe did not expand
+      - name: Prove external dependency universe and checksums are unchanged
         run: |
           python - <<'PY'
           import hashlib, json, re
@@ -73,10 +78,11 @@ jobs:
           text = Path('Cargo.lock').read_text()
           packages = []
           for block in text.split('[[package]]')[1:]:
-              name = re.search(r'\nname = "([^"]+)"', '\n'+block)
-              version = re.search(r'\nversion = "([^"]+)"', '\n'+block)
-              source = re.search(r'\nsource = "([^"]+)"', '\n'+block)
-              checksum = re.search(r'\nchecksum = "([^"]+)"', '\n'+block)
+              block = '\n' + block
+              name = re.search(r'\nname = "([^"]+)"', block)
+              version = re.search(r'\nversion = "([^"]+)"', block)
+              source = re.search(r'\nsource = "([^"]+)"', block)
+              checksum = re.search(r'\nchecksum = "([^"]+)"', block)
               if name and version and source:
                   packages.append({
                       'name': name.group(1),
@@ -85,13 +91,14 @@ jobs:
                       'checksum': checksum.group(1) if checksum else None,
                   })
           after = sorted(packages, key=lambda x: (x['name'],x['version'],x['source']))
-          assert after == before, 'external Cargo dependency universe changed'
+          assert after == before, 'external Cargo dependency identity/checksum universe changed'
+          assert len(after) == 81, f'unexpected external dependency count: {len(after)}'
           assert not any(p['source'].startswith('git+') for p in after), 'Git dependency introduced'
           report = {
               'record_type': 'ptah.a02.lock_candidate_proof',
               'external_dependency_count': len(after),
               'git_dependency_count': 0,
-              'external_universe_unchanged': True,
+              'external_identity_and_checksums_unchanged': True,
               'candidate_lock_sha256': hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
               'historical_selection_record_preserved': True,
           }
@@ -117,14 +124,15 @@ jobs:
           report.update({
               'source_head': os.environ['PTAH_EXACT_SHA'],
               'checked_out_head': subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip(),
-              'source_files_changed_by_lock_generation': subprocess.check_output(['git','status','--porcelain','--untracked-files=no'], text=True).splitlines(),
+              'source_files_changed_by_lock_refresh': subprocess.check_output(['git','status','--porcelain','--untracked-files=no'], text=True).splitlines(),
           })
           assert report['source_head'] == report['checked_out_head']
-          assert report['source_files_changed_by_lock_generation'] == [' M Cargo.lock']
+          assert report['source_files_changed_by_lock_refresh'] == [' M Cargo.lock']
           Path('evidence/a02-lock/report.json').write_text(json.dumps(report, indent=2, sort_keys=True)+'\n')
           PY
 
       - name: Upload A02 lock candidate
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: a02-lock-candidate-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}

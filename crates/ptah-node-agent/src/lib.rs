@@ -1006,7 +1006,10 @@ mod tests {
         let seed = first.restart_seed();
         let restarted = NodeAgent::restart(seed).expect("restart");
         assert_eq!(restarted.node_id(), first.node_id());
-        assert_eq!(restarted.generation().value(), first.generation().value() + 1);
+        assert_eq!(
+            restarted.generation().value(),
+            first.generation().value() + 1
+        );
         assert_eq!(
             restarted.connection_epoch().value(),
             first.connection_epoch().value() + 1

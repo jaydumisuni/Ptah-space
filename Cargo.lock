@@ -341,6 +341,12 @@ version = "0.0.0-phase0c"
 [[package]]
 name = "ptah-identifiers"
 version = "0.0.0-phase0c"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+]
 
 [[package]]
 name = "ptah-ledger"
@@ -353,6 +359,13 @@ version = "0.0.0-phase0c"
 [[package]]
 name = "ptah-node-agent"
 version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-contracts",
+ "ptah-identifiers",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "ptah-object-store"

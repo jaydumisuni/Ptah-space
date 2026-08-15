@@ -91,8 +91,8 @@ impl FromStr for EntityId {
         if value != value.to_ascii_lowercase() {
             return Err(IdentifierError::InvalidUuid(value.to_owned()));
         }
-        let uuid = Uuid::parse_str(value)
-            .map_err(|_| IdentifierError::InvalidUuid(value.to_owned()))?;
+        let uuid =
+            Uuid::parse_str(value).map_err(|_| IdentifierError::InvalidUuid(value.to_owned()))?;
         if uuid.hyphenated().to_string() != value {
             return Err(IdentifierError::InvalidUuid(value.to_owned()));
         }
@@ -311,7 +311,10 @@ fn validate_entity_kind(value: &str) -> Result<(), IdentifierError> {
     if rest.is_empty() || !valid_kind_segment(first, false) {
         return Err(IdentifierError::InvalidEntityKind(value.to_owned()));
     }
-    if rest.iter().any(|segment| !valid_kind_segment(segment, true)) {
+    if rest
+        .iter()
+        .any(|segment| !valid_kind_segment(segment, true))
+    {
         return Err(IdentifierError::InvalidEntityKind(value.to_owned()));
     }
     Ok(())

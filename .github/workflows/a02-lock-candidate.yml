@@ -7,6 +7,7 @@ on:
       - "crates/ptah-node-agent/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "clippy.toml"
       - "dependencies/**"
       - ".github/workflows/a02-lock-candidate.yml"
   workflow_dispatch:

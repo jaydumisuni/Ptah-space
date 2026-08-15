@@ -3,8 +3,8 @@
 
 The probe is intentionally cross-platform. It verifies only the portable
 mechanical baseline required before a selected physical development host can be
-accepted. Physical-machine identity is established by external execution
-evidence and independent review, not by this public probe.
+accepted. Physical-machine and control-transport identity are established by
+external execution evidence and independent review, not by this public probe.
 
 This tool never accepts a development host, authorizes runtime implementation,
 qualifies a deployment host, or accepts a release.
@@ -292,7 +292,6 @@ def collect_host_observations() -> dict[str, Any]:
         "cpu_count": os.cpu_count(),
         "memory_bytes": memory_bytes(),
         "free_disk_bytes": free_disk,
-        "temporary_root": str(temp_root),
     }
 
 
@@ -408,9 +407,6 @@ def build_report(
     contract_path: Path,
     output: Path,
     expected_commit: str | None,
-    machine_label: str | None,
-    control_transport: str | None,
-    transport_receipt_id: str | None,
 ) -> dict[str, Any]:
     repo_root = repo_root.resolve()
     output = output.resolve()
@@ -481,7 +477,7 @@ def build_report(
 
     portable_pass = not probe_failures
     return {
-        "schema_version": "0.2.0",
+        "schema_version": "0.3.0",
         "record_type": RECORD_TYPE,
         "created_at": datetime.now(timezone.utc).isoformat(
             timespec="seconds"
@@ -497,7 +493,6 @@ def build_report(
         "runtime_implementation_authorized": False,
         "deployment_host_qualified": False,
         "release_accepted": False,
-        "machine_label": machine_label,
         "host_observations": observations,
         "required_capabilities": required,
         "capabilities": capabilities,
@@ -511,17 +506,13 @@ def build_report(
             "after": repository_after,
             "failures": binding_failures,
         },
-        "external_execution_observation": {
-            "transport": control_transport,
-            "external_receipt_id": transport_receipt_id,
-            "caller_supplied_metadata_only": True,
-            "receipt_not_validated_by_public_probe": True,
-        },
         "probe_failures": probe_failures,
         "deferred_deployment_capabilities": contract.get(
             "deferred_deployment_capabilities", []
         ),
         "claim_boundary": {
+            "public_probe_contains_no_external_machine_identity": True,
+            "public_probe_contains_no_external_transport_identity": True,
             "portable_pass_does_not_prove_physical_machine_identity": True,
             "external_execution_receipt_requires_independent_review": True,
             "development_host_accepted": False,
@@ -538,9 +529,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--contract", type=Path, default=DEFAULT_CONTRACT)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--expected-commit")
-    parser.add_argument("--machine-label")
-    parser.add_argument("--control-transport")
-    parser.add_argument("--transport-receipt-id")
     parser.add_argument("--require-portable-pass", action="store_true")
     return parser.parse_args()
 
@@ -552,9 +540,6 @@ def main() -> int:
         contract_path=args.contract,
         output=args.output,
         expected_commit=args.expected_commit,
-        machine_label=args.machine_label,
-        control_transport=args.control_transport,
-        transport_receipt_id=args.transport_receipt_id,
     )
     write_json(args.output.resolve(), report)
     print(

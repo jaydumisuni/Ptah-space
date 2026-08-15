@@ -5,7 +5,8 @@
 //! text. Hostnames, process IDs, boot IDs, container IDs and other endpoint facts
 //! are aliases/evidence and must never replace canonical entity identity.
 
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::{fmt, str::FromStr};
 use thiserror::Error;
 use uuid::{Uuid, Variant, Version};
@@ -32,13 +33,16 @@ pub enum IdentifierError {
     /// Entity kind does not satisfy Ptah's namespaced entity-kind shape.
     #[error("invalid Ptah entity kind: {0}")]
     InvalidEntityKind(String),
+    /// Record revision violates the frozen positive-integer contract.
+    #[error("record revision must be greater than zero")]
+    InvalidRecordRevision,
     /// A generation/epoch counter cannot be incremented safely.
     #[error("counter overflow")]
     CounterOverflow,
 }
 
 /// One canonical `UUIDv7` Ptah entity identifier.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
 pub struct EntityId(Uuid);
 
@@ -69,6 +73,16 @@ impl EntityId {
     #[must_use]
     pub const fn as_uuid(&self) -> &Uuid {
         &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for EntityId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::from_str(&value).map_err(D::Error::custom)
     }
 }
 
@@ -245,26 +259,51 @@ impl ConnectionEpoch {
 
 /// Typed reference to a canonical Ptah entity.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "EntityRefUnchecked")]
 pub struct EntityRef {
-    /// Canonical `UUIDv7` entity identifier.
-    pub entity_id: EntityId,
-    /// Canonical namespaced Ptah entity kind.
-    pub entity_kind: String,
-    /// Optional exact record revision constraint.
+    entity_id: EntityId,
+    entity_kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub record_revision: Option<u64>,
-    /// Optional exact Node generation constraint.
+    record_revision: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub node_generation: Option<u64>,
-    /// Optional exact Provider generation constraint.
+    node_generation: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider_generation: Option<u64>,
-    /// Optional exact workload generation constraint.
+    provider_generation: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub workload_generation: Option<u64>,
-    /// Optional exact connection epoch constraint.
+    workload_generation: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub connection_epoch: Option<u64>,
+    connection_epoch: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct EntityRefUnchecked {
+    entity_id: EntityId,
+    entity_kind: String,
+    record_revision: Option<u64>,
+    node_generation: Option<u64>,
+    provider_generation: Option<u64>,
+    workload_generation: Option<u64>,
+    connection_epoch: Option<u64>,
+}
+
+impl TryFrom<EntityRefUnchecked> for EntityRef {
+    type Error = IdentifierError;
+
+    fn try_from(value: EntityRefUnchecked) -> Result<Self, Self::Error> {
+        validate_entity_kind(&value.entity_kind)?;
+        if value.record_revision == Some(0) {
+            return Err(IdentifierError::InvalidRecordRevision);
+        }
+        Ok(Self {
+            entity_id: value.entity_id,
+            entity_kind: value.entity_kind,
+            record_revision: value.record_revision,
+            node_generation: value.node_generation,
+            provider_generation: value.provider_generation,
+            workload_generation: value.workload_generation,
+            connection_epoch: value.connection_epoch,
+        })
+    }
 }
 
 impl EntityRef {
@@ -299,6 +338,48 @@ impl EntityRef {
             workload_generation: None,
             connection_epoch: None,
         })
+    }
+
+    /// Return the canonical entity identifier.
+    #[must_use]
+    pub const fn entity_id(&self) -> EntityId {
+        self.entity_id
+    }
+
+    /// Return the canonical namespaced entity kind.
+    #[must_use]
+    pub fn entity_kind(&self) -> &str {
+        &self.entity_kind
+    }
+
+    /// Return the optional exact record revision constraint.
+    #[must_use]
+    pub const fn record_revision(&self) -> Option<u64> {
+        self.record_revision
+    }
+
+    /// Return the optional exact Node generation constraint.
+    #[must_use]
+    pub const fn node_generation(&self) -> Option<u64> {
+        self.node_generation
+    }
+
+    /// Return the optional exact Provider generation constraint.
+    #[must_use]
+    pub const fn provider_generation(&self) -> Option<u64> {
+        self.provider_generation
+    }
+
+    /// Return the optional exact workload generation constraint.
+    #[must_use]
+    pub const fn workload_generation(&self) -> Option<u64> {
+        self.workload_generation
+    }
+
+    /// Return the optional exact connection epoch constraint.
+    #[must_use]
+    pub const fn connection_epoch(&self) -> Option<u64> {
+        self.connection_epoch
     }
 }
 
@@ -338,6 +419,7 @@ fn valid_kind_segment(value: &str, allow_underscore_or_dash: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     #[test]
     fn generated_entity_id_is_uuid_v7_and_round_trips() {
@@ -370,10 +452,10 @@ mod tests {
     fn node_reference_carries_generation_and_epoch_without_changing_identity() {
         let node_id = NodeId::new();
         let reference = node_id.entity_ref(NodeGeneration::new(7), ConnectionEpoch::new(3));
-        assert_eq!(reference.entity_id, node_id.entity_id());
-        assert_eq!(reference.entity_kind, NODE_ENTITY_KIND);
-        assert_eq!(reference.node_generation, Some(7));
-        assert_eq!(reference.connection_epoch, Some(3));
+        assert_eq!(reference.entity_id(), node_id.entity_id());
+        assert_eq!(reference.entity_kind(), NODE_ENTITY_KIND);
+        assert_eq!(reference.node_generation(), Some(7));
+        assert_eq!(reference.connection_epoch(), Some(3));
     }
 
     #[test]
@@ -398,10 +480,34 @@ mod tests {
     }
 
     #[test]
+    fn serde_rejects_non_v7_and_noncanonical_node_ids() {
+        let v4 = Uuid::new_v4().to_string();
+        let v4_json = serde_json::to_string(&v4).expect("serialize v4 text");
+        assert!(serde_json::from_str::<NodeId>(&v4_json).is_err());
+
+        let uppercase = NodeId::new().to_string().to_ascii_uppercase();
+        let uppercase_json = serde_json::to_string(&uppercase).expect("serialize uppercase text");
+        assert!(serde_json::from_str::<NodeId>(&uppercase_json).is_err());
+    }
+
+    #[test]
     fn entity_kind_validation_rejects_non_namespaced_or_uppercase_values() {
         assert!(EntityRef::new("node").is_err());
         assert!(EntityRef::new("Core.Node").is_err());
         assert!(EntityRef::new(EVENT_ENTITY_KIND).is_ok());
         assert!(EntityRef::new(RECEIPT_ENTITY_KIND).is_ok());
+    }
+
+    #[test]
+    fn entity_ref_deserialization_revalidates_kind_and_revision() {
+        let reference = EntityRef::new(NODE_ENTITY_KIND).expect("valid ref");
+        let mut value = serde_json::to_value(reference).expect("serialize ref");
+        value["entity_kind"] = Value::String("Core.Node".to_owned());
+        assert!(serde_json::from_value::<EntityRef>(value).is_err());
+
+        let reference = EntityRef::new(NODE_ENTITY_KIND).expect("valid ref");
+        let mut value = serde_json::to_value(reference).expect("serialize ref");
+        value["record_revision"] = Value::from(0_u64);
+        assert!(serde_json::from_value::<EntityRef>(value).is_err());
     }
 }

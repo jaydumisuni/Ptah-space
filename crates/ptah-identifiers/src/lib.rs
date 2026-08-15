@@ -114,6 +114,94 @@ impl FromStr for EntityId {
     }
 }
 
+/// Validated canonical Ptah entity kind.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub struct EntityKind(String);
+
+impl EntityKind {
+    /// Construct a validated namespaced Ptah entity kind.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentifierError::InvalidEntityKind`] when the value does not
+    /// satisfy the frozen entity-kind grammar.
+    pub fn new(value: impl Into<String>) -> Result<Self, IdentifierError> {
+        let value = value.into();
+        validate_entity_kind(&value)?;
+        Ok(Self(value))
+    }
+
+    /// Return the canonical entity-kind text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for EntityKind {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(D::Error::custom)
+    }
+}
+
+impl fmt::Display for EntityKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+impl PartialEq<str> for EntityKind {
+    fn eq(&self, other: &str) -> bool {
+        self.0 == other
+    }
+}
+
+impl PartialEq<&str> for EntityKind {
+    fn eq(&self, other: &&str) -> bool {
+        self.0 == *other
+    }
+}
+
+/// Positive canonical record revision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RecordRevision(u64);
+
+impl RecordRevision {
+    /// Construct a positive record revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentifierError::InvalidRecordRevision`] when `value` is zero.
+    pub const fn new(value: u64) -> Result<Self, IdentifierError> {
+        if value == 0 {
+            return Err(IdentifierError::InvalidRecordRevision);
+        }
+        Ok(Self(value))
+    }
+
+    /// Return the underlying positive revision.
+    #[must_use]
+    pub const fn value(self) -> u64 {
+        self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for RecordRevision {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = u64::deserialize(deserializer)?;
+        Self::new(value).map_err(D::Error::custom)
+    }
+}
+
 /// Stable canonical identity of one Ptah Node.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -147,7 +235,7 @@ impl NodeId {
     ) -> EntityRef {
         EntityRef {
             entity_id: self.0,
-            entity_kind: NODE_ENTITY_KIND.to_owned(),
+            entity_kind: EntityKind(NODE_ENTITY_KIND.to_owned()),
             record_revision: None,
             node_generation: Some(generation.value()),
             provider_generation: None,
@@ -259,51 +347,26 @@ impl ConnectionEpoch {
 
 /// Typed reference to a canonical Ptah entity.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(try_from = "EntityRefUnchecked")]
 pub struct EntityRef {
-    entity_id: EntityId,
-    entity_kind: String,
+    /// Canonical `UUIDv7` entity identifier.
+    pub entity_id: EntityId,
+    /// Canonical validated namespaced Ptah entity kind.
+    pub entity_kind: EntityKind,
+    /// Optional exact positive record revision constraint.
     #[serde(skip_serializing_if = "Option::is_none")]
-    record_revision: Option<u64>,
+    pub record_revision: Option<RecordRevision>,
+    /// Optional exact Node generation constraint.
     #[serde(skip_serializing_if = "Option::is_none")]
-    node_generation: Option<u64>,
+    pub node_generation: Option<u64>,
+    /// Optional exact Provider generation constraint.
     #[serde(skip_serializing_if = "Option::is_none")]
-    provider_generation: Option<u64>,
+    pub provider_generation: Option<u64>,
+    /// Optional exact workload generation constraint.
     #[serde(skip_serializing_if = "Option::is_none")]
-    workload_generation: Option<u64>,
+    pub workload_generation: Option<u64>,
+    /// Optional exact connection epoch constraint.
     #[serde(skip_serializing_if = "Option::is_none")]
-    connection_epoch: Option<u64>,
-}
-
-#[derive(Deserialize)]
-struct EntityRefUnchecked {
-    entity_id: EntityId,
-    entity_kind: String,
-    record_revision: Option<u64>,
-    node_generation: Option<u64>,
-    provider_generation: Option<u64>,
-    workload_generation: Option<u64>,
-    connection_epoch: Option<u64>,
-}
-
-impl TryFrom<EntityRefUnchecked> for EntityRef {
-    type Error = IdentifierError;
-
-    fn try_from(value: EntityRefUnchecked) -> Result<Self, Self::Error> {
-        validate_entity_kind(&value.entity_kind)?;
-        if value.record_revision == Some(0) {
-            return Err(IdentifierError::InvalidRecordRevision);
-        }
-        Ok(Self {
-            entity_id: value.entity_id,
-            entity_kind: value.entity_kind,
-            record_revision: value.record_revision,
-            node_generation: value.node_generation,
-            provider_generation: value.provider_generation,
-            workload_generation: value.workload_generation,
-            connection_epoch: value.connection_epoch,
-        })
-    }
+    pub connection_epoch: Option<u64>,
 }
 
 impl EntityRef {
@@ -327,59 +390,15 @@ impl EntityRef {
         entity_id: EntityId,
         entity_kind: impl Into<String>,
     ) -> Result<Self, IdentifierError> {
-        let entity_kind = entity_kind.into();
-        validate_entity_kind(&entity_kind)?;
         Ok(Self {
             entity_id,
-            entity_kind,
+            entity_kind: EntityKind::new(entity_kind)?,
             record_revision: None,
             node_generation: None,
             provider_generation: None,
             workload_generation: None,
             connection_epoch: None,
         })
-    }
-
-    /// Return the canonical entity identifier.
-    #[must_use]
-    pub const fn entity_id(&self) -> EntityId {
-        self.entity_id
-    }
-
-    /// Return the canonical namespaced entity kind.
-    #[must_use]
-    pub fn entity_kind(&self) -> &str {
-        &self.entity_kind
-    }
-
-    /// Return the optional exact record revision constraint.
-    #[must_use]
-    pub const fn record_revision(&self) -> Option<u64> {
-        self.record_revision
-    }
-
-    /// Return the optional exact Node generation constraint.
-    #[must_use]
-    pub const fn node_generation(&self) -> Option<u64> {
-        self.node_generation
-    }
-
-    /// Return the optional exact Provider generation constraint.
-    #[must_use]
-    pub const fn provider_generation(&self) -> Option<u64> {
-        self.provider_generation
-    }
-
-    /// Return the optional exact workload generation constraint.
-    #[must_use]
-    pub const fn workload_generation(&self) -> Option<u64> {
-        self.workload_generation
-    }
-
-    /// Return the optional exact connection epoch constraint.
-    #[must_use]
-    pub const fn connection_epoch(&self) -> Option<u64> {
-        self.connection_epoch
     }
 }
 
@@ -452,10 +471,10 @@ mod tests {
     fn node_reference_carries_generation_and_epoch_without_changing_identity() {
         let node_id = NodeId::new();
         let reference = node_id.entity_ref(NodeGeneration::new(7), ConnectionEpoch::new(3));
-        assert_eq!(reference.entity_id(), node_id.entity_id());
-        assert_eq!(reference.entity_kind(), NODE_ENTITY_KIND);
-        assert_eq!(reference.node_generation(), Some(7));
-        assert_eq!(reference.connection_epoch(), Some(3));
+        assert_eq!(reference.entity_id, node_id.entity_id());
+        assert_eq!(reference.entity_kind, NODE_ENTITY_KIND);
+        assert_eq!(reference.node_generation, Some(7));
+        assert_eq!(reference.connection_epoch, Some(3));
     }
 
     #[test]

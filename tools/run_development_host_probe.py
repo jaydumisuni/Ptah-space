@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Create a provider-neutral physical development-host qualification report.
+"""Create a provider-neutral development-host capability probe report.
 
 The probe is intentionally cross-platform. It verifies only the portable
-mechanical baseline required to begin Ptah runtime development. Deployment-host
-isolation, resource enforcement and OS-integration proof are separate later
-obligations.
+mechanical baseline required before a selected physical development host can be
+accepted. Physical-machine identity is established by external execution
+evidence and independent review, not by this public probe.
 
-This tool never authorizes runtime implementation or release acceptance.
+This tool never accepts a development host, authorizes runtime implementation,
+qualifies a deployment host, or accepts a release.
 """
 from __future__ import annotations
 
@@ -37,10 +38,15 @@ class ProbeError(RuntimeError):
 
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(value, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
 
 
-def command(args: list[str], *, timeout: int = 10) -> subprocess.CompletedProcess[str]:
+def command(
+    args: list[str], *, timeout: int = 10
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         args,
         capture_output=True,
@@ -50,7 +56,9 @@ def command(args: list[str], *, timeout: int = 10) -> subprocess.CompletedProces
     )
 
 
-def observation(status: str, evidence: Any = None, error: str | None = None) -> dict[str, Any]:
+def observation(
+    status: str, evidence: Any = None, error: str | None = None
+) -> dict[str, Any]:
     result: dict[str, Any] = {"status": status, "evidence": evidence}
     if error:
         result["error"] = error
@@ -59,10 +67,15 @@ def observation(status: str, evidence: Any = None, error: str | None = None) -> 
 
 def check_process_spawn() -> dict[str, Any]:
     try:
-        result = command([sys.executable, "-c", "print('ptah-development-host')"])
+        result = command(
+            [sys.executable, "-c", "print('ptah-development-host')"]
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return observation("fail", error=f"{type(exc).__name__}: {exc}")
-    ok = result.returncode == 0 and result.stdout.strip() == "ptah-development-host"
+    ok = (
+        result.returncode == 0
+        and result.stdout.strip() == "ptah-development-host"
+    )
     return observation(
         "pass" if ok else "fail",
         {
@@ -76,7 +89,9 @@ def check_process_spawn() -> dict[str, Any]:
 def check_temporary_workspace() -> dict[str, Any]:
     path: Path | None = None
     try:
-        with tempfile.TemporaryDirectory(prefix="ptah-dev-host-") as directory:
+        with tempfile.TemporaryDirectory(
+            prefix="ptah-dev-host-"
+        ) as directory:
             path = Path(directory)
             marker = path / "marker.bin"
             marker.write_bytes(b"ptah")
@@ -92,7 +107,9 @@ def check_temporary_workspace() -> dict[str, Any]:
 
 def check_file_fsync() -> dict[str, Any]:
     try:
-        with tempfile.TemporaryDirectory(prefix="ptah-dev-host-") as directory:
+        with tempfile.TemporaryDirectory(
+            prefix="ptah-dev-host-"
+        ) as directory:
             path = Path(directory) / "fsync.bin"
             with path.open("wb") as handle:
                 handle.write(b"ptah")
@@ -106,7 +123,9 @@ def check_file_fsync() -> dict[str, Any]:
 
 def check_atomic_replace() -> dict[str, Any]:
     try:
-        with tempfile.TemporaryDirectory(prefix="ptah-dev-host-") as directory:
+        with tempfile.TemporaryDirectory(
+            prefix="ptah-dev-host-"
+        ) as directory:
             root = Path(directory)
             source = root / "source.bin"
             target = root / "target.bin"
@@ -114,14 +133,18 @@ def check_atomic_replace() -> dict[str, Any]:
             target.write_bytes(b"before")
             os.replace(source, target)
             ok = not source.exists() and target.read_bytes() == b"after"
-        return observation("pass" if ok else "fail", {"atomic_replace": ok})
+        return observation(
+            "pass" if ok else "fail", {"atomic_replace": ok}
+        )
     except OSError as exc:
         return observation("fail", error=f"{type(exc).__name__}: {exc}")
 
 
 def check_advisory_file_lock() -> dict[str, Any]:
     try:
-        with tempfile.NamedTemporaryFile(prefix="ptah-dev-host-", delete=True) as handle:
+        with tempfile.NamedTemporaryFile(
+            prefix="ptah-dev-host-", delete=True
+        ) as handle:
             if os.name == "nt":
                 import msvcrt
 
@@ -138,13 +161,17 @@ def check_advisory_file_lock() -> dict[str, Any]:
             else:
                 import fcntl
 
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(
+                    handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB
+                )
                 try:
                     locked = True
                 finally:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
                 mechanism = "fcntl.flock"
-        return observation("pass" if locked else "fail", {"mechanism": mechanism})
+        return observation(
+            "pass" if locked else "fail", {"mechanism": mechanism}
+        )
     except (OSError, ImportError) as exc:
         return observation("fail", error=f"{type(exc).__name__}: {exc}")
 
@@ -202,15 +229,20 @@ def check_thread_execution() -> dict[str, Any]:
     def worker() -> None:
         completed.set()
 
-    thread = threading.Thread(target=worker, name="ptah-development-host-probe")
+    thread = threading.Thread(
+        target=worker, name="ptah-development-host-probe"
+    )
     thread.start()
     thread.join(timeout=3)
     ok = completed.is_set() and not thread.is_alive()
-    return observation("pass" if ok else "fail", {"thread_joined": not thread.is_alive()})
+    return observation(
+        "pass" if ok else "fail", {"thread_joined": not thread.is_alive()}
+    )
 
 
 def memory_bytes() -> int | None:
     if os.name == "nt":
+
         class MemoryStatusEx(ctypes.Structure):
             _fields_ = [
                 ("dwLength", ctypes.c_ulong),
@@ -227,7 +259,11 @@ def memory_bytes() -> int | None:
         status = MemoryStatusEx()
         status.dwLength = ctypes.sizeof(MemoryStatusEx)
         try:
-            ok = bool(ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)))
+            ok = bool(
+                ctypes.windll.kernel32.GlobalMemoryStatusEx(
+                    ctypes.byref(status)
+                )
+            )
         except (AttributeError, OSError):
             return None
         return int(status.ullTotalPhys) if ok else None
@@ -260,7 +296,9 @@ def collect_host_observations() -> dict[str, Any]:
     }
 
 
-def validate_observations(values: dict[str, Any], required: list[str]) -> list[str]:
+def validate_observations(
+    values: dict[str, Any], required: list[str]
+) -> list[str]:
     failures: list[str] = []
     mapping = {
         "os": values.get("os"),
@@ -286,10 +324,24 @@ def validate_observations(values: dict[str, Any], required: list[str]) -> list[s
 def repository_state(repo_root: Path) -> dict[str, Any]:
     git = shutil.which("git")
     if git is None:
-        return {"available": False, "clean": False, "head": None, "status": None}
+        return {
+            "available": False,
+            "clean": False,
+            "head": None,
+            "status": None,
+        }
     try:
         head = command([git, "-C", str(repo_root), "rev-parse", "HEAD"])
-        status = command([git, "-C", str(repo_root), "status", "--porcelain=v1", "--untracked-files=all"])
+        status = command(
+            [
+                git,
+                "-C",
+                str(repo_root),
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=all",
+            ]
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return {
             "available": False,
@@ -316,13 +368,24 @@ def output_outside_repository(output: Path, repo_root: Path) -> bool:
         return True
 
 
-def load_contract(repo_root: Path, contract_path: Path) -> dict[str, Any]:
-    path = contract_path if contract_path.is_absolute() else repo_root / contract_path
+def load_contract(
+    repo_root: Path, contract_path: Path
+) -> dict[str, Any]:
+    path = (
+        contract_path
+        if contract_path.is_absolute()
+        else repo_root / contract_path
+    )
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ProbeError(f"development-host contract is unreadable: {exc}") from exc
-    if not isinstance(value, dict) or value.get("record_type") != CONTRACT_RECORD_TYPE:
+        raise ProbeError(
+            f"development-host contract is unreadable: {exc}"
+        ) from exc
+    if (
+        not isinstance(value, dict)
+        or value.get("record_type") != CONTRACT_RECORD_TYPE
+    ):
         raise ProbeError("development-host contract record type is invalid")
     return value
 
@@ -355,7 +418,9 @@ def build_report(
 
     required = contract.get("required_capabilities")
     required_observations = contract.get("required_observations")
-    if not isinstance(required, list) or not all(isinstance(item, str) for item in required):
+    if not isinstance(required, list) or not all(
+        isinstance(item, str) for item in required
+    ):
         raise ProbeError("required_capabilities is invalid")
     if not isinstance(required_observations, list) or not all(
         isinstance(item, str) for item in required_observations
@@ -364,18 +429,29 @@ def build_report(
 
     unknown = sorted(set(required) - set(CHECKS))
     if unknown:
-        raise ProbeError(f"no probe implementation exists for required capabilities: {unknown}")
+        raise ProbeError(
+            "no probe implementation exists for required capabilities: "
+            f"{unknown}"
+        )
 
     repository_before = repository_state(repo_root)
     observations = collect_host_observations()
     capabilities = {name: CHECKS[name]() for name in required}
     repository_after = repository_state(repo_root)
 
-    capability_failures = [name for name in required if capabilities[name].get("status") != "pass"]
-    observation_failures = validate_observations(observations, required_observations)
+    capability_failures = [
+        name
+        for name in required
+        if capabilities[name].get("status") != "pass"
+    ]
+    observation_failures = validate_observations(
+        observations, required_observations
+    )
 
     binding_failures: list[str] = []
-    if not repository_before.get("available") or not repository_after.get("available"):
+    if not repository_before.get("available") or not repository_after.get(
+        "available"
+    ):
         binding_failures.append("repository_unavailable")
     if not repository_before.get("clean"):
         binding_failures.append("repository_not_clean_before")
@@ -389,19 +465,35 @@ def build_report(
         if repository_after.get("head") != expected_commit:
             binding_failures.append("expected_commit_mismatch_after")
         if not output_outside_repository(output, repo_root):
-            binding_failures.append("physical_proof_output_must_be_outside_repository")
+            binding_failures.append(
+                "acceptance_evidence_output_must_be_outside_repository"
+            )
 
-    eligibility_failures = [f"capability:{name}" for name in capability_failures]
-    eligibility_failures.extend(f"observation:{name}" for name in observation_failures)
-    eligibility_failures.extend(f"repository:{name}" for name in binding_failures)
+    probe_failures = [
+        f"capability:{name}" for name in capability_failures
+    ]
+    probe_failures.extend(
+        f"observation:{name}" for name in observation_failures
+    )
+    probe_failures.extend(
+        f"repository:{name}" for name in binding_failures
+    )
 
-    eligible = not eligibility_failures
+    portable_pass = not probe_failures
     return {
-        "schema_version": "0.1.0",
+        "schema_version": "0.2.0",
         "record_type": RECORD_TYPE,
-        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "status": "development_host_eligible" if eligible else "development_host_not_eligible",
-        "development_host_eligible": eligible,
+        "created_at": datetime.now(timezone.utc).isoformat(
+            timespec="seconds"
+        ),
+        "status": (
+            "portable_capabilities_passed"
+            if portable_pass
+            else "portable_capabilities_failed"
+        ),
+        "portable_capabilities_passed": portable_pass,
+        "physical_host_identity_verified": False,
+        "development_host_accepted": False,
         "runtime_implementation_authorized": False,
         "deployment_host_qualified": False,
         "release_accepted": False,
@@ -419,17 +511,20 @@ def build_report(
             "after": repository_after,
             "failures": binding_failures,
         },
-        "control_plane_observation": {
+        "external_execution_observation": {
             "transport": control_transport,
             "external_receipt_id": transport_receipt_id,
             "caller_supplied_metadata_only": True,
-            "private_acceptance_must_review_external_receipt": True,
+            "receipt_not_validated_by_public_probe": True,
         },
-        "eligibility_failures": eligibility_failures,
-        "deferred_deployment_capabilities": contract.get("deferred_deployment_capabilities", []),
+        "probe_failures": probe_failures,
+        "deferred_deployment_capabilities": contract.get(
+            "deferred_deployment_capabilities", []
+        ),
         "claim_boundary": {
-            "development_host_eligible_is_only_a_mechanical_probe_result": True,
-            "external_control_plane_receipt_is_reviewed_separately": True,
+            "portable_pass_does_not_prove_physical_machine_identity": True,
+            "external_execution_receipt_requires_independent_review": True,
+            "development_host_accepted": False,
             "runtime_implementation_authorized": False,
             "deployment_host_qualified": False,
             "release_accepted": False,
@@ -446,7 +541,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--machine-label")
     parser.add_argument("--control-transport")
     parser.add_argument("--transport-receipt-id")
-    parser.add_argument("--require-eligible", action="store_true")
+    parser.add_argument("--require-portable-pass", action="store_true")
     return parser.parse_args()
 
 
@@ -462,13 +557,23 @@ def main() -> int:
         transport_receipt_id=args.transport_receipt_id,
     )
     write_json(args.output.resolve(), report)
-    print(json.dumps({
-        "status": report["status"],
-        "development_host_eligible": report["development_host_eligible"],
-        "eligibility_failures": report["eligibility_failures"],
-        "output": str(args.output.resolve()),
-    }, indent=2))
-    if args.require_eligible and not report["development_host_eligible"]:
+    print(
+        json.dumps(
+            {
+                "status": report["status"],
+                "portable_capabilities_passed": report[
+                    "portable_capabilities_passed"
+                ],
+                "probe_failures": report["probe_failures"],
+                "output": str(args.output.resolve()),
+            },
+            indent=2,
+        )
+    )
+    if (
+        args.require_portable_pass
+        and not report["portable_capabilities_passed"]
+    ):
         return 2
     return 0
 
@@ -477,5 +582,8 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except ProbeError as exc:
-        print(f"DEVELOPMENT_HOST_PROBE_FAILED: {exc}", file=sys.stderr)
+        print(
+            f"DEVELOPMENT_HOST_PROBE_FAILED: {exc}",
+            file=sys.stderr,
+        )
         raise SystemExit(1)

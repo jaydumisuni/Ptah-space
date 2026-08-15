@@ -711,6 +711,11 @@ impl NodeAgent {
     /// revision advancement would overflow.
     pub fn restart(seed: NodeRestartSeed) -> Result<Self, NodeAgentError> {
         ensure_frozen_contracts()?;
+        if seed.record_revision == 0 {
+            return Err(NodeAgentError::Identifier(
+                IdentifierError::InvalidRecordRevision,
+            ));
+        }
         let record_revision = seed
             .record_revision
             .checked_add(1)
@@ -1013,6 +1018,19 @@ mod tests {
         assert_eq!(
             restarted.connection_epoch().value(),
             first.connection_epoch().value() + 1
+        );
+    }
+
+    #[test]
+    fn restart_rejects_zero_record_revision() {
+        let first = NodeAgent::bootstrap().expect("bootstrap");
+        let mut seed = first.restart_seed();
+        seed.record_revision = 0;
+        assert_eq!(
+            NodeAgent::restart(seed),
+            Err(NodeAgentError::Identifier(
+                IdentifierError::InvalidRecordRevision
+            ))
         );
     }
 

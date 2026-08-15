@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 //! Canonical Ptah identifier primitives.
 //!
-//! Frozen Phase 0B contracts define canonical entity identity as lowercase UUIDv7
+//! Frozen Phase 0B contracts define canonical entity identity as lowercase `UUIDv7`
 //! text. Hostnames, process IDs, boot IDs, container IDs and other endpoint facts
 //! are aliases/evidence and must never replace canonical entity identity.
 
@@ -37,19 +37,24 @@ pub enum IdentifierError {
     CounterOverflow,
 }
 
-/// One canonical UUIDv7 Ptah entity identifier.
+/// One canonical `UUIDv7` Ptah entity identifier.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct EntityId(Uuid);
 
 impl EntityId {
-    /// Generate a new canonical UUIDv7 entity identifier.
+    /// Generate a new canonical `UUIDv7` entity identifier.
     #[must_use]
     pub fn new_v7() -> Self {
         Self(Uuid::now_v7())
     }
 
-    /// Construct from a UUID after enforcing Ptah UUIDv7 identity rules.
+    /// Construct from a UUID after enforcing Ptah `UUIDv7` identity rules.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentifierError::NotVersion7`] when the UUID is not version 7,
+    /// or [`IdentifierError::WrongVariant`] when it is not the RFC 4122/9562 variant.
     pub fn from_uuid(value: Uuid) -> Result<Self, IdentifierError> {
         if value.get_version() != Some(Version::SortRand) {
             return Err(IdentifierError::NotVersion7);
@@ -188,6 +193,11 @@ impl NodeGeneration {
     }
 
     /// Advance to the next generation without wrapping.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentifierError::CounterOverflow`] when the current generation
+    /// is already [`u64::MAX`].
     pub fn next(self) -> Result<Self, IdentifierError> {
         self.0
             .checked_add(1)
@@ -220,6 +230,11 @@ impl ConnectionEpoch {
     }
 
     /// Advance to the next epoch without wrapping.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentifierError::CounterOverflow`] when the current epoch is
+    /// already [`u64::MAX`].
     pub fn next(self) -> Result<Self, IdentifierError> {
         self.0
             .checked_add(1)
@@ -231,7 +246,7 @@ impl ConnectionEpoch {
 /// Typed reference to a canonical Ptah entity.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EntityRef {
-    /// Canonical UUIDv7 entity identifier.
+    /// Canonical `UUIDv7` entity identifier.
     pub entity_id: EntityId,
     /// Canonical namespaced Ptah entity kind.
     pub entity_kind: String,
@@ -254,11 +269,21 @@ pub struct EntityRef {
 
 impl EntityRef {
     /// Create a reference to a newly allocated canonical entity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentifierError::InvalidEntityKind`] when `entity_kind` does not
+    /// satisfy the frozen Ptah namespaced entity-kind grammar.
     pub fn new(entity_kind: impl Into<String>) -> Result<Self, IdentifierError> {
         Self::from_id(EntityId::new_v7(), entity_kind)
     }
 
     /// Create a reference from an existing canonical entity identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentifierError::InvalidEntityKind`] when `entity_kind` does not
+    /// satisfy the frozen Ptah namespaced entity-kind grammar.
     pub fn from_id(
         entity_id: EntityId,
         entity_kind: impl Into<String>,

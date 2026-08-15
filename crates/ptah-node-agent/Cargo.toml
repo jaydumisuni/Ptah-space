@@ -12,10 +12,8 @@ workspace = true
 ptah-contracts = { path = "../ptah-contracts" }
 ptah-identifiers = { path = "../ptah-identifiers" }
 serde = { workspace = true }
-thiserror = { workspace = true }
-
-[dev-dependencies]
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 
 [lib]
 path = "src/lib.rs"

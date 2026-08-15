@@ -2,27 +2,30 @@
 
 ## Purpose
 
-This runbook produces a provider-neutral physical development-host qualification report for the first Ptah runtime implementation stage.
+This runbook produces a provider-neutral portable capability report used as one part of physical development-host qualification for the first Ptah runtime implementation stage.
 
 It deliberately does **not** require a particular operating-system distribution, kernel, guest operating system, virtual machine or container. Those are deployment/backend concerns unless a selected workload requires them.
 
-A passing report proves only that the tested physical development host satisfies the portable mechanical baseline in `host/development-host-contract.json`.
+A passing Ptah report proves that the machine on which it executed satisfies the portable mechanical baseline in `host/development-host-contract.json` and that the tested repository checkout remained clean and exact.
 
-It does **not** by itself:
+The public probe cannot establish that the machine was the externally selected physical host. Physical-machine identity comes from independently reviewed external execution evidence.
 
+A passing report therefore does **not** by itself:
+
+- accept a physical development host;
 - authorize Ptah runtime implementation;
 - qualify a final deployment host;
 - prove workload isolation or resource enforcement;
 - accept a release;
 - replace the later deployment/integration proof.
 
-## Preconditions
+## Preconditions for an acceptance candidate run
 
-Use a real physical development machine and an exact clean checkout of the selected Ptah proof-tool commit.
+Use the externally selected real physical development machine and an exact clean checkout of the selected Ptah proof-tool commit.
 
-The external caller/control system is responsible for retaining its own invocation receipt. That receipt is reviewed separately from the Ptah report.
+The external caller/control system is responsible for retaining an invocation receipt that establishes which physical machine executed the probe. That receipt is reviewed separately from the Ptah report.
 
-Do not place the physical proof output inside the repository checkout. The probe intentionally rejects that layout when `--expected-commit` is supplied because proof generation must not make the checkout dirty.
+Do not place the acceptance-candidate output inside the repository checkout. The probe intentionally rejects that layout when `--expected-commit` is supplied because proof generation must not make the checkout dirty.
 
 ## 1. Recover the exact candidate
 
@@ -61,7 +64,7 @@ New-Item -ItemType Directory -Force ..\ptah-development-host-evidence
 
 Any equivalent external path is acceptable as long as it is not inside the repository worktree.
 
-## 3. Run the physical probe
+## 3. Run the portable capability probe
 
 Provider-neutral form:
 
@@ -71,27 +74,29 @@ python tools/run_development_host_probe.py \
   --expected-commit <EXACT_PROOF_COMMIT> \
   --output ../ptah-development-host-evidence/development-host-report.json \
   --machine-label <LOCAL_LABEL> \
-  --require-eligible
+  --require-portable-pass
 ```
 
-A private controller may additionally attach non-authoritative transport metadata:
+An external controller may additionally attach non-authoritative transport metadata:
 
 ```text
   --control-transport <TRANSPORT_CLASS> \
   --transport-receipt-id <EXTERNAL_RECEIPT_ID>
 ```
 
-These values are caller-supplied metadata. The Ptah report does not validate the external transport receipt and cannot convert it into runtime authorization.
+These values are caller-supplied metadata. The Ptah report does not validate the external transport receipt, prove the physical machine identity, accept the host or convert the receipt into runtime authorization.
 
-## 4. Required result
+## 4. Required portable result
 
-The command exits `0` only when `--require-eligible` is supplied and the report is eligible.
+The command exits `0` with `--require-portable-pass` only when every portable capability, required observation and repository-binding condition passes.
 
 The report must contain:
 
 ```text
 "record_type": "ptah.phase0c.development_host_probe"
-"development_host_eligible": true
+"portable_capabilities_passed": true
+"physical_host_identity_verified": false
+"development_host_accepted": false
 "runtime_implementation_authorized": false
 "deployment_host_qualified": false
 "release_accepted": false
@@ -103,7 +108,7 @@ The following arrays must be empty:
 capability_failures
 observation_failures
 repository_binding.failures
-eligibility_failures
+probe_failures
 ```
 
 Every capability listed in `required_capabilities` must report `status: pass`.
@@ -115,15 +120,23 @@ The repository binding must show:
 - a clean checkout after collection;
 - no change of HEAD during collection.
 
-## 5. Review the observations without turning them into predicates
+## 5. Review the observations without turning them into OS predicates
 
 The report records operating system, kernel/version, architecture, CPU count, total memory and free local storage.
 
-These are evidence about the tested machine. They are **not** distribution or kernel acceptance locks for this development-host gate.
+These are evidence about the executing machine. They are **not** distribution or kernel acceptance locks for this development-host gate.
 
-The portable acceptance checks are the mechanical capabilities defined by `host/development-host-contract.json`.
+The portable checks are the mechanical capabilities defined by `host/development-host-contract.json`.
 
-## 6. Preserve negative evidence
+## 6. Establish physical-machine identity externally
+
+The public probe deliberately refuses to claim physical-host identity.
+
+For a physical acceptance candidate, the external evidence system must retain a receipt that binds the invocation to the selected physical machine and the exact probe run. The independent reviewer must validate that receipt against the Ptah report.
+
+A hosted CI runner may produce `portable_capabilities_passed: true`. That is expected and useful regression evidence, but it cannot become the physical development-host acceptance proof.
+
+## 7. Preserve negative evidence
 
 If the probe fails:
 
@@ -134,22 +147,22 @@ If the probe fails:
 
 A retry does not erase the failed attempt.
 
-## 7. Independent acceptance boundary
+## 8. Independent acceptance boundary
 
-After a passing physical report exists, an independent reviewer must compare:
+After a passing report exists on the selected physical machine, an independent reviewer must compare:
 
 1. the exact tested Ptah commit;
 2. the clean repository binding;
 3. every required capability result;
 4. required host observations;
-5. the external invocation/control receipt;
+5. the external execution receipt proving the selected physical machine;
 6. retained failed/partial attempts, if any;
-7. the applicable private authorization record.
+7. the applicable external authorization record.
 
-Only the external authorization authority may decide whether the development-host gate is accepted and whether the next implementation phase is authorized.
+Only the external authorization authority may accept the development-host gate and authorize the next implementation phase.
 
 ## CI boundary
 
 Repository CI runs the same portable probe on hosted Windows and Linux runners to prove cross-platform behavior and catch regressions.
 
-Hosted CI is **diagnostic/regression evidence only**. It is not the required physical-host acceptance proof.
+Hosted CI is **diagnostic/regression evidence only**. It may prove the portable checks, but it cannot prove or accept the selected physical development host.

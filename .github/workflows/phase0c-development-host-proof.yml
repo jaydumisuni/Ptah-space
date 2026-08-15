@@ -54,8 +54,6 @@ jobs:
             --repo-root . \
             --expected-commit "$PTAH_EXACT_SHA" \
             --output "${RUNNER_TEMP}/development-host-report.json" \
-            --machine-label "github-actions-${RUNNER_OS}" \
-            --control-transport "hosted-ci-diagnostic" \
             --require-portable-pass
 
       - name: Verify claim boundary and exact repository binding
@@ -76,6 +74,11 @@ jobs:
           assert report["deployment_host_qualified"] is False
           assert report["release_accepted"] is False
           assert report["probe_failures"] == []
+          assert "machine_label" not in report
+          assert "control_plane_observation" not in report
+          assert "external_execution_observation" not in report
+          assert report["claim_boundary"]["public_probe_contains_no_external_machine_identity"] is True
+          assert report["claim_boundary"]["public_probe_contains_no_external_transport_identity"] is True
           binding = report["repository_binding"]
           assert binding["expected_commit"] == expected
           assert binding["before"]["head"] == expected

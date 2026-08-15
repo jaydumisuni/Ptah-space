@@ -47,7 +47,7 @@ jobs:
         run: |
           python -m unittest -v tools/test_run_development_host_probe.py
 
-      - name: Collect hosted-runner diagnostic report
+      - name: Collect hosted-runner portable diagnostic report
         shell: bash
         run: |
           python tools/run_development_host_probe.py \
@@ -56,7 +56,7 @@ jobs:
             --output "${RUNNER_TEMP}/development-host-report.json" \
             --machine-label "github-actions-${RUNNER_OS}" \
             --control-transport "hosted-ci-diagnostic" \
-            --require-eligible
+            --require-portable-pass
 
       - name: Verify claim boundary and exact repository binding
         shell: bash
@@ -69,11 +69,13 @@ jobs:
           report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
           expected = sys.argv[2]
           assert report["record_type"] == "ptah.phase0c.development_host_probe"
-          assert report["development_host_eligible"] is True
+          assert report["portable_capabilities_passed"] is True
+          assert report["physical_host_identity_verified"] is False
+          assert report["development_host_accepted"] is False
           assert report["runtime_implementation_authorized"] is False
           assert report["deployment_host_qualified"] is False
           assert report["release_accepted"] is False
-          assert report["eligibility_failures"] == []
+          assert report["probe_failures"] == []
           binding = report["repository_binding"]
           assert binding["expected_commit"] == expected
           assert binding["before"]["head"] == expected

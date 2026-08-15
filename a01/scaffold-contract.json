@@ -1,0 +1,68 @@
+{
+  "schema_version": "1.0.0",
+  "record_type": "ptah.a01.scaffold_contract",
+  "status": "candidate",
+  "scope": "repository_contracts_and_reproducible_scaffold",
+  "runtime_semantics_implemented": false,
+  "required_rust_toolchain": "1.97.1",
+  "required_node_toolchain": "24.18.0",
+  "required_playwright_version": "1.60.0",
+  "required_workspace_members": [
+    "crates/ptah-contracts",
+    "crates/ptah-identifiers",
+    "crates/ptah-ledger",
+    "crates/ptah-events",
+    "crates/ptah-receipts",
+    "crates/ptah-node-agent",
+    "crates/ptah-activity-runtime",
+    "crates/ptah-workspace",
+    "crates/ptah-object-store",
+    "crates/ptah-transfer",
+    "crates/ptah-provider-api",
+    "crates/ptah-checkpoint",
+    "services/ptah-node",
+    "services/ptah-control",
+    "adapters/container-oci",
+    "adapters/git-cli",
+    "adapters/decomposition-libarchive",
+    "evidence/rust-dependency-lock"
+  ],
+  "frozen_contracts": {
+    "phase_0b_freeze_commit": "dc2db457f1705d0cba80f17ab76e5e93f808aee0",
+    "wp14_freeze_commit": "fef387c4f074af7fcf86f2d99f7f9b7637e91f88",
+    "catalog_count": 14,
+    "schema_count": 346,
+    "state_machine_count": 99,
+    "network_schema_resolution_allowed": false
+  },
+  "required_operative_licence_files": [
+    "LICENSE",
+    "LICENSES/Apache-2.0.txt",
+    "NOTICE",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "REUSE.toml",
+    "legal/apache-2.0-boundary.json"
+  ],
+  "required_proofs": [
+    "workspace_layout",
+    "toolchain_and_dependency_locks",
+    "frozen_contract_lock",
+    "byte_identical_generation_twice",
+    "altered_catalog_digest_rejected",
+    "offline_generation",
+    "frozen_wp13_conformance",
+    "public_private_source_boundary",
+    "immutable_action_pins",
+    "exact_head_repository_binding"
+  ],
+  "claim_boundary": {
+    "a01_proves_scaffold_only": true,
+    "a01_does_not_prove_node_runtime": true,
+    "a01_does_not_prove_activity_runtime": true,
+    "a01_does_not_prove_workspace_runtime": true,
+    "a01_does_not_prove_provider_runtime": true,
+    "a01_does_not_prove_prime_integration": true,
+    "a01_does_not_accept_production_or_release": true
+  }
+}

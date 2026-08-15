@@ -1,16 +1,16 @@
 #![forbid(unsafe_code)]
-//! A02 Node identity, Generation and host-truth runtime primitives.
+//! A02 `Node` identity, Generation and host-truth runtime primitives.
 //!
-//! This crate implements the first Node runtime semantics while deliberately
+//! This crate implements the first `Node` runtime semantics while deliberately
 //! leaving durable ledger persistence to A03 and Activity execution to A04.
-//! Canonical Node identity is independent of hostname, PID, boot ID and other
-//! host observations. Runtime claims are accepted only when tied to explicit
-//! evidence references.
+//! Canonical `Node` identity is independent of hostname, process ID, boot ID and
+//! other host observations. Runtime claims are accepted only when tied to
+//! explicit evidence references.
 
 use ptah_contracts::generated;
 use ptah_identifiers::{
-    ConnectionEpoch, EntityRef, IdentifierError, NodeGeneration, NodeId, EVENT_ENTITY_KIND,
-    NODE_ENTITY_KIND, RECEIPT_ENTITY_KIND,
+    ConnectionEpoch, EVENT_ENTITY_KIND, EntityRef, IdentifierError, NodeGeneration, NodeId,
+    RECEIPT_ENTITY_KIND,
 };
 use serde::{Deserialize, Serialize};
 use std::cmp;
@@ -27,6 +27,7 @@ const NODE_LIFECYCLE: &str = "node.lifecycle";
 const NODE_LIFECYCLE_VERSION: &str = "0.1.0";
 const DIAGNOSTIC_VIEW_KIND: &str = "platform_diagnostic_advisory";
 const STALE_GENERATION_CODE: &str = "PTAH_STALE_NODE_GENERATION";
+const MAX_EXACT_INTEGER_F64: f64 = 9_007_199_254_740_991.0;
 
 /// A02 runtime failures that must remain explicit and evidenceable.
 #[derive(Debug, Error, Clone, PartialEq)]
@@ -37,7 +38,7 @@ pub enum NodeAgentError {
     /// Required evidence references were omitted from a runtime claim.
     #[error("evidence references are required for {0}")]
     MissingEvidence(&'static str),
-    /// A required provider revision was omitted from a capacity claim.
+    /// A required Provider revision was omitted from a capacity claim.
     #[error("provider revision evidence is required")]
     MissingProviderRevision,
     /// A resource quantity violates the frozen non-negative/finite boundary.
@@ -54,7 +55,7 @@ pub enum NodeAgentError {
     Identifier(#[from] IdentifierError),
 }
 
-/// Frozen Node lifecycle states.
+/// Frozen `Node` lifecycle states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeLifecycleState {
@@ -72,36 +73,51 @@ pub enum NodeLifecycleState {
     Retired,
 }
 
-/// Frozen Node reachability projection.
+/// Frozen `Node` reachability projection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeReachability {
+    /// Reachability has not yet been established.
     Unknown,
+    /// Current evidence shows the `Node` is reachable.
     Online,
+    /// Current evidence shows the `Node` is unreachable.
     Offline,
+    /// The latest reachability evidence has expired or become stale.
     Stale,
 }
 
-/// Frozen Node health projection.
+/// Frozen `Node` health projection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeHealth {
+    /// Health has not yet been established.
     Unknown,
+    /// Current evidence satisfies the configured healthy condition.
     Healthy,
+    /// Current evidence shows reduced capability without total failure.
     Degraded,
+    /// Current evidence shows the `Node` is unhealthy.
     Unhealthy,
 }
 
-/// Frozen observation kinds for Node evidence.
+/// Frozen observation kinds for `Node` evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ObservationKind {
+    /// Periodic liveness observation.
     Heartbeat,
+    /// Reachability-state observation.
     Reachability,
+    /// Health-state observation.
     Health,
+    /// Host or agent boot observation.
     Boot,
+    /// Host or agent shutdown observation.
     Shutdown,
+    /// Reconciliation observation comparing expected and observed state.
     Reconciliation,
+    /// Contract-compatible observation not covered by a narrower kind.
     Other,
 }
 
@@ -109,20 +125,29 @@ pub enum ObservationKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SnapshotOutcome {
+    /// All required snapshot observations completed.
     Complete,
+    /// Some required observations completed and limitations are retained.
     Partial,
+    /// Snapshot collection failed.
     Failed,
 }
 
-/// Frozen platform OS families.
+/// Frozen platform operating-system families.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OsFamily {
+    /// Linux-family operating system.
     Linux,
+    /// Windows-family operating system.
     Windows,
+    /// macOS-family operating system.
     Macos,
+    /// Android operating system.
     Android,
+    /// iOS operating system.
     Ios,
+    /// A platform outside the currently enumerated families.
     Other,
 }
 
@@ -130,10 +155,15 @@ pub enum OsFamily {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Architecture {
+    /// 64-bit x86 architecture.
     X86_64,
+    /// 64-bit ARM architecture.
     Aarch64,
+    /// 32-bit ARMv7 architecture.
     Armv7,
+    /// 64-bit RISC-V architecture.
     Riscv64,
+    /// An architecture outside the currently enumerated set.
     Other,
 }
 
@@ -141,12 +171,19 @@ pub enum Architecture {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceUnit {
+    /// Discrete count.
     Count,
+    /// Byte quantity.
     Bytes,
+    /// Thousandths of one CPU core.
     Millicpu,
+    /// CPU-core quantity.
     Cores,
+    /// Percentage quantity.
     Percent,
+    /// Power in watts.
     Watts,
+    /// Contract-defined custom unit.
     Custom,
 }
 
@@ -154,53 +191,79 @@ pub enum ResourceUnit {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourcePressure {
+    /// Pressure has not yet been established.
     Unknown,
+    /// Resource pressure is within the configured normal range.
     Normal,
+    /// Resource pressure is elevated but not critical.
     Elevated,
+    /// Resource pressure is at a configured critical threshold.
     Critical,
+    /// The resource is unavailable.
     Unavailable,
 }
 
-/// Host endpoint facts that are evidence/aliases, never canonical Node identity.
+/// Host endpoint facts that are evidence/aliases, never canonical `Node` identity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostIdentityEvidence {
+    /// Observed hostname, when available.
     pub hostname: Option<String>,
+    /// Observed process identifier for the producing agent instance.
     pub process_id: u32,
+    /// Observed boot identifier, when the platform exposes one.
     pub boot_id: Option<String>,
 }
 
 /// Platform facts carried by a capability snapshot.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlatformFacts {
+    /// Operating-system family.
     pub os_family: OsFamily,
+    /// Human-readable operating-system name, when observed.
     pub os_name: Option<String>,
+    /// Operating-system version, when observed.
     pub os_version: Option<String>,
+    /// Kernel name, when observed.
     pub kernel_name: Option<String>,
+    /// Kernel version, when observed.
     pub kernel_version: Option<String>,
+    /// Canonical architecture class.
     pub architecture: Architecture,
+    /// Additional architecture detail that does not fit the canonical class.
     pub architecture_detail: Option<String>,
 }
 
-/// Explicit state a caller/persistence owner may retain across agent restarts.
+/// Explicit state a caller or persistence owner may retain across agent restarts.
 ///
 /// A02 defines this state but does not persist it. Durable storage belongs to A03.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeRestartSeed {
+    /// Stable canonical `Node` identity.
     pub node_id: NodeId,
+    /// Last accepted `Node` generation.
     pub generation: NodeGeneration,
+    /// Last accepted control-connection epoch.
     pub connection_epoch: ConnectionEpoch,
+    /// Last accepted canonical-record revision.
     pub record_revision: u64,
 }
 
-/// Correlation references proving that a runtime outcome can be linked to an Event and Receipt.
+/// Correlation references linking a runtime outcome to an `Event` and `Receipt`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CorrelationRefs {
+    /// Reference reserved for the correlated `Event`.
     pub event_ref: EntityRef,
+    /// Reference reserved for the correlated `Receipt`.
     pub receipt_ref: EntityRef,
 }
 
 impl CorrelationRefs {
-    /// Allocate canonical Event and Receipt references without implementing A04 lifecycle/storage.
+    /// Allocate canonical `Event` and `Receipt` references without implementing A04 storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeAgentError::Identifier`] if either typed reference cannot be
+    /// constructed under the frozen entity-kind contract.
     pub fn new() -> Result<Self, NodeAgentError> {
         Ok(Self {
             event_ref: EntityRef::new(EVENT_ENTITY_KIND)?,
@@ -209,42 +272,72 @@ impl CorrelationRefs {
     }
 }
 
-/// Evidence-bound Node observation projection.
+/// Evidence-bound `Node` observation projection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeObservation {
+    /// Canonical observation reference.
     pub observation_ref: EntityRef,
+    /// Exact `Node` reference, including generation and connection epoch.
     pub node_ref: EntityRef,
+    /// `Node` generation observed by this record.
     pub node_generation: NodeGeneration,
+    /// Connection epoch observed by this record.
     pub connection_epoch: ConnectionEpoch,
+    /// Frozen observation kind.
     pub observation_kind: ObservationKind,
+    /// Producer that supplied this observation.
     pub producer_ref: EntityRef,
+    /// Monotonic sequence within this agent generation.
     pub sequence: u64,
+    /// Optional reachability projection supplied by this observation.
     pub reachability: Option<NodeReachability>,
+    /// Optional health projection supplied by this observation.
     pub health: Option<NodeHealth>,
+    /// Receipts supporting the observation.
     pub receipt_refs: Vec<EntityRef>,
+    /// Optional host endpoint facts that remain evidence rather than identity.
     pub host_identity_evidence: Option<HostIdentityEvidence>,
 }
 
-/// A capability snapshot tied to exact Node generation/epoch and evidence.
+/// A capability snapshot tied to exact `Node` generation/epoch and evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeCapabilitySnapshot {
+    /// Canonical snapshot reference.
     pub snapshot_ref: EntityRef,
+    /// Exact `Node` reference.
     pub node_ref: EntityRef,
+    /// `Node` generation represented by the snapshot.
     pub node_generation: NodeGeneration,
+    /// Connection epoch represented by the snapshot.
     pub connection_epoch: ConnectionEpoch,
+    /// Snapshot collection outcome.
     pub snapshot_outcome: SnapshotOutcome,
+    /// Exact agent revision that produced the snapshot.
     pub agent_revision: String,
+    /// Observed platform facts.
     pub platform: PlatformFacts,
+    /// Capability claims represented by the snapshot.
     pub capability_claim_refs: Vec<EntityRef>,
+    /// Verification evidence for capability claims.
     pub capability_verification_refs: Vec<EntityRef>,
+    /// Exact Provider revisions supporting the snapshot.
     pub provider_revision_refs: Vec<EntityRef>,
+    /// Observations supporting the snapshot.
     pub observation_refs: Vec<EntityRef>,
+    /// Receipts supporting the snapshot.
     pub receipt_refs: Vec<EntityRef>,
+    /// Retained limitations or uncertainty.
     pub limitations: Vec<String>,
 }
 
 impl NodeCapabilitySnapshot {
     /// Construct a capability claim only when observation, verification and receipt evidence exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeAgentError::MissingEvidence`] if required observation or
+    /// receipt evidence is absent, or when claims exist without verification.
+    /// Identifier construction errors are returned as [`NodeAgentError::Identifier`].
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         node_ref: EntityRef,
@@ -286,19 +379,34 @@ impl NodeCapabilitySnapshot {
 /// One frozen resource quantity projection.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResourceQuantity {
+    /// Stable resource key.
     pub resource_key: String,
+    /// Unit used by the quantity.
     pub unit: ResourceUnit,
+    /// Total quantity observed on the host.
     pub observed_total: f64,
+    /// Quantity administratively eligible for allocation.
     pub administratively_allocatable: f64,
+    /// Quantity already reserved.
     pub reserved: f64,
+    /// Quantity currently consumed.
     pub consumed: f64,
+    /// Quantity currently available for new allocation.
     pub currently_available: f64,
+    /// Current pressure projection.
     pub pressure: ResourcePressure,
+    /// Observations supporting this resource quantity.
     pub observation_refs: Vec<EntityRef>,
 }
 
 impl ResourceQuantity {
     /// Validate the frozen non-negative finite resource boundary.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeAgentError::InvalidResource`] for non-finite or negative
+    /// quantities and [`NodeAgentError::MissingEvidence`] when no supporting
+    /// observation is present.
     pub fn validate(&self) -> Result<(), NodeAgentError> {
         for value in [
             self.observed_total,
@@ -308,7 +416,9 @@ impl ResourceQuantity {
             self.currently_available,
         ] {
             if !value.is_finite() || value.is_sign_negative() {
-                return Err(NodeAgentError::InvalidResource("quantity must be finite and non-negative"));
+                return Err(NodeAgentError::InvalidResource(
+                    "quantity must be finite and non-negative",
+                ));
             }
         }
         require_non_empty(&self.observation_refs, "resource observation")?;
@@ -316,22 +426,38 @@ impl ResourceQuantity {
     }
 }
 
-/// Evidence-bound Node resource snapshot projection.
+/// Evidence-bound `Node` resource snapshot projection.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NodeResourceSnapshot {
+    /// Canonical snapshot reference.
     pub snapshot_ref: EntityRef,
+    /// Exact `Node` reference.
     pub node_ref: EntityRef,
+    /// `Node` generation represented by the snapshot.
     pub node_generation: NodeGeneration,
+    /// Connection epoch represented by the snapshot.
     pub connection_epoch: ConnectionEpoch,
+    /// Snapshot collection outcome.
     pub snapshot_outcome: SnapshotOutcome,
+    /// Resource quantities represented by the snapshot.
     pub resources: Vec<ResourceQuantity>,
+    /// Observations supporting the snapshot.
     pub observation_refs: Vec<EntityRef>,
+    /// Receipts supporting the snapshot.
     pub receipt_refs: Vec<EntityRef>,
+    /// Retained limitations or uncertainty.
     pub limitations: Vec<String>,
 }
 
 impl NodeResourceSnapshot {
     /// Construct a resource snapshot only from explicit observation and receipt evidence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeAgentError::InvalidResource`] when no valid resource exists,
+    /// [`NodeAgentError::MissingEvidence`] when required observations or receipts
+    /// are absent, and [`NodeAgentError::Identifier`] for reference failures.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         node_ref: EntityRef,
         node_generation: NodeGeneration,
@@ -343,7 +469,9 @@ impl NodeResourceSnapshot {
         limitations: Vec<String>,
     ) -> Result<Self, NodeAgentError> {
         if resources.is_empty() {
-            return Err(NodeAgentError::InvalidResource("at least one resource is required"));
+            return Err(NodeAgentError::InvalidResource(
+                "at least one resource is required",
+            ));
         }
         for resource in &resources {
             resource.validate()?;
@@ -364,21 +492,37 @@ impl NodeResourceSnapshot {
     }
 }
 
-/// Mechanical worker-capacity baseline over exact Node/Provider/resource evidence.
+/// Mechanical worker-capacity baseline over exact `Node`/Provider/resource evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkerCapacityBaseline {
+    /// Exact `Node` reference used by this baseline.
     pub node_ref: EntityRef,
+    /// Resource snapshot supporting the capacity calculation.
     pub resource_snapshot_ref: EntityRef,
+    /// Exact Provider revisions supplying worker execution.
     pub provider_revision_refs: Vec<EntityRef>,
+    /// Additional evidence supporting the baseline.
     pub evidence_refs: Vec<EntityRef>,
+    /// Caller-selected human-equivalent worker count.
     pub human_equivalent_workers: u64,
+    /// Configured ten-for-two slot baseline.
     pub configured_slots: u64,
+    /// Host-observed currently available worker slots.
     pub observed_available_slots: u64,
+    /// Mechanically usable slots after applying both limits.
     pub usable_slots: u64,
 }
 
 impl WorkerCapacityBaseline {
     /// Build the accepted ten-for-two baseline without inventing semantic work.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeAgentError::MissingProviderRevision`] when Provider evidence
+    /// is absent, [`NodeAgentError::MissingEvidence`] when capacity evidence is
+    /// absent, [`NodeAgentError::InvalidResource`] when an exact worker-slot count
+    /// cannot be established, or [`NodeAgentError::WorkerCapacityOverflow`] when
+    /// the configured ten-for-two multiplication would overflow.
     pub fn from_snapshot(
         snapshot: &NodeResourceSnapshot,
         provider_revision_refs: Vec<EntityRef>,
@@ -392,13 +536,17 @@ impl WorkerCapacityBaseline {
         let resource = snapshot
             .resources
             .iter()
-            .find(|item| item.resource_key == "ptah.worker_slots" && item.unit == ResourceUnit::Count)
-            .ok_or(NodeAgentError::InvalidResource("ptah.worker_slots count resource missing"))?;
+            .find(|item| {
+                item.resource_key == "ptah.worker_slots" && item.unit == ResourceUnit::Count
+            })
+            .ok_or(NodeAgentError::InvalidResource(
+                "ptah.worker_slots count resource missing",
+            ))?;
         let configured_slots = human_equivalent_workers
             .checked_mul(10)
             .map(|value| cmp::max(20, value))
             .ok_or(NodeAgentError::WorkerCapacityOverflow)?;
-        let observed_available_slots = finite_floor_to_u64(resource.currently_available)?;
+        let observed_available_slots = exact_count_to_u64(resource.currently_available)?;
         Ok(Self {
             node_ref: snapshot.node_ref.clone(),
             resource_snapshot_ref: snapshot.snapshot_ref.clone(),
@@ -415,18 +563,31 @@ impl WorkerCapacityBaseline {
 /// Bounded diagnostic advisory represented as an Object View over exact evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiagnosticAdvisory {
+    /// Canonical Object View reference.
     pub view_ref: EntityRef,
+    /// Stable view-kind discriminator.
     pub view_kind: String,
+    /// Exact affected `Node` reference.
     pub affected_node_ref: EntityRef,
+    /// Evidence supporting the advisory.
     pub evidence_refs: Vec<EntityRef>,
+    /// Exact condition observed by Ptah.
     pub observed_condition: String,
+    /// Caller-, contract-, or policy-defined expected condition.
     pub expected_condition: String,
+    /// Mechanical effect on the caller-submitted work.
     pub effect: String,
+    /// Known uncertainty or evidence limitation.
     pub uncertainty: String,
+    /// Optional class of missing or improved capability.
     pub suggested_upgrade_class: Option<String>,
+    /// Decision explicitly left to the caller or authorized application.
     pub required_caller_decision: String,
+    /// Effect on the requested work.
     pub work_state: AdvisoryWorkState,
+    /// Always false in A02: an advisory cannot authorize an upgrade.
     pub automatic_upgrade_authorized: bool,
+    /// Always false in A02: Ptah cannot approve its own advisory.
     pub self_approved: bool,
 }
 
@@ -434,13 +595,23 @@ pub struct DiagnosticAdvisory {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AdvisoryWorkState {
+    /// The requested work is mechanically blocked by the missing condition.
     Blocked,
+    /// The requested work may continue with reduced capability or proof.
     Degraded,
+    /// The advisory does not affect the requested work.
     Unaffected,
 }
 
 impl DiagnosticAdvisory {
     /// Produce a bounded advisory. This function cannot authorize or execute an upgrade.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeAgentError::MissingEvidence`] when supporting evidence is
+    /// absent, [`NodeAgentError::InvalidAdvisory`] when required text is empty,
+    /// or [`NodeAgentError::Identifier`] when the Object View reference cannot
+    /// be constructed.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         affected_node_ref: EntityRef,
@@ -481,15 +652,21 @@ impl DiagnosticAdvisory {
 /// Result of checking a caller's generation constraint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenerationCheck {
+    /// Generation supplied by the caller.
     pub requested_generation: NodeGeneration,
+    /// Current authoritative in-memory generation.
     pub current_generation: NodeGeneration,
+    /// Whether the generation constraint matched.
     pub accepted: bool,
+    /// Stable outcome code when the generation is stale.
     pub stable_outcome_code: Option<String>,
+    /// Whether the caller should refresh generation state before retrying.
     pub retry_after_generation_refresh: bool,
+    /// `Event`/Receipt correlation reserved for the outcome.
     pub correlation: CorrelationRefs,
 }
 
-/// Current in-memory A02 Node agent state.
+/// Current in-memory A02 `Node` agent state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeAgent {
     node_id: NodeId,
@@ -503,7 +680,12 @@ pub struct NodeAgent {
 }
 
 impl NodeAgent {
-    /// Start the first generation of a new Node identity.
+    /// Start the first generation of a new `Node` identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeAgentError::MissingFrozenContract`] if an A02 contract
+    /// binding is absent.
     pub fn bootstrap() -> Result<Self, NodeAgentError> {
         ensure_frozen_contracts()?;
         Ok(Self {
@@ -518,15 +700,26 @@ impl NodeAgent {
         })
     }
 
-    /// Restart one already-known Node. The caller supplies the last retained seed;
-    /// A03 will later own durable persistence of that seed.
+    /// Restart one already-known `Node` from caller-retained state.
+    ///
+    /// A03 will later own durable persistence of the seed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeAgentError::MissingFrozenContract`] when required bindings
+    /// are absent, or [`NodeAgentError::Identifier`] if generation, epoch, or
+    /// revision advancement would overflow.
     pub fn restart(seed: NodeRestartSeed) -> Result<Self, NodeAgentError> {
         ensure_frozen_contracts()?;
+        let record_revision = seed
+            .record_revision
+            .checked_add(1)
+            .ok_or(IdentifierError::CounterOverflow)?;
         Ok(Self {
             node_id: seed.node_id,
             generation: seed.generation.next()?,
             connection_epoch: seed.connection_epoch.next()?,
-            record_revision: seed.record_revision.saturating_add(1),
+            record_revision,
             lifecycle: NodeLifecycleState::Active,
             sequence: 0,
             current_reachability: NodeReachability::Unknown,
@@ -534,13 +727,13 @@ impl NodeAgent {
         })
     }
 
-    /// Stable canonical Node identity.
+    /// Stable canonical `Node` identity.
     #[must_use]
     pub const fn node_id(&self) -> NodeId {
         self.node_id
     }
 
-    /// Current Node generation.
+    /// Current `Node` generation.
     #[must_use]
     pub const fn generation(&self) -> NodeGeneration {
         self.generation
@@ -552,7 +745,7 @@ impl NodeAgent {
         self.connection_epoch
     }
 
-    /// Current Node lifecycle state.
+    /// Current `Node` lifecycle state.
     #[must_use]
     pub const fn lifecycle(&self) -> NodeLifecycleState {
         self.lifecycle
@@ -569,20 +762,36 @@ impl NodeAgent {
         }
     }
 
-    /// Advance only the connection epoch while preserving Node identity/generation.
+    /// Advance only the connection epoch while preserving `Node` identity/generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeAgentError::Identifier`] if the epoch or record revision
+    /// cannot be advanced without overflow.
     pub fn reconnect(&mut self) -> Result<ConnectionEpoch, NodeAgentError> {
-        self.connection_epoch = self.connection_epoch.next()?;
-        self.record_revision = self.record_revision.saturating_add(1);
+        let next_epoch = self.connection_epoch.next()?;
+        let next_revision = self
+            .record_revision
+            .checked_add(1)
+            .ok_or(IdentifierError::CounterOverflow)?;
+        self.connection_epoch = next_epoch;
+        self.record_revision = next_revision;
         Ok(self.connection_epoch)
     }
 
-    /// Create an exact Node reference for the current generation/epoch.
+    /// Create an exact `Node` reference for the current generation/epoch.
     #[must_use]
     pub fn node_ref(&self) -> EntityRef {
-        self.node_id.entity_ref(self.generation, self.connection_epoch)
+        self.node_id
+            .entity_ref(self.generation, self.connection_epoch)
     }
 
-    /// Reject stale generation use with an Event/Receipt correlation instead of silently weakening it.
+    /// Reject stale generation use with `Event`/Receipt correlation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeAgentError::Identifier`] if correlation references cannot
+    /// be allocated under the frozen entity-kind contract.
     pub fn check_generation(
         &self,
         requested_generation: NodeGeneration,
@@ -598,7 +807,13 @@ impl NodeAgent {
         })
     }
 
-    /// Record an evidence-bound Node observation and project current health/reachability.
+    /// Record an evidence-bound `Node` observation and project health/reachability.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeAgentError::MissingEvidence`] when receipt evidence is
+    /// absent, [`NodeAgentError::Identifier`] when sequence advancement would
+    /// overflow, or when the observation reference cannot be constructed.
     #[allow(clippy::too_many_arguments)]
     pub fn observe(
         &mut self,
@@ -610,7 +825,11 @@ impl NodeAgent {
         host_identity_evidence: Option<HostIdentityEvidence>,
     ) -> Result<NodeObservation, NodeAgentError> {
         require_non_empty(&receipt_refs, "node observation")?;
-        self.sequence = self.sequence.saturating_add(1);
+        let next_sequence = self
+            .sequence
+            .checked_add(1)
+            .ok_or(IdentifierError::CounterOverflow)?;
+        self.sequence = next_sequence;
         if let Some(value) = reachability {
             self.current_reachability = value;
         }
@@ -632,7 +851,12 @@ impl NodeAgent {
         })
     }
 
-    /// Return a compact evidence-backed current Node state projection.
+    /// Return a compact evidence-backed current `Node` state projection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeAgentError::MissingEvidence`] when no observation evidence
+    /// is supplied.
     pub fn current_projection(
         &self,
         capability_snapshot_refs: Vec<EntityRef>,
@@ -654,17 +878,28 @@ impl NodeAgent {
     }
 }
 
-/// Compact contract-shaped Node state projection. Durable canonical record storage is deferred to A03.
+/// Compact contract-shaped `Node` state projection.
+///
+/// Durable canonical record storage is deferred to A03.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeStateProjection {
+    /// Exact current `Node` reference.
     pub node_ref: EntityRef,
+    /// Current lifecycle projection.
     pub lifecycle: NodeLifecycleState,
+    /// Current `Node` generation.
     pub node_generation: NodeGeneration,
+    /// Current connection epoch.
     pub connection_epoch: ConnectionEpoch,
+    /// Current reachability projection.
     pub current_reachability: NodeReachability,
+    /// Current health projection.
     pub current_health: NodeHealth,
+    /// Current capability-snapshot references supplied by the caller.
     pub capability_snapshot_refs: Vec<EntityRef>,
+    /// Current resource-snapshot references supplied by the caller.
     pub resource_snapshot_refs: Vec<EntityRef>,
+    /// Observations supporting the projection.
     pub observation_refs: Vec<EntityRef>,
 }
 
@@ -702,11 +937,20 @@ fn non_empty(value: String, field: &'static str) -> Result<String, NodeAgentErro
     Ok(value)
 }
 
-fn finite_floor_to_u64(value: f64) -> Result<u64, NodeAgentError> {
-    if !value.is_finite() || value.is_sign_negative() || value > u64::MAX as f64 {
-        return Err(NodeAgentError::InvalidResource("worker slot count is invalid"));
+fn exact_count_to_u64(value: f64) -> Result<u64, NodeAgentError> {
+    if !value.is_finite() || value.is_sign_negative() || value > MAX_EXACT_INTEGER_F64 {
+        return Err(NodeAgentError::InvalidResource(
+            "worker slot count is outside the exact integer range",
+        ));
     }
-    Ok(value.floor() as u64)
+    if value.fract().abs() > f64::EPSILON {
+        return Err(NodeAgentError::InvalidResource(
+            "worker slot count must be an integer",
+        ));
+    }
+    format!("{value:.0}")
+        .parse::<u64>()
+        .map_err(|_| NodeAgentError::InvalidResource("worker slot count cannot be represented"))
 }
 
 #[cfg(test)]
@@ -725,9 +969,35 @@ mod tests {
         evidence_ref("core.node_observation")
     }
 
+    fn worker_snapshot(available: f64) -> NodeResourceSnapshot {
+        let agent = NodeAgent::bootstrap().expect("bootstrap");
+        let observation = observation_ref();
+        NodeResourceSnapshot::new(
+            agent.node_ref(),
+            agent.generation(),
+            agent.connection_epoch(),
+            SnapshotOutcome::Complete,
+            vec![ResourceQuantity {
+                resource_key: "ptah.worker_slots".to_owned(),
+                unit: ResourceUnit::Count,
+                observed_total: available,
+                administratively_allocatable: available,
+                reserved: 0.0,
+                consumed: 0.0,
+                currently_available: available,
+                pressure: ResourcePressure::Normal,
+                observation_refs: vec![observation.clone()],
+            }],
+            vec![observation],
+            vec![receipt_ref()],
+            Vec::new(),
+        )
+        .expect("resource snapshot")
+    }
+
     #[test]
     fn frozen_contract_bindings_exist() {
-        ensure_frozen_contracts().expect("A02 frozen contracts must be bound")
+        ensure_frozen_contracts().expect("A02 frozen contracts must be bound");
     }
 
     #[test]
@@ -740,6 +1010,17 @@ mod tests {
         assert_eq!(
             restarted.connection_epoch().value(),
             first.connection_epoch().value() + 1
+        );
+    }
+
+    #[test]
+    fn restart_fails_closed_on_revision_overflow() {
+        let first = NodeAgent::bootstrap().expect("bootstrap");
+        let mut seed = first.restart_seed();
+        seed.record_revision = u64::MAX;
+        assert_eq!(
+            NodeAgent::restart(seed),
+            Err(NodeAgentError::Identifier(IdentifierError::CounterOverflow))
         );
     }
 
@@ -763,10 +1044,16 @@ mod tests {
             .check_generation(NodeGeneration::INITIAL)
             .expect("generation check");
         assert!(!check.accepted);
-        assert_eq!(check.stable_outcome_code.as_deref(), Some(STALE_GENERATION_CODE));
+        assert_eq!(
+            check.stable_outcome_code.as_deref(),
+            Some(STALE_GENERATION_CODE)
+        );
         assert!(check.retry_after_generation_refresh);
         assert_eq!(check.correlation.event_ref.entity_kind, EVENT_ENTITY_KIND);
-        assert_eq!(check.correlation.receipt_ref.entity_kind, RECEIPT_ENTITY_KIND);
+        assert_eq!(
+            check.correlation.receipt_ref.entity_kind,
+            RECEIPT_ENTITY_KIND
+        );
     }
 
     #[test]
@@ -778,7 +1065,10 @@ mod tests {
         assert!(check.accepted);
         assert!(check.stable_outcome_code.is_none());
         assert_eq!(check.correlation.event_ref.entity_kind, EVENT_ENTITY_KIND);
-        assert_eq!(check.correlation.receipt_ref.entity_kind, RECEIPT_ENTITY_KIND);
+        assert_eq!(
+            check.correlation.receipt_ref.entity_kind,
+            RECEIPT_ENTITY_KIND
+        );
     }
 
     #[test]
@@ -817,7 +1107,10 @@ mod tests {
             Vec::new(),
             None,
         );
-        assert_eq!(result, Err(NodeAgentError::MissingEvidence("node observation")));
+        assert_eq!(
+            result,
+            Err(NodeAgentError::MissingEvidence("node observation"))
+        );
     }
 
     #[test]
@@ -846,75 +1139,55 @@ mod tests {
             vec![receipt_ref()],
             Vec::new(),
         );
-        assert_eq!(result, Err(NodeAgentError::MissingEvidence("capability verification")));
+        assert_eq!(
+            result,
+            Err(NodeAgentError::MissingEvidence("capability verification"))
+        );
     }
 
     #[test]
     fn worker_capacity_is_bound_to_node_provider_resource_and_evidence() {
-        let agent = NodeAgent::bootstrap().expect("bootstrap");
-        let observation = observation_ref();
-        let snapshot = NodeResourceSnapshot::new(
-            agent.node_ref(),
-            agent.generation(),
-            agent.connection_epoch(),
-            SnapshotOutcome::Complete,
-            vec![ResourceQuantity {
-                resource_key: "ptah.worker_slots".to_owned(),
-                unit: ResourceUnit::Count,
-                observed_total: 64.0,
-                administratively_allocatable: 48.0,
-                reserved: 8.0,
-                consumed: 12.0,
-                currently_available: 28.0,
-                pressure: ResourcePressure::Normal,
-                observation_refs: vec![observation.clone()],
-            }],
-            vec![observation.clone()],
-            vec![receipt_ref()],
-            Vec::new(),
-        )
-        .expect("resource snapshot");
+        let snapshot = worker_snapshot(28.0);
         let capacity = WorkerCapacityBaseline::from_snapshot(
             &snapshot,
             vec![evidence_ref("core.provider_revision")],
-            vec![observation],
+            vec![observation_ref()],
             2,
         )
         .expect("capacity");
         assert_eq!(capacity.configured_slots, 20);
         assert_eq!(capacity.observed_available_slots, 28);
         assert_eq!(capacity.usable_slots, 20);
-        assert_eq!(capacity.node_ref.entity_id, agent.node_id().entity_id());
+        assert_eq!(capacity.node_ref.entity_id, snapshot.node_ref.entity_id);
     }
 
     #[test]
     fn capacity_cannot_exist_without_provider_revision_evidence() {
-        let agent = NodeAgent::bootstrap().expect("bootstrap");
-        let observation = observation_ref();
-        let snapshot = NodeResourceSnapshot::new(
-            agent.node_ref(),
-            agent.generation(),
-            agent.connection_epoch(),
-            SnapshotOutcome::Complete,
-            vec![ResourceQuantity {
-                resource_key: "ptah.worker_slots".to_owned(),
-                unit: ResourceUnit::Count,
-                observed_total: 20.0,
-                administratively_allocatable: 20.0,
-                reserved: 0.0,
-                consumed: 0.0,
-                currently_available: 20.0,
-                pressure: ResourcePressure::Normal,
-                observation_refs: vec![observation.clone()],
-            }],
-            vec![observation.clone()],
-            vec![receipt_ref()],
-            Vec::new(),
-        )
-        .expect("resource snapshot");
+        let snapshot = worker_snapshot(20.0);
         assert_eq!(
-            WorkerCapacityBaseline::from_snapshot(&snapshot, Vec::new(), vec![observation], 2),
+            WorkerCapacityBaseline::from_snapshot(
+                &snapshot,
+                Vec::new(),
+                vec![observation_ref()],
+                2
+            ),
             Err(NodeAgentError::MissingProviderRevision)
+        );
+    }
+
+    #[test]
+    fn fractional_worker_slot_count_is_rejected_instead_of_rounded() {
+        let snapshot = worker_snapshot(20.5);
+        assert_eq!(
+            WorkerCapacityBaseline::from_snapshot(
+                &snapshot,
+                vec![evidence_ref("core.provider_revision")],
+                vec![observation_ref()],
+                2
+            ),
+            Err(NodeAgentError::InvalidResource(
+                "worker slot count must be an integer"
+            ))
         );
     }
 
@@ -953,7 +1226,10 @@ mod tests {
             "caller decides",
             AdvisoryWorkState::Degraded,
         );
-        assert_eq!(result, Err(NodeAgentError::MissingEvidence("diagnostic advisory")));
+        assert_eq!(
+            result,
+            Err(NodeAgentError::MissingEvidence("diagnostic advisory"))
+        );
     }
 
     #[test]

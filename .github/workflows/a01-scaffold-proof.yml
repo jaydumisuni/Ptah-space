@@ -1,0 +1,370 @@
+name: A01 reproducible scaffold proof
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  static-and-adversarial:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact A01 head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+
+      - name: Verify exact clean head
+        run: |
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Run A01 adversarial regressions
+        run: |
+          mkdir -p evidence/a01/static
+          set -o pipefail
+          PYTHONPATH=tools python -m unittest -v tools/test_check_a01_scaffold.py 2>&1 \
+            | tee evidence/a01/static/regressions.txt
+
+      - name: Validate A01 scaffold
+        run: |
+          set -o pipefail
+          python tools/check_a01_scaffold.py 2>&1 \
+            | tee evidence/a01/static/validation.json
+
+      - name: Recheck retained Phase 0C and licence boundaries
+        run: |
+          set -o pipefail
+          python tools/check_phase0c_scaffold.py 2>&1 \
+            | tee evidence/a01/static/phase0c-history-check.txt
+          python tools/check_rust_dependency_lock.py 2>&1 \
+            | tee evidence/a01/static/rust-dependency-lock.txt
+          python tools/check_apache2_boundary_acceptance.py 2>&1 \
+            | tee evidence/a01/static/licence-boundary.txt
+
+      - name: Confirm exact head remains clean
+        run: |
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Upload A01 static evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a01-static-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: evidence/a01/static/
+          if-no-files-found: error
+          retention-days: 30
+
+  generated-bindings:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact A01 head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+
+      - name: Install pinned Rust formatter
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+          rustup default 1.97.1
+
+      - name: Check out frozen Phase 0B authority
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: jaydumisuni/ptah-roadmap-
+          ref: dc2db457f1705d0cba80f17ab76e5e93f808aee0
+          path: .ptah-roadmap
+          persist-credentials: false
+
+      - name: Prepare evidence and offline Python guard
+        run: |
+          mkdir -p evidence/a01/generated/offline-guard
+          cat > evidence/a01/generated/offline-guard/sitecustomize.py <<'PY'
+          import socket
+          def blocked(*args, **kwargs):
+              raise RuntimeError("A01 offline generation attempted network access")
+          socket.create_connection = blocked
+          _original_socket = socket.socket
+          class OfflineSocket(_original_socket):
+              def connect(self, *args, **kwargs):
+                  raise RuntimeError("A01 offline generation attempted network access")
+              def connect_ex(self, *args, **kwargs):
+                  raise RuntimeError("A01 offline generation attempted network access")
+          socket.socket = OfflineSocket
+          PY
+
+      - name: Generate candidate A offline and compare committed outputs
+        run: |
+          set -o pipefail
+          PYTHONPATH="$PWD/evidence/a01/generated/offline-guard" \
+            python tools/contract_binding_generator_final.py \
+              --roadmap-root .ptah-roadmap \
+              --output-root evidence/a01/generated/candidate-a \
+              --check-root . \
+              2>&1 | tee evidence/a01/generated/generator-a.txt
+
+      - name: Generate independent candidate B offline
+        run: |
+          set -o pipefail
+          PYTHONPATH="$PWD/evidence/a01/generated/offline-guard" \
+            python tools/contract_binding_generator_final.py \
+              --roadmap-root .ptah-roadmap \
+              --output-root evidence/a01/generated/candidate-b \
+              2>&1 | tee evidence/a01/generated/generator-b.txt
+
+      - name: Prove byte-identical independent generation
+        run: |
+          set -o pipefail
+          diff -ru evidence/a01/generated/candidate-a evidence/a01/generated/candidate-b \
+            | tee evidence/a01/generated/reproducibility-diff.txt
+
+      - name: Prove altered catalog digest fails closed
+        run: |
+          set -euo pipefail
+          cp -a .ptah-roadmap "$RUNNER_TEMP/ptah-roadmap-tampered"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          lock = json.loads(Path('contracts/upstream-lock.json').read_text())
+          target = Path(os.environ['RUNNER_TEMP']) / 'ptah-roadmap-tampered' / lock['catalogs'][0]['repository_path']
+          target.write_bytes(target.read_bytes() + b'\n')
+          print(target)
+          PY
+          if python tools/lock_frozen_contracts.py \
+              --roadmap-root "$RUNNER_TEMP/ptah-roadmap-tampered" \
+              --output "$RUNNER_TEMP/tampered-lock.json" \
+              --check contracts/upstream-lock.json \
+              > evidence/a01/generated/tampered-catalog.txt 2>&1; then
+            echo "tampered catalog was incorrectly accepted" >&2
+            exit 1
+          fi
+          grep -Ei "mismatch|digest|sha|size|lock" evidence/a01/generated/tampered-catalog.txt >/dev/null
+
+      - name: Write generated-binding proof report
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          root = Path('evidence/a01/generated')
+          manifest = json.loads((root/'candidate-a/contracts/generated/manifest.json').read_text())
+          committed = Path('contracts/generated/manifest.json')
+          report = {
+              'record_type': 'ptah.a01.generated_binding_proof',
+              'implementation_commit': os.environ['PTAH_EXACT_SHA'],
+              'checked_out_commit': subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip(),
+              'offline_python_network_guard': True,
+              'independent_generation_byte_identical': True,
+              'altered_catalog_digest_rejected': True,
+              'catalog_count': manifest['catalog_count'],
+              'schema_count': manifest['schema_count'],
+              'state_machine_count': manifest['state_machine_count'],
+              'output_tree_sha256': manifest['output_tree_sha256'],
+              'committed_manifest_sha256': hashlib.sha256(committed.read_bytes()).hexdigest(),
+              'runtime_semantics_implemented': False,
+              'production_or_release_accepted': False,
+          }
+          assert report['implementation_commit'] == report['checked_out_commit']
+          assert (report['catalog_count'], report['schema_count'], report['state_machine_count']) == (14,346,99)
+          (root/'proof-report.json').write_text(json.dumps(report, indent=2, sort_keys=True)+'\n')
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+
+      - name: Confirm repository remains unchanged
+        run: |
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Upload A01 generated-binding evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a01-generated-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: evidence/a01/generated/
+          if-no-files-found: error
+          retention-days: 30
+
+  frozen-conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact A01 head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.11"
+
+      - name: Check out frozen Phase 0B authority
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: jaydumisuni/ptah-roadmap-
+          ref: dc2db457f1705d0cba80f17ab76e5e93f808aee0
+          path: .ptah-roadmap
+          persist-credentials: false
+
+      - name: Install frozen WP13 harness from local source
+        run: python -m pip install --no-index ./.ptah-roadmap/conformance/harness
+
+      - name: Run frozen harness regressions and conformance
+        run: |
+          mkdir -p evidence/a01/conformance
+          set -o pipefail
+          (cd .ptah-roadmap/conformance/harness && python -m unittest -v test_ptah_conformance.py) 2>&1 \
+            | tee evidence/a01/conformance/harness-tests.txt
+          ptah-conformance --root ./.ptah-roadmap \
+            --report ./evidence/a01/conformance/structural.json
+          python ./.ptah-roadmap/conformance/harness/semantic_fixture_runner.py \
+            --root ./.ptah-roadmap \
+            --report ./evidence/a01/conformance/semantic.json
+
+      - name: Bind frozen conformance to exact head
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          report = {
+              'record_type': 'ptah.a01.frozen_conformance_proof',
+              'implementation_commit': os.environ['PTAH_EXACT_SHA'],
+              'checked_out_commit': subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip(),
+              'phase_0b_freeze_commit': 'dc2db457f1705d0cba80f17ab76e5e93f808aee0',
+              'wp13_harness_local_install': True,
+              'schema_resolution': 'local',
+              'runtime_semantics_implemented': False,
+          }
+          assert report['implementation_commit'] == report['checked_out_commit']
+          Path('evidence/a01/conformance/proof-report.json').write_text(json.dumps(report, indent=2, sort_keys=True)+'\n')
+          PY
+
+      - name: Upload A01 conformance evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a01-conformance-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: evidence/a01/conformance/
+          if-no-files-found: error
+          retention-days: 30
+
+  rust-and-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact A01 head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
+          rustup default 1.97.1
+
+      - name: Prove Rust scaffold
+        run: |
+          mkdir -p evidence/a01/runtime-scaffold
+          set -o pipefail
+          cargo fmt --all --check 2>&1 | tee evidence/a01/runtime-scaffold/rustfmt.txt
+          cargo clippy --workspace --all-features --locked -- -D warnings 2>&1 \
+            | tee evidence/a01/runtime-scaffold/clippy.txt
+          cargo test --workspace --locked 2>&1 | tee evidence/a01/runtime-scaffold/cargo-test.txt
+          cargo metadata --locked --format-version 1 > evidence/a01/runtime-scaffold/cargo-metadata.json
+
+      - name: Set up pinned Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: browser-provider/package-lock.json
+
+      - name: Prove Browser scaffold
+        working-directory: browser-provider
+        run: |
+          set -o pipefail
+          npm ci --ignore-scripts --no-audit --no-fund 2>&1 \
+            | tee ../evidence/a01/runtime-scaffold/npm-ci.txt
+          npm run check 2>&1 | tee ../evidence/a01/runtime-scaffold/npm-check.txt
+          npm test 2>&1 | tee ../evidence/a01/runtime-scaffold/npm-test.txt
+          npm ls --all --json > ../evidence/a01/runtime-scaffold/npm-dependencies.json
+
+      - name: Confirm exact head binding
+        run: |
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Upload A01 Rust and Browser evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a01-rust-browser-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: evidence/a01/runtime-scaffold/
+          if-no-files-found: error
+          retention-days: 30
+
+  a01-proof:
+    needs: [static-and-adversarial, generated-bindings, frozen-conformance, rust-and-browser]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out exact A01 head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+
+      - name: Emit exact-head A01 proof summary
+        run: |
+          mkdir -p evidence/a01/final
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          head = subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip()
+          report = {
+              'record_type': 'ptah.a01.exact_head_proof',
+              'implementation_commit': os.environ['PTAH_EXACT_SHA'],
+              'checked_out_commit': head,
+              'exact_head_match': head == os.environ['PTAH_EXACT_SHA'],
+              'static_and_adversarial': 'pass',
+              'generated_bindings': 'pass',
+              'frozen_conformance': 'pass',
+              'rust_and_browser': 'pass',
+              'a01_scaffold_proven': True,
+              'runtime_semantics_implemented': False,
+              'prime_integration_qualified': False,
+              'production_or_release_accepted': False,
+          }
+          assert report['exact_head_match']
+          Path('evidence/a01/final/proof-summary.json').write_text(json.dumps(report, indent=2, sort_keys=True)+'\n')
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+
+      - name: Confirm repository remains clean
+        run: test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Upload final A01 proof summary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a01-proof-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: evidence/a01/final/
+          if-no-files-found: error
+          retention-days: 30

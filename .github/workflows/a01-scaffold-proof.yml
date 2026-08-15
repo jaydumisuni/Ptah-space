@@ -226,16 +226,14 @@ jobs:
           path: .ptah-roadmap
           persist-credentials: false
 
-      - name: Install frozen WP13 harness from local source
-        run: python -m pip install --no-index ./.ptah-roadmap/conformance/harness
-
-      - name: Run frozen harness regressions and conformance
+      - name: Run frozen harness regressions and conformance directly from local source
         run: |
           mkdir -p evidence/a01/conformance
           set -o pipefail
           (cd .ptah-roadmap/conformance/harness && python -m unittest -v test_ptah_conformance.py) 2>&1 \
             | tee evidence/a01/conformance/harness-tests.txt
-          ptah-conformance --root ./.ptah-roadmap \
+          python ./.ptah-roadmap/conformance/harness/ptah_conformance.py \
+            --root ./.ptah-roadmap \
             --report ./evidence/a01/conformance/structural.json
           python ./.ptah-roadmap/conformance/harness/semantic_fixture_runner.py \
             --root ./.ptah-roadmap \
@@ -251,7 +249,7 @@ jobs:
               'implementation_commit': os.environ['PTAH_EXACT_SHA'],
               'checked_out_commit': subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip(),
               'phase_0b_freeze_commit': 'dc2db457f1705d0cba80f17ab76e5e93f808aee0',
-              'wp13_harness_local_install': True,
+              'wp13_harness_execution': 'direct_local_source',
               'schema_resolution': 'local',
               'runtime_semantics_implemented': False,
           }

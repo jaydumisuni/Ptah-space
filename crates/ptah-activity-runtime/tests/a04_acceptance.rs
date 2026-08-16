@@ -1,3 +1,5 @@
+//! A04 Activity, Operation, and Attempt runtime acceptance tests.
+
 use ptah_activity_runtime::{
     ActivityRuntime, ActivitySpec, ActivityState, AttemptContext, AttemptState, IdempotencyClass,
     MemoryJournal, OperationSpec, OperationState, RetryClass, RuntimeError, SideEffectClass,

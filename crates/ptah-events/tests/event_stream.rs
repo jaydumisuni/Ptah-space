@@ -1,3 +1,5 @@
+//! A04 ordered Event stream integration tests.
+
 use ptah_events::{EventBus, EventClass, EventError, EventPayload, EventSpec};
 use ptah_identifiers::EntityRef;
 

@@ -161,8 +161,8 @@ pub struct EventSpec {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Event {
     id: EntityId,
-    event_type: String,
-    event_class: EventClass,
+    kind: String,
+    class: EventClass,
     source_ref: EntityRef,
     subject_ref: EntityRef,
     activity_ref: Option<EntityRef>,
@@ -191,13 +191,13 @@ impl Event {
     /// Event type.
     #[must_use]
     pub fn event_type(&self) -> &str {
-        &self.event_type
+        &self.kind
     }
 
     /// Event class.
     #[must_use]
     pub const fn event_class(&self) -> EventClass {
-        self.event_class
+        self.class
     }
 
     /// Exact Receipt reference for proof notifications.
@@ -207,6 +207,9 @@ impl Event {
     }
 
     /// Render the frozen canonical Event document for durable journaling.
+    ///
+    /// # Panics
+    /// Panics only if the statically constructed canonical JSON value unexpectedly stops being an object.
     #[must_use]
     pub fn canonical_document(&self) -> Value {
         let mut document = json!({
@@ -218,17 +221,17 @@ impl Event {
                 &self.occurred_at,
                 &self.source_ref,
             ),
-            "event_domain": event_domain(&self.event_type),
-            "event_type": self.event_type,
+            "event_domain": event_domain(&self.kind),
+            "event_type": self.kind,
             "event_version": EVENT_SCHEMA_VERSION,
-            "event_class": self.event_class,
+            "event_class": self.class,
             "source_ref": self.source_ref,
             "subject_ref": self.subject_ref,
             "occurred_at": self.occurred_at,
             "observed_at": self.occurred_at,
             "sequence_scope_ref": self.sequence_scope_ref,
             "sequence": self.sequence,
-            "retention_class": retention_class(self.event_class),
+            "retention_class": retention_class(self.class),
             "payload_class": self.payload.class,
             "extensions": {},
         });
@@ -293,6 +296,9 @@ impl EventBus {
     ///
     /// Delivery failure to live subscribers does not invalidate the Event or turn
     /// it into execution proof.
+    ///
+    /// # Errors
+    /// Returns an [`EventError`] when the specification is invalid, sequencing overflows, or state is unavailable.
     pub fn emit(&self, spec: EventSpec) -> Result<Event, EventError> {
         validate_spec(&spec)?;
         let mut state = self.state.lock().map_err(|_| EventError::Poisoned)?;
@@ -302,8 +308,8 @@ impl EventBus {
         *next = next.checked_add(1).ok_or(EventError::SequenceOverflow)?;
         let event = Event {
             id: EntityId::new_v7(),
-            event_type: spec.event_type,
-            event_class: spec.event_class,
+            kind: spec.event_type,
+            class: spec.event_class,
             source_ref: spec.source_ref,
             subject_ref: spec.subject_ref,
             activity_ref: spec.activity_ref,
@@ -322,6 +328,9 @@ impl EventBus {
     }
 
     /// Replay retained Events for one sequence scope from `from_sequence`, inclusive.
+    ///
+    /// # Errors
+    /// Returns [`EventError::Poisoned`] when retained Event state is unavailable.
     pub fn replay(&self, scope: EntityId, from_sequence: u64) -> Result<Vec<Event>, EventError> {
         let state = self.state.lock().map_err(|_| EventError::Poisoned)?;
         Ok(state
@@ -335,6 +344,9 @@ impl EventBus {
     }
 
     /// Total retained Event count.
+    ///
+    /// # Errors
+    /// Returns [`EventError::Poisoned`] when retained Event state is unavailable.
     pub fn len(&self) -> Result<usize, EventError> {
         Ok(self
             .state
@@ -345,6 +357,9 @@ impl EventBus {
     }
 
     /// Whether no Events have been retained.
+    ///
+    /// # Errors
+    /// Returns [`EventError::Poisoned`] when retained Event state is unavailable.
     pub fn is_empty(&self) -> Result<bool, EventError> {
         Ok(self.len()? == 0)
     }

@@ -1,3 +1,5 @@
+//! A04 Receipt evidence integration tests.
+
 use ptah_identifiers::{EntityId, EntityRef};
 use ptah_receipts::{
     AuthorityClass, ProofLevel, Receipt, ReceiptContext, ReceiptError, ReceiptKind, ReceiptOutcome,

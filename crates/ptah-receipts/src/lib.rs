@@ -25,18 +25,31 @@ pub const RECEIPT_ENTITY_KIND: &str = "proof.receipt";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReceiptKind {
+    /// Acknowledges request receipt only; it does not prove execution.
     RequestAcknowledgement,
+    /// Records routing or placement evidence for the request.
     Routing,
+    /// Records dispatch of bounded work to an execution facility.
     WorkDispatch,
+    /// Records an observation of a process execution surface.
     ProcessObservation,
+    /// Records an observation of runtime state.
     RuntimeObservation,
+    /// Records an observation tied to the logical Operation.
     OperationObservation,
+    /// Records bounded progress or checkpoint evidence.
     ProgressCheckpoint,
+    /// Records observation of a produced output.
     OutputObservation,
+    /// Records independent readback of produced state or output.
     Readback,
+    /// Records content-hash verification evidence.
     HashVerification,
+    /// Records a result reported by an external provider.
     ExternalResult,
+    /// Records review evidence from a human or independent reviewer.
     Review,
+    /// Records a correction or supersession of prior Receipt evidence.
     Correction,
 }
 
@@ -44,11 +57,17 @@ pub enum ReceiptKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReceiptOutcome {
+    /// Evidence supports the stated bounded proof claims.
     Positive,
+    /// Evidence contradicts or fails the stated bounded proof claims.
     Negative,
+    /// Evidence supports only part of the stated bounded proof claims.
     Partial,
+    /// Evidence is insufficient to determine the bounded proof claims.
     Inconclusive,
+    /// Evidence corrects a prior Receipt and retains its ancestry.
     Corrected,
+    /// Evidence supersedes prior Receipt evidence without deleting it.
     Superseded,
 }
 
@@ -56,16 +75,27 @@ pub enum ReceiptOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthorityClass {
+    /// Authority originates from an unverified caller claim.
     CallerClaim,
+    /// Authority originates from the Ptah control plane.
     PtahControlPlane,
+    /// Authority originates from a Ptah Node.
     PtahNode,
+    /// Authority originates from a workspace provider.
     WorkspaceProvider,
+    /// Authority originates from the executing facility runtime.
     FacilityRuntime,
+    /// Authority originates from the host operating system.
     OperatingSystem,
+    /// Authority originates from direct physical-device evidence.
     PhysicalDevice,
+    /// Authority originates from an external provider.
     ExternalProvider,
+    /// Authority originates from explicit human confirmation.
     HumanConfirmation,
+    /// Authority originates from an independent reviewer.
     IndependentReviewer,
+    /// Authority originates from an authoritative external system.
     AuthoritativeExternalSystem,
 }
 
@@ -73,58 +103,98 @@ pub enum AuthorityClass {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProofLevel {
+    /// The work or proof was requested.
     Requested,
+    /// The request was accepted by the responsible boundary.
     Accepted,
+    /// The work was routed to a selected execution boundary.
     Routed,
+    /// The work was dispatched to an execution facility.
     Dispatched,
+    /// A physical process was observed starting.
     ProcessStarted,
+    /// The required interface was observed launching.
     InterfaceLaunched,
+    /// The execution runtime was observed ready.
     RuntimeReady,
+    /// The logical Operation was armed for physical execution.
     OperationArmed,
+    /// Progress was independently observed.
     ProgressObserved,
+    /// The logical Operation completion condition was proven.
     OperationCompleted,
+    /// An output was observed to have been created.
     OutputCreated,
+    /// The output was independently read back.
     OutputReadBack,
+    /// The output hash was independently verified.
     OutputHashVerified,
+    /// An external result was durably recorded.
     ExternalResultRecorded,
+    /// An authoritative external result was recorded.
     AuthoritativeExternalResult,
+    /// An independent review of the evidence was completed.
     IndependentlyReviewed,
 }
 
 /// Exact physical execution context bound into every Receipt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceiptContext {
+    /// Exact Activity identity owning the physical attempt.
     pub activity_ref: EntityRef,
+    /// Exact logical Operation identity being attempted.
     pub operation_ref: EntityRef,
+    /// Exact physical Attempt identity.
     pub attempt_ref: EntityRef,
+    /// Optional bounded idempotency key for the logical effect.
     pub idempotency_key: Option<String>,
+    /// Attempt correlation nonce preventing retry/evidence aliasing.
     pub correlation_nonce: String,
+    /// Node identity that hosted or observed execution.
     pub node_ref: EntityRef,
+    /// Node generation bound to this evidence.
     pub node_generation: u64,
+    /// Provider identity used for this execution context.
     pub provider_ref: EntityRef,
+    /// Provider generation bound to this evidence.
     pub provider_generation: u64,
+    /// Workload generation bound to this evidence.
     pub workload_generation: u64,
+    /// Connection epoch bound to this evidence.
     pub connection_epoch: u64,
+    /// Facility identity that performed or observed the work.
     pub facility_ref: EntityRef,
+    /// Evidence-producer instance identity.
     pub producer_instance_ref: EntityRef,
+    /// Version of the evidence producer.
     pub producer_version: String,
 }
 
 /// Input for one immutable Receipt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceiptSpec {
+    /// Receipt evidence category.
     pub kind: ReceiptKind,
+    /// Outcome assigned to the bounded evidence.
     pub outcome: ReceiptOutcome,
+    /// Authority class of the evidence producer.
     pub authority_class: AuthorityClass,
+    /// Exact physical execution context.
     pub context: ReceiptContext,
+    /// References proving the evidence producer identity.
     pub producer_identity_evidence_refs: Vec<EntityRef>,
+    /// Durable identities of the bounded proof claims.
     pub proof_claim_refs: Vec<EntityRef>,
     /// A04's evaluated bounded proof-level projection. Durable claim identities
     /// remain `proof_claim_refs`; this set is not a substitute for those claims.
     pub proof_levels: Vec<ProofLevel>,
+    /// Prior Receipt identities corrected or superseded by this evidence.
     pub previous_or_superseded_receipt_refs: Vec<EntityRef>,
+    /// Bounded human-readable evidence summary.
     pub summary: String,
+    /// Known limitations that constrain interpretation of the evidence.
     pub limitations: Vec<String>,
+    /// UTC timestamp at which the evidenced observation occurred.
     pub occurred_at: String,
 }
 
@@ -138,11 +208,17 @@ pub struct Receipt {
 impl Receipt {
     /// Validate and construct a Receipt without publishing it to a repository.
     /// This lets callers persist canonical truth before exposing the projection.
+    ///
+    /// # Errors
+    /// Returns a [`ReceiptError`] when the specification violates frozen Receipt invariants.
     pub fn prepare(spec: ReceiptSpec) -> Result<Self, ReceiptError> {
         Self::prepare_with_id(EntityId::new_v7(), spec)
     }
 
     /// Validate and construct a Receipt with an explicit canonical identity.
+    ///
+    /// # Errors
+    /// Returns a [`ReceiptError`] when the specification violates frozen Receipt invariants.
     pub fn prepare_with_id(id: EntityId, spec: ReceiptSpec) -> Result<Self, ReceiptError> {
         validate_spec(&spec)?;
         Ok(Self { id, spec })
@@ -237,18 +313,27 @@ pub struct ReceiptStore {
 
 impl ReceiptStore {
     /// Append a newly allocated Receipt.
+    ///
+    /// # Errors
+    /// Returns a [`ReceiptError`] when validation fails, the identity collides, or storage is unavailable.
     pub fn append(&self, spec: ReceiptSpec) -> Result<Receipt, ReceiptError> {
         let receipt = Receipt::prepare(spec)?;
         self.publish(receipt)
     }
 
     /// Append with an explicit identity for replay/recovery collision detection.
+    ///
+    /// # Errors
+    /// Returns a [`ReceiptError`] when validation fails, the identity collides, or storage is unavailable.
     pub fn append_with_id(&self, id: EntityId, spec: ReceiptSpec) -> Result<Receipt, ReceiptError> {
         let receipt = Receipt::prepare_with_id(id, spec)?;
         self.publish(receipt)
     }
 
     /// Publish an already validated Receipt into the append-only repository.
+    ///
+    /// # Errors
+    /// Returns [`ReceiptError::DuplicateIdentity`] for collisions or [`ReceiptError::Poisoned`] when storage is unavailable.
     pub fn publish(&self, receipt: Receipt) -> Result<Receipt, ReceiptError> {
         let mut receipts = self.inner.write().map_err(|_| ReceiptError::Poisoned)?;
         if receipts.contains_key(&receipt.id) {
@@ -259,6 +344,9 @@ impl ReceiptStore {
     }
 
     /// Read one Receipt by canonical identity.
+    ///
+    /// # Errors
+    /// Returns [`ReceiptError::Poisoned`] when the repository lock is unavailable.
     pub fn get(&self, id: EntityId) -> Result<Option<Receipt>, ReceiptError> {
         Ok(self
             .inner
@@ -269,6 +357,9 @@ impl ReceiptStore {
     }
 
     /// Read Receipts bound to one exact Attempt.
+    ///
+    /// # Errors
+    /// Returns [`ReceiptError::Poisoned`] when the repository lock is unavailable.
     pub fn for_attempt(&self, attempt_id: EntityId) -> Result<Vec<Receipt>, ReceiptError> {
         Ok(self
             .inner
@@ -281,11 +372,17 @@ impl ReceiptStore {
     }
 
     /// Number of retained immutable Receipts.
+    ///
+    /// # Errors
+    /// Returns [`ReceiptError::Poisoned`] when the repository lock is unavailable.
     pub fn len(&self) -> Result<usize, ReceiptError> {
         Ok(self.inner.read().map_err(|_| ReceiptError::Poisoned)?.len())
     }
 
     /// Whether no Receipt has been retained.
+    ///
+    /// # Errors
+    /// Returns [`ReceiptError::Poisoned`] when the repository lock is unavailable.
     pub fn is_empty(&self) -> Result<bool, ReceiptError> {
         Ok(self.len()? == 0)
     }
@@ -295,24 +392,34 @@ impl ReceiptStore {
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ReceiptError {
     #[error("Receipt identity already exists: {0}")]
+    /// A Receipt with the same canonical identity already exists.
     DuplicateIdentity(EntityId),
     #[error("correlation nonce must contain 8..=512 characters")]
+    /// The correlation nonce violates the frozen length bound.
     InvalidCorrelationNonce,
     #[error("idempotency key must contain 8..=512 characters when present")]
+    /// The optional idempotency key violates the frozen length bound.
     InvalidIdempotencyKey,
     #[error("Receipt must carry at least one durable proof-claim reference")]
+    /// The Receipt carries no durable proof-claim identities.
     MissingProofClaims,
     #[error("correction/corrected/superseded Receipt requires a prior Receipt reference")]
+    /// Correction or supersession evidence lacks prior Receipt ancestry.
     MissingSupersededReceipt,
     #[error("Receipt reference arrays must not contain duplicates")]
+    /// A Receipt reference array contains duplicate identities.
     DuplicateReferences,
     #[error("Receipt summary must contain 1..=8192 characters")]
+    /// The Receipt summary is empty or exceeds its frozen bound.
     EmptySummary,
     #[error("Receipt producer version must contain 1..=256 characters")]
+    /// The producer version is empty or exceeds its frozen bound.
     EmptyProducerVersion,
     #[error("Receipt limitation must contain 1..=4096 characters")]
+    /// A limitation is empty or exceeds its frozen bound.
     InvalidLimitation,
     #[error("Receipt store state is unavailable")]
+    /// The in-memory Receipt store lock is poisoned and unavailable.
     Poisoned,
 }
 
@@ -321,23 +428,22 @@ fn validate_spec(spec: &ReceiptSpec) -> Result<(), ReceiptError> {
     if !(8..=512).contains(&nonce_len) {
         return Err(ReceiptError::InvalidCorrelationNonce);
     }
-    if let Some(key) = &spec.context.idempotency_key {
-        if !(8..=512).contains(&key.len()) {
-            return Err(ReceiptError::InvalidIdempotencyKey);
-        }
+    if let Some(key) = &spec.context.idempotency_key
+        && !(8..=512).contains(&key.len())
+    {
+        return Err(ReceiptError::InvalidIdempotencyKey);
     }
     if spec.proof_claim_refs.is_empty() {
         return Err(ReceiptError::MissingProofClaims);
     }
-    if matches!(spec.kind, ReceiptKind::Correction)
+    if (matches!(spec.kind, ReceiptKind::Correction)
         || matches!(
             spec.outcome,
             ReceiptOutcome::Corrected | ReceiptOutcome::Superseded
-        )
+        ))
+        && spec.previous_or_superseded_receipt_refs.is_empty()
     {
-        if spec.previous_or_superseded_receipt_refs.is_empty() {
-            return Err(ReceiptError::MissingSupersededReceipt);
-        }
+        return Err(ReceiptError::MissingSupersededReceipt);
     }
     if has_duplicates(&spec.producer_identity_evidence_refs)
         || has_duplicates(&spec.proof_claim_refs)

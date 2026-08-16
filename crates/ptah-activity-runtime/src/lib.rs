@@ -36,15 +36,25 @@ const REPEATED_FAILURE_THRESHOLD: u32 = 3;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActivityState {
+    /// Frozen A04 `Queued` variant.
     Queued,
+    /// Frozen A04 `Preparing` variant.
     Preparing,
+    /// Frozen A04 `Running` variant.
     Running,
+    /// Frozen A04 `Waiting` variant.
     Waiting,
+    /// Frozen A04 `Paused` variant.
     Paused,
+    /// Frozen A04 `Resuming` variant.
     Resuming,
+    /// Frozen A04 `Recovering` variant.
     Recovering,
+    /// Frozen A04 `Completed` variant.
     Completed,
+    /// Frozen A04 `Failed` variant.
     Failed,
+    /// Frozen A04 `Cancelled` variant.
     Cancelled,
 }
 
@@ -58,15 +68,25 @@ impl ActivityState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperationState {
+    /// Frozen A04 `Planned` variant.
     Planned,
+    /// Frozen A04 `Ready` variant.
     Ready,
+    /// Frozen A04 `Dispatching` variant.
     Dispatching,
+    /// Frozen A04 `Executing` variant.
     Executing,
+    /// Frozen A04 `Waiting` variant.
     Waiting,
+    /// Frozen A04 `Uncertain` variant.
     Uncertain,
+    /// Frozen A04 `Succeeded` variant.
     Succeeded,
+    /// Frozen A04 `Failed` variant.
     Failed,
+    /// Frozen A04 `Cancelled` variant.
     Cancelled,
+    /// Frozen A04 `Blocked` variant.
     Blocked,
 }
 
@@ -83,16 +103,27 @@ impl OperationState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttemptState {
+    /// Frozen A04 `Created` variant.
     Created,
+    /// Frozen A04 `Dispatched` variant.
     Dispatched,
+    /// Frozen A04 `Accepted` variant.
     Accepted,
+    /// Frozen A04 `Executing` variant.
     Executing,
+    /// Frozen A04 `Waiting` variant.
     Waiting,
+    /// Frozen A04 `Completed` variant.
     Completed,
+    /// Frozen A04 `Failed` variant.
     Failed,
+    /// Frozen A04 `TimedOut` variant.
     TimedOut,
+    /// Frozen A04 `Cancelled` variant.
     Cancelled,
+    /// Frozen A04 `Abandoned` variant.
     Abandoned,
+    /// Frozen A04 `Superseded` variant.
     Superseded,
 }
 
@@ -114,11 +145,17 @@ impl AttemptState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SideEffectClass {
+    /// Frozen A04 `ObservationOnly` variant.
     ObservationOnly,
+    /// Frozen A04 `Reversible` variant.
     Reversible,
+    /// Frozen A04 `IdempotentMutation` variant.
     IdempotentMutation,
+    /// Frozen A04 `NonIdempotentMutation` variant.
     NonIdempotentMutation,
+    /// Frozen A04 `Destructive` variant.
     Destructive,
+    /// Frozen A04 `ExternalAuthoritative` variant.
     ExternalAuthoritative,
 }
 
@@ -126,10 +163,15 @@ pub enum SideEffectClass {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RetryClass {
+    /// Frozen A04 `RetrySafe` variant.
     RetrySafe,
+    /// Frozen A04 `RetryRequiresIdempotencyReceipt` variant.
     RetryRequiresIdempotencyReceipt,
+    /// Frozen A04 `NonRetryable` variant.
     NonRetryable,
+    /// Frozen A04 `ManualResumeOnly` variant.
     ManualResumeOnly,
+    /// Frozen A04 `CompensatingActionRequired` variant.
     CompensatingActionRequired,
 }
 
@@ -146,12 +188,19 @@ impl RetryClass {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IdempotencyClass {
+    /// Frozen A04 `NoneRequired` variant.
     NoneRequired,
+    /// Frozen A04 `OperationIdentity` variant.
     OperationIdentity,
+    /// Frozen A04 `ExplicitKey` variant.
     ExplicitKey,
+    /// Frozen A04 `ProviderKey` variant.
     ProviderKey,
+    /// Frozen A04 `ReceiptGuarded` variant.
     ReceiptGuarded,
+    /// Frozen A04 `ManualOnly` variant.
     ManualOnly,
+    /// Frozen A04 `Compensating` variant.
     Compensating,
 }
 
@@ -167,52 +216,84 @@ impl IdempotencyClass {
 /// Caller-supplied durable Activity specification.
 #[derive(Debug, Clone)]
 pub struct ActivitySpec {
+    /// Frozen A04 contract field `request_ref`.
     pub request_ref: EntityRef,
+    /// Frozen A04 contract field `workspace_ref`.
     pub workspace_ref: EntityRef,
+    /// Frozen A04 contract field `caller_ref`.
     pub caller_ref: EntityRef,
+    /// Frozen A04 contract field `authority_ref`.
     pub authority_ref: EntityRef,
+    /// Frozen A04 contract field `activity_kind`.
     pub activity_kind: String,
+    /// Frozen A04 contract field `intent_ref`.
     pub intent_ref: EntityRef,
+    /// Frozen A04 contract field `priority`.
     pub priority: i64,
+    /// Frozen A04 contract field `max_attempts`.
     pub max_attempts: u64,
 }
 
 /// Logical Operation specification. Operation identity survives retries.
 #[derive(Debug, Clone)]
 pub struct OperationSpec {
+    /// Frozen A04 contract field `operation_kind`.
     pub operation_kind: String,
+    /// Frozen A04 contract field `logical_target_refs`.
     pub logical_target_refs: Vec<EntityRef>,
+    /// Frozen A04 contract field `command_or_action_ref`.
     pub command_or_action_ref: EntityRef,
+    /// Frozen A04 contract field `side_effect_class`.
     pub side_effect_class: SideEffectClass,
+    /// Frozen A04 contract field `retry_class`.
     pub retry_class: RetryClass,
+    /// Frozen A04 contract field `idempotency_class`.
     pub idempotency_class: IdempotencyClass,
+    /// Frozen A04 contract field `idempotency_key`.
     pub idempotency_key: Option<String>,
+    /// Frozen A04 contract field `required_authority_refs`.
     pub required_authority_refs: Vec<EntityRef>,
+    /// Frozen A04 contract field `precondition_refs`.
     pub precondition_refs: Vec<EntityRef>,
+    /// Frozen A04 contract field `desired_proof_refs`.
     pub desired_proof_refs: Vec<EntityRef>,
+    /// Frozen A04 contract field `compensating_operation_ref`.
     pub compensating_operation_ref: Option<EntityRef>,
 }
 
 /// Fixed physical execution context for one Attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttemptContext {
+    /// Frozen A04 contract field `node_ref`.
     pub node_ref: EntityRef,
+    /// Frozen A04 contract field `node_generation`.
     pub node_generation: u64,
+    /// Frozen A04 contract field `provider_ref`.
     pub provider_ref: EntityRef,
+    /// Frozen A04 contract field `provider_generation`.
     pub provider_generation: u64,
+    /// Frozen A04 contract field `workload_generation`.
     pub workload_generation: u64,
+    /// Frozen A04 contract field `connection_epoch`.
     pub connection_epoch: u64,
+    /// Frozen A04 contract field `facility_ref`.
     pub facility_ref: EntityRef,
+    /// Frozen A04 contract field `producer_instance_ref`.
     pub producer_instance_ref: EntityRef,
+    /// Frozen A04 contract field `producer_version`.
     pub producer_version: String,
 }
 
 /// Retained resource/timing observation for one Attempt.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResourceUsage {
+    /// Frozen A04 contract field `cpu_seconds`.
     pub cpu_seconds: f64,
+    /// Frozen A04 contract field `memory_bytes`.
     pub memory_bytes: u64,
+    /// Frozen A04 contract field `network_bytes`.
     pub network_bytes: u64,
+    /// Frozen A04 contract field `observed_at`.
     pub observed_at: String,
 }
 
@@ -235,30 +316,37 @@ pub struct ActivityRecord {
 
 impl ActivityRecord {
     #[must_use]
+    /// Frozen A04 runtime constant `fn`.
     pub const fn id(&self) -> EntityId {
         self.id
     }
     #[must_use]
+    /// Frozen A04 runtime constant `fn`.
     pub const fn state(&self) -> ActivityState {
         self.state
     }
     #[must_use]
+    /// Frozen A04 runtime constant `fn`.
     pub const fn revision(&self) -> RecordRevision {
         self.revision
     }
     #[must_use]
+    /// Perform the A04 runtime operation `operation_ids`.
     pub fn operation_ids(&self) -> &[EntityId] {
         &self.operation_ids
     }
     #[must_use]
+    /// Perform the A04 runtime operation `result_refs`.
     pub fn result_refs(&self) -> &[EntityRef] {
         &self.result_refs
     }
     #[must_use]
+    /// Perform the A04 runtime operation `failure_code`.
     pub fn failure_code(&self) -> Option<&str> {
         self.failure_code.as_deref()
     }
     #[must_use]
+    /// Frozen A04 runtime constant `fn`.
     pub const fn cancellation_request_ref(&self) -> Option<&EntityRef> {
         self.cancellation_request_ref.as_ref()
     }
@@ -284,34 +372,42 @@ pub struct OperationRecord {
 
 impl OperationRecord {
     #[must_use]
+    /// Frozen A04 runtime constant `fn`.
     pub const fn id(&self) -> EntityId {
         self.id
     }
     #[must_use]
+    /// Frozen A04 runtime constant `fn`.
     pub const fn activity_id(&self) -> EntityId {
         self.activity_id
     }
     #[must_use]
+    /// Frozen A04 runtime constant `fn`.
     pub const fn state(&self) -> OperationState {
         self.state
     }
     #[must_use]
+    /// Frozen A04 runtime constant `fn`.
     pub const fn revision(&self) -> RecordRevision {
         self.revision
     }
     #[must_use]
+    /// Perform the A04 runtime operation `attempt_ids`.
     pub fn attempt_ids(&self) -> &[EntityId] {
         &self.attempt_ids
     }
     #[must_use]
+    /// Frozen A04 runtime constant `fn`.
     pub const fn current_attempt_id(&self) -> Option<EntityId> {
         self.current_attempt_id
     }
     #[must_use]
+    /// Perform the A04 runtime operation `retry_policy_refs`.
     pub fn retry_policy_refs(&self) -> &[EntityRef] {
         &self.retry_policy_refs
     }
     #[must_use]
+    /// Perform the A04 runtime operation `result_refs`.
     pub fn result_refs(&self) -> &[EntityRef] {
         &self.result_refs
     }
@@ -338,34 +434,42 @@ pub struct AttemptRecord {
 
 impl AttemptRecord {
     #[must_use]
+    /// Frozen A04 runtime constant `fn`.
     pub const fn id(&self) -> EntityId {
         self.id
     }
     #[must_use]
+    /// Frozen A04 runtime constant `fn`.
     pub const fn operation_id(&self) -> EntityId {
         self.operation_id
     }
     #[must_use]
+    /// Frozen A04 runtime constant `fn`.
     pub const fn attempt_number(&self) -> u64 {
         self.attempt_number
     }
     #[must_use]
+    /// Frozen A04 runtime constant `fn`.
     pub const fn state(&self) -> AttemptState {
         self.state
     }
     #[must_use]
+    /// Frozen A04 runtime constant `fn`.
     pub const fn revision(&self) -> RecordRevision {
         self.revision
     }
     #[must_use]
+    /// Perform the A04 runtime operation `correlation_nonce`.
     pub fn correlation_nonce(&self) -> &str {
         &self.correlation_nonce
     }
     #[must_use]
+    /// Frozen A04 runtime constant `fn`.
     pub const fn context(&self) -> &AttemptContext {
         &self.context
     }
     #[must_use]
+    /// Perform the A04 runtime operation `resource_usage`.
     pub fn resource_usage(&self) -> &[ResourceUsage] {
         &self.resource_usage
     }
@@ -374,63 +478,93 @@ impl AttemptRecord {
 /// Worker role declared by the caller's Recipe/Plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkerRole {
+    /// Frozen A04 `Primary` variant.
     Primary,
+    /// Frozen A04 `Verifier` variant.
     Verifier,
+    /// Frozen A04 `Named` variant.
     Named(String),
 }
 
 /// Current worker-slot projection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkerState {
+    /// Frozen A04 `Ready` variant.
     Ready,
+    /// Frozen A04 `Completed` variant.
     Completed,
+    /// Frozen A04 `Failed` variant.
     Failed,
 }
 
 /// One bounded worker slot. A slot is orchestration state, not an AI model.
 #[derive(Debug, Clone)]
 pub struct WorkerSlot {
+    /// Frozen A04 contract field `id`.
     pub id: EntityId,
+    /// Frozen A04 contract field `role`.
     pub role: WorkerRole,
+    /// Frozen A04 contract field `independence_group`.
     pub independence_group: String,
+    /// Frozen A04 contract field `state`.
     pub state: WorkerState,
+    /// Frozen A04 contract field `checkpoint_refs`.
     pub checkpoint_refs: Vec<EntityRef>,
+    /// Frozen A04 contract field `partial_result_refs`.
     pub partial_result_refs: Vec<EntityRef>,
+    /// Frozen A04 contract field `output_ref`.
     pub output_ref: Option<EntityRef>,
 }
 
 /// Caller-selected formation specification.
 #[derive(Debug, Clone)]
 pub struct WorkerFormationSpec {
+    /// Frozen A04 contract field `recipe_or_plan_ref`.
     pub recipe_or_plan_ref: EntityRef,
+    /// Frozen A04 contract field `roles`.
     pub roles: Vec<WorkerRole>,
+    /// Frozen A04 contract field `workers_per_role`.
     pub workers_per_role: usize,
+    /// Frozen A04 contract field `max_slots`.
     pub max_slots: usize,
+    /// Frozen A04 contract field `require_independent_verifier`.
     pub require_independent_verifier: bool,
 }
 
 /// Worker formation projection retained by A04.
 #[derive(Debug, Clone)]
 pub struct WorkerFormation {
+    /// Frozen A04 contract field `id`.
     pub id: EntityId,
+    /// Frozen A04 contract field `activity_id`.
     pub activity_id: EntityId,
+    /// Frozen A04 contract field `recipe_or_plan_ref`.
     pub recipe_or_plan_ref: EntityRef,
+    /// Frozen A04 contract field `slots`.
     pub slots: Vec<WorkerSlot>,
+    /// Frozen A04 contract field `accepted_result_ref`.
     pub accepted_result_ref: Option<EntityRef>,
 }
 
 /// Visible disagreement between completed worker outputs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkerConflict {
+    /// Frozen A04 contract field `left_worker_id`.
     pub left_worker_id: EntityId,
+    /// Frozen A04 contract field `left_output_ref`.
     pub left_output_ref: EntityRef,
+    /// Frozen A04 contract field `right_worker_id`.
     pub right_worker_id: EntityId,
+    /// Frozen A04 contract field `right_output_ref`.
     pub right_output_ref: EntityRef,
 }
 
 /// Backend-neutral append-only canonical journal used by A04.
 pub trait RuntimeJournal: Send + Sync {
     /// Append one canonical revision/document.
+    ///
+    /// # Errors
+    /// Returns [`JournalError`] when the ledger rejects canonical data or journal state is unavailable.
     fn append(&self, document: Value) -> Result<(), JournalError>;
 }
 
@@ -442,6 +576,9 @@ pub struct MemoryJournal {
 
 impl MemoryJournal {
     /// Snapshot all appended canonical records.
+    ///
+    /// # Errors
+    /// Returns [`JournalError`] when the ledger rejects canonical data or journal state is unavailable.
     pub fn records(&self) -> Result<Vec<Value>, JournalError> {
         Ok(self
             .records
@@ -468,20 +605,28 @@ pub struct LedgerJournal {
 
 impl LedgerJournal {
     /// Open an A03 ledger for A04 canonical revisions.
+    ///
+    /// # Errors
+    /// Returns [`JournalError`] when the ledger rejects canonical data or journal state is unavailable.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, JournalError> {
         Ok(Self {
-            ledger: Mutex::new(Ledger::open(path).map_err(JournalError::ledger)?),
+            ledger: Mutex::new(Ledger::open(path).map_err(|error| JournalError::ledger(&error))?),
         })
     }
 }
 
 impl RuntimeJournal for LedgerJournal {
     fn append(&self, document: Value) -> Result<(), JournalError> {
-        let record = CanonicalRecord::from_document(document).map_err(JournalError::ledger)?;
+        let record = CanonicalRecord::from_document(document)
+            .map_err(|error| JournalError::ledger(&error))?;
         let mut ledger = self.ledger.lock().map_err(|_| JournalError::Poisoned)?;
-        let write = ledger.begin_write().map_err(JournalError::ledger)?;
-        write.insert(&record).map_err(JournalError::ledger)?;
-        write.commit().map_err(JournalError::ledger)
+        let write = ledger
+            .begin_write()
+            .map_err(|error| JournalError::ledger(&error))?;
+        write
+            .insert(&record)
+            .map_err(|error| JournalError::ledger(&error))?;
+        write.commit().map_err(|error| JournalError::ledger(&error))
     }
 }
 
@@ -489,13 +634,15 @@ impl RuntimeJournal for LedgerJournal {
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum JournalError {
     #[error("A03 ledger rejected A04 canonical truth: {0}")]
+    /// Frozen A04 `Ledger` variant.
     Ledger(String),
     #[error("runtime journal state is unavailable")]
+    /// Frozen A04 `Poisoned` variant.
     Poisoned,
 }
 
 impl JournalError {
-    fn ledger(error: LedgerError) -> Self {
+    fn ledger(error: &LedgerError) -> Self {
         Self::Ledger(error.to_string())
     }
 }
@@ -560,31 +707,49 @@ impl ActivityRuntime {
     }
 
     /// Number of registered Activities, including terminal work.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn activity_count(&self) -> Result<usize, RuntimeError> {
         Ok(self.lock_state()?.activities.len())
     }
 
     /// Number of simultaneously admitted non-terminal running Activities.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn running_count(&self) -> Result<usize, RuntimeError> {
         Ok(self.lock_state()?.running.len())
     }
 
     /// Read an Activity even after failure/cancellation.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn activity(&self, id: EntityId) -> Result<Option<ActivityRecord>, RuntimeError> {
         Ok(self.lock_state()?.activities.get(&id).cloned())
     }
 
     /// Read an Operation even after terminal failure/cancellation.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn operation(&self, id: EntityId) -> Result<Option<OperationRecord>, RuntimeError> {
         Ok(self.lock_state()?.operations.get(&id).cloned())
     }
 
     /// Read one exact Attempt.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn attempt(&self, id: EntityId) -> Result<Option<AttemptRecord>, RuntimeError> {
         Ok(self.lock_state()?.attempts.get(&id).cloned())
     }
 
     /// Accept and durably register a new queued Activity.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn create_activity(&self, spec: ActivitySpec) -> Result<EntityId, RuntimeError> {
         if !valid_namespaced(&spec.activity_kind) {
             return Err(RuntimeError::InvalidNamespacedKind);
@@ -623,6 +788,9 @@ impl ActivityRuntime {
 
     /// Admit the next queued Activity when concurrency capacity is available.
     /// A04 only admits orchestration work; A05 owns physical process/PTY execution.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn admit_next(&self) -> Result<Option<EntityId>, RuntimeError> {
         let candidate = {
             let mut state = self.lock_state()?;
@@ -649,6 +817,9 @@ impl ActivityRuntime {
     }
 
     /// Create a logical Operation under one Activity.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn create_operation(
         &self,
         activity_id: EntityId,
@@ -665,10 +836,10 @@ impl ActivityRuntime {
         {
             return Err(RuntimeError::MissingIdempotencyKey);
         }
-        if let Some(key) = &spec.idempotency_key {
-            if !(8..=512).contains(&key.len()) {
-                return Err(RuntimeError::InvalidIdempotencyKey);
-            }
+        if let Some(key) = &spec.idempotency_key
+            && !(8..=512).contains(&key.len())
+        {
+            return Err(RuntimeError::InvalidIdempotencyKey);
         }
         if spec.retry_class == RetryClass::CompensatingActionRequired
             && spec.compensating_operation_ref.is_none()
@@ -716,11 +887,17 @@ impl ActivityRuntime {
     }
 
     /// Make a planned/waiting/uncertain Operation eligible for a fresh Attempt.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn make_operation_ready(&self, operation_id: EntityId) -> Result<(), RuntimeError> {
         self.transition_operation(operation_id, OperationState::Ready, None)
     }
 
-    /// Allocate a new physical Attempt with generated UUIDv7 identity and nonce.
+    /// Allocate a new physical Attempt with generated `UUIDv7` identity and nonce.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn create_attempt(
         &self,
         operation_id: EntityId,
@@ -732,6 +909,9 @@ impl ActivityRuntime {
     }
 
     /// Allocate with explicit identity/nonce for recovery and adversarial collision proof.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn create_attempt_with_id_and_nonce(
         &self,
         operation_id: EntityId,
@@ -806,11 +986,17 @@ impl ActivityRuntime {
     }
 
     /// Mark an Attempt as dispatched/routed.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn dispatch_attempt(&self, attempt_id: EntityId) -> Result<(), RuntimeError> {
         self.transition_attempt(attempt_id, AttemptState::Dispatched, None, None)
     }
 
     /// Record producer acceptance and advance the parent Operation to executing.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn accept_attempt(&self, attempt_id: EntityId) -> Result<(), RuntimeError> {
         self.transition_attempt(attempt_id, AttemptState::Accepted, None, None)?;
         let operation_id = self.attempt_required(attempt_id)?.operation_id;
@@ -818,11 +1004,17 @@ impl ActivityRuntime {
     }
 
     /// Mark current physical execution as active.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn begin_attempt_execution(&self, attempt_id: EntityId) -> Result<(), RuntimeError> {
         self.transition_attempt(attempt_id, AttemptState::Executing, None, None)
     }
 
     /// Append immutable exact-context proof and attach its identity to the hierarchy.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn append_receipt(&self, spec: ReceiptSpec) -> Result<EntityId, RuntimeError> {
         self.validate_receipt_context(&spec)?;
         let receipt = Receipt::prepare(spec)?;
@@ -838,7 +1030,7 @@ impl ActivityRuntime {
             event_type: "proof.receipt_recorded".to_owned(),
             event_class: EventClass::ProofNotification,
             source_ref: context.producer_instance_ref,
-            subject_ref: context.attempt_ref,
+            subject_ref: context.attempt_ref.clone(),
             activity_ref: Some(context.activity_ref),
             operation_ref: Some(context.operation_ref),
             attempt_ref: Some(context.attempt_ref),
@@ -852,6 +1044,9 @@ impl ActivityRuntime {
 
     /// Mark physical Attempt completion only after exact completion proof.
     /// Parent Operation success remains a separate proof evaluation.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn complete_attempt(
         &self,
         attempt_id: EntityId,
@@ -871,6 +1066,9 @@ impl ActivityRuntime {
     }
 
     /// Evaluate logical Operation proof separately from physical Attempt completion.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn prove_operation_succeeded(
         &self,
         operation_id: EntityId,
@@ -907,6 +1105,9 @@ impl ActivityRuntime {
 
     /// Record a physical Attempt failure. Retryable Operations wait for explicit
     /// submitted Policy authority; non-retryable/exhausted Operations fail.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn fail_attempt(
         &self,
         attempt_id: EntityId,
@@ -957,6 +1158,9 @@ impl ActivityRuntime {
 
     /// Authorize a retry with an explicit submitted Policy reference and create a
     /// fresh Attempt identity/nonce.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn retry_operation(
         &self,
         operation_id: EntityId,
@@ -983,6 +1187,9 @@ impl ActivityRuntime {
     }
 
     /// Retain resource/timing evidence on one exact Attempt.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn record_resource_usage(
         &self,
         attempt_id: EntityId,
@@ -1008,6 +1215,9 @@ impl ActivityRuntime {
 
     /// Complete an Activity only after every child Operation has explicit success
     /// proof and caller-visible result references exist.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn complete_activity(
         &self,
         activity_id: EntityId,
@@ -1053,6 +1263,9 @@ impl ActivityRuntime {
     }
 
     /// Explicitly fail one Activity without affecting unrelated work.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn fail_activity(
         &self,
         activity_id: EntityId,
@@ -1075,6 +1288,9 @@ impl ActivityRuntime {
     }
 
     /// Cancel only the selected Activity and its own non-terminal children.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn cancel_activity(
         &self,
         activity_id: EntityId,
@@ -1099,15 +1315,15 @@ impl ActivityRuntime {
                         operations.push(updated);
                     }
                     for attempt_id in &operation.attempt_ids {
-                        if let Some(attempt) = state.attempts.get(attempt_id) {
-                            if !attempt.state.terminal() {
-                                let mut updated = attempt.clone();
-                                updated.state = AttemptState::Cancelled;
-                                updated.outcome_code = Some("PTAH_ATTEMPT_CANCELLED".to_owned());
-                                updated.completed_at = Some(now.clone());
-                                updated.revision = next_revision(updated.revision)?;
-                                attempts.push(updated);
-                            }
+                        if let Some(attempt) = state.attempts.get(attempt_id)
+                            && !attempt.state.terminal()
+                        {
+                            let mut updated = attempt.clone();
+                            updated.state = AttemptState::Cancelled;
+                            updated.outcome_code = Some("PTAH_ATTEMPT_CANCELLED".to_owned());
+                            updated.completed_at = Some(now.clone());
+                            updated.revision = next_revision(updated.revision)?;
+                            attempts.push(updated);
                         }
                     }
                 }
@@ -1143,6 +1359,9 @@ impl ActivityRuntime {
     }
 
     /// Create caller-defined bounded worker slots for one Activity.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn create_worker_formation(
         &self,
         activity_id: EntityId,
@@ -1164,8 +1383,8 @@ impl ActivityRuntime {
             return Err(RuntimeError::WorkerFormationExceedsBound);
         }
         if spec.require_independent_verifier {
-            let primary = spec.roles.iter().any(|role| *role == WorkerRole::Primary);
-            let verifier = spec.roles.iter().any(|role| *role == WorkerRole::Verifier);
+            let primary = spec.roles.contains(&WorkerRole::Primary);
+            let verifier = spec.roles.contains(&WorkerRole::Verifier);
             if !primary || !verifier {
                 return Err(RuntimeError::IndependentVerifierMissing);
             }
@@ -1200,11 +1419,17 @@ impl ActivityRuntime {
     }
 
     /// Read one worker formation.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn worker_formation(&self, id: EntityId) -> Result<Option<WorkerFormation>, RuntimeError> {
         Ok(self.lock_state()?.formations.get(&id).cloned())
     }
 
     /// Retain a worker checkpoint without accepting a result.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn record_worker_checkpoint(
         &self,
         formation_id: EntityId,
@@ -1226,6 +1451,9 @@ impl ActivityRuntime {
     }
 
     /// Retain a partial result without accepting it.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn record_worker_partial_result(
         &self,
         formation_id: EntityId,
@@ -1247,6 +1475,9 @@ impl ActivityRuntime {
     }
 
     /// Mark a worker slot complete. This never accepts its output as the result.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn complete_worker(
         &self,
         formation_id: EntityId,
@@ -1269,6 +1500,9 @@ impl ActivityRuntime {
     }
 
     /// Return all visible disagreements; no winner is manufactured.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn worker_conflicts(
         &self,
         formation_id: EntityId,
@@ -1300,6 +1534,9 @@ impl ActivityRuntime {
     }
 
     /// Explicit caller/reviewer acceptance of one formation result.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when validation, lifecycle, journaling, or proof requirements reject the operation.
     pub fn accept_worker_result(
         &self,
         formation_id: EntityId,
@@ -1565,124 +1802,183 @@ impl ActivityRuntime {
 #[derive(Debug, Error)]
 pub enum RuntimeError {
     #[error("max concurrency must be greater than zero")]
+    /// Frozen A04 `InvalidConcurrencyLimit` variant.
     InvalidConcurrencyLimit,
     #[error("Activity not found: {0}")]
+    /// Frozen A04 `ActivityNotFound` variant.
     ActivityNotFound(EntityId),
     #[error("Operation not found: {0}")]
+    /// Frozen A04 `OperationNotFound` variant.
     OperationNotFound(EntityId),
     #[error("Attempt not found: {0}")]
+    /// Frozen A04 `AttemptNotFound` variant.
     AttemptNotFound(EntityId),
     #[error("Receipt not found: {0}")]
+    /// Frozen A04 `ReceiptNotFound` variant.
     ReceiptNotFound(EntityId),
     #[error("worker formation not found: {0}")]
+    /// Frozen A04 `WorkerFormationNotFound` variant.
     WorkerFormationNotFound(EntityId),
     #[error("worker slot not found: {0}")]
+    /// Frozen A04 `WorkerNotFound` variant.
     WorkerNotFound(EntityId),
     #[error("invalid lower-case namespaced kind")]
+    /// Frozen A04 `InvalidNamespacedKind` variant.
     InvalidNamespacedKind,
     #[error("Activity priority must be within the frozen -1000..=1000 range")]
+    /// Frozen A04 `InvalidPriority` variant.
     InvalidPriority,
     #[error("Activity attempt budget must be positive")]
+    /// Frozen A04 `InvalidAttemptBudget` variant.
     InvalidAttemptBudget,
     #[error("attempt budget conversion/number overflow")]
+    /// Frozen A04 `AttemptBudgetOverflow` variant.
     AttemptBudgetOverflow,
     #[error("attempt budget exhausted")]
+    /// Frozen A04 `AttemptBudgetExhausted` variant.
     AttemptBudgetExhausted,
     #[error("Operation requires at least one logical target")]
+    /// Frozen A04 `MissingLogicalTarget` variant.
     MissingLogicalTarget,
     #[error("declared idempotency class requires a key")]
+    /// Frozen A04 `MissingIdempotencyKey` variant.
     MissingIdempotencyKey,
     #[error("idempotency key must contain 8..=512 characters")]
+    /// Frozen A04 `InvalidIdempotencyKey` variant.
     InvalidIdempotencyKey,
     #[error("compensating retry class requires a compensating Operation reference")]
+    /// Frozen A04 `MissingCompensatingOperation` variant.
     MissingCompensatingOperation,
     #[error("parent Activity is terminal")]
+    /// Frozen A04 `ParentActivityTerminal` variant.
     ParentActivityTerminal,
     #[error("Activity is terminal")]
+    /// Frozen A04 `ActivityTerminal` variant.
     ActivityTerminal,
     #[error("Attempt is terminal")]
+    /// Frozen A04 `AttemptTerminal` variant.
     AttemptTerminal,
     #[error("Attempt identity was reused: {0}")]
+    /// Frozen A04 `AttemptIdentityReused` variant.
     AttemptIdentityReused(EntityId),
     #[error("Attempt correlation nonce was reused for the same Operation")]
+    /// Frozen A04 `AttemptNonceReused` variant.
     AttemptNonceReused,
     #[error("Attempt correlation nonce is invalid")]
+    /// Frozen A04 `InvalidCorrelationNonce` variant.
     InvalidCorrelationNonce,
     #[error("producer version must not be empty")]
+    /// Frozen A04 `EmptyProducerVersion` variant.
     EmptyProducerVersion,
     #[error("invalid Activity transition {from:?} -> {to:?}")]
+    /// Frozen A04 `InvalidActivityTransition` variant.
     InvalidActivityTransition {
+        /// Frozen A04 `from` variant.
         from: ActivityState,
+        /// Frozen A04 `to` variant.
         to: ActivityState,
     },
     #[error("invalid Operation transition {from:?} -> {to:?}")]
+    /// Frozen A04 `InvalidOperationTransition` variant.
     InvalidOperationTransition {
+        /// Frozen A04 `from` variant.
         from: OperationState,
+        /// Frozen A04 `to` variant.
         to: OperationState,
     },
     #[error("invalid Attempt transition {from:?} -> {to:?}")]
+    /// Frozen A04 `InvalidAttemptTransition` variant.
     InvalidAttemptTransition {
+        /// Frozen A04 `from` variant.
         from: AttemptState,
+        /// Frozen A04 `to` variant.
         to: AttemptState,
     },
     #[error("Receipt hierarchy does not match canonical Activity/Operation/Attempt")]
+    /// Frozen A04 `ReceiptHierarchyMismatch` variant.
     ReceiptHierarchyMismatch,
     #[error("Receipt execution context/generations/nonce do not match the Attempt")]
+    /// Frozen A04 `ReceiptExecutionContextMismatch` variant.
     ReceiptExecutionContextMismatch,
     #[error("Receipt idempotency binding does not match the Operation")]
+    /// Frozen A04 `ReceiptIdempotencyMismatch` variant.
     ReceiptIdempotencyMismatch,
     #[error("completion requires exact positive operation-completed proof")]
+    /// Frozen A04 `InsufficientCompletionProof` variant.
     InsufficientCompletionProof,
     #[error("current Attempt has not physically completed")]
+    /// Frozen A04 `AttemptNotCompleted` variant.
     AttemptNotCompleted,
     #[error("Operation has no current Attempt")]
+    /// Frozen A04 `NoCurrentAttempt` variant.
     NoCurrentAttempt,
     #[error("caller-visible result acceptance cannot be empty")]
+    /// Frozen A04 `MissingAcceptedResults` variant.
     MissingAcceptedResults,
     #[error("Activity has no required Operations")]
+    /// Frozen A04 `MissingRequiredOperations` variant.
     MissingRequiredOperations,
     #[error("at least one required Operation lacks accepted terminal proof")]
+    /// Frozen A04 `RequiredOperationUnproven` variant.
     RequiredOperationUnproven,
     #[error("retry requires a submitted Policy authority reference")]
+    /// Frozen A04 `RetryPolicyRequired` variant.
     RetryPolicyRequired,
     #[error("Operation is not waiting for retry")]
+    /// Frozen A04 `RetryNotWaiting` variant.
     RetryNotWaiting,
     #[error("retry class does not permit automatic replacement Attempt")]
+    /// Frozen A04 `RetryNotPermitted` variant.
     RetryNotPermitted,
     #[error("resource usage is invalid")]
+    /// Frozen A04 `InvalidResourceUsage` variant.
     InvalidResourceUsage,
     #[error("worker formation is empty")]
+    /// Frozen A04 `EmptyWorkerFormation` variant.
     EmptyWorkerFormation,
     #[error("worker formation size overflow")]
+    /// Frozen A04 `WorkerFormationOverflow` variant.
     WorkerFormationOverflow,
     #[error("worker formation exceeds caller-declared bound")]
+    /// Frozen A04 `WorkerFormationExceedsBound` variant.
     WorkerFormationExceedsBound,
     #[error("independent primary/verifier lanes are required")]
+    /// Frozen A04 `IndependentVerifierMissing` variant.
     IndependentVerifierMissing,
     #[error("repeated-failure correlation counter overflow")]
+    /// Frozen A04 `FailureCorrelationOverflow` variant.
     FailureCorrelationOverflow,
     #[error("runtime state is unavailable")]
+    /// Frozen A04 `Poisoned` variant.
     Poisoned,
     #[error(transparent)]
+    /// Frozen A04 `Identifier` variant.
     Identifier(#[from] IdentifierError),
     #[error(transparent)]
+    /// Frozen A04 `Event` variant.
     Event(#[from] EventError),
     #[error(transparent)]
+    /// Frozen A04 `Receipt` variant.
     Receipt(#[from] ReceiptError),
     #[error(transparent)]
+    /// Frozen A04 `Journal` variant.
     Journal(#[from] JournalError),
 }
 
 fn ensure_activity_transition(from: ActivityState, to: ActivityState) -> Result<(), RuntimeError> {
     let allowed = matches!(
         (from, to),
-        (ActivityState::Queued, ActivityState::Preparing)
-            | (ActivityState::Preparing, ActivityState::Running)
-            | (ActivityState::Waiting, ActivityState::Preparing)
-            | (ActivityState::Resuming, ActivityState::Preparing)
-            | (ActivityState::Recovering, ActivityState::Preparing)
-            | (ActivityState::Running, ActivityState::Waiting)
-            | (ActivityState::Running, ActivityState::Completed)
+        (
+            ActivityState::Queued
+                | ActivityState::Waiting
+                | ActivityState::Resuming
+                | ActivityState::Recovering,
+            ActivityState::Preparing,
+        ) | (ActivityState::Preparing, ActivityState::Running)
+            | (
+                ActivityState::Running,
+                ActivityState::Waiting | ActivityState::Completed,
+            )
             | (ActivityState::Recovering, ActivityState::Completed)
     );
     if allowed {
@@ -1698,10 +1994,10 @@ fn ensure_operation_transition(
 ) -> Result<(), RuntimeError> {
     let allowed = matches!(
         (from, to),
-        (OperationState::Planned, OperationState::Ready)
-            | (OperationState::Waiting, OperationState::Ready)
-            | (OperationState::Uncertain, OperationState::Ready)
-            | (OperationState::Dispatching, OperationState::Executing)
+        (
+            OperationState::Planned | OperationState::Waiting | OperationState::Uncertain,
+            OperationState::Ready,
+        ) | (OperationState::Dispatching, OperationState::Executing)
     );
     if allowed {
         Ok(())
@@ -1713,18 +2009,19 @@ fn ensure_operation_transition(
 fn ensure_attempt_transition(from: AttemptState, to: AttemptState) -> Result<(), RuntimeError> {
     let allowed = matches!(
         (from, to),
-        (AttemptState::Created, AttemptState::Dispatched)
-            | (AttemptState::Dispatched, AttemptState::Accepted)
-            | (AttemptState::Accepted, AttemptState::Executing)
-            | (AttemptState::Waiting, AttemptState::Executing)
-            | (AttemptState::Accepted, AttemptState::Completed)
-            | (AttemptState::Executing, AttemptState::Completed)
-            | (AttemptState::Waiting, AttemptState::Completed)
-            | (AttemptState::Created, AttemptState::Failed)
-            | (AttemptState::Dispatched, AttemptState::Failed)
-            | (AttemptState::Accepted, AttemptState::Failed)
-            | (AttemptState::Executing, AttemptState::Failed)
-            | (AttemptState::Waiting, AttemptState::Failed)
+        (
+            AttemptState::Created,
+            AttemptState::Dispatched | AttemptState::Failed,
+        ) | (
+            AttemptState::Dispatched,
+            AttemptState::Accepted | AttemptState::Failed,
+        ) | (
+            AttemptState::Accepted,
+            AttemptState::Executing | AttemptState::Completed | AttemptState::Failed,
+        ) | (
+            AttemptState::Executing | AttemptState::Waiting,
+            AttemptState::Completed | AttemptState::Failed,
+        ) | (AttemptState::Waiting, AttemptState::Executing)
     );
     if allowed {
         Ok(())
@@ -1776,9 +2073,6 @@ fn receipt_activity_ref(id: EntityId) -> Result<EntityRef, RuntimeError> {
 fn operation_ref(id: EntityId) -> Result<EntityRef, RuntimeError> {
     Ok(EntityRef::from_id(id, OPERATION_KIND)?)
 }
-fn attempt_ref(id: EntityId) -> Result<EntityRef, RuntimeError> {
-    Ok(EntityRef::from_id(id, ATTEMPT_KIND)?)
-}
 
 fn independence_group(role: &WorkerRole) -> String {
     match role {
@@ -1799,7 +2093,7 @@ struct EnvelopeInput<'a> {
     authority_ref: &'a EntityRef,
 }
 
-fn envelope(input: EnvelopeInput<'_>) -> Value {
+fn envelope(input: &EnvelopeInput<'_>) -> Value {
     json!({
         "entity_id": input.id,
         "entity_kind": input.kind,
@@ -1822,7 +2116,7 @@ fn envelope(input: EnvelopeInput<'_>) -> Value {
     })
 }
 
-fn state_projection(machine: &str, state: impl Serialize, revision: RecordRevision) -> Value {
+fn state_projection(machine: &str, state: &impl Serialize, revision: RecordRevision) -> Value {
     json!({
         "state_machine_name": machine,
         "state_machine_version": A04_SCHEMA_VERSION,
@@ -1843,7 +2137,7 @@ fn stable_outcome(code: &str, outcome_class: &str, retryability: &str) -> Value 
 fn activity_document(record: &ActivityRecord) -> Value {
     let now = record.completed_at.as_deref().unwrap_or(&record.created_at);
     let mut value = json!({
-        "envelope": envelope(EnvelopeInput {
+        "envelope": envelope(&EnvelopeInput {
             id: record.id,
             kind: ACTIVITY_KIND,
             schema_id: ACTIVITY_SCHEMA_ID,
@@ -1858,7 +2152,7 @@ fn activity_document(record: &ActivityRecord) -> Value {
         "caller_ref": record.spec.caller_ref,
         "activity_kind": record.spec.activity_kind,
         "intent_ref": record.spec.intent_ref,
-        "lifecycle": state_projection("activity.lifecycle", record.state, record.revision),
+        "lifecycle": state_projection("activity.lifecycle", &record.state, record.revision),
         "cancellation_state": record.cancellation_state,
         "projection_health": "current",
         "priority": record.spec.priority,
@@ -1899,7 +2193,7 @@ fn activity_document(record: &ActivityRecord) -> Value {
 fn operation_document(record: &OperationRecord, activity: &ActivityRecord) -> Value {
     let now = record.completed_at.as_deref().unwrap_or(&record.created_at);
     let mut value = json!({
-        "envelope": envelope(EnvelopeInput {
+        "envelope": envelope(&EnvelopeInput {
             id: record.id,
             kind: OPERATION_KIND,
             schema_id: OPERATION_SCHEMA_ID,
@@ -1911,7 +2205,7 @@ fn operation_document(record: &OperationRecord, activity: &ActivityRecord) -> Va
         }),
         "activity_ref": activity_ref_value(activity.id),
         "operation_kind": record.spec.operation_kind,
-        "lifecycle": state_projection("operation.lifecycle", record.state, record.revision),
+        "lifecycle": state_projection("operation.lifecycle", &record.state, record.revision),
         "logical_target_refs": record.spec.logical_target_refs,
         "command_or_action_ref": record.spec.command_or_action_ref,
         "side_effect_class": record.spec.side_effect_class,
@@ -1966,7 +2260,7 @@ fn attempt_document(
     activity: &ActivityRecord,
 ) -> Value {
     let mut value = json!({
-        "envelope": envelope(EnvelopeInput {
+        "envelope": envelope(&EnvelopeInput {
             id: record.id,
             kind: ATTEMPT_KIND,
             schema_id: ATTEMPT_SCHEMA_ID,
@@ -1978,7 +2272,7 @@ fn attempt_document(
         }),
         "operation_ref": activity_ref_value_kind(operation.id, OPERATION_KIND),
         "attempt_number": record.attempt_number,
-        "lifecycle": state_projection("attempt.lifecycle", record.state, record.revision),
+        "lifecycle": state_projection("attempt.lifecycle", &record.state, record.revision),
         "correlation_nonce": record.correlation_nonce,
         "node_ref": record.context.node_ref,
         "node_generation": record.context.node_generation,

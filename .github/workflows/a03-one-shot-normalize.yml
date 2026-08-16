@@ -123,6 +123,18 @@ jobs:
 
           '''
           text = text[:start] + replacement + text[end:]
+
+          assert text.count('r#"') == 4
+          assert text.count('"#,') == 4
+          text = text.replace('r#"', 'r"').replace('"#,', '",')
+
+          lines = []
+          for line in text.splitlines(keepends=True):
+              if line.lstrip().startswith(("///", "//!")):
+                  line = line.replace("SQLite", "`SQLite`").replace("UUIDv7", "`UUIDv7`")
+              lines.append(line)
+          text = "".join(lines)
+
           path.write_text(text, encoding="utf-8")
           PY
 

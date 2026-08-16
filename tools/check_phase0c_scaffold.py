@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate that Phase 0C preparation cannot be mistaken for an authorized runtime."""
+"""Validate that retained Phase 0C preparation evidence remains internally truthful."""
 from __future__ import annotations
 
 import hashlib
@@ -10,6 +10,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCKED_BINDING_STATE = "frozen_catalogs_and_bindings_locked_runtime_dependencies_open"
+FROZEN_EXTERNAL_CARGO_UNIVERSE_SHA256 = "06f6b4c9f8f2ad70de76d6d3f79241503414744fdc5b567eb5e5512960dce459"
+FROZEN_EXTERNAL_CARGO_PACKAGE_COUNT = 81
 
 
 def sha256(path: Path) -> str:
@@ -30,9 +32,46 @@ def string_entries_contain(value: Any, needle: str, *, ignore_case: bool = False
     )
 
 
+def external_cargo_universe(path: Path) -> list[dict[str, str]]:
+    """Return canonical external package identity/source/checksum records."""
+    lock = tomllib.loads(path.read_text(encoding="utf-8"))
+    packages = lock.get("package")
+    if not isinstance(packages, list):
+        raise SystemExit("Cargo.lock package array is missing")
+    external: list[dict[str, str]] = []
+    for package in packages:
+        if not isinstance(package, dict):
+            continue
+        source = package.get("source")
+        if not isinstance(source, str):
+            continue
+        name = package.get("name")
+        version = package.get("version")
+        checksum = package.get("checksum")
+        if not isinstance(name, str) or not isinstance(version, str):
+            raise SystemExit("External Cargo package identity is incomplete")
+        if not isinstance(checksum, str) or len(checksum) != 64:
+            raise SystemExit(f"External Cargo package checksum is incomplete: {name}@{version}")
+        external.append(
+            {
+                "name": name,
+                "version": version,
+                "source": source,
+                "checksum": checksum,
+            }
+        )
+    return sorted(external, key=lambda item: (item["name"], item["version"], item["source"]))
+
+
+def external_universe_sha256(external: list[dict[str, str]]) -> str:
+    """Return the canonical digest of external Cargo package records."""
+    rendered = (json.dumps(external, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    return hashlib.sha256(rendered).hexdigest()
+
+
 readme = (ROOT / "README.md").read_text(encoding="utf-8")
 if "Runtime implementation is not authorized" not in readme:
-    raise SystemExit("README no-build boundary missing")
+    raise SystemExit("README historical no-build boundary missing")
 
 lock = json.loads((ROOT / "contracts/upstream-lock.json").read_text(encoding="utf-8"))
 allowed_lock_states = {
@@ -116,7 +155,7 @@ selection_path = ROOT / "dependencies/rust-direct-lock.json"
 if selection_path.is_file():
     selection = json.loads(selection_path.read_text(encoding="utf-8"))
     if selection.get("runtime_implementation_authorized") is not False:
-        raise SystemExit("Rust dependency evidence cannot authorize runtime implementation")
+        raise SystemExit("Historical Rust dependency evidence cannot authorize runtime implementation")
     if selection.get("status") not in {
         "candidate_exact_versions_lock_generation_open",
         "exact_versions_locked_policy_evidence_open",
@@ -128,11 +167,38 @@ if selection_path.is_file():
     cargo_record = selection.get("cargo_lock")
     cargo_lock_path = ROOT / "Cargo.lock"
     if not isinstance(cargo_record, dict) or cargo_record.get("repository_path") != "Cargo.lock":
-        raise SystemExit("Rust dependency selection lacks the Cargo lock record")
-    if cargo_record.get("sha256") != sha256(cargo_lock_path):
-        raise SystemExit("Cargo.lock does not match the Rust dependency selection")
+        raise SystemExit("Rust dependency selection lacks the historical Cargo lock record")
+    historical_sha = cargo_record.get("sha256")
+    if not isinstance(historical_sha, str) or len(historical_sha) != 64:
+        raise SystemExit("Historical Cargo.lock digest is missing")
     if cargo_record.get("git_dependency_count") != 0:
+        raise SystemExit("Git dependencies were not allowed in the selected Phase 0C graph")
+
+    external = external_cargo_universe(cargo_lock_path)
+    if len(external) != FROZEN_EXTERNAL_CARGO_PACKAGE_COUNT:
+        raise SystemExit("Current Cargo external package count drifted from Phase 0C selection")
+    if any(item["source"].startswith("git+") for item in external):
         raise SystemExit("Git dependencies are not allowed in the selected Rust graph")
+    if external_universe_sha256(external) != FROZEN_EXTERNAL_CARGO_UNIVERSE_SHA256:
+        raise SystemExit("Current Cargo external dependency universe drifted from Phase 0C selection")
+
+    resolved = {(item["name"], item["version"]): item for item in external}
+    direct_entries = selection.get("direct_dependencies")
+    if not isinstance(direct_entries, list) or len(direct_entries) != 10:
+        raise SystemExit("Historical direct Rust dependency selection is incomplete")
+    for entry in direct_entries:
+        if not isinstance(entry, dict):
+            raise SystemExit("Historical direct Rust dependency entry is invalid")
+        name = entry.get("name")
+        version = entry.get("version")
+        key = (name, version)
+        current = resolved.get(key)
+        if current is None:
+            raise SystemExit(f"Selected dependency is missing from current Cargo.lock: {name}@{version}")
+        if current.get("source") != entry.get("source"):
+            raise SystemExit(f"Selected dependency source drifted: {name}@{version}")
+        if current.get("checksum") != entry.get("checksum"):
+            raise SystemExit(f"Selected dependency checksum drifted: {name}@{version}")
 
     workspace = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
     members = workspace.get("workspace", {}).get("members", [])
@@ -205,11 +271,11 @@ if backend_path.is_file():
         raise SystemExit("Installed package manifest cannot be claimed before pinned host proof")
     blockers = backend.get("blockers")
     if not string_entries_contain(blockers, "pinned Ubuntu host"):
-        raise SystemExit("Backend lock must retain the pinned-host package blocker")
+        raise SystemExit("Backend lock must retain the historical pinned-host package blocker")
 
 host = json.loads((ROOT / "host/image-lock.json").read_text(encoding="utf-8"))
 if host.get("runtime_authorized") is not False:
-    raise SystemExit("Host candidate cannot claim runtime authorization")
+    raise SystemExit("Historical host candidate cannot claim runtime authorization")
 
 host_profile = json.loads((ROOT / "host/capability-profile.json").read_text(encoding="utf-8"))
 collector = host_profile.get("collector")
@@ -221,9 +287,9 @@ if collector is not None:
     if collector.get("identity_finalizer_path") != "host/scripts/finalize_capability_report.py":
         raise SystemExit("Host identity finalizer path is not canonical")
     if collector.get("runtime_implementation_authorized") is not False:
-        raise SystemExit("Host collector cannot authorize runtime implementation")
+        raise SystemExit("Historical host collector cannot authorize runtime implementation")
 if host_profile.get("pinned_host_proof") is not None:
-    raise SystemExit("Pinned host proof cannot be claimed before the reviewed host run")
+    raise SystemExit("Historical Phase 0C host record cannot be rewritten into a passed pinned-host proof")
 
 forbidden_gateway = "applied" + "-caas-gateway"
 skip_roots = {".git", "target", "node_modules"}
@@ -235,4 +301,4 @@ for path in ROOT.rglob("*"):
     if forbidden_gateway in text:
         raise SystemExit(f"Internal package gateway leaked into {relative}")
 
-print("Phase 0C non-claiming scaffold checks passed")
+print("Phase 0C retained non-claiming evidence checks passed")

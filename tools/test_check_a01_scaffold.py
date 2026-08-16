@@ -64,6 +64,12 @@ class A01ScaffoldValidationTests(unittest.TestCase):
         self.assertEqual(report["contracts"]["catalog_count"], 14)
         self.assertEqual(report["contracts"]["schema_count"], 346)
         self.assertEqual(report["contracts"]["state_machine_count"], 99)
+        self.assertEqual(report["dependencies"]["external_dependency_count"], 81)
+        self.assertEqual(report["dependencies"]["git_dependency_count"], 0)
+        self.assertEqual(
+            report["dependencies"]["external_universe_sha256"],
+            checker.A01_EXTERNAL_CARGO_UNIVERSE_SHA256,
+        )
         self.assertFalse(report["runtime_semantics_implemented"])
 
     def test_02_workspace_member_drift_fails(self) -> None:
@@ -88,18 +94,35 @@ class A01ScaffoldValidationTests(unittest.TestCase):
         self.mutate_json(root, "dependencies/rust-direct-lock.json", ("selection_policy", "git_dependencies_allowed"), True)
         self.invalid(root)
 
-    def test_06_cargo_lock_digest_drift_fails(self) -> None:
+    def test_06_external_cargo_universe_drift_fails(self) -> None:
         root = self.copy_repository()
         path = root / "Cargo.lock"
-        path.write_text(path.read_text(encoding="utf-8") + "# drift\n", encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
+        original = "ddd31a130427c27518df266943a5308ed92d4b226cc639f5a8f1002816174301"
+        self.assertIn(original, text)
+        path.write_text(text.replace(original, "0" * 64, 1), encoding="utf-8")
         self.invalid(root)
 
-    def test_07_browser_pin_drift_fails(self) -> None:
+    def test_07_workspace_only_lock_metadata_may_progress(self) -> None:
+        root = self.copy_repository()
+        path = root / "Cargo.lock"
+        text = path.read_text(encoding="utf-8")
+        marker = 'name = "ptah-checkpoint"\nversion = "0.0.0-phase0c"'
+        self.assertIn(marker, text)
+        replacement = marker + '\ndependencies = [\n "ptah-contracts",\n]'
+        path.write_text(text.replace(marker, replacement, 1), encoding="utf-8")
+        report = self.validate(root)
+        self.assertEqual(
+            report["dependencies"]["external_universe_sha256"],
+            checker.A01_EXTERNAL_CARGO_UNIVERSE_SHA256,
+        )
+
+    def test_08_browser_pin_drift_fails(self) -> None:
         root = self.copy_repository()
         self.mutate_json(root, "browser-provider/package.json", ("dependencies", "playwright"), "1.59.0")
         self.invalid(root)
 
-    def test_08_unpinned_action_fails(self) -> None:
+    def test_09_unpinned_action_fails(self) -> None:
         root = self.copy_repository()
         workflow = root / ".github/workflows/phase0c-contract-lock.yml"
         text = workflow.read_text(encoding="utf-8")
@@ -107,23 +130,23 @@ class A01ScaffoldValidationTests(unittest.TestCase):
         workflow.write_text(text, encoding="utf-8")
         self.invalid(root)
 
-    def test_09_missing_licence_boundary_fails(self) -> None:
+    def test_10_missing_licence_boundary_fails(self) -> None:
         root = self.copy_repository()
         (root / "REUSE.toml").unlink()
         self.invalid(root)
 
-    def test_10_historical_phase0c_claim_rewrite_fails(self) -> None:
+    def test_11_historical_phase0c_claim_rewrite_fails(self) -> None:
         root = self.copy_repository()
         path = root / "PHASE0C_SCAFFOLD.md"
         path.write_text(path.read_text(encoding="utf-8").replace("candidate scaffold only", "runtime accepted", 1), encoding="utf-8")
         self.invalid(root)
 
-    def test_11_a01_runtime_semantics_claim_fails(self) -> None:
+    def test_12_a01_runtime_semantics_claim_fails(self) -> None:
         root = self.copy_repository()
         self.mutate_json(root, "a01/scaffold-contract.json", ("runtime_semantics_implemented",), True)
         self.invalid(root)
 
-    def test_12_prime_or_release_claim_boundary_fails(self) -> None:
+    def test_13_prime_or_release_claim_boundary_fails(self) -> None:
         root = self.copy_repository()
         self.mutate_json(root, "a01/scaffold-contract.json", ("claim_boundary", "a01_does_not_prove_prime_integration"), False)
         self.invalid(root)

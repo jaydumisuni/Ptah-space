@@ -6,7 +6,9 @@
 //! Ptah `UUIDv7` entity identity and `SQLite` row identifiers never cross this API.
 
 use ptah_contracts::generated;
-use ptah_identifiers::{EntityId, EntityKind, IdentifierError, RecordRevision};
+use ptah_identifiers::{
+    EntityId, EntityKind, EntityRef, IdentifierError, NodeGeneration, RecordRevision,
+};
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -19,6 +21,8 @@ pub const LATEST_LEDGER_SCHEMA_VERSION: u32 = 2;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 const META_CATALOG_DIGEST: &str = "frozen_catalog_set_sha256";
 const META_FREEZE_COMMIT: &str = "phase_0b_freeze_commit";
+/// Stable fail-closed outcome for a write from an older Node generation.
+pub const STALE_NODE_GENERATION_CODE: &str = "PTAH_STALE_NODE_GENERATION";
 
 #[derive(Debug, Clone, Copy)]
 struct Migration {
@@ -32,58 +36,14 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
         name: "ledger-foundation-and-frozen-schema-registry",
-        up_sql: r"
-CREATE TABLE ptah_migration_history (
-    version INTEGER PRIMARY KEY CHECK (version > 0),
-    name TEXT NOT NULL UNIQUE,
-    up_sha256 TEXT NOT NULL,
-    down_sha256 TEXT NOT NULL
-) WITHOUT ROWID;
-
-CREATE TABLE ptah_ledger_meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-) WITHOUT ROWID;
-
-CREATE TABLE ptah_schema_registry (
-    schema_id TEXT NOT NULL,
-    schema_version TEXT NOT NULL,
-    catalog_id TEXT NOT NULL,
-    sha256 TEXT NOT NULL,
-    repository_path TEXT NOT NULL,
-    maturity TEXT,
-    PRIMARY KEY (schema_id, schema_version)
-) WITHOUT ROWID;
-",
-        down_sql: r"
-DROP TABLE ptah_schema_registry;
-DROP TABLE ptah_ledger_meta;
-DROP TABLE ptah_migration_history;
-",
+        up_sql: include_str!("../migrations/0001_ledger_core.up.sql"),
+        down_sql: include_str!("../migrations/0001_ledger_core.down.sql"),
     },
     Migration {
         version: 2,
         name: "canonical-entity-records",
-        up_sql: r"
-CREATE TABLE ptah_entity_records (
-    entity_id TEXT NOT NULL,
-    record_revision INTEGER NOT NULL CHECK (record_revision > 0),
-    entity_kind TEXT NOT NULL,
-    schema_id TEXT NOT NULL,
-    schema_version TEXT NOT NULL,
-    document_json TEXT NOT NULL,
-    PRIMARY KEY (entity_id, record_revision),
-    FOREIGN KEY (schema_id, schema_version)
-        REFERENCES ptah_schema_registry (schema_id, schema_version)
-) WITHOUT ROWID;
-
-CREATE INDEX ptah_entity_records_kind_index
-    ON ptah_entity_records (entity_kind, entity_id, record_revision);
-",
-        down_sql: r"
-DROP INDEX ptah_entity_records_kind_index;
-DROP TABLE ptah_entity_records;
-",
+        up_sql: include_str!("../migrations/0002_entity_records.up.sql"),
+        down_sql: include_str!("../migrations/0002_entity_records.down.sql"),
     },
 ];
 
@@ -100,33 +60,63 @@ pub struct CanonicalRecord {
     schema_id: String,
     schema_version: String,
     record_revision: RecordRevision,
+    authority_ref: EntityRef,
+    node_generation: Option<NodeGeneration>,
     document: Value,
 }
 
 impl CanonicalRecord {
     /// Parse a JSON document into a canonical ledger record.
     ///
+    /// Frozen entity schemas normally carry canonical metadata inside an
+    /// `envelope`; the common envelope schema itself carries the same fields at
+    /// the document root. Both shapes are accepted without weakening identity,
+    /// schema, revision or authority validation.
+    ///
     /// # Errors
     ///
     /// Returns an error when required indexing fields are absent or malformed,
-    /// when canonical identity validation fails, or when the schema pair is not
-    /// part of the frozen Ptah contract registry.
+    /// canonical identity/authority validation fails, a `core.node` record omits
+    /// `node_generation`, or the schema pair is outside the frozen registry.
     pub fn from_document(document: Value) -> Result<Self, LedgerError> {
         let object = document.as_object().ok_or(LedgerError::DocumentNotObject)?;
-        let entity_id_text = required_string(object, "entity_id")?;
-        let entity_kind_text = required_string(object, "entity_kind")?;
-        let schema_id = required_string(object, "schema_id")?.to_owned();
-        let schema_version = required_string(object, "schema_version")?.to_owned();
-        let revision = object
+        let envelope = match object.get("envelope") {
+            Some(value) => value
+                .as_object()
+                .ok_or(LedgerError::InvalidDocumentField("envelope"))?,
+            None => object,
+        };
+        let entity_id_text = required_string(envelope, "entity_id")?;
+        let entity_kind_text = required_string(envelope, "entity_kind")?;
+        let schema_id = required_string(envelope, "schema_id")?.to_owned();
+        let schema_version = required_string(envelope, "schema_version")?.to_owned();
+        let revision = envelope
             .get("record_revision")
             .ok_or(LedgerError::MissingDocumentField("record_revision"))?
             .as_u64()
             .ok_or(LedgerError::InvalidDocumentField("record_revision"))?;
+        let authority_value = envelope
+            .get("authority_ref")
+            .ok_or(LedgerError::MissingDocumentField("authority_ref"))?;
 
         let entity_id = EntityId::from_str(entity_id_text)?;
         let entity_kind = EntityKind::new(entity_kind_text)?;
         let record_revision = RecordRevision::new(revision)?;
+        let authority_ref: EntityRef = serde_json::from_value(authority_value.clone())
+            .map_err(|_| LedgerError::InvalidDocumentField("authority_ref"))?;
+        let node_generation = object
+            .get("node_generation")
+            .map(|value| {
+                value
+                    .as_u64()
+                    .map(NodeGeneration::new)
+                    .ok_or(LedgerError::InvalidDocumentField("node_generation"))
+            })
+            .transpose()?;
 
+        if entity_kind.as_str() == "core.node" && node_generation.is_none() {
+            return Err(LedgerError::MissingDocumentField("node_generation"));
+        }
         if !frozen_schema_exists(&schema_id, &schema_version) {
             return Err(LedgerError::UnknownSchema {
                 schema_id,
@@ -140,6 +130,8 @@ impl CanonicalRecord {
             schema_id,
             schema_version,
             record_revision,
+            authority_ref,
+            node_generation,
             document,
         })
     }
@@ -172,6 +164,18 @@ impl CanonicalRecord {
     #[must_use]
     pub const fn record_revision(&self) -> RecordRevision {
         self.record_revision
+    }
+
+    /// Return the canonical authority/provenance reference retained with the row.
+    #[must_use]
+    pub const fn authority_ref(&self) -> &EntityRef {
+        &self.authority_ref
+    }
+
+    /// Return the Node generation carried by a generation-aware record.
+    #[must_use]
+    pub const fn node_generation(&self) -> Option<NodeGeneration> {
+        self.node_generation
     }
 
     /// Return the preserved JSON document.
@@ -333,7 +337,7 @@ impl EntityRecordRepository for Ledger {
         let raw = self
             .connection
             .query_row(
-                "SELECT entity_id, entity_kind, schema_id, schema_version, record_revision, document_json \
+                "SELECT entity_id, entity_kind, schema_id, schema_version, record_revision, authority_ref_json, node_generation, document_json \
                  FROM ptah_entity_records WHERE entity_id = ?1 AND record_revision = ?2",
                 params![entity_id.to_string(), revision],
                 raw_record_from_row,
@@ -346,7 +350,7 @@ impl EntityRecordRepository for Ledger {
         let raw = self
             .connection
             .query_row(
-                "SELECT entity_id, entity_kind, schema_id, schema_version, record_revision, document_json \
+                "SELECT entity_id, entity_kind, schema_id, schema_version, record_revision, authority_ref_json, node_generation, document_json \
                  FROM ptah_entity_records WHERE entity_id = ?1 ORDER BY record_revision DESC LIMIT 1",
                 params![entity_id.to_string()],
                 raw_record_from_row,
@@ -380,11 +384,15 @@ impl LedgerWrite<'_> {
     /// Insert one immutable canonical record revision into the transaction.
     ///
     /// Existing `(entity_id, record_revision)` pairs are never overwritten.
+    /// Entity kind cannot drift across revisions. For generation-aware Node
+    /// records, a generation older than the greatest retained generation is
+    /// rejected with [`STALE_NODE_GENERATION_CODE`].
     ///
     /// # Errors
     ///
-    /// Returns an error for backend failure, revision range overflow, missing
-    /// frozen schema registration, or a conflicting existing revision.
+    /// Returns an error for backend failure, revision/generation range overflow,
+    /// missing frozen schema registration, non-monotonic revision, entity-kind
+    /// drift, or a stale Node generation.
     pub fn insert(&self, record: &CanonicalRecord) -> Result<(), LedgerError> {
         let transaction = self
             .transaction
@@ -403,17 +411,61 @@ impl LedgerWrite<'_> {
             });
         }
 
+        let retained: Option<(String, i64)> = transaction
+            .query_row(
+                "SELECT entity_kind, record_revision FROM ptah_entity_records                  WHERE entity_id = ?1 ORDER BY record_revision DESC LIMIT 1",
+                params![record.entity_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        if let Some((retained_kind, retained_revision)) = retained {
+            if retained_kind != record.entity_kind.as_str() {
+                return Err(LedgerError::EntityKindDrift {
+                    entity_id: record.entity_id.to_string(),
+                    retained: retained_kind,
+                    attempted: record.entity_kind.as_str().to_owned(),
+                });
+            }
+            let current_revision = sql_revision(retained_revision)?.value();
+            if record.record_revision.value() <= current_revision {
+                return Err(LedgerError::NonMonotonicRevision {
+                    attempted: record.record_revision.value(),
+                    current: current_revision,
+                });
+            }
+        }
+
+        let node_generation = record.node_generation.map(generation_to_sql).transpose()?;
+        if let Some(requested_generation) = record.node_generation {
+            let retained_generation: Option<i64> = transaction.query_row(
+                "SELECT MAX(node_generation) FROM ptah_entity_records WHERE entity_id = ?1",
+                params![record.entity_id.to_string()],
+                |row| row.get(0),
+            )?;
+            if let Some(retained_generation) = retained_generation {
+                let current_generation = sql_generation(retained_generation)?;
+                if requested_generation < current_generation {
+                    return Err(LedgerError::StaleNodeGeneration {
+                        requested: requested_generation.value(),
+                        current: current_generation.value(),
+                        stable_outcome_code: STALE_NODE_GENERATION_CODE,
+                    });
+                }
+            }
+        }
+
+        let authority_ref_json = serde_json::to_string(record.authority_ref())?;
         let document_json = serde_json::to_string(record.document())?;
         transaction.execute(
-            "INSERT INTO ptah_entity_records \
-             (entity_id, record_revision, entity_kind, schema_id, schema_version, document_json) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO ptah_entity_records              (entity_id, record_revision, entity_kind, schema_id, schema_version, authority_ref_json, node_generation, document_json)              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 record.entity_id.to_string(),
                 revision,
                 record.entity_kind.as_str(),
                 record.schema_id,
                 record.schema_version,
+                authority_ref_json,
+                node_generation,
                 document_json,
             ],
         )?;
@@ -545,12 +597,52 @@ pub enum LedgerError {
     /// A stored JSON document disagrees with its canonical index columns.
     #[error("stored canonical record index/document mismatch: {0}")]
     StoredRecordMismatch(&'static str),
+    /// A Node generation cannot be represented by `SQLite`'s signed integer.
+    #[error("node generation {0} exceeds SQLite INTEGER range")]
+    NodeGenerationOutOfRange(u64),
+    /// A canonical entity attempted to change kind across revisions.
+    #[error("entity kind drift for {entity_id}: retained {retained}, attempted {attempted}")]
+    EntityKindDrift {
+        /// Canonical entity identity whose kind would drift.
+        entity_id: String,
+        /// Retained entity kind.
+        retained: String,
+        /// Attempted replacement kind.
+        attempted: String,
+    },
+    /// A revision is not strictly greater than the retained latest revision.
+    #[error("non-monotonic record revision: attempted {attempted}, current {current}")]
+    NonMonotonicRevision {
+        /// Attempted canonical record revision.
+        attempted: u64,
+        /// Greatest retained canonical record revision.
+        current: u64,
+    },
+    /// A write came from an older Node generation than the durable ledger truth.
+    #[error("{stable_outcome_code}: stale node generation requested={requested} current={current}")]
+    StaleNodeGeneration {
+        /// Generation carried by the rejected record.
+        requested: u64,
+        /// Greatest durable generation already retained for the Node.
+        current: u64,
+        /// Stable machine-readable fail-closed outcome code.
+        stable_outcome_code: &'static str,
+    },
     /// A write transaction has already been committed or rolled back.
     #[error("ledger write transaction already finished")]
     TransactionAlreadyFinished,
 }
 
-type RawRecord = (String, String, String, String, i64, String);
+type RawRecord = (
+    String,
+    String,
+    String,
+    String,
+    i64,
+    String,
+    Option<i64>,
+    String,
+);
 
 fn required_string<'value>(
     object: &'value serde_json::Map<String, Value>,
@@ -843,6 +935,19 @@ fn sql_non_negative(field: &'static str, value: i64) -> Result<u64, LedgerError>
     u64::try_from(value).map_err(|_| LedgerError::InvalidDatabaseInteger { field, value })
 }
 
+fn generation_to_sql(generation: NodeGeneration) -> Result<i64, LedgerError> {
+    i64::try_from(generation.value())
+        .map_err(|_| LedgerError::NodeGenerationOutOfRange(generation.value()))
+}
+
+fn sql_generation(value: i64) -> Result<NodeGeneration, LedgerError> {
+    let unsigned = u64::try_from(value).map_err(|_| LedgerError::InvalidDatabaseInteger {
+        field: "node_generation",
+        value,
+    })?;
+    Ok(NodeGeneration::new(unsigned))
+}
+
 fn raw_record_from_row(row: &Row<'_>) -> rusqlite::Result<RawRecord> {
     Ok((
         row.get(0)?,
@@ -851,14 +956,27 @@ fn raw_record_from_row(row: &Row<'_>) -> rusqlite::Result<RawRecord> {
         row.get(3)?,
         row.get(4)?,
         row.get(5)?,
+        row.get(6)?,
+        row.get(7)?,
     ))
 }
 
 fn decode_stored_record(raw: RawRecord) -> Result<CanonicalRecord, LedgerError> {
-    let (entity_id, entity_kind, schema_id, schema_version, revision, document_json) = raw;
+    let (
+        entity_id,
+        entity_kind,
+        schema_id,
+        schema_version,
+        revision,
+        authority_ref_json,
+        node_generation,
+        document_json,
+    ) = raw;
     let document: Value = serde_json::from_str(&document_json)?;
     let record = CanonicalRecord::from_document(document)?;
     let indexed_revision = sql_revision(revision)?;
+    let indexed_authority: EntityRef = serde_json::from_str(&authority_ref_json)?;
+    let indexed_generation = node_generation.map(sql_generation).transpose()?;
     if record.entity_id.to_string() != entity_id {
         return Err(LedgerError::StoredRecordMismatch("entity_id"));
     }
@@ -874,6 +992,12 @@ fn decode_stored_record(raw: RawRecord) -> Result<CanonicalRecord, LedgerError> 
     if record.record_revision != indexed_revision {
         return Err(LedgerError::StoredRecordMismatch("record_revision"));
     }
+    if record.authority_ref != indexed_authority {
+        return Err(LedgerError::StoredRecordMismatch("authority_ref"));
+    }
+    if record.node_generation != indexed_generation {
+        return Err(LedgerError::StoredRecordMismatch("node_generation"));
+    }
     Ok(record)
 }
 
@@ -883,6 +1007,7 @@ mod tests {
     use serde_json::json;
     use std::{
         ffi::OsString,
+        fmt::Write as _,
         fs,
         path::PathBuf,
         process,
@@ -890,8 +1015,8 @@ mod tests {
     };
 
     static NEXT_DB: AtomicU64 = AtomicU64::new(0);
-    const KNOWN_SCHEMA_ID: &str = "urn:ptah:schema:common:entity-envelope:0.1.0";
-    const KNOWN_SCHEMA_VERSION: &str = "0.1.0";
+    const NODE_SCHEMA_ID: &str = "urn:ptah:schema:runtime:node:0.1.0";
+    const NODE_SCHEMA_VERSION: &str = "0.1.0";
 
     struct TempDb(PathBuf);
 
@@ -920,16 +1045,29 @@ mod tests {
         }
     }
 
-    fn record(entity_id: EntityId, revision: u64, payload: &str) -> CanonicalRecord {
+    fn authority_ref() -> EntityRef {
+        EntityRef::new("identity.principal").expect("canonical authority ref")
+    }
+
+    fn node_record(
+        entity_id: EntityId,
+        revision: u64,
+        generation: u64,
+        payload: &str,
+    ) -> CanonicalRecord {
         CanonicalRecord::from_document(json!({
-            "entity_id": entity_id.to_string(),
-            "entity_kind": "core.node",
-            "schema_id": KNOWN_SCHEMA_ID,
-            "schema_version": KNOWN_SCHEMA_VERSION,
-            "record_revision": revision,
+            "envelope": {
+                "entity_id": entity_id.to_string(),
+                "entity_kind": "core.node",
+                "schema_id": NODE_SCHEMA_ID,
+                "schema_version": NODE_SCHEMA_VERSION,
+                "record_revision": revision,
+                "authority_ref": authority_ref(),
+            },
+            "node_generation": generation,
             "test_payload": payload,
         }))
-        .expect("construct canonical test record")
+        .expect("construct canonical Node test record")
     }
 
     fn schema_fingerprint(connection: &Connection) -> String {
@@ -951,12 +1089,7 @@ mod tests {
             .expect("query schema fingerprint");
         for row in rows {
             let (kind, name, sql) = row.expect("schema fingerprint row");
-            material.push_str(&kind);
-            material.push('|');
-            material.push_str(&name);
-            material.push('|');
-            material.push_str(&sql);
-            material.push('\n');
+            writeln!(&mut material, "{kind}|{name}|{sql}").expect("write schema fingerprint");
         }
 
         let mut statement = connection
@@ -977,7 +1110,8 @@ mod tests {
             .expect("query migration fingerprint");
         for row in rows {
             let (version, name, up, down) = row.expect("migration fingerprint row");
-            material.push_str(&format!("{version}|{name}|{up}|{down}\n"));
+            writeln!(&mut material, "{version}|{name}|{up}|{down}")
+                .expect("write migration fingerprint");
         }
 
         let mut statement = connection
@@ -1001,11 +1135,65 @@ mod tests {
         for row in rows {
             let (id, version, catalog, digest, path, maturity) =
                 row.expect("registry fingerprint row");
-            material.push_str(&format!(
-                "{id}|{version}|{catalog}|{digest}|{path}|{maturity}\n"
-            ));
+            writeln!(
+                &mut material,
+                "{id}|{version}|{catalog}|{digest}|{path}|{maturity}"
+            )
+            .expect("write registry fingerprint");
         }
         sha256_hex(material.as_bytes())
+    }
+
+    #[test]
+    fn migration_sql_is_committed_execution_authority() {
+        assert_eq!(
+            migration_for(1).expect("migration 1").up_sql,
+            include_str!("../migrations/0001_ledger_core.up.sql")
+        );
+        assert_eq!(
+            migration_for(1).expect("migration 1").down_sql,
+            include_str!("../migrations/0001_ledger_core.down.sql")
+        );
+        assert_eq!(
+            migration_for(2).expect("migration 2").up_sql,
+            include_str!("../migrations/0002_entity_records.up.sql")
+        );
+        assert_eq!(
+            migration_for(2).expect("migration 2").down_sql,
+            include_str!("../migrations/0002_entity_records.down.sql")
+        );
+    }
+
+    #[test]
+    fn nested_frozen_envelope_is_indexed_canonically() {
+        let id = EntityId::new_v7();
+        let record = node_record(id, 1, 4, "nested");
+        assert_eq!(record.entity_id(), id);
+        assert_eq!(record.entity_kind().as_str(), "core.node");
+        assert_eq!(record.node_generation(), Some(NodeGeneration::new(4)));
+        assert_eq!(
+            record.authority_ref().entity_kind.as_str(),
+            "identity.principal"
+        );
+    }
+
+    #[test]
+    fn missing_authority_provenance_is_rejected() {
+        let id = EntityId::new_v7();
+        let result = CanonicalRecord::from_document(json!({
+            "envelope": {
+                "entity_id": id.to_string(),
+                "entity_kind": "core.node",
+                "schema_id": NODE_SCHEMA_ID,
+                "schema_version": NODE_SCHEMA_VERSION,
+                "record_revision": 1
+            },
+            "node_generation": 0
+        }));
+        assert!(matches!(
+            result,
+            Err(LedgerError::MissingDocumentField("authority_ref"))
+        ));
     }
 
     #[test]
@@ -1021,10 +1209,10 @@ mod tests {
     }
 
     #[test]
-    fn restart_preserves_canonical_records() {
+    fn restart_preserves_canonical_records_and_provenance() {
         let db = TempDb::new();
         let entity_id = EntityId::new_v7();
-        let expected = record(entity_id, 1, "durable");
+        let expected = node_record(entity_id, 1, 0, "durable");
         {
             let mut ledger = Ledger::open(db.path()).expect("open ledger");
             let write = ledger.begin_write().expect("begin write");
@@ -1040,13 +1228,14 @@ mod tests {
             .expect("read record")
             .expect("record retained");
         assert_eq!(observed, expected);
+        assert_eq!(observed.authority_ref(), expected.authority_ref());
     }
 
     #[test]
     fn dropped_write_transaction_cannot_manufacture_success() {
         let db = TempDb::new();
         let entity_id = EntityId::new_v7();
-        let candidate = record(entity_id, 1, "uncommitted");
+        let candidate = node_record(entity_id, 1, 0, "uncommitted");
         {
             let mut ledger = Ledger::open(db.path()).expect("open ledger");
             {
@@ -1070,6 +1259,85 @@ mod tests {
     }
 
     #[test]
+    fn stale_generation_write_fails_closed_with_stable_outcome() {
+        let db = TempDb::new();
+        let entity_id = EntityId::new_v7();
+        let mut ledger = Ledger::open(db.path()).expect("open ledger");
+        {
+            let write = ledger.begin_write().expect("begin write");
+            write
+                .insert(&node_record(entity_id, 1, 3, "current"))
+                .expect("insert generation 3");
+            write.commit().expect("commit generation 3");
+        }
+        {
+            let write = ledger.begin_write().expect("begin stale write");
+            let error = write
+                .insert(&node_record(entity_id, 2, 2, "stale"))
+                .expect_err("older generation must fail");
+            assert!(matches!(
+                error,
+                LedgerError::StaleNodeGeneration {
+                    requested: 2,
+                    current: 3,
+                    stable_outcome_code: STALE_NODE_GENERATION_CODE
+                }
+            ));
+        }
+        assert_eq!(
+            ledger
+                .revisions(entity_id)
+                .expect("retained revisions")
+                .iter()
+                .map(|value| value.value())
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+    }
+
+    #[test]
+    fn same_or_newer_generation_can_advance_revision() {
+        let db = TempDb::new();
+        let entity_id = EntityId::new_v7();
+        let mut ledger = Ledger::open(db.path()).expect("open ledger");
+        for (revision, generation) in [(1, 0), (2, 0), (3, 1)] {
+            let write = ledger.begin_write().expect("begin write");
+            write
+                .insert(&node_record(entity_id, revision, generation, "advance"))
+                .expect("insert monotonic generation/revision");
+            write.commit().expect("commit record");
+        }
+        assert_eq!(
+            ledger
+                .latest_record(entity_id)
+                .expect("latest")
+                .expect("record")
+                .node_generation(),
+            Some(NodeGeneration::new(1))
+        );
+    }
+
+    #[test]
+    fn non_monotonic_revision_fails_before_sqlite_conflict() {
+        let db = TempDb::new();
+        let entity_id = EntityId::new_v7();
+        let mut ledger = Ledger::open(db.path()).expect("open ledger");
+        let write = ledger.begin_write().expect("first write");
+        write
+            .insert(&node_record(entity_id, 2, 0, "first"))
+            .expect("insert revision 2");
+        write.commit().expect("commit revision 2");
+        let write = ledger.begin_write().expect("old revision write");
+        assert!(matches!(
+            write.insert(&node_record(entity_id, 1, 0, "old")),
+            Err(LedgerError::NonMonotonicRevision {
+                attempted: 1,
+                current: 2
+            })
+        ));
+    }
+
+    #[test]
     fn migration_replay_is_deterministic() {
         let first = TempDb::new();
         let second = TempDb::new();
@@ -1079,14 +1347,12 @@ mod tests {
         let first_reopened = Ledger::open(first.path()).expect("reopen first migrated ledger");
         assert_eq!(
             schema_fingerprint(&first_reopened.connection),
-            first_fingerprint,
-            "reopening must not mutate an already-applied migration set"
+            first_fingerprint
         );
         let second_ledger = Ledger::open(second.path()).expect("second migration replay");
         assert_eq!(
             schema_fingerprint(&second_ledger.connection),
-            first_fingerprint,
-            "independent migration replay must be deterministic"
+            first_fingerprint
         );
     }
 
@@ -1100,20 +1366,20 @@ mod tests {
         let mut connection = Connection::open(db.path()).expect("open raw database");
         connection
             .execute_batch("PRAGMA foreign_keys = ON;")
-            .expect("enable foreign keys");
+            .expect("foreign keys");
         let migration = migration_for(2).expect("migration 2");
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .expect("begin directional migration");
         transaction
             .execute_batch(migration.down_sql)
-            .expect("apply immutable down migration");
+            .expect("apply down migration");
         transaction
             .execute("DELETE FROM ptah_migration_history WHERE version = 2", [])
-            .expect("remove migration 2 evidence for replay");
+            .expect("delete migration history");
         transaction
             .execute_batch("PRAGMA user_version = 1;")
-            .expect("set downgraded version");
+            .expect("set version 1");
         transaction.commit().expect("commit down migration");
         drop(connection);
 
@@ -1129,7 +1395,6 @@ mod tests {
             .execute_batch("PRAGMA user_version = 3;")
             .expect("mark future version");
         drop(connection);
-
         assert!(matches!(
             Ledger::open(db.path()),
             Err(LedgerError::IncompatibleDatabaseVersion {
@@ -1137,36 +1402,59 @@ mod tests {
                 supported: 2
             })
         ));
-        let connection = Connection::open(db.path()).expect("inspect rejected future database");
-        assert_eq!(
-            read_user_version(&connection).expect("future user version"),
-            3
-        );
-        let ptah_table_count: i64 = connection
+        let connection = Connection::open(db.path()).expect("inspect future database");
+        assert_eq!(read_user_version(&connection).expect("future version"), 3);
+        let count: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name LIKE 'ptah_%'",
                 [],
                 |row| row.get(0),
             )
-            .expect("count Ptah tables");
-        assert_eq!(ptah_table_count, 0);
+            .expect("count tables");
+        assert_eq!(count, 0);
     }
 
     #[test]
     fn migration_history_tamper_fails_closed() {
         let db = TempDb::new();
         drop(Ledger::open(db.path()).expect("open ledger"));
-        let connection = Connection::open(db.path()).expect("open raw database");
+        let connection = Connection::open(db.path()).expect("raw database");
         connection
             .execute(
                 "UPDATE ptah_migration_history SET up_sha256 = 'tampered' WHERE version = 1",
                 [],
             )
-            .expect("tamper migration history");
+            .expect("tamper history");
         drop(connection);
         assert!(matches!(
             Ledger::open(db.path()),
             Err(LedgerError::MigrationHistoryMismatch { version: 1, .. })
+        ));
+    }
+
+    #[test]
+    fn authority_index_tamper_is_detected_on_read() {
+        let db = TempDb::new();
+        let entity_id = EntityId::new_v7();
+        let mut ledger = Ledger::open(db.path()).expect("open ledger");
+        let write = ledger.begin_write().expect("begin write");
+        write
+            .insert(&node_record(entity_id, 1, 0, "authority"))
+            .expect("insert");
+        write.commit().expect("commit");
+        let wrong =
+            serde_json::to_string(&EntityRef::new("identity.principal").expect("other authority"))
+                .expect("serialize");
+        ledger
+            .connection
+            .execute(
+                "UPDATE ptah_entity_records SET authority_ref_json = ?1 WHERE entity_id = ?2",
+                params![wrong, entity_id.to_string()],
+            )
+            .expect("tamper authority index");
+        assert!(matches!(
+            ledger.latest_record(entity_id),
+            Err(LedgerError::StoredRecordMismatch("authority_ref"))
         ));
     }
 
@@ -1180,14 +1468,10 @@ mod tests {
                 .prepare("SELECT rowid FROM ptah_entity_records")
                 .is_err()
         );
-        let sql: String = ledger
-            .connection
-            .query_row(
-                "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'ptah_entity_records'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("entity table SQL");
+        let sql: String = ledger.connection.query_row(
+            "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'ptah_entity_records'",
+            [], |row| row.get(0)
+        ).expect("entity table SQL");
         assert!(sql.contains("WITHOUT ROWID"));
     }
 
@@ -1195,36 +1479,17 @@ mod tests {
     fn unknown_schema_pair_is_rejected_before_storage() {
         let entity_id = EntityId::new_v7();
         let result = CanonicalRecord::from_document(json!({
-            "entity_id": entity_id.to_string(),
-            "entity_kind": "core.node",
-            "schema_id": "urn:ptah:schema:common:not-real:9.9.9",
-            "schema_version": "9.9.9",
-            "record_revision": 1,
+            "envelope": {
+                "entity_id": entity_id.to_string(),
+                "entity_kind": "core.node",
+                "schema_id": "urn:ptah:schema:runtime:not-real:9.9.9",
+                "schema_version": "9.9.9",
+                "record_revision": 1,
+                "authority_ref": authority_ref()
+            },
+            "node_generation": 0
         }));
         assert!(matches!(result, Err(LedgerError::UnknownSchema { .. })));
-    }
-
-    #[test]
-    fn duplicate_revision_cannot_overwrite_committed_record() {
-        let db = TempDb::new();
-        let entity_id = EntityId::new_v7();
-        let first = record(entity_id, 1, "first");
-        let replacement = record(entity_id, 1, "replacement");
-        let mut ledger = Ledger::open(db.path()).expect("open ledger");
-        {
-            let write = ledger.begin_write().expect("begin first write");
-            write.insert(&first).expect("insert first record");
-            write.commit().expect("commit first record");
-        }
-        {
-            let write = ledger.begin_write().expect("begin conflicting write");
-            assert!(write.insert(&replacement).is_err());
-        }
-        let observed = ledger
-            .latest_record(entity_id)
-            .expect("read latest")
-            .expect("first record remains");
-        assert_eq!(observed, first);
     }
 
     #[test]
@@ -1233,14 +1498,16 @@ mod tests {
         let entity_id = EntityId::new_v7();
         let mut ledger = Ledger::open(db.path()).expect("open ledger");
         for revision in [1, 2, 3] {
-            let candidate = record(entity_id, revision, "revision");
             let write = ledger.begin_write().expect("begin revision write");
-            write.insert(&candidate).expect("insert revision");
-            write.commit().expect("commit revision");
+            write
+                .insert(&node_record(entity_id, revision, 0, "revision"))
+                .expect("insert");
+            write.commit().expect("commit");
         }
-        let revisions = ledger.revisions(entity_id).expect("list revisions");
         assert_eq!(
-            revisions
+            ledger
+                .revisions(entity_id)
+                .expect("list revisions")
                 .iter()
                 .map(|revision| revision.value())
                 .collect::<Vec<_>>(),

@@ -1,0 +1,3 @@
+DROP INDEX ptah_entity_records_generation_index;
+DROP INDEX ptah_entity_records_kind_index;
+DROP TABLE ptah_entity_records;

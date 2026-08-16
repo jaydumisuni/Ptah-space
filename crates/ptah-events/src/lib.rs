@@ -8,7 +8,10 @@
 use ptah_identifiers::{EntityId, EntityRef, IdentifierError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 use thiserror::Error;
 use tokio::sync::broadcast;
 
@@ -117,7 +120,8 @@ impl EventPayload {
                 }
             }
             PayloadClass::None => {
-                if self.inline.is_some() || self.payload_ref.is_some() || self.stream_ref.is_some() {
+                if self.inline.is_some() || self.payload_ref.is_some() || self.stream_ref.is_some()
+                {
                     return Err(EventError::InvalidPayload);
                 }
             }
@@ -174,23 +178,33 @@ pub struct Event {
 impl Event {
     /// Canonical Event identity.
     #[must_use]
-    pub const fn id(&self) -> EntityId { self.id }
+    pub const fn id(&self) -> EntityId {
+        self.id
+    }
 
     /// Monotonic sequence within the declared sequence scope.
     #[must_use]
-    pub const fn sequence(&self) -> u64 { self.sequence }
+    pub const fn sequence(&self) -> u64 {
+        self.sequence
+    }
 
     /// Event type.
     #[must_use]
-    pub fn event_type(&self) -> &str { &self.event_type }
+    pub fn event_type(&self) -> &str {
+        &self.event_type
+    }
 
     /// Event class.
     #[must_use]
-    pub const fn event_class(&self) -> EventClass { self.event_class }
+    pub const fn event_class(&self) -> EventClass {
+        self.event_class
+    }
 
     /// Exact Receipt reference for proof notifications.
     #[must_use]
-    pub const fn receipt_ref(&self) -> Option<&EntityRef> { self.receipt_ref.as_ref() }
+    pub const fn receipt_ref(&self) -> Option<&EntityRef> {
+        self.receipt_ref.as_ref()
+    }
 
     /// Render the frozen canonical Event document for durable journaling.
     #[must_use]
@@ -218,12 +232,18 @@ impl Event {
             "payload_class": self.payload.class,
             "extensions": {},
         });
-        let object = document.as_object_mut().expect("Event document is an object");
+        let object = document
+            .as_object_mut()
+            .expect("Event document is an object");
         insert_ref(object, "activity_ref", self.activity_ref.as_ref());
         insert_ref(object, "operation_ref", self.operation_ref.as_ref());
         insert_ref(object, "attempt_ref", self.attempt_ref.as_ref());
         insert_ref(object, "receipt_ref", self.receipt_ref.as_ref());
-        insert_ref(object, "payload_type_ref", self.payload.payload_type_ref.as_ref());
+        insert_ref(
+            object,
+            "payload_type_ref",
+            self.payload.payload_type_ref.as_ref(),
+        );
         insert_ref(object, "payload_ref", self.payload.payload_ref.as_ref());
         insert_ref(object, "stream_ref", self.payload.stream_ref.as_ref());
         if let Some(value) = &self.payload.schema_id {
@@ -265,7 +285,9 @@ impl EventBus {
 
     /// Subscribe to future Events. Retained Events are available through [`Self::replay`].
     #[must_use]
-    pub fn subscribe(&self) -> broadcast::Receiver<Event> { self.sender.subscribe() }
+    pub fn subscribe(&self) -> broadcast::Receiver<Event> {
+        self.sender.subscribe()
+    }
 
     /// Emit one validated Event and assign its monotonic per-scope sequence.
     ///
@@ -302,23 +324,36 @@ impl EventBus {
     /// Replay retained Events for one sequence scope from `from_sequence`, inclusive.
     pub fn replay(&self, scope: EntityId, from_sequence: u64) -> Result<Vec<Event>, EventError> {
         let state = self.state.lock().map_err(|_| EventError::Poisoned)?;
-        Ok(state.history.iter()
-            .filter(|event| event.sequence_scope_ref.entity_id == scope && event.sequence >= from_sequence)
+        Ok(state
+            .history
+            .iter()
+            .filter(|event| {
+                event.sequence_scope_ref.entity_id == scope && event.sequence >= from_sequence
+            })
             .cloned()
             .collect())
     }
 
     /// Total retained Event count.
     pub fn len(&self) -> Result<usize, EventError> {
-        Ok(self.state.lock().map_err(|_| EventError::Poisoned)?.history.len())
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| EventError::Poisoned)?
+            .history
+            .len())
     }
 
     /// Whether no Events have been retained.
-    pub fn is_empty(&self) -> Result<bool, EventError> { Ok(self.len()? == 0) }
+    pub fn is_empty(&self) -> Result<bool, EventError> {
+        Ok(self.len()? == 0)
+    }
 }
 
 impl Default for EventBus {
-    fn default() -> Self { Self::new(256) }
+    fn default() -> Self {
+        Self::new(256)
+    }
 }
 
 /// Event construction/stream failures.
@@ -351,7 +386,9 @@ pub enum EventError {
 }
 
 fn validate_spec(spec: &EventSpec) -> Result<(), EventError> {
-    if !valid_namespaced(&spec.event_type) { return Err(EventError::InvalidEventType); }
+    if !valid_namespaced(&spec.event_type) {
+        return Err(EventError::InvalidEventType);
+    }
     if spec.attempt_ref.is_some() && (spec.operation_ref.is_none() || spec.activity_ref.is_none()) {
         return Err(EventError::MissingAttemptHierarchy);
     }
@@ -366,14 +403,19 @@ fn validate_spec(spec: &EventSpec) -> Result<(), EventError> {
 
 fn valid_namespaced(value: &str) -> bool {
     let parts: Vec<_> = value.split('.').collect();
-    parts.len() >= 2 && parts.iter().all(|part| {
-        let mut chars = part.chars();
-        chars.next().is_some_and(|first| first.is_ascii_lowercase())
-            && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '_' | '-'))
-    })
+    parts.len() >= 2
+        && parts.iter().all(|part| {
+            let mut chars = part.chars();
+            chars.next().is_some_and(|first| first.is_ascii_lowercase())
+                && chars.all(|ch| {
+                    ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '_' | '-')
+                })
+        })
 }
 
-fn event_domain(event_type: &str) -> &str { event_type.split('.').next().unwrap_or("event") }
+fn event_domain(event_type: &str) -> &str {
+    event_type.split('.').next().unwrap_or("event")
+}
 
 fn retention_class(class: EventClass) -> &'static str {
     match class {
@@ -414,14 +456,18 @@ fn entity_envelope(
 }
 
 fn insert_ref(object: &mut serde_json::Map<String, Value>, key: &str, value: Option<&EntityRef>) {
-    if let Some(value) = value { object.insert(key.to_owned(), json!(value)); }
+    if let Some(value) = value {
+        object.insert(key.to_owned(), json!(value));
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn reference(kind: &str) -> EntityRef { EntityRef::new(kind).expect("valid reference") }
+    fn reference(kind: &str) -> EntityRef {
+        EntityRef::new(kind).expect("valid reference")
+    }
 
     fn basic_spec() -> EventSpec {
         EventSpec {

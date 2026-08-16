@@ -282,11 +282,7 @@ impl ReceiptStore {
 
     /// Number of retained immutable Receipts.
     pub fn len(&self) -> Result<usize, ReceiptError> {
-        Ok(self
-            .inner
-            .read()
-            .map_err(|_| ReceiptError::Poisoned)?
-            .len())
+        Ok(self.inner.read().map_err(|_| ReceiptError::Poisoned)?.len())
     }
 
     /// Whether no Receipt has been retained.
@@ -352,7 +348,8 @@ fn validate_spec(spec: &ReceiptSpec) -> Result<(), ReceiptError> {
     if spec.summary.trim().is_empty() || spec.summary.len() > 8192 {
         return Err(ReceiptError::EmptySummary);
     }
-    if spec.context.producer_version.trim().is_empty() || spec.context.producer_version.len() > 256 {
+    if spec.context.producer_version.trim().is_empty() || spec.context.producer_version.len() > 256
+    {
         return Err(ReceiptError::EmptyProducerVersion);
     }
     if spec

@@ -1,7 +1,7 @@
 use ptah_identifiers::{EntityId, EntityRef};
 use ptah_receipts::{
-    AuthorityClass, ProofLevel, Receipt, ReceiptError, ReceiptKind, ReceiptOutcome, ReceiptSpec,
-    ReceiptStore, ReceiptContext,
+    AuthorityClass, ProofLevel, Receipt, ReceiptContext, ReceiptError, ReceiptKind, ReceiptOutcome,
+    ReceiptSpec, ReceiptStore,
 };
 
 fn reference(kind: &str) -> EntityRef {

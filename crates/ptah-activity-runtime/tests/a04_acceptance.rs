@@ -81,9 +81,7 @@ fn setup_attempt(runtime: &ActivityRuntime) -> (EntityId, EntityId, EntityId) {
         .expect("Attempt");
     runtime.dispatch_attempt(attempt).expect("dispatch");
     runtime.accept_attempt(attempt).expect("accept");
-    runtime
-        .begin_attempt_execution(attempt)
-        .expect("execution");
+    runtime.begin_attempt_execution(attempt).expect("execution");
     (activity, operation, attempt)
 }
 
@@ -140,7 +138,11 @@ fn ten_independent_activities_are_admitted_without_cross_collapse() {
     assert_eq!(runtime.running_count().expect("running"), 10);
     for id in ids {
         assert_eq!(
-            runtime.activity(id).expect("query").expect("Activity").state(),
+            runtime
+                .activity(id)
+                .expect("query")
+                .expect("Activity")
+                .state(),
             ActivityState::Running
         );
     }
@@ -206,9 +208,15 @@ fn acknowledgement_and_attempt_completion_do_not_skip_operation_acceptance() {
             vec![ProofLevel::OperationCompleted],
         ))
         .expect("proof");
-    runtime.complete_attempt(attempt, proof).expect("Attempt complete");
+    runtime
+        .complete_attempt(attempt, proof)
+        .expect("Attempt complete");
     assert_eq!(
-        runtime.attempt(attempt).expect("query").expect("Attempt").state(),
+        runtime
+            .attempt(attempt)
+            .expect("query")
+            .expect("Attempt")
+            .state(),
         AttemptState::Completed
     );
     assert_eq!(
@@ -258,7 +266,11 @@ fn cancellation_is_scoped_and_cancelled_work_remains_queryable() {
         .expect("cancel first");
 
     assert_eq!(
-        runtime.activity(first).expect("query").expect("first").state(),
+        runtime
+            .activity(first)
+            .expect("query")
+            .expect("first")
+            .state(),
         ActivityState::Cancelled
     );
     assert_eq!(
@@ -333,7 +345,13 @@ fn conflicting_worker_outputs_remain_visible_until_explicit_acceptance() {
         .complete_worker(formation_id, slots[1].id, right)
         .expect("right");
 
-    assert_eq!(runtime.worker_conflicts(formation_id).expect("conflicts").len(), 1);
+    assert_eq!(
+        runtime
+            .worker_conflicts(formation_id)
+            .expect("conflicts")
+            .len(),
+        1
+    );
     assert!(
         runtime
             .worker_formation(formation_id)
@@ -362,7 +380,9 @@ fn repeated_failures_emit_advisory_without_self_starting_new_activity() {
     for _ in 0..3 {
         let (activity, _, attempt) = setup_attempt(&runtime);
         last_activity = Some(activity);
-        runtime.fail_attempt(attempt, "PTAH_REPEATED").expect("fail");
+        runtime
+            .fail_attempt(attempt, "PTAH_REPEATED")
+            .expect("fail");
     }
 
     assert_eq!(runtime.activity_count().expect("count"), 3);

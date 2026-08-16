@@ -87,15 +87,16 @@ fn abrupt_process_death_does_not_publish_uncommitted_truth() {
     let entity_id = EntityId::new_v7();
     drop(Ledger::open(db.path()).expect("initialize crash-test ledger"));
 
-    let status = Command::new(std::env::current_exe().expect("current integration-test executable"))
-        .arg("--exact")
-        .arg("crash_writer_helper")
-        .arg("--nocapture")
-        .current_dir(std::env::temp_dir())
-        .env(CRASH_DB_ENV, db.path())
-        .env(CRASH_ENTITY_ENV, entity_id.to_string())
-        .status()
-        .expect("launch abrupt-crash child");
+    let status =
+        Command::new(std::env::current_exe().expect("current integration-test executable"))
+            .arg("--exact")
+            .arg("crash_writer_helper")
+            .arg("--nocapture")
+            .current_dir(std::env::temp_dir())
+            .env(CRASH_DB_ENV, db.path())
+            .env(CRASH_ENTITY_ENV, entity_id.to_string())
+            .status()
+            .expect("launch abrupt-crash child");
     assert!(
         !status.success(),
         "crash-helper child must terminate abruptly rather than return normally"
@@ -109,6 +110,12 @@ fn abrupt_process_death_does_not_publish_uncommitted_truth() {
             .is_none(),
         "an uncommitted canonical row must not survive process death"
     );
-    assert_eq!(ledger.schema_version().expect("schema version after crash"), 2);
-    assert_eq!(ledger.journal_mode().expect("journal mode after crash"), "wal");
+    assert_eq!(
+        ledger.schema_version().expect("schema version after crash"),
+        2
+    );
+    assert_eq!(
+        ledger.journal_mode().expect("journal mode after crash"),
+        "wal"
+    );
 }

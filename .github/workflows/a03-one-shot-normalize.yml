@@ -28,7 +28,7 @@ jobs:
         run: |
           set -euo pipefail
           git show origin/main:Cargo.lock > Cargo.lock
-          cargo metadata --offline --format-version 1 > /tmp/a03-cargo-metadata.json
+          cargo metadata --format-version 1 > /tmp/a03-cargo-metadata.json
           python3 tools/check_a01_scaffold.py --repo-root . --output /tmp/a01-invariant.json
 
       - name: Harden fail-closed open and frozen metadata behavior

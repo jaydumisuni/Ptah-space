@@ -174,6 +174,7 @@ pub struct OperationSpec {
     pub required_authority_refs: Vec<EntityRef>,
     pub precondition_refs: Vec<EntityRef>,
     pub desired_proof_refs: Vec<EntityRef>,
+    pub compensating_operation_ref: Option<EntityRef>,
 }
 
 /// Fixed physical execution context for one Attempt.
@@ -406,7 +407,8 @@ struct RuntimeState {
     failure_correlation: HashMap<String, u32>,
 }
 
-type Clock = Arc<dyn Fn() -> String + Send + Sync>;
+/// Caller-supplied UTC clock authority used to stamp canonical A04 records.
+pub type RuntimeClock = Arc<dyn Fn() -> String + Send + Sync>;
 
 /// A04 orchestration runtime.
 pub struct ActivityRuntime {
@@ -414,7 +416,7 @@ pub struct ActivityRuntime {
     events: EventBus,
     receipts: ReceiptStore,
     journal: Arc<dyn RuntimeJournal>,
-    clock: Clock,
+    clock: RuntimeClock,
     max_concurrency: usize,
 }
 
@@ -426,7 +428,7 @@ impl ActivityRuntime {
     pub fn new(
         max_concurrency: usize,
         journal: Arc<dyn RuntimeJournal>,
-        clock: Clock,
+        clock: RuntimeClock,
     ) -> Result<Self, RuntimeError> {
         if max_concurrency == 0 { return Err(RuntimeError::InvalidConcurrencyLimit); }
         Ok(Self {
@@ -528,6 +530,16 @@ impl ActivityRuntime {
         if spec.logical_target_refs.is_empty() { return Err(RuntimeError::MissingLogicalTarget); }
         if spec.idempotency_class.requires_key() && spec.idempotency_key.as_deref().is_none_or(str::is_empty) {
             return Err(RuntimeError::MissingIdempotencyKey);
+        }
+        if let Some(key) = &spec.idempotency_key {
+            if !(8..=512).contains(&key.len()) {
+                return Err(RuntimeError::InvalidIdempotencyKey);
+            }
+        }
+        if spec.retry_class == RetryClass::CompensatingActionRequired
+            && spec.compensating_operation_ref.is_none()
+        {
+            return Err(RuntimeError::MissingCompensatingOperation);
         }
         let activity = self.activity_required(activity_id)?;
         if activity.state.terminal() { return Err(RuntimeError::ParentActivityTerminal); }
@@ -1206,6 +1218,10 @@ pub enum RuntimeError {
     MissingLogicalTarget,
     #[error("declared idempotency class requires a key")]
     MissingIdempotencyKey,
+    #[error("idempotency key must contain 8..=512 characters")]
+    InvalidIdempotencyKey,
+    #[error("compensating retry class requires a compensating Operation reference")]
+    MissingCompensatingOperation,
     #[error("parent Activity is terminal")]
     ParentActivityTerminal,
     #[error("Activity is terminal")]
@@ -1484,6 +1500,9 @@ fn operation_document(record: &OperationRecord, activity: &ActivityRecord) -> Va
     });
     let object = value.as_object_mut().expect("Operation document object");
     if let Some(key) = &record.spec.idempotency_key { object.insert("idempotency_key".to_owned(), json!(key)); }
+    if let Some(reference) = &record.spec.compensating_operation_ref {
+        object.insert("compensating_operation_ref".to_owned(), json!(reference));
+    }
     if let Some(id) = record.current_attempt_id { object.insert("current_attempt_ref".to_owned(), activity_ref_value_kind(id, ATTEMPT_KIND)); }
     if record.state == OperationState::Waiting { object.insert("wait_reason".to_owned(), json!("retry_backoff")); }
     if record.state == OperationState::Failed {
@@ -1552,7 +1571,7 @@ mod tests {
     use std::{fs, sync::Arc};
 
     fn reference(kind: &str) -> EntityRef { EntityRef::new(kind).expect("reference") }
-    fn fixed_clock() -> Clock { Arc::new(|| "2026-08-16T16:30:00Z".to_owned()) }
+    fn fixed_clock() -> RuntimeClock { Arc::new(|| "2026-08-16T16:30:00Z".to_owned()) }
     fn runtime(limit: usize) -> ActivityRuntime {
         ActivityRuntime::new(limit, Arc::new(MemoryJournal::default()), fixed_clock()).expect("runtime")
     }
@@ -1580,6 +1599,7 @@ mod tests {
             required_authority_refs: vec![reference("isolation.policy")],
             precondition_refs: Vec::new(),
             desired_proof_refs: vec![reference("proof.claim")],
+            compensating_operation_ref: None,
         }
     }
     fn attempt_context() -> AttemptContext {
@@ -1632,6 +1652,7 @@ mod tests {
             producer_identity_evidence_refs: vec![reference("proof.evidence")],
             proof_claim_refs: vec![reference("proof.claim")],
             proof_levels: levels,
+            previous_or_superseded_receipt_refs: Vec::new(),
             summary: "bounded exact execution evidence".to_owned(),
             limitations: Vec::new(),
             occurred_at: "2026-08-16T16:30:00Z".to_owned(),

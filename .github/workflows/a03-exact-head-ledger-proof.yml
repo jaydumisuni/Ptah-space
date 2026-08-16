@@ -37,6 +37,7 @@ jobs:
           test ! -e .github/workflows/a03-lock-refresh.yml
           test ! -e .github/workflows/a03-one-shot-hardening.yml
           test ! -e .github/workflows/a03-hardening-retry.yml
+          test ! -e .github/workflows/a03-restore-frozen-cargo-lock.yml
 
       - name: Install pinned Rust toolchain
         run: |
@@ -117,6 +118,7 @@ jobs:
           import hashlib, json, re
           from pathlib import Path
 
+          frozen_universe_sha256 = '06f6b4c9f8f2ad70de76d6d3f79241503414744fdc5b567eb5e5512960dce459'
           text = Path('Cargo.lock').read_text()
           packages = []
           for block in text.split('[[package]]')[1:]:
@@ -135,6 +137,10 @@ jobs:
           packages.sort(key=lambda item: (item['name'], item['version'], item['source']))
           assert len(packages) == 81, len(packages)
           assert not any(item['source'].startswith('git+') for item in packages)
+          canonical = (json.dumps(packages, sort_keys=True, separators=(',', ':')) + '\n').encode()
+          universe_sha256 = hashlib.sha256(canonical).hexdigest()
+          assert universe_sha256 == frozen_universe_sha256, universe_sha256
+
           selected = json.loads(Path('dependencies/rust-direct-lock.json').read_text())['direct_dependencies']
           resolved = {(item['name'], item['version']): item for item in packages}
           for item in selected:
@@ -147,6 +153,7 @@ jobs:
               'external_dependency_count': len(packages),
               'git_dependency_count': 0,
               'selected_direct_dependency_count': len(selected),
+              'external_universe_sha256': universe_sha256,
               'cargo_lock_sha256': hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
           }
           Path('evidence/a03-exact-head/dependencies.json').write_text(
@@ -194,6 +201,7 @@ jobs:
               'cargo_lock_sha256': deps['cargo_lock_sha256'],
               'external_dependency_count': deps['external_dependency_count'],
               'git_dependency_count': deps['git_dependency_count'],
+              'external_universe_sha256': deps['external_universe_sha256'],
               'ledger_test_log_sha256': sha(evidence / 'ledger-tests.txt'),
               'a02_a03_test_log_sha256': sha(evidence / 'a02-a03-tests.txt'),
               'restart_durability_proved': True,

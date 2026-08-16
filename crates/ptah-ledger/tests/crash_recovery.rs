@@ -1,3 +1,8 @@
+//! Abrupt-process recovery proof for the A03 SQLite ledger boundary.
+//!
+//! The helper process stages a canonical write and aborts without unwinding so
+//! reopening the same database must prove that uncommitted truth was not published.
+
 use ptah_identifiers::{EntityId, EntityRef};
 use ptah_ledger::{CanonicalRecord, EntityRecordRepository, Ledger};
 use serde_json::json;

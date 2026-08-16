@@ -1,0 +1,96 @@
+name: A03 hardening strict-Clippy retry
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/a03-hardening-retry.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  retry:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out exact A03 branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+
+      - name: Reuse reviewed hardening transformation with strict Clippy fix
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/a03-one-shot-hardening.yml').read_text()
+          marker = "          python - <<'PY'\n"
+          start = workflow.index(marker) + len(marker)
+          end = workflow.index("\n          PY", start)
+          script = textwrap.dedent(workflow[start:end])
+
+          script = script.replace(
+              "use std::{\n        ffi::OsString,",
+              "use std::{\n        ffi::OsString,\n        fmt::Write as _,",
+              1,
+          )
+          script = script.replace(
+              'material.push_str(&format!("{kind}|{name}|{sql}\\n"));',
+              'writeln!(&mut material, "{kind}|{name}|{sql}").expect("write schema fingerprint");',
+              1,
+          )
+          script = script.replace(
+              'material.push_str(&format!("{version}|{name}|{up}|{down}\\n"));',
+              'writeln!(&mut material, "{version}|{name}|{up}|{down}").expect("write migration fingerprint");',
+              1,
+          )
+          script = script.replace(
+              'material.push_str(&format!(\n                "{id}|{version}|{catalog}|{digest}|{path}|{maturity}\\n"\n            ));',
+              'writeln!(&mut material, "{id}|{version}|{catalog}|{digest}|{path}|{maturity}").expect("write registry fingerprint");',
+              1,
+          )
+
+          leftovers = [
+              'material.push_str(&format!("{kind}|{name}|{sql}\\n"));',
+              'material.push_str(&format!("{version}|{name}|{up}|{down}\\n"));',
+              '"{id}|{version}|{catalog}|{digest}|{path}|{maturity}\\n"',
+          ]
+          if any(item in script for item in leftovers):
+              raise SystemExit('strict-Clippy replacement did not cover all fingerprint writes')
+
+          exec(compile(script, 'a03-reviewed-hardening', 'exec'), {'__name__': '__main__'})
+          PY
+
+      - name: Regenerate exact Cargo lock
+        run: cargo generate-lockfile
+
+      - name: Format and prove A03 crate
+        run: |
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo clippy -p ptah-ledger --all-targets -- -D warnings
+          cargo test -p ptah-ledger
+
+      - name: Preserve frozen external dependency universe
+        run: python tools/check_rust_dependency_lock.py
+
+      - name: Commit only proved A03 bytes and retire helpers
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          rm .github/workflows/a03-one-shot-hardening.yml
+          rm .github/workflows/a03-hardening-retry.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock crates/ptah-ledger .github/workflows/a03-one-shot-hardening.yml .github/workflows/a03-hardening-retry.yml
+          git diff --cached --check
+          git commit -m "A03: enforce provenance and stale-generation ledger truth"
+          git push origin "HEAD:${HEAD_REF}"

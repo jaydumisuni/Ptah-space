@@ -8,5 +8,13 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[dependencies]
+ptah-contracts = { path = "../ptah-contracts" }
+ptah-identifiers = { path = "../ptah-identifiers" }
+rusqlite = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
 [lib]
 path = "src/lib.rs"

@@ -8,7 +8,10 @@
 use ptah_identifiers::{EntityId, EntityRef};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::HashMap, sync::{Arc, RwLock}};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 use thiserror::Error;
 
 /// Frozen Receipt schema identifier.
@@ -108,7 +111,7 @@ pub struct ReceiptContext {
 }
 
 /// Input for one immutable Receipt.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceiptSpec {
     pub kind: ReceiptKind,
     pub outcome: ReceiptOutcome,
@@ -131,39 +134,42 @@ pub struct Receipt {
     spec: ReceiptSpec,
 }
 
-impl PartialEq for ReceiptSpec {
-    fn eq(&self, other: &Self) -> bool {
-        self.kind == other.kind
-            && self.outcome == other.outcome
-            && self.authority_class == other.authority_class
-            && self.context == other.context
-            && self.producer_identity_evidence_refs == other.producer_identity_evidence_refs
-            && self.proof_claim_refs == other.proof_claim_refs
-            && self.proof_levels == other.proof_levels
-            && self.summary == other.summary
-            && self.limitations == other.limitations
-            && self.occurred_at == other.occurred_at
-    }
-}
-
-impl Eq for ReceiptSpec {}
-
 impl Receipt {
+    /// Validate and construct a Receipt without publishing it to a repository.
+    /// This lets callers persist canonical truth before exposing the projection.
+    pub fn prepare(spec: ReceiptSpec) -> Result<Self, ReceiptError> {
+        Self::prepare_with_id(EntityId::new_v7(), spec)
+    }
+
+    /// Validate and construct a Receipt with an explicit canonical identity.
+    pub fn prepare_with_id(id: EntityId, spec: ReceiptSpec) -> Result<Self, ReceiptError> {
+        validate_spec(&spec)?;
+        Ok(Self { id, spec })
+    }
+
     /// Canonical Receipt identity.
     #[must_use]
-    pub const fn id(&self) -> EntityId { self.id }
+    pub const fn id(&self) -> EntityId {
+        self.id
+    }
 
     /// Exact execution context.
     #[must_use]
-    pub const fn context(&self) -> &ReceiptContext { &self.spec.context }
+    pub const fn context(&self) -> &ReceiptContext {
+        &self.spec.context
+    }
 
     /// Receipt kind.
     #[must_use]
-    pub const fn kind(&self) -> ReceiptKind { self.spec.kind }
+    pub const fn kind(&self) -> ReceiptKind {
+        self.spec.kind
+    }
 
     /// Receipt outcome.
     #[must_use]
-    pub const fn outcome(&self) -> ReceiptOutcome { self.spec.outcome }
+    pub const fn outcome(&self) -> ReceiptOutcome {
+        self.spec.outcome
+    }
 
     /// Whether this positive Receipt explicitly represents `level`.
     #[must_use]
@@ -214,6 +220,12 @@ impl Receipt {
             "extensions": {}
         })
     }
+
+    /// Consume the immutable Receipt back into its validated specification.
+    #[must_use]
+    pub fn into_spec(self) -> ReceiptSpec {
+        self.spec
+    }
 }
 
 /// Append-only in-memory Receipt repository used by the A04 runtime projection.
@@ -225,27 +237,42 @@ pub struct ReceiptStore {
 impl ReceiptStore {
     /// Append a newly allocated Receipt.
     pub fn append(&self, spec: ReceiptSpec) -> Result<Receipt, ReceiptError> {
-        self.append_with_id(EntityId::new_v7(), spec)
+        let receipt = Receipt::prepare(spec)?;
+        self.publish(receipt)
     }
 
     /// Append with an explicit identity for replay/recovery collision detection.
     pub fn append_with_id(&self, id: EntityId, spec: ReceiptSpec) -> Result<Receipt, ReceiptError> {
-        validate_spec(&spec)?;
+        let receipt = Receipt::prepare_with_id(id, spec)?;
+        self.publish(receipt)
+    }
+
+    /// Publish an already validated Receipt into the append-only repository.
+    pub fn publish(&self, receipt: Receipt) -> Result<Receipt, ReceiptError> {
         let mut receipts = self.inner.write().map_err(|_| ReceiptError::Poisoned)?;
-        if receipts.contains_key(&id) { return Err(ReceiptError::DuplicateIdentity(id)); }
-        let receipt = Receipt { id, spec };
-        receipts.insert(id, receipt.clone());
+        if receipts.contains_key(&receipt.id) {
+            return Err(ReceiptError::DuplicateIdentity(receipt.id));
+        }
+        receipts.insert(receipt.id, receipt.clone());
         Ok(receipt)
     }
 
     /// Read one Receipt by canonical identity.
     pub fn get(&self, id: EntityId) -> Result<Option<Receipt>, ReceiptError> {
-        Ok(self.inner.read().map_err(|_| ReceiptError::Poisoned)?.get(&id).cloned())
+        Ok(self
+            .inner
+            .read()
+            .map_err(|_| ReceiptError::Poisoned)?
+            .get(&id)
+            .cloned())
     }
 
     /// Read Receipts bound to one exact Attempt.
     pub fn for_attempt(&self, attempt_id: EntityId) -> Result<Vec<Receipt>, ReceiptError> {
-        Ok(self.inner.read().map_err(|_| ReceiptError::Poisoned)?
+        Ok(self
+            .inner
+            .read()
+            .map_err(|_| ReceiptError::Poisoned)?
             .values()
             .filter(|receipt| receipt.spec.context.attempt_ref.entity_id == attempt_id)
             .cloned()
@@ -254,11 +281,17 @@ impl ReceiptStore {
 
     /// Number of retained immutable Receipts.
     pub fn len(&self) -> Result<usize, ReceiptError> {
-        Ok(self.inner.read().map_err(|_| ReceiptError::Poisoned)?.len())
+        Ok(self
+            .inner
+            .read()
+            .map_err(|_| ReceiptError::Poisoned)?
+            .len())
     }
 
     /// Whether no Receipt has been retained.
-    pub fn is_empty(&self) -> Result<bool, ReceiptError> { Ok(self.len()? == 0) }
+    pub fn is_empty(&self) -> Result<bool, ReceiptError> {
+        Ok(self.len()? == 0)
+    }
 }
 
 /// Receipt validation/storage failures.
@@ -279,10 +312,18 @@ pub enum ReceiptError {
 }
 
 fn validate_spec(spec: &ReceiptSpec) -> Result<(), ReceiptError> {
-    if spec.context.correlation_nonce.len() < 8 { return Err(ReceiptError::InvalidCorrelationNonce); }
-    if spec.proof_claim_refs.is_empty() { return Err(ReceiptError::MissingProofClaims); }
-    if spec.summary.trim().is_empty() { return Err(ReceiptError::EmptySummary); }
-    if spec.context.producer_version.trim().is_empty() { return Err(ReceiptError::EmptyProducerVersion); }
+    if spec.context.correlation_nonce.len() < 8 {
+        return Err(ReceiptError::InvalidCorrelationNonce);
+    }
+    if spec.proof_claim_refs.is_empty() {
+        return Err(ReceiptError::MissingProofClaims);
+    }
+    if spec.summary.trim().is_empty() {
+        return Err(ReceiptError::EmptySummary);
+    }
+    if spec.context.producer_version.trim().is_empty() {
+        return Err(ReceiptError::EmptyProducerVersion);
+    }
     Ok(())
 }
 
@@ -313,7 +354,9 @@ fn entity_envelope(id: EntityId, timestamp: &str, authority_ref: &EntityRef) -> 
 mod tests {
     use super::*;
 
-    fn reference(kind: &str) -> EntityRef { EntityRef::new(kind).expect("valid reference") }
+    fn reference(kind: &str) -> EntityRef {
+        EntityRef::new(kind).expect("valid reference")
+    }
 
     fn spec() -> ReceiptSpec {
         ReceiptSpec {
@@ -350,7 +393,10 @@ mod tests {
         let store = ReceiptStore::default();
         let id = EntityId::new_v7();
         store.append_with_id(id, spec()).expect("first append");
-        assert_eq!(store.append_with_id(id, spec()), Err(ReceiptError::DuplicateIdentity(id)));
+        assert_eq!(
+            store.append_with_id(id, spec()),
+            Err(ReceiptError::DuplicateIdentity(id))
+        );
     }
 
     #[test]
@@ -368,5 +414,14 @@ mod tests {
         assert_eq!(receipt.context().provider_generation, 3);
         assert_eq!(receipt.context().workload_generation, 11);
         assert_eq!(receipt.context().connection_epoch, 5);
+    }
+
+    #[test]
+    fn prepared_receipt_is_not_published_until_explicitly_committed() {
+        let store = ReceiptStore::default();
+        let receipt = Receipt::prepare(spec()).expect("prepare");
+        assert!(store.is_empty().expect("empty"));
+        store.publish(receipt).expect("publish");
+        assert_eq!(store.len().expect("count"), 1);
     }
 }

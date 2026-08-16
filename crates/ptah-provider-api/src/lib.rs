@@ -11,11 +11,9 @@ use thiserror::Error;
 /// Frozen Provider schema identity.
 pub const PROVIDER_SCHEMA_ID: &str = "urn:ptah:schema:runtime:provider:0.1.0";
 /// Frozen Provider Revision schema identity.
-pub const PROVIDER_REVISION_SCHEMA_ID: &str =
-    "urn:ptah:schema:runtime:provider-revision:0.1.0";
+pub const PROVIDER_REVISION_SCHEMA_ID: &str = "urn:ptah:schema:runtime:provider-revision:0.1.0";
 /// Frozen Provider Instance schema identity.
-pub const PROVIDER_INSTANCE_SCHEMA_ID: &str =
-    "urn:ptah:schema:runtime:provider-instance:0.1.0";
+pub const PROVIDER_INSTANCE_SCHEMA_ID: &str = "urn:ptah:schema:runtime:provider-instance:0.1.0";
 
 /// Provider API validation failures.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]

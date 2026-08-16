@@ -6,7 +6,7 @@
 //! intentionally represented as one merged terminal stream; pipe-mode processes
 //! retain independent stdout and stderr streams.
 
-use portable_pty::{CommandBuilder, MasterPty, PtySize, PtySystem, native_pty_system};
+use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 use ptah_activity_runtime::AttemptContext;
 use ptah_identifiers::{EntityId, EntityRef, IdentifierError};
 use ptah_provider_api::{
@@ -547,7 +547,9 @@ impl NativeProcessProvider {
         let mut processes = lock(&self.processes)?;
         let entry = current_entry_mut(&mut processes, process_id, &context)?;
         validate_attachment(entry, attachment, &context)?;
-        entry.attachments.remove(&attachment.attachment_ref.entity_id);
+        entry
+            .attachments
+            .remove(&attachment.attachment_ref.entity_id);
         if entry.record.spec.disconnect_policy == DisconnectPolicy::Terminate
             && entry.attachments.is_empty()
             && entry.record.state == ProcessState::Running
@@ -1104,7 +1106,9 @@ fn lock<T>(mutex: &Mutex<T>) -> Result<MutexGuard<'_, T>, NativeProcessError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ptah_provider_api::{ProviderHealth, ProviderKind, ProviderReadiness, ProviderReachability};
+    use ptah_provider_api::{
+        ProviderHealth, ProviderKind, ProviderReachability, ProviderReadiness,
+    };
 
     fn reference(kind: &str) -> EntityRef {
         EntityRef::new(kind).expect("valid ref")
@@ -1214,11 +1218,7 @@ mod tests {
         let holder = reference("identity.principal");
         let attachment = provider.attach(id, holder.clone()).expect("attach");
         let lease = provider
-            .acquire_control(
-                id,
-                holder,
-                vec![ControlScope::Input, ControlScope::Resize],
-            )
+            .acquire_control(id, holder, vec![ControlScope::Input, ControlScope::Resize])
             .expect("lease");
         provider
             .resize(
@@ -1232,9 +1232,7 @@ mod tests {
                 },
             )
             .expect("resize");
-        provider
-            .write_input(id, &lease, b"hello\n")
-            .expect("input");
+        provider.write_input(id, &lease, b"hello\n").expect("input");
         provider
             .wait_for_exit(id, Duration::from_secs(2))
             .expect("exit");
@@ -1245,7 +1243,12 @@ mod tests {
         assert!(text.contains("GOT:hello"));
         let record = provider.snapshot(id).expect("snapshot").record;
         assert_eq!(record.stream_topology, StreamTopology::PtyMergedTerminal);
-        assert!(record.limitations.iter().any(|value| value.contains("merged")));
+        assert!(
+            record
+                .limitations
+                .iter()
+                .any(|value| value.contains("merged"))
+        );
     }
 
     #[cfg(unix)]
@@ -1288,7 +1291,9 @@ mod tests {
             provider.write_input(id, &first, b"x"),
             Err(NativeProcessError::StaleLease)
         ));
-        provider.write_input(id, &second, b"x").expect("current lease");
+        provider
+            .write_input(id, &second, b"x")
+            .expect("current lease");
         provider
             .wait_for_exit(id, Duration::from_secs(2))
             .expect("exit");
@@ -1312,7 +1317,11 @@ mod tests {
             .wait_for_exit(id, Duration::from_secs(2))
             .expect("exit");
         assert_eq!(
-            provider.snapshot(id).expect("snapshot").record.provider_generation,
+            provider
+                .snapshot(id)
+                .expect("snapshot")
+                .record
+                .provider_generation,
             ProviderGeneration::new(2).expect("generation")
         );
     }
@@ -1333,7 +1342,8 @@ mod tests {
                 .wait_for_exit(id, Duration::from_secs(2))
                 .expect("exit");
             let snapshot = provider.snapshot(id).expect("snapshot");
-            let text = String::from_utf8_lossy(&snapshot.terminal.expect("terminal").bytes);
+            let terminal = snapshot.terminal.expect("terminal");
+            let text = String::from_utf8_lossy(&terminal.bytes);
             assert!(text.contains(&format!("TERMINAL-{index}")));
         }
     }

@@ -2,18 +2,18 @@
 //! Repository-owned Ptah metadata ledger.
 //!
 //! A03 persists canonical Ptah records behind a backend-neutral repository
-//! boundary. SQLite is an implementation detail: canonical identity remains the
-//! Ptah UUIDv7 entity identity and SQLite row identifiers never cross this API.
+//! boundary. `SQLite` is an implementation detail: canonical identity remains the
+//! Ptah `UUIDv7` entity identity and `SQLite` row identifiers never cross this API.
 
 use ptah_contracts::generated;
 use ptah_identifiers::{EntityId, EntityKind, IdentifierError, RecordRevision};
-use rusqlite::{params, Connection, OptionalExtension, Row, Transaction, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{path::Path, str::FromStr, time::Duration};
 use thiserror::Error;
 
-/// Latest repository-owned SQLite schema version for A03.
+/// Latest repository-owned `SQLite` schema version for A03.
 pub const LATEST_LEDGER_SCHEMA_VERSION: u32 = 2;
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -32,7 +32,7 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
         name: "ledger-foundation-and-frozen-schema-registry",
-        up_sql: r#"
+        up_sql: r"
 CREATE TABLE ptah_migration_history (
     version INTEGER PRIMARY KEY CHECK (version > 0),
     name TEXT NOT NULL UNIQUE,
@@ -54,17 +54,17 @@ CREATE TABLE ptah_schema_registry (
     maturity TEXT,
     PRIMARY KEY (schema_id, schema_version)
 ) WITHOUT ROWID;
-"#,
-        down_sql: r#"
+",
+        down_sql: r"
 DROP TABLE ptah_schema_registry;
 DROP TABLE ptah_ledger_meta;
 DROP TABLE ptah_migration_history;
-"#,
+",
     },
     Migration {
         version: 2,
         name: "canonical-entity-records",
-        up_sql: r#"
+        up_sql: r"
 CREATE TABLE ptah_entity_records (
     entity_id TEXT NOT NULL,
     record_revision INTEGER NOT NULL CHECK (record_revision > 0),
@@ -79,11 +79,11 @@ CREATE TABLE ptah_entity_records (
 
 CREATE INDEX ptah_entity_records_kind_index
     ON ptah_entity_records (entity_kind, entity_id, record_revision);
-"#,
-        down_sql: r#"
+",
+        down_sql: r"
 DROP INDEX ptah_entity_records_kind_index;
 DROP TABLE ptah_entity_records;
-"#,
+",
     },
 ];
 
@@ -200,8 +200,7 @@ pub trait EntityRecordRepository {
     /// # Errors
     ///
     /// Returns an error if the backend fails or retained bytes are inconsistent.
-    fn latest_record(&self, entity_id: EntityId)
-        -> Result<Option<CanonicalRecord>, LedgerError>;
+    fn latest_record(&self, entity_id: EntityId) -> Result<Option<CanonicalRecord>, LedgerError>;
 
     /// List retained revisions for one canonical entity in ascending order.
     ///
@@ -211,7 +210,7 @@ pub trait EntityRecordRepository {
     fn revisions(&self, entity_id: EntityId) -> Result<Vec<RecordRevision>, LedgerError>;
 }
 
-/// Repository-owned SQLite WAL ledger.
+/// Repository-owned `SQLite` WAL ledger.
 pub struct Ledger {
     connection: Connection,
 }
@@ -223,7 +222,7 @@ impl Ledger {
     /// # Errors
     ///
     /// Fails closed for newer/incompatible database versions, migration-history
-    /// drift, frozen-schema registry drift, unavailable WAL mode, or SQLite I/O.
+    /// drift, frozen-schema registry drift, unavailable WAL mode, or `SQLite` I/O.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, LedgerError> {
         let mut connection = Connection::open(path)?;
         let discovered_version = read_user_version(&connection)?;
@@ -234,6 +233,8 @@ impl Ledger {
             });
         }
 
+        validate_migration_history(&connection, discovered_version)?;
+
         connection.busy_timeout(BUSY_TIMEOUT)?;
         connection.execute_batch("PRAGMA foreign_keys = ON;")?;
         let journal_mode: String =
@@ -243,7 +244,6 @@ impl Ledger {
         }
         connection.execute_batch("PRAGMA synchronous = FULL;")?;
 
-        validate_migration_history(&connection, discovered_version)?;
         apply_pending_migrations(&mut connection, discovered_version)?;
         validate_migration_history(&connection, LATEST_LEDGER_SCHEMA_VERSION)?;
         validate_or_seed_contract_registry(&mut connection)?;
@@ -251,22 +251,22 @@ impl Ledger {
         Ok(Self { connection })
     }
 
-    /// Return the SQLite journal mode reported by the open ledger.
+    /// Return the `SQLite` journal mode reported by the open ledger.
     ///
     /// # Errors
     ///
-    /// Returns an error when SQLite cannot report the current journal mode.
+    /// Returns an error when `SQLite` cannot report the current journal mode.
     pub fn journal_mode(&self) -> Result<String, LedgerError> {
         Ok(self
             .connection
             .query_row("PRAGMA journal_mode", [], |row| row.get(0))?)
     }
 
-    /// Return the repository-owned SQLite schema version.
+    /// Return the repository-owned `SQLite` schema version.
     ///
     /// # Errors
     ///
-    /// Returns an error when SQLite cannot report a valid non-negative version.
+    /// Returns an error when `SQLite` cannot report a valid non-negative version.
     pub fn schema_version(&self) -> Result<u32, LedgerError> {
         read_user_version(&self.connection)
     }
@@ -277,9 +277,11 @@ impl Ledger {
     ///
     /// Returns an error when the registry cannot be queried or its count is invalid.
     pub fn registered_schema_count(&self) -> Result<usize, LedgerError> {
-        let count: i64 = self
-            .connection
-            .query_row("SELECT COUNT(*) FROM ptah_schema_registry", [], |row| row.get(0))?;
+        let count: i64 =
+            self.connection
+                .query_row("SELECT COUNT(*) FROM ptah_schema_registry", [], |row| {
+                    row.get(0)
+                })?;
         usize::try_from(count).map_err(|_| LedgerError::InvalidDatabaseInteger {
             field: "schema_registry_count",
             value: count,
@@ -292,7 +294,7 @@ impl Ledger {
     ///
     /// # Errors
     ///
-    /// Returns an error when SQLite cannot begin the transaction.
+    /// Returns an error when `SQLite` cannot begin the transaction.
     pub fn begin_write(&mut self) -> Result<LedgerWrite<'_>, LedgerError> {
         let transaction = self
             .connection
@@ -302,25 +304,21 @@ impl Ledger {
         })
     }
 
-    /// Request an explicit WAL checkpoint and return SQLite's frame accounting.
+    /// Request an explicit WAL checkpoint and return `SQLite`'s frame accounting.
     ///
     /// # Errors
     ///
-    /// Returns an error when checkpoint execution fails or SQLite returns an
+    /// Returns an error when checkpoint execution fails or `SQLite` returns an
     /// invalid negative frame count.
     pub fn checkpoint(&self, mode: CheckpointMode) -> Result<CheckpointReport, LedgerError> {
         let sql = mode.sql();
         let (busy, log_frames, checkpointed_frames): (i64, i64, i64) =
-            self.connection.query_row(sql, [], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            })?;
+            self.connection
+                .query_row(sql, [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
         Ok(CheckpointReport {
             busy: sql_non_negative("checkpoint_busy", busy)?,
             log_frames: sql_non_negative("checkpoint_log_frames", log_frames)?,
-            checkpointed_frames: sql_non_negative(
-                "checkpointed_frames",
-                checkpointed_frames,
-            )?,
+            checkpointed_frames: sql_non_negative("checkpointed_frames", checkpointed_frames)?,
         })
     }
 }
@@ -344,10 +342,7 @@ impl EntityRecordRepository for Ledger {
         raw.map(decode_stored_record).transpose()
     }
 
-    fn latest_record(
-        &self,
-        entity_id: EntityId,
-    ) -> Result<Option<CanonicalRecord>, LedgerError> {
+    fn latest_record(&self, entity_id: EntityId) -> Result<Option<CanonicalRecord>, LedgerError> {
         let raw = self
             .connection
             .query_row(
@@ -365,7 +360,8 @@ impl EntityRecordRepository for Ledger {
             "SELECT record_revision FROM ptah_entity_records \
              WHERE entity_id = ?1 ORDER BY record_revision ASC",
         )?;
-        let values = statement.query_map(params![entity_id.to_string()], |row| row.get::<_, i64>(0))?;
+        let values =
+            statement.query_map(params![entity_id.to_string()], |row| row.get::<_, i64>(0))?;
         values
             .map(|value| {
                 let value = value?;
@@ -424,12 +420,12 @@ impl LedgerWrite<'_> {
         Ok(())
     }
 
-    /// Commit this write transaction durably according to SQLite's configured
+    /// Commit this write transaction durably according to `SQLite`'s configured
     /// WAL and `synchronous=FULL` policy.
     ///
     /// # Errors
     ///
-    /// Returns an error when the transaction was already finished or SQLite
+    /// Returns an error when the transaction was already finished or `SQLite`
     /// cannot commit it.
     pub fn commit(mut self) -> Result<(), LedgerError> {
         let transaction = self
@@ -449,7 +445,7 @@ impl Drop for LedgerWrite<'_> {
     }
 }
 
-/// SQLite WAL checkpoint mode exposed by the repository boundary.
+/// `SQLite` WAL checkpoint mode exposed by the repository boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckpointMode {
     /// Checkpoint available frames without waiting for readers.
@@ -476,7 +472,7 @@ impl CheckpointMode {
 /// Result returned by an explicit WAL checkpoint request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CheckpointReport {
-    /// Number of busy readers/writers reported by SQLite.
+    /// Number of busy readers/writers reported by `SQLite`.
     pub busy: u64,
     /// Number of frames present in the WAL at checkpoint time.
     pub log_frames: u64,
@@ -487,7 +483,7 @@ pub struct CheckpointReport {
 /// A03 ledger failures.
 #[derive(Debug, Error)]
 pub enum LedgerError {
-    /// SQLite backend failure.
+    /// `SQLite` backend failure.
     #[error("SQLite ledger failure: {0}")]
     Sqlite(#[from] rusqlite::Error),
     /// Canonical identifier validation failure.
@@ -513,7 +509,7 @@ pub enum LedgerError {
         /// Schema version supplied by the record.
         schema_version: String,
     },
-    /// A positive Ptah revision cannot be represented by SQLite's signed integer.
+    /// A positive Ptah revision cannot be represented by `SQLite`'s signed integer.
     #[error("record revision {0} exceeds SQLite INTEGER range")]
     RevisionOutOfRange(u64),
     /// The database was created by a ledger schema newer than this binary supports.
@@ -535,15 +531,15 @@ pub enum LedgerError {
     /// The durable frozen-schema registry has drifted from generated contracts.
     #[error("frozen contract registry mismatch: {0}")]
     ContractRegistryMismatch(String),
-    /// SQLite refused WAL mode for the file-backed ledger.
+    /// `SQLite` refused WAL mode for the file-backed ledger.
     #[error("SQLite WAL mode unavailable; backend reported {0}")]
     WalUnavailable(String),
-    /// A supposedly non-negative SQLite value was negative or out of range.
+    /// A supposedly non-negative `SQLite` value was negative or out of range.
     #[error("invalid SQLite integer for {field}: {value}")]
     InvalidDatabaseInteger {
         /// Logical field being decoded.
         field: &'static str,
-        /// Raw SQLite integer value.
+        /// Raw `SQLite` integer value.
         value: i64,
     },
     /// A stored JSON document disagrees with its canonical index columns.
@@ -582,7 +578,9 @@ fn migration_digest(sql: &str) -> String {
 }
 
 fn migration_for(version: u32) -> Option<&'static Migration> {
-    MIGRATIONS.iter().find(|migration| migration.version == version)
+    MIGRATIONS
+        .iter()
+        .find(|migration| migration.version == version)
 }
 
 fn read_user_version(connection: &Connection) -> Result<u32, LedgerError> {
@@ -628,12 +626,11 @@ fn validate_migration_history(
         ))
     })?;
     let retained: Vec<_> = rows.collect::<Result<_, _>>()?;
-    let expected_len = usize::try_from(current_version).map_err(|_| {
-        LedgerError::MigrationHistoryMismatch {
+    let expected_len =
+        usize::try_from(current_version).map_err(|_| LedgerError::MigrationHistoryMismatch {
             version: current_version,
             reason: "schema version cannot be represented by this process".to_owned(),
-        }
-    })?;
+        })?;
     if retained.len() != expected_len {
         return Err(LedgerError::MigrationHistoryMismatch {
             version: current_version,
@@ -645,18 +642,16 @@ fn validate_migration_history(
     }
 
     for (index, (version_raw, name, up_sha256, down_sha256)) in retained.iter().enumerate() {
-        let version = u32::try_from(*version_raw).map_err(|_| {
-            LedgerError::MigrationHistoryMismatch {
+        let version =
+            u32::try_from(*version_raw).map_err(|_| LedgerError::MigrationHistoryMismatch {
                 version: current_version,
                 reason: format!("invalid stored migration version {version_raw}"),
-            }
-        })?;
-        let expected_version = u32::try_from(index + 1).map_err(|_| {
-            LedgerError::MigrationHistoryMismatch {
+            })?;
+        let expected_version =
+            u32::try_from(index + 1).map_err(|_| LedgerError::MigrationHistoryMismatch {
                 version,
                 reason: "migration sequence exceeds supported integer range".to_owned(),
-            }
-        })?;
+            })?;
         let migration = migration_for(expected_version).ok_or_else(|| {
             LedgerError::MigrationHistoryMismatch {
                 version,
@@ -681,12 +676,13 @@ fn apply_pending_migrations(
     connection: &mut Connection,
     current_version: u32,
 ) -> Result<(), LedgerError> {
-    let mut expected_next = current_version
-        .checked_add(1)
-        .ok_or(LedgerError::IncompatibleDatabaseVersion {
-            found: current_version,
-            supported: LATEST_LEDGER_SCHEMA_VERSION,
-        })?;
+    let mut expected_next =
+        current_version
+            .checked_add(1)
+            .ok_or(LedgerError::IncompatibleDatabaseVersion {
+                found: current_version,
+                supported: LATEST_LEDGER_SCHEMA_VERSION,
+            })?;
     for migration in MIGRATIONS
         .iter()
         .filter(|migration| migration.version > current_version)
@@ -717,8 +713,10 @@ fn apply_pending_migrations(
 }
 
 fn validate_or_seed_contract_registry(connection: &mut Connection) -> Result<(), LedgerError> {
-    let count: i64 = connection
-        .query_row("SELECT COUNT(*) FROM ptah_schema_registry", [], |row| row.get(0))?;
+    let count: i64 =
+        connection.query_row("SELECT COUNT(*) FROM ptah_schema_registry", [], |row| {
+            row.get(0)
+        })?;
     if count == 0 {
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         for binding in generated::SCHEMAS {
@@ -736,20 +734,40 @@ fn validate_or_seed_contract_registry(connection: &mut Connection) -> Result<(),
                 ],
             )?;
         }
+        transaction.execute(
+            "INSERT INTO ptah_ledger_meta (key, value) VALUES (?1, ?2)",
+            params![META_CATALOG_DIGEST, generated::CATALOG_SET_SHA256],
+        )?;
+        transaction.execute(
+            "INSERT INTO ptah_ledger_meta (key, value) VALUES (?1, ?2)",
+            params![META_FREEZE_COMMIT, generated::PHASE_0B_FREEZE_COMMIT],
+        )?;
         transaction.commit()?;
     }
 
     validate_contract_registry(connection)?;
-    validate_or_seed_meta(connection, META_CATALOG_DIGEST, generated::CATALOG_SET_SHA256)?;
-    validate_or_seed_meta(connection, META_FREEZE_COMMIT, generated::PHASE_0B_FREEZE_COMMIT)?;
+    validate_meta(
+        connection,
+        META_CATALOG_DIGEST,
+        generated::CATALOG_SET_SHA256,
+    )?;
+    validate_meta(
+        connection,
+        META_FREEZE_COMMIT,
+        generated::PHASE_0B_FREEZE_COMMIT,
+    )?;
     Ok(())
 }
 
 fn validate_contract_registry(connection: &Connection) -> Result<(), LedgerError> {
-    let count: i64 = connection
-        .query_row("SELECT COUNT(*) FROM ptah_schema_registry", [], |row| row.get(0))?;
+    let count: i64 =
+        connection.query_row("SELECT COUNT(*) FROM ptah_schema_registry", [], |row| {
+            row.get(0)
+        })?;
     let expected = i64::try_from(generated::SCHEMA_COUNT).map_err(|_| {
-        LedgerError::ContractRegistryMismatch("compiled schema count exceeds SQLite range".to_owned())
+        LedgerError::ContractRegistryMismatch(
+            "compiled schema count exceeds SQLite range".to_owned(),
+        )
     })?;
     if count != expected {
         return Err(LedgerError::ContractRegistryMismatch(format!(
@@ -786,7 +804,7 @@ fn validate_contract_registry(connection: &Connection) -> Result<(), LedgerError
     Ok(())
 }
 
-fn validate_or_seed_meta(
+fn validate_meta(
     connection: &Connection,
     key: &'static str,
     expected: &'static str,
@@ -803,13 +821,9 @@ fn validate_or_seed_meta(
         Some(value) => Err(LedgerError::ContractRegistryMismatch(format!(
             "metadata {key} expected {expected} but found {value}"
         ))),
-        None => {
-            connection.execute(
-                "INSERT INTO ptah_ledger_meta (key, value) VALUES (?1, ?2)",
-                params![key, expected],
-            )?;
-            Ok(())
-        }
+        None => Err(LedgerError::ContractRegistryMismatch(format!(
+            "required metadata {key} is missing"
+        ))),
     }
 }
 
@@ -1124,7 +1138,10 @@ mod tests {
             })
         ));
         let connection = Connection::open(db.path()).expect("inspect rejected future database");
-        assert_eq!(read_user_version(&connection).expect("future user version"), 3);
+        assert_eq!(
+            read_user_version(&connection).expect("future user version"),
+            3
+        );
         let ptah_table_count: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name LIKE 'ptah_%'",
@@ -1157,10 +1174,12 @@ mod tests {
     fn backend_row_ids_do_not_exist_on_canonical_tables() {
         let db = TempDb::new();
         let ledger = Ledger::open(db.path()).expect("open ledger");
-        assert!(ledger
-            .connection
-            .prepare("SELECT rowid FROM ptah_entity_records")
-            .is_err());
+        assert!(
+            ledger
+                .connection
+                .prepare("SELECT rowid FROM ptah_entity_records")
+                .is_err()
+        );
         let sql: String = ledger
             .connection
             .query_row(
@@ -1221,7 +1240,10 @@ mod tests {
         }
         let revisions = ledger.revisions(entity_id).expect("list revisions");
         assert_eq!(
-            revisions.iter().map(|revision| revision.value()).collect::<Vec<_>>(),
+            revisions
+                .iter()
+                .map(|revision| revision.value())
+                .collect::<Vec<_>>(),
             vec![1, 2, 3]
         );
     }

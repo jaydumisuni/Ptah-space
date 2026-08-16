@@ -122,6 +122,7 @@ pub struct ReceiptSpec {
     /// A04's evaluated bounded proof-level projection. Durable claim identities
     /// remain `proof_claim_refs`; this set is not a substitute for those claims.
     pub proof_levels: Vec<ProofLevel>,
+    pub previous_or_superseded_receipt_refs: Vec<EntityRef>,
     pub summary: String,
     pub limitations: Vec<String>,
     pub occurred_at: String,
@@ -213,7 +214,7 @@ impl Receipt {
             "checkpoint_refs": [],
             "content_hashes": [],
             "event_refs": [],
-            "previous_or_superseded_receipt_refs": [],
+            "previous_or_superseded_receipt_refs": self.spec.previous_or_superseded_receipt_refs,
             "signature_or_attestation_refs": [],
             "limitations": self.spec.limitations,
             "payload_class": "none",
@@ -299,32 +300,75 @@ impl ReceiptStore {
 pub enum ReceiptError {
     #[error("Receipt identity already exists: {0}")]
     DuplicateIdentity(EntityId),
-    #[error("correlation nonce must contain at least eight characters")]
+    #[error("correlation nonce must contain 8..=512 characters")]
     InvalidCorrelationNonce,
+    #[error("idempotency key must contain 8..=512 characters when present")]
+    InvalidIdempotencyKey,
     #[error("Receipt must carry at least one durable proof-claim reference")]
     MissingProofClaims,
-    #[error("Receipt summary must not be empty")]
+    #[error("correction/corrected/superseded Receipt requires a prior Receipt reference")]
+    MissingSupersededReceipt,
+    #[error("Receipt reference arrays must not contain duplicates")]
+    DuplicateReferences,
+    #[error("Receipt summary must contain 1..=8192 characters")]
     EmptySummary,
-    #[error("Receipt producer version must not be empty")]
+    #[error("Receipt producer version must contain 1..=256 characters")]
     EmptyProducerVersion,
+    #[error("Receipt limitation must contain 1..=4096 characters")]
+    InvalidLimitation,
     #[error("Receipt store state is unavailable")]
     Poisoned,
 }
 
 fn validate_spec(spec: &ReceiptSpec) -> Result<(), ReceiptError> {
-    if spec.context.correlation_nonce.len() < 8 {
+    let nonce_len = spec.context.correlation_nonce.len();
+    if !(8..=512).contains(&nonce_len) {
         return Err(ReceiptError::InvalidCorrelationNonce);
+    }
+    if let Some(key) = &spec.context.idempotency_key {
+        if !(8..=512).contains(&key.len()) {
+            return Err(ReceiptError::InvalidIdempotencyKey);
+        }
     }
     if spec.proof_claim_refs.is_empty() {
         return Err(ReceiptError::MissingProofClaims);
     }
-    if spec.summary.trim().is_empty() {
+    if matches!(spec.kind, ReceiptKind::Correction)
+        || matches!(
+            spec.outcome,
+            ReceiptOutcome::Corrected | ReceiptOutcome::Superseded
+        )
+    {
+        if spec.previous_or_superseded_receipt_refs.is_empty() {
+            return Err(ReceiptError::MissingSupersededReceipt);
+        }
+    }
+    if has_duplicates(&spec.producer_identity_evidence_refs)
+        || has_duplicates(&spec.proof_claim_refs)
+        || has_duplicates(&spec.previous_or_superseded_receipt_refs)
+    {
+        return Err(ReceiptError::DuplicateReferences);
+    }
+    if spec.summary.trim().is_empty() || spec.summary.len() > 8192 {
         return Err(ReceiptError::EmptySummary);
     }
-    if spec.context.producer_version.trim().is_empty() {
+    if spec.context.producer_version.trim().is_empty() || spec.context.producer_version.len() > 256 {
         return Err(ReceiptError::EmptyProducerVersion);
     }
+    if spec
+        .limitations
+        .iter()
+        .any(|item| item.trim().is_empty() || item.len() > 4096)
+    {
+        return Err(ReceiptError::InvalidLimitation);
+    }
     Ok(())
+}
+
+fn has_duplicates(refs: &[EntityRef]) -> bool {
+    refs.iter()
+        .enumerate()
+        .any(|(index, item)| refs[index + 1..].contains(item))
 }
 
 fn entity_envelope(id: EntityId, timestamp: &str, authority_ref: &EntityRef) -> Value {
@@ -382,6 +426,7 @@ mod tests {
             producer_identity_evidence_refs: vec![reference("proof.evidence")],
             proof_claim_refs: vec![reference("proof.claim")],
             proof_levels: vec![ProofLevel::Accepted],
+            previous_or_superseded_receipt_refs: Vec::new(),
             summary: "producer acknowledged the request".to_owned(),
             limitations: vec!["acknowledgement is not completion proof".to_owned()],
             occurred_at: "2026-08-16T16:00:00Z".to_owned(),
@@ -423,5 +468,16 @@ mod tests {
         assert!(store.is_empty().expect("empty"));
         store.publish(receipt).expect("publish");
         assert_eq!(store.len().expect("count"), 1);
+    }
+
+    #[test]
+    fn correction_requires_prior_receipt_reference() {
+        let mut corrected = spec();
+        corrected.kind = ReceiptKind::Correction;
+        corrected.outcome = ReceiptOutcome::Corrected;
+        assert_eq!(
+            Receipt::prepare(corrected),
+            Err(ReceiptError::MissingSupersededReceipt)
+        );
     }
 }

@@ -91,6 +91,7 @@ fn abrupt_process_death_does_not_publish_uncommitted_truth() {
         .arg("--exact")
         .arg("crash_writer_helper")
         .arg("--nocapture")
+        .current_dir(std::env::temp_dir())
         .env(CRASH_DB_ENV, db.path())
         .env(CRASH_ENTITY_ENV, entity_id.to_string())
         .status()

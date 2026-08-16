@@ -8,7 +8,7 @@ use native_process::{
 use ptah_identifiers::EntityRef;
 use ptah_provider_api::{
     EndpointAliasType, ProviderGeneration, ProviderHealth, ProviderInstance, ProviderKind,
-    ProviderReadiness, ProviderReachability, ProviderRevision,
+    ProviderReachability, ProviderReadiness, ProviderRevision,
 };
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
@@ -153,7 +153,12 @@ fn pty_input_resize_and_merged_stream_limitation_are_explicit() {
     assert!(String::from_utf8_lossy(&terminal.bytes).contains("GOT:hello"));
     let record = provider.snapshot(process).expect("snapshot").record;
     assert_eq!(record.stream_topology, StreamTopology::PtyMergedTerminal);
-    assert!(record.limitations.iter().any(|value| value.contains("merged")));
+    assert!(
+        record
+            .limitations
+            .iter()
+            .any(|value| value.contains("merged"))
+    );
 }
 
 #[cfg(unix)]
@@ -164,9 +169,14 @@ fn retained_terminal_detaches_and_reconnects_without_killing_work() {
         .spawn(pty("sleep 0.08; printf ALIVE"))
         .expect("spawn");
     let holder = reference("identity.principal");
-    let first = provider.attach(process, holder.clone()).expect("first attach");
+    let first = provider
+        .attach(process, holder.clone())
+        .expect("first attach");
     provider.detach(process, &first).expect("detach");
-    assert_eq!(provider.snapshot(process).expect("snapshot").record.state, ProcessState::Running);
+    assert_eq!(
+        provider.snapshot(process).expect("snapshot").record.state,
+        ProcessState::Running
+    );
 
     let second = provider.attach(process, holder).expect("reconnect");
     assert_ne!(first.attachment_ref, second.attachment_ref);
@@ -224,7 +234,10 @@ fn provider_generation_fences_old_terminal_control() {
         .expect("lease");
 
     assert_eq!(
-        provider.advance_provider_generation().expect("advance").value(),
+        provider
+            .advance_provider_generation()
+            .expect("advance")
+            .value(),
         3
     );
     assert!(matches!(
@@ -294,7 +307,10 @@ fn pid_is_only_alias_and_a04_attempt_context_is_exactly_provider_bound() {
         .expect("Attempt context");
     let context = provider.context().expect("Provider context");
     assert_eq!(attempt.provider_ref, context.provider_ref);
-    assert_eq!(attempt.provider_generation, context.provider_generation.value());
+    assert_eq!(
+        attempt.provider_generation,
+        context.provider_generation.value()
+    );
     assert_eq!(attempt.node_ref, context.node_ref);
     assert_eq!(attempt.node_generation, context.node_generation);
     assert_eq!(attempt.connection_epoch, context.connection_epoch);

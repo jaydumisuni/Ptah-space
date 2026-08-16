@@ -9,8 +9,8 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-ptah-contracts = { path = "../ptah-contracts" }
-ptah-identifiers = { path = "../ptah-identifiers" }
+ptah-contracts = { path = "../ptah-contracts", version = "=0.0.0-phase0c" }
+ptah-identifiers = { path = "../ptah-identifiers", version = "=0.0.0-phase0c" }
 rusqlite = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

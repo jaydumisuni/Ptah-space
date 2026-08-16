@@ -87,6 +87,89 @@ fn crash_writer_helper() {
 }
 
 #[test]
+fn committed_crash_writer_helper() {
+    let Ok(path) = std::env::var(CRASH_DB_ENV) else {
+        return;
+    };
+    let Ok(entity_id) = std::env::var(CRASH_ENTITY_ENV) else {
+        return;
+    };
+
+    let entity_id = EntityId::from_str(&entity_id).expect("committed-crash entity identity");
+    let mut ledger = Ledger::open(path).expect("open committed-crash ledger");
+    let write = ledger.begin_write().expect("begin committed-crash write");
+    write
+        .insert(&node_record(entity_id))
+        .expect("stage committed-crash record");
+    write.commit().expect("commit WAL record before crash");
+
+    // The commit must already be durable in WAL. Abort without destructors or an
+    // explicit checkpoint so reopen has to recover the committed WAL truth.
+    process::abort();
+}
+
+#[test]
+fn abrupt_process_death_preserves_committed_wal_truth_without_checkpoint() {
+    let db = TempDb::new();
+    let entity_id = EntityId::new_v7();
+    drop(Ledger::open(db.path()).expect("initialize committed-crash ledger"));
+
+    let status =
+        Command::new(std::env::current_exe().expect("current integration-test executable"))
+            .arg("--exact")
+            .arg("committed_crash_writer_helper")
+            .arg("--nocapture")
+            .current_dir(std::env::temp_dir())
+            .env(CRASH_DB_ENV, db.path())
+            .env(CRASH_ENTITY_ENV, entity_id.to_string())
+            .status()
+            .expect("launch committed-crash child");
+    assert!(
+        !status.success(),
+        "committed-crash helper must terminate abruptly rather than return normally"
+    );
+
+    let mut wal_path: OsString = db.path().as_os_str().to_owned();
+    wal_path.push("-wal");
+    let wal_path = PathBuf::from(wal_path);
+    assert!(wal_path.is_file(), "committed WAL must exist before reopen");
+    assert!(
+        fs::metadata(&wal_path)
+            .expect("committed WAL metadata")
+            .len()
+            > 0,
+        "committed WAL must contain durable frames before reopen"
+    );
+
+    let ledger = Ledger::open(db.path()).expect("reopen ledger after committed process death");
+    let observed = ledger
+        .latest_record(entity_id)
+        .expect("query committed record after process death")
+        .expect("committed WAL record must survive abrupt process death");
+    assert_eq!(observed.entity_id(), entity_id);
+    assert_eq!(observed.record_revision().value(), 1);
+    assert_eq!(
+        observed
+            .node_generation()
+            .map(ptah_identifiers::NodeGeneration::value),
+        Some(0)
+    );
+    assert_eq!(observed.document()["test_payload"], "abrupt-crash");
+    assert_eq!(
+        ledger
+            .schema_version()
+            .expect("schema version after committed crash"),
+        2
+    );
+    assert_eq!(
+        ledger
+            .journal_mode()
+            .expect("journal mode after committed crash"),
+        "wal"
+    );
+}
+
+#[test]
 fn abrupt_process_death_does_not_publish_uncommitted_truth() {
     let db = TempDb::new();
     let entity_id = EntityId::new_v7();

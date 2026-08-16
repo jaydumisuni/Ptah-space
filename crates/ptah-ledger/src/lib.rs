@@ -21,6 +21,8 @@ pub const LATEST_LEDGER_SCHEMA_VERSION: u32 = 2;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 const META_CATALOG_DIGEST: &str = "frozen_catalog_set_sha256";
 const META_FREEZE_COMMIT: &str = "phase_0b_freeze_commit";
+const COMMON_ENTITY_ENVELOPE_SCHEMA_ID: &str = "urn:ptah:schema:common:entity-envelope:0.1.0";
+const RUNTIME_NODE_SCHEMA_ID: &str = "urn:ptah:schema:runtime:node:0.1.0";
 /// Stable fail-closed outcome for a write from an older Node generation.
 pub const STALE_NODE_GENERATION_CODE: &str = "PTAH_STALE_NODE_GENERATION";
 
@@ -80,6 +82,7 @@ impl CanonicalRecord {
     /// `node_generation`, or the schema pair is outside the frozen registry.
     pub fn from_document(document: Value) -> Result<Self, LedgerError> {
         let object = document.as_object().ok_or(LedgerError::DocumentNotObject)?;
+        let has_nested_envelope = object.contains_key("envelope");
         let envelope = match object.get("envelope") {
             Some(value) => value
                 .as_object()
@@ -104,6 +107,9 @@ impl CanonicalRecord {
         let record_revision = RecordRevision::new(revision)?;
         let authority_ref: EntityRef = serde_json::from_value(authority_value.clone())
             .map_err(|_| LedgerError::InvalidDocumentField("authority_ref"))?;
+        if !has_nested_envelope && schema_id != COMMON_ENTITY_ENVELOPE_SCHEMA_ID {
+            return Err(LedgerError::MissingDocumentField("envelope"));
+        }
         let node_generation = object
             .get("node_generation")
             .map(|value| {
@@ -114,7 +120,7 @@ impl CanonicalRecord {
             })
             .transpose()?;
 
-        if entity_kind.as_str() == "core.node" && node_generation.is_none() {
+        if schema_id == RUNTIME_NODE_SCHEMA_ID && node_generation.is_none() {
             return Err(LedgerError::MissingDocumentField("node_generation"));
         }
         if !frozen_schema_exists(&schema_id, &schema_version) {
@@ -1175,6 +1181,40 @@ mod tests {
             record.authority_ref().entity_kind.as_str(),
             "identity.principal"
         );
+    }
+
+    #[test]
+    fn runtime_node_requires_nested_envelope_shape() {
+        let entity_id = EntityId::new_v7();
+        let result = CanonicalRecord::from_document(json!({
+            "entity_id": entity_id.to_string(),
+            "entity_kind": "core.node",
+            "schema_id": NODE_SCHEMA_ID,
+            "schema_version": NODE_SCHEMA_VERSION,
+            "record_revision": 1,
+            "authority_ref": authority_ref(),
+            "node_generation": 0
+        }));
+        assert!(matches!(
+            result,
+            Err(LedgerError::MissingDocumentField("envelope"))
+        ));
+    }
+
+    #[test]
+    fn common_envelope_root_does_not_require_runtime_node_generation() {
+        let entity_id = EntityId::new_v7();
+        let record = CanonicalRecord::from_document(json!({
+            "entity_id": entity_id.to_string(),
+            "entity_kind": "core.node",
+            "schema_id": COMMON_ENTITY_ENVELOPE_SCHEMA_ID,
+            "schema_version": "0.1.0",
+            "record_revision": 1,
+            "authority_ref": authority_ref()
+        }))
+        .expect("common envelope root is a supported indexing shape");
+        assert_eq!(record.entity_id(), entity_id);
+        assert_eq!(record.node_generation(), None);
     }
 
     #[test]

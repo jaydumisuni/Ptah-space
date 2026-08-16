@@ -410,9 +410,9 @@ impl NativeProcessProvider {
         let started_at = (self.clock)();
 
         let (record, entry) = match spec.mode.clone() {
-            ProcessMode::Pipes => self.spawn_pipes(process_ref, spec, started_at, context)?,
+            ProcessMode::Pipes => Self::spawn_pipes(process_ref, spec, started_at, context)?,
             ProcessMode::Pty { size } => {
-                self.spawn_pty(process_ref, spec, size, started_at, context)?
+                Self::spawn_pty(process_ref, spec, size, started_at, context)?
             }
         };
         let mut processes = lock(&self.processes)?;
@@ -707,7 +707,6 @@ impl NativeProcessProvider {
     }
 
     fn spawn_pipes(
-        &self,
         process_ref: EntityRef,
         spec: ProcessSpec,
         started_at: String,
@@ -786,7 +785,6 @@ impl NativeProcessProvider {
     }
 
     fn spawn_pty(
-        &self,
         process_ref: EntityRef,
         spec: ProcessSpec,
         size: TerminalSize,

@@ -475,6 +475,7 @@ impl ActivityRuntime {
     /// Accept and durably register a new queued Activity.
     pub fn create_activity(&self, spec: ActivitySpec) -> Result<EntityId, RuntimeError> {
         if !valid_namespaced(&spec.activity_kind) { return Err(RuntimeError::InvalidNamespacedKind); }
+        if !(-1000..=1000).contains(&spec.priority) { return Err(RuntimeError::InvalidPriority); }
         if spec.max_attempts == 0 { return Err(RuntimeError::InvalidAttemptBudget); }
         let now = self.now();
         let id = EntityId::new_v7();
@@ -644,8 +645,9 @@ impl ActivityRuntime {
     /// Append immutable exact-context proof and attach its identity to the hierarchy.
     pub fn append_receipt(&self, spec: ReceiptSpec) -> Result<EntityId, RuntimeError> {
         self.validate_receipt_context(&spec)?;
-        let receipt = self.receipts.append(spec)?;
+        let receipt = Receipt::prepare(spec)?;
         self.journal.append(receipt.canonical_document())?;
+        let receipt = self.receipts.publish(receipt)?;
         let receipt_ref = EntityRef::from_id(receipt.id(), "proof.receipt")?;
         let context = receipt.context().clone();
         let activity_id = context.activity_ref.entity_id;
@@ -1192,6 +1194,8 @@ pub enum RuntimeError {
     WorkerNotFound(EntityId),
     #[error("invalid lower-case namespaced kind")]
     InvalidNamespacedKind,
+    #[error("Activity priority must be within the frozen -1000..=1000 range")]
+    InvalidPriority,
     #[error("Activity attempt budget must be positive")]
     InvalidAttemptBudget,
     #[error("attempt budget conversion/number overflow")]

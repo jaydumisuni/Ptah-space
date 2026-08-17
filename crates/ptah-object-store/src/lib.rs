@@ -1,17 +1,416 @@
 #![forbid(unsafe_code)]
-//! Non-claiming Phase 0C boundary for `ptah-object-store`.
+//! A07 Object, Revision, Artifact, provenance and local content-addressed storage.
 //!
-//! No runtime capability is implemented or authorized by this crate.
+//! Canonical metadata remains in the A03 ledger. The local CAS is a byte
+//! materialization only: paths and object keys never become Content, Object,
+//! Revision or Artifact identity.
 
-/// Records that this package is only a Phase 0C scaffold.
-pub const PTAH_OBJECT_STORE_RUNTIME_AUTHORIZED: bool = false;
+use ptah_identifiers::{EntityId, EntityRef, IdentifierError};
+use ptah_ledger::{CanonicalRecord, EntityRecordRepository, Ledger, LedgerError};
+use rusqlite::{Connection, OpenFlags};
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+use std::{
+    collections::{HashMap, HashSet},
+    fs::{self, OpenOptions},
+    io::{self, Write},
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
+use thiserror::Error;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Frozen A07 schema version.
+pub const A07_SCHEMA_VERSION: &str = "0.1.0";
+/// Frozen Content schema.
+pub const CONTENT_SCHEMA_ID: &str = "urn:ptah:schema:object:content:0.1.0";
+/// Frozen hash-observation schema.
+pub const HASH_OBSERVATION_SCHEMA_ID: &str =
+    "urn:ptah:schema:object:hash-observation:0.1.0";
+/// Frozen Object schema.
+pub const OBJECT_SCHEMA_ID: &str = "urn:ptah:schema:object:object:0.1.0";
+/// Frozen Object Revision schema.
+pub const REVISION_SCHEMA_ID: &str = "urn:ptah:schema:object:revision:0.1.0";
+/// Frozen Artifact schema.
+pub const ARTIFACT_SCHEMA_ID: &str = "urn:ptah:schema:object:artifact:0.1.0";
+/// Frozen Relationship identity schema.
+pub const RELATIONSHIP_SCHEMA_ID: &str = "urn:ptah:schema:object:relationship:0.1.0";
+/// Frozen Relationship Revision schema.
+pub const RELATIONSHIP_REVISION_SCHEMA_ID: &str =
+    "urn:ptah:schema:object:relationship-revision:0.1.0";
+/// Frozen View schema.
+pub const VIEW_SCHEMA_ID: &str = "urn:ptah:schema:object:view:0.1.0";
+/// Frozen Storage Location schema.
+pub const LOCATION_SCHEMA_ID: &str = "urn:ptah:schema:storage:location:0.1.0";
+/// Frozen Storage Location Observation schema.
+pub const LOCATION_OBSERVATION_SCHEMA_ID: &str =
+    "urn:ptah:schema:storage:location-observation:0.1.0";
+/// Frozen Storage Verification schema.
+pub const STORAGE_VERIFICATION_SCHEMA_ID: &str =
+    "urn:ptah:schema:storage:verification:0.1.0";
 
-    #[test]
-    fn scaffold_cannot_claim_runtime_authorization() {
-        assert!(!PTAH_OBJECT_STORE_RUNTIME_AUTHORIZED);
+const ACTIVITY_SCHEMA_ID: &str = "urn:ptah:schema:activity:activity:0.1.0";
+const OPERATION_SCHEMA_ID: &str = "urn:ptah:schema:activity:operation:0.1.0";
+const ATTEMPT_SCHEMA_ID: &str = "urn:ptah:schema:activity:attempt:0.1.0";
+const RECEIPT_SCHEMA_ID: &str = "urn:ptah:schema:activity:receipt:0.1.0";
+
+const CONTENT_KIND: &str = "object.content";
+const HASH_OBSERVATION_KIND: &str = "object.hash_observation";
+const OBJECT_KIND: &str = "object.object";
+const REVISION_KIND: &str = "object.revision";
+const ARTIFACT_KIND: &str = "object.artifact";
+const RELATIONSHIP_KIND: &str = "core.relationship";
+const RELATIONSHIP_REVISION_KIND: &str = "core.relationship_revision";
+const VIEW_KIND: &str = "object.view";
+const LOCATION_KIND: &str = "storage.location";
+const LOCATION_OBSERVATION_KIND: &str = "storage.location_observation";
+const STORAGE_VERIFICATION_KIND: &str = "storage.verification";
+const RECEIPT_KIND: &str = "proof.receipt";
+const ACTIVITY_KIND: &str = "core.activity";
+const OPERATION_KIND: &str = "core.operation";
+const ATTEMPT_KIND: &str = "core.attempt";
+
+const READ_ONLY_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Caller-supplied UTC clock authority used to stamp A07 records.
+pub type StoreClock = Arc<dyn Fn() -> String + Send + Sync>;
+
+/// Local A07 runtime configuration.
+#[derive(Debug, Clone)]
+pub struct ObjectStoreConfig {
+    /// Canonical backend identity for the local CAS provider.
+    pub backend_ref: EntityRef,
+    /// Canonical connection identity for this local CAS materialization.
+    pub connection_ref: EntityRef,
+    /// Canonical producer/observer identity for A07 records.
+    pub producer_ref: EntityRef,
+    /// Producer implementation version.
+    pub producer_version: String,
+}
+
+/// Exact A04 execution evidence consumed by A07.
+#[derive(Debug, Clone)]
+pub struct ProductionEvidence {
+    /// Producing Activity identity.
+    pub activity_ref: EntityRef,
+    /// Producing logical Operation identity.
+    pub operation_ref: EntityRef,
+    /// Producing physical Attempt identity.
+    pub attempt_ref: EntityRef,
+    /// Immutable Receipt identities attached to that exact Attempt.
+    pub receipt_refs: Vec<EntityRef>,
+}
+
+/// Frozen Revision role vocabulary needed by A07.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevisionRole {
+    /// Original source bytes.
+    Original,
+    /// Imported bytes.
+    Imported,
+    /// Captured bytes.
+    Captured,
+    /// Human or tool edited bytes.
+    Edited,
+    /// Generated bytes.
+    Generated,
+    /// Normalized bytes.
+    Normalized,
+    /// Converted bytes.
+    Converted,
+    /// Rebuilt bytes.
+    Rebuilt,
+    /// Restored bytes.
+    Restored,
+    /// Merged bytes.
+    Merged,
+    /// Recovered bytes.
+    Recovered,
+}
+
+impl RevisionRole {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Original => "original",
+            Self::Imported => "imported",
+            Self::Captured => "captured",
+            Self::Edited => "edited",
+            Self::Generated => "generated",
+            Self::Normalized => "normalized",
+            Self::Converted => "converted",
+            Self::Rebuilt => "rebuilt",
+            Self::Restored => "restored",
+            Self::Merged => "merged",
+            Self::Recovered => "recovered",
+        }
     }
 }
+
+/// Frozen Revision origin vocabulary needed by A07.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OriginClass {
+    /// Original source.
+    OriginalSource,
+    /// User/upload source.
+    UploadedOriginal,
+    /// Captured source.
+    CapturedOriginal,
+    /// Embedded source recovered from a parent.
+    RecoveredEmbeddedSource,
+    /// Decoded resource.
+    DecodedResource,
+    /// Generated output.
+    Generated,
+    /// Decompiled view material.
+    DecompiledView,
+    /// Disassembly view material.
+    DisassemblyView,
+    /// Human-edited derivative.
+    HumanEditedDerivative,
+    /// Restored copy.
+    RestoredCopy,
+    /// Unknown origin.
+    Unknown,
+}
+
+impl OriginClass {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::OriginalSource => "original_source",
+            Self::UploadedOriginal => "uploaded_original",
+            Self::CapturedOriginal => "captured_original",
+            Self::RecoveredEmbeddedSource => "recovered_embedded_source",
+            Self::DecodedResource => "decoded_resource",
+            Self::Generated => "generated",
+            Self::DecompiledView => "decompiled_view",
+            Self::DisassemblyView => "disassembly_view",
+            Self::HumanEditedDerivative => "human_edited_derivative",
+            Self::RestoredCopy => "restored_copy",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// Registration request for one logical Object and its first immutable Revision.
+#[derive(Debug, Clone)]
+pub struct RegisterObjectSpec {
+    /// Workspace scope owning the logical Object.
+    pub workspace_ref: EntityRef,
+    /// Authority authorizing registration.
+    pub authority_ref: EntityRef,
+    /// Frozen free-form Object class key.
+    pub object_class: String,
+    /// Optional user-facing original/display name.
+    pub declared_name: Option<String>,
+    /// Source/provenance references. At least one is required.
+    pub source_refs: Vec<EntityRef>,
+    /// Revision role.
+    pub revision_role: RevisionRole,
+    /// Origin class.
+    pub origin_class: OriginClass,
+    /// Durable reason for the first Revision.
+    pub created_reason: String,
+    /// Exact producing A04 evidence.
+    pub production: ProductionEvidence,
+    /// Optional caller-expected lowercase SHA-256 digest.
+    pub expected_sha256: Option<String>,
+}
+
+/// Successful A07 Object registration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Registration {
+    /// Canonical Content identity.
+    pub content_ref: EntityRef,
+    /// New logical Object identity.
+    pub object_ref: EntityRef,
+    /// New immutable Object Revision identity.
+    pub revision_ref: EntityRef,
+    /// Local CAS Location identity.
+    pub location_ref: EntityRef,
+    /// Canonical lowercase SHA-256 digest.
+    pub sha256: String,
+    /// Exact byte size.
+    pub byte_size: u64,
+    /// Stable provider-relative CAS object key.
+    pub cas_object_key: String,
+    /// Whether an existing workspace-scoped Content identity was reused.
+    pub content_deduplicated: bool,
+}
+
+/// Explicit Artifact-promotion request.
+#[derive(Debug, Clone)]
+pub struct ArtifactPromotionSpec {
+    /// Workspace scope.
+    pub workspace_ref: EntityRef,
+    /// Authority explicitly authorizing promotion.
+    pub authority_ref: EntityRef,
+    /// Artifact type key.
+    pub artifact_type: String,
+    /// Artifact version text.
+    pub artifact_version: String,
+    /// Human-readable purpose.
+    pub purpose: String,
+    /// Optional additional subjects.
+    pub subject_refs: Vec<EntityRef>,
+    /// Exact original production evidence for the promoted Revision.
+    pub production: ProductionEvidence,
+}
+
+/// Relationship-foundation request.
+#[derive(Debug, Clone)]
+pub struct RelationshipSpec {
+    /// Workspace scope.
+    pub workspace_ref: EntityRef,
+    /// Authority creating the Relationship.
+    pub authority_ref: EntityRef,
+    /// Subject references.
+    pub subject_refs: Vec<EntityRef>,
+    /// Relationship type key.
+    pub relationship_type: String,
+    /// Object-side references.
+    pub object_refs: Vec<EntityRef>,
+    /// Exact production evidence for this relationship result.
+    pub production: ProductionEvidence,
+}
+
+/// View-foundation request.
+#[derive(Debug, Clone)]
+pub struct ViewSpec {
+    /// Workspace scope.
+    pub workspace_ref: EntityRef,
+    /// Authority creating the View.
+    pub authority_ref: EntityRef,
+    /// View kind key.
+    pub view_kind: String,
+    /// Schema interpreted by the View payload/consumer.
+    pub view_schema_id: String,
+    /// View schema version.
+    pub view_schema_version: String,
+    /// Exact source Object Revision references.
+    pub source_revision_refs: Vec<EntityRef>,
+    /// Origin class of the View.
+    pub origin_class: OriginClass,
+    /// Exact production evidence.
+    pub production: ProductionEvidence,
+}
+
+/// Verification request over one existing local CAS Location.
+#[derive(Debug, Clone)]
+pub struct VerificationSpec {
+    /// Workspace scope.
+    pub workspace_ref: EntityRef,
+    /// Authority recording verification.
+    pub authority_ref: EntityRef,
+    /// Exact A04 readback/hash/completion evidence.
+    pub production: ProductionEvidence,
+}
+
+/// Result of one A07 integrity verification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerificationReport {
+    /// Immutable Storage Verification identity.
+    pub verification_ref: EntityRef,
+    /// Verified Location.
+    pub location_ref: EntityRef,
+    /// Frozen outcome token.
+    pub outcome: String,
+    /// Expected SHA-256 digest.
+    pub expected_sha256: String,
+    /// Observed SHA-256 digest, when readable.
+    pub observed_sha256: Option<String>,
+    /// Expected size.
+    pub expected_size: u64,
+    /// Observed size, when readable.
+    pub observed_size: Option<u64>,
+}
+
+/// A07 runtime failures.
+#[derive(Debug, Error)]
+pub enum ObjectStoreError {
+    /// A03 ledger failure.
+    #[error(transparent)]
+    Ledger(#[from] LedgerError),
+    /// Direct read-only A03 projection query failed.
+    #[error("A03 read projection failed: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+    /// Filesystem/local-CAS failure.
+    #[error("local CAS I/O failure: {0}")]
+    Io(#[from] io::Error),
+    /// Canonical identifier failure.
+    #[error(transparent)]
+    Identifier(#[from] IdentifierError),
+    /// JSON encoding/decoding failure.
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    /// Required caller field is empty.
+    #[error("required field is empty: {0}")]
+    EmptyField(&'static str),
+    /// At least one source reference is required.
+    #[error("Object registration requires at least one source reference")]
+    MissingSourceRefs,
+    /// Required evidence Receipt kind is absent.
+    #[error("required positive Receipt kind is absent: {0}")]
+    MissingReceiptKind(&'static str),
+    /// A production reference has the wrong canonical kind.
+    #[error("invalid production reference kind for {0}")]
+    InvalidProductionKind(&'static str),
+    /// Production evidence does not match durable A04 truth.
+    #[error("production evidence is not bound to the exact durable A04 execution context")]
+    ProductionEvidenceMismatch,
+    /// Referenced entity was not found.
+    #[error("canonical entity not found: {0}")]
+    NotFound(EntityId),
+    /// Referenced entity has the wrong schema/kind.
+    #[error("canonical entity type mismatch")]
+    TypeMismatch,
+    /// Referenced entity belongs to another Workspace.
+    #[error("canonical entity belongs to another Workspace")]
+    WorkspaceMismatch,
+    /// Expected SHA-256 syntax is invalid.
+    #[error("expected SHA-256 must be exactly 64 lowercase hexadecimal characters")]
+    InvalidExpectedDigest,
+    /// Bytes do not match the expected caller digest.
+    #[error("digest mismatch: expected {expected}, observed {observed}")]
+    ExpectedDigestMismatch {
+        /// Caller-provided digest.
+        expected: String,
+        /// Computed digest.
+        observed: String,
+    },
+    /// Existing digest-addressed bytes are not the bytes named by that digest.
+    #[error("existing local CAS target failed digest/size verification")]
+    CasIntegrityMismatch,
+    /// Provider-relative CAS object key is malformed.
+    #[error("invalid local CAS object key")]
+    InvalidCasKey,
+    /// Canonical record revision overflow.
+    #[error("canonical record revision overflow")]
+    RevisionOverflow,
+    /// Verification did not establish byte integrity.
+    #[error("location integrity is not verified")]
+    VerificationFailed,
+}
+
+/// Native A07 Object/Revision/Artifact/local-CAS runtime.
+pub struct ObjectStore {
+    ledger_path: PathBuf,
+    ledger: Ledger,
+    cas_root: PathBuf,
+    config: ObjectStoreConfig,
+    clock: StoreClock,
+}
+
+#[derive(Debug)]
+struct ValidatedProduction {
+    correlation: Value,
+    receipt_refs: Vec<EntityRef>,
+    hash_receipt_refs: Vec<EntityRef>,
+}
+
+include!("store_register.rs");
+include!("store_graph.rs");
+include!("store_verify.rs");
+include!("store_internal.rs");
+include!("documents.rs");
+include!("util_cas.rs");
+include!("util_records.rs");

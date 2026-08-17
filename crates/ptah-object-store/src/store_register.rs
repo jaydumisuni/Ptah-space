@@ -34,36 +34,20 @@ impl ObjectStore {
     /// Register bytes as Content plus a fresh logical Object and first immutable Revision.
     ///
     /// Content may deduplicate inside the same Workspace, but logical Object
-    /// identity is always newly allocated.
+    /// identity is always newly allocated. The command specification is consumed
+    /// deliberately: registration is a one-shot authority request, not retained
+    /// mutable caller state.
     ///
     /// # Errors
     /// Fails closed for digest mismatch, invalid/mismatched A04 evidence, corrupt
     /// pre-existing CAS bytes, or canonical-ledger failure.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn register_bytes(
         &mut self,
         bytes: &[u8],
         spec: RegisterObjectSpec,
     ) -> Result<Registration, ObjectStoreError> {
-        require_non_empty(&spec.object_class, "object_class")?;
-        require_non_empty(&spec.created_reason, "created_reason")?;
-        if spec.source_refs.is_empty() {
-            return Err(ObjectStoreError::MissingSourceRefs);
-        }
-        if let Some(name) = &spec.declared_name {
-            require_non_empty(name, "declared_name")?;
-        }
-
-        let digest = Self::sha256(bytes);
-        if let Some(expected) = &spec.expected_sha256 {
-            validate_digest_text(expected)?;
-            if expected != &digest {
-                return Err(ObjectStoreError::ExpectedDigestMismatch {
-                    expected: expected.clone(),
-                    observed: digest,
-                });
-            }
-        }
-
+        let digest = registration_digest(bytes, &spec)?;
         let validated = self.validate_production(
             &spec.workspace_ref,
             &spec.production,
@@ -78,8 +62,8 @@ impl ObjectStore {
         let content_ref = existing_content.unwrap_or(EntityRef::new(CONTENT_KIND)?);
         let object_ref = EntityRef::new(OBJECT_KIND)?;
         let revision_ref = EntityRef::new(REVISION_KIND)?;
-
         let mut documents = Vec::new();
+
         if !content_deduplicated {
             let hash_observation_ref = EntityRef::new(HASH_OBSERVATION_KIND)?;
             documents.push(hash_observation_document(
@@ -105,44 +89,16 @@ impl ObjectStore {
             ));
         }
 
-        let location_ref =
-            if let Some(existing) = self.find_local_cas_location(
-                &spec.workspace_ref,
-                &content_ref,
-                &object_key,
-            )? {
-                existing
-            } else {
-                let location_ref = EntityRef::new(LOCATION_KIND)?;
-                let observation_ref = EntityRef::new(LOCATION_OBSERVATION_KIND)?;
-                documents.push(location_observation_document(
-                    &observation_ref,
-                    &location_ref,
-                    bytes.len(),
-                    &digest,
-                    &object_key,
-                    &spec.workspace_ref,
-                    &spec.authority_ref,
-                    &self.config,
-                    &validated.receipt_refs,
-                    &now,
-                ));
-                documents.push(location_document(
-                    &location_ref,
-                    &content_ref,
-                    &observation_ref,
-                    bytes.len(),
-                    &digest,
-                    &object_key,
-                    &spec.workspace_ref,
-                    &spec.authority_ref,
-                    &self.config,
-                    &validated.receipt_refs,
-                    &now,
-                ));
-                location_ref
-            };
-
+        let location_ref = self.stage_local_cas_location(
+            &content_ref,
+            bytes.len(),
+            &digest,
+            &object_key,
+            &spec,
+            &validated,
+            &now,
+            &mut documents,
+        )?;
         documents.push(revision_document(
             &revision_ref,
             &object_ref,
@@ -170,4 +126,76 @@ impl ObjectStore {
             content_deduplicated,
         })
     }
+
+    #[allow(clippy::too_many_arguments)]
+    fn stage_local_cas_location(
+        &self,
+        content_ref: &EntityRef,
+        byte_size: usize,
+        digest: &str,
+        object_key: &str,
+        spec: &RegisterObjectSpec,
+        validated: &ValidatedProduction,
+        now: &str,
+        documents: &mut Vec<Value>,
+    ) -> Result<EntityRef, ObjectStoreError> {
+        if let Some(existing) =
+            self.find_local_cas_location(&spec.workspace_ref, content_ref, object_key)?
+        {
+            return Ok(existing);
+        }
+        let location_ref = EntityRef::new(LOCATION_KIND)?;
+        let observation_ref = EntityRef::new(LOCATION_OBSERVATION_KIND)?;
+        documents.push(location_observation_document(
+            &observation_ref,
+            &location_ref,
+            byte_size,
+            digest,
+            object_key,
+            &spec.workspace_ref,
+            &spec.authority_ref,
+            &self.config,
+            &validated.receipt_refs,
+            now,
+        ));
+        documents.push(location_document(
+            &location_ref,
+            content_ref,
+            &observation_ref,
+            byte_size,
+            digest,
+            object_key,
+            &spec.workspace_ref,
+            &spec.authority_ref,
+            &self.config,
+            &validated.receipt_refs,
+            now,
+        ));
+        Ok(location_ref)
+    }
+}
+
+fn registration_digest(
+    bytes: &[u8],
+    spec: &RegisterObjectSpec,
+) -> Result<String, ObjectStoreError> {
+    require_non_empty(&spec.object_class, "object_class")?;
+    require_non_empty(&spec.created_reason, "created_reason")?;
+    if spec.source_refs.is_empty() {
+        return Err(ObjectStoreError::MissingSourceRefs);
+    }
+    if let Some(name) = &spec.declared_name {
+        require_non_empty(name, "declared_name")?;
+    }
+    let digest = ObjectStore::sha256(bytes);
+    if let Some(expected) = &spec.expected_sha256 {
+        validate_digest_text(expected)?;
+        if expected != &digest {
+            return Err(ObjectStoreError::ExpectedDigestMismatch {
+                expected: expected.clone(),
+                observed: digest,
+            });
+        }
+    }
+    Ok(digest)
 }

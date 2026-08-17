@@ -96,8 +96,11 @@ fn runtime(ledger_path: &Path) -> ActivityRuntime {
     ActivityRuntime::new(8, journal, fixed_clock()).expect("create A04 runtime")
 }
 
-include!("a07_evidence.rs");
+include!("a07_activity_evidence.rs");
+include!("a07_receipt_fixture.rs");
 include!("a07_support.rs");
-include!("a07_registration.rs");
-include!("a07_storage.rs");
+include!("a07_registration_content.rs");
+include!("a07_registration_authority.rs");
+include!("a07_storage_identity.rs");
+include!("a07_storage_integrity.rs");
 include!("a07_graph.rs");

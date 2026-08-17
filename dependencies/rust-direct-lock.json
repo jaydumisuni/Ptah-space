@@ -17,16 +17,38 @@
     {
       "checksum": "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6",
       "expected_licence": "MIT",
-      "features": ["fs", "process", "signal", "socket", "term", "user"],
+      "features": [
+        "fs",
+        "process",
+        "signal",
+        "socket",
+        "term",
+        "user"
+      ],
       "name": "nix",
       "purpose": "safe Linux process, signal, PTY, socket and identity primitives",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "0.30.1"
     },
     {
+      "checksum": "b4a596a2b3d2752d94f51fac2d4a96737b8705dddd311a32b9af47211f08671e",
+      "expected_licence": "MIT",
+      "features": [],
+      "name": "portable-pty",
+      "purpose": "safe cross-platform PTY allocation, process spawn, resize and terminal I/O behind the Ptah native process Provider",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.9.0"
+    },
+    {
       "checksum": "165ca6e57b20e1351573e3729b958bc62f0e48025386970b6e4d29e7a7e71f3f",
       "expected_licence": "MIT",
-      "features": ["backup", "blob", "hooks", "limits", "trace"],
+      "features": [
+        "backup",
+        "blob",
+        "hooks",
+        "limits",
+        "trace"
+      ],
       "name": "rusqlite",
       "purpose": "SQLite ledger adapter behind the repository-owned ledger boundary",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -35,7 +57,9 @@
     {
       "checksum": "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e",
       "expected_licence": "MIT OR Apache-2.0",
-      "features": ["derive"],
+      "features": [
+        "derive"
+      ],
       "name": "serde",
       "purpose": "typed contract and evidence serialization",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -71,7 +95,17 @@
     {
       "checksum": "ff360e02eab121e0bc37a2d3b4d4dc622e6eda3a8e5253d5435ecf5bd4c68408",
       "expected_licence": "MIT",
-      "features": ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"],
+      "features": [
+        "fs",
+        "io-util",
+        "macros",
+        "net",
+        "process",
+        "rt-multi-thread",
+        "signal",
+        "sync",
+        "time"
+      ],
       "name": "tokio",
       "purpose": "concurrent one-Node activity, terminal, transfer and local service substrate",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -80,7 +114,9 @@
     {
       "checksum": "784e0ac535deb450455cbfa28a6f0df145ea1bb7ae51b821cf5e7927fdcfbdd0",
       "expected_licence": "MIT",
-      "features": ["std"],
+      "features": [
+        "std"
+      ],
       "name": "tracing",
       "purpose": "structured activity and provider instrumentation",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -89,7 +125,12 @@
     {
       "checksum": "2054a14f5307d601f88daf0553e1cbf472acc4f2c51afab632431cdcd72124d5",
       "expected_licence": "MIT",
-      "features": ["env-filter", "fmt", "json", "registry"],
+      "features": [
+        "env-filter",
+        "fmt",
+        "json",
+        "registry"
+      ],
       "name": "tracing-subscriber",
       "purpose": "local structured telemetry collection and filtering",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -98,7 +139,11 @@
     {
       "checksum": "2f87b8aa10b915a06587d0dec516c282ff295b475d94abf425d62b57710070a2",
       "expected_licence": "Apache-2.0 OR MIT",
-      "features": ["serde", "v4", "v7"],
+      "features": [
+        "serde",
+        "v4",
+        "v7"
+      ],
       "name": "uuid",
       "purpose": "non-semantic globally unique identifiers and time-ordered local IDs",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
@@ -107,18 +152,31 @@
   ],
   "cargo_lock": {
     "repository_path": "Cargo.lock",
-    "sha256": "d68a06272d417d67049c7879570e3735607166ce1e7eff58e43df21e20c9117a",
-    "resolved_package_count": 99,
-    "registry_package_count": 81,
+    "sha256": "cbcec35bac0fb9c08782390e28398d0f451cbd97e35381ee418f66574c6e4f0e",
+    "resolved_package_count": 116,
+    "registry_package_count": 97,
     "git_dependency_count": 0
   },
   "policy": {
     "tool": "cargo-deny",
     "version": "0.19.4",
     "config_path": "deny.toml",
-    "required_checks": ["advisories", "bans", "licenses", "sources"],
+    "required_checks": [
+      "advisories",
+      "bans",
+      "licenses",
+      "sources"
+    ],
     "private_workspace_policy": "unpublished workspace members ignored; no public licence granted",
-    "allowed_transitive_licences": ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib"]
+    "allowed_transitive_licences": [
+      "Apache-2.0",
+      "MIT",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "ISC",
+      "Unicode-3.0",
+      "Zlib"
+    ]
   },
   "evidence_path": "dependencies/rust-policy-evidence.json",
   "blockers": [

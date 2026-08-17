@@ -1,0 +1,20 @@
+[package]
+name = "native-process"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+portable-pty = { workspace = true }
+ptah-activity-runtime = { path = "../../crates/ptah-activity-runtime", version = "=0.0.0-phase0c" }
+ptah-identifiers = { path = "../../crates/ptah-identifiers", version = "=0.0.0-phase0c" }
+ptah-provider-api = { path = "../../crates/ptah-provider-api", version = "=0.0.0-phase0c" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lib]
+path = "src/lib.rs"

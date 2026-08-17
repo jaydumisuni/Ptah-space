@@ -40,7 +40,9 @@ fn generated_revision_is_not_an_artifact_until_explicit_promotion() {
             },
         )
         .expect("explicit promotion");
-    let artifact = store.latest(artifact_ref.entity_id).expect("Artifact projection");
+    let artifact = store
+        .latest(artifact_ref.entity_id)
+        .expect("Artifact projection");
     assert_eq!(
         artifact
             .get("envelope")

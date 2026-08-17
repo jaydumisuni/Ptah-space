@@ -518,6 +518,13 @@ version = "0.0.0-phase0c"
 [[package]]
 name = "ptah-workspace"
 version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-identifiers",
+ "ptah-ledger",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+]
 
 [[package]]
 name = "quote"

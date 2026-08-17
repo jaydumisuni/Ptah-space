@@ -16,8 +16,7 @@ use thiserror::Error;
 /// Frozen Workspace schema identity.
 pub const WORKSPACE_SCHEMA_ID: &str = "urn:ptah:schema:workspace:workspace:0.1.0";
 /// Frozen Workspace Revision schema identity.
-pub const WORKSPACE_REVISION_SCHEMA_ID: &str =
-    "urn:ptah:schema:workspace:workspace-revision:0.1.0";
+pub const WORKSPACE_REVISION_SCHEMA_ID: &str = "urn:ptah:schema:workspace:workspace-revision:0.1.0";
 /// Frozen Workspace Membership schema identity.
 pub const WORKSPACE_MEMBERSHIP_SCHEMA_ID: &str =
     "urn:ptah:schema:workspace:workspace-membership:0.1.0";
@@ -27,8 +26,7 @@ pub const WORKSPACE_PROVIDER_BINDING_SCHEMA_ID: &str =
 /// Frozen Session schema identity.
 pub const SESSION_SCHEMA_ID: &str = "urn:ptah:schema:workspace:session:0.1.0";
 /// Frozen Session Attachment schema identity.
-pub const SESSION_ATTACHMENT_SCHEMA_ID: &str =
-    "urn:ptah:schema:workspace:session-attachment:0.1.0";
+pub const SESSION_ATTACHMENT_SCHEMA_ID: &str = "urn:ptah:schema:workspace:session-attachment:0.1.0";
 /// Frozen Workspace Journal Entry schema identity.
 pub const WORKSPACE_JOURNAL_SCHEMA_ID: &str =
     "urn:ptah:schema:workspace:workspace-journal-entry:0.1.0";
@@ -440,6 +438,10 @@ impl WorkspaceStore {
     /// # Errors
     ///
     /// Returns an error for invalid input, identity failure, or durable write failure.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "A06 write commands are owned durable-boundary requests"
+    )]
     pub fn create_workspace(
         &mut self,
         input: CreateWorkspace,
@@ -504,6 +506,10 @@ impl WorkspaceStore {
     /// # Errors
     ///
     /// Returns an error for malformed membership input or durable write failure.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "A06 write commands are owned durable-boundary requests"
+    )]
     pub fn add_participant(
         &mut self,
         workspace_id: EntityId,
@@ -543,6 +549,10 @@ impl WorkspaceStore {
     /// # Errors
     ///
     /// Returns an error when Workspace state is malformed or persistence fails.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "A06 write commands are owned durable-boundary requests"
+    )]
     pub fn bind_provider(
         &mut self,
         workspace_id: EntityId,
@@ -580,11 +590,19 @@ impl WorkspaceStore {
     ///
     /// Returns an error for invalid local/remote binding, stale Workspace state,
     /// or durable write failure.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "A06 write commands are owned durable-boundary requests"
+    )]
     pub fn create_session(&mut self, input: CreateSession) -> Result<EntityRef, WorkspaceError> {
         if input.authority.provider_generation == 0 || input.authority.connection_epoch == 0 {
             return Err(WorkspaceError::InvalidGeneration);
         }
-        match (&input.node_ref, input.node_generation, &input.remote_service_ref) {
+        match (
+            &input.node_ref,
+            input.node_generation,
+            &input.remote_service_ref,
+        ) {
             (Some(_), Some(generation), None) if generation > 0 => {}
             (None, None, Some(_)) => {}
             _ => return Err(WorkspaceError::InvalidGeneration),
@@ -647,6 +665,10 @@ impl WorkspaceStore {
     ///
     /// Returns [`WorkspaceError::StaleSessionAuthority`] for stale Provider
     /// generation/connection epoch or a persistence error otherwise.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "A06 write commands are owned durable-boundary requests"
+    )]
     pub fn attach_session(
         &mut self,
         session_id: EntityId,
@@ -708,7 +730,12 @@ impl WorkspaceStore {
             return Err(WorkspaceError::StaleAttachment);
         }
         let now = (self.clock)();
-        set_lifecycle(&mut attachment, "session.attachment.lifecycle", "detached", &now)?;
+        set_lifecycle(
+            &mut attachment,
+            "session.attachment.lifecycle",
+            "detached",
+            &now,
+        )?;
         set_string(&mut attachment, "detached_at", now.clone())?;
         bump_document_revision(&mut attachment)?;
         set_string(&mut session, "last_observed_at", now)?;
@@ -801,6 +828,10 @@ impl WorkspaceStore {
     /// # Errors
     ///
     /// Returns an error for empty scopes, non-positive fences, or persistence failure.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "A06 write commands are owned durable-boundary requests"
+    )]
     pub fn issue_grant(&mut self, input: IssueGrant) -> Result<EntityRef, WorkspaceError> {
         if input.scopes.is_empty() || input.provider_generation == 0 || input.fence_token == 0 {
             return Err(WorkspaceError::InvalidGeneration);
@@ -810,6 +841,9 @@ impl WorkspaceStore {
         }
         let grant_ref = EntityRef::new("isolation.secure_grant")?;
         let now = (self.clock)();
+        if !utc_is_after(&input.expires_at, &now) {
+            return Err(WorkspaceError::InvalidGrant);
+        }
         let grant = json!({
             "envelope": envelope(&grant_ref, SECURE_GRANT_SCHEMA_ID, 1, &input.authority_ref),
             "lifecycle": lifecycle("isolation.secure_grant.lifecycle", "active", 1, &now),
@@ -870,10 +904,13 @@ impl WorkspaceStore {
             if record.schema_id() == SECURE_GRANT_SCHEMA_ID {
                 let doc = record.document();
                 let target_ref = ref_with_kind(target_workspace_id, "core.workspace")?;
+                let expires_at = field_string(doc, "expires_at")?;
+                let now = (self.clock)();
                 let valid = field_ref(doc, "subject_ref")? == target_ref
                     && field_ref(doc, "grantee_ref")? == *actor_ref
                     && lifecycle_state(doc)? == "active"
                     && doc.get("revoked_at").is_none()
+                    && utc_is_after(expires_at, &now)
                     && field_strings(doc, "scopes")?
                         .iter()
                         .any(|scope| scope == required_scope);
@@ -945,6 +982,10 @@ impl WorkspaceStore {
         })
     }
 
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "A06 write commands are owned durable-boundary requests"
+    )]
     fn append_journal(
         &mut self,
         workspace_id: EntityId,
@@ -1109,7 +1150,10 @@ fn ensure_session_authority(
     Ok(())
 }
 
-fn workspace_projection(document: &Value, revision: u64) -> Result<WorkspaceProjection, WorkspaceError> {
+fn workspace_projection(
+    document: &Value,
+    revision: u64,
+) -> Result<WorkspaceProjection, WorkspaceError> {
     Ok(WorkspaceProjection {
         workspace_ref: document_ref(document)?,
         workspace_key: field_string(document, "workspace_key")?.to_owned(),
@@ -1126,7 +1170,10 @@ fn workspace_projection(document: &Value, revision: u64) -> Result<WorkspaceProj
     })
 }
 
-fn session_projection(document: &Value, revision: u64) -> Result<SessionProjection, WorkspaceError> {
+fn session_projection(
+    document: &Value,
+    revision: u64,
+) -> Result<SessionProjection, WorkspaceError> {
     Ok(SessionProjection {
         session_ref: document_ref(document)?,
         workspace_ref: field_ref(document, "workspace_ref")?,
@@ -1149,7 +1196,9 @@ fn session_projection(document: &Value, revision: u64) -> Result<SessionProjecti
 }
 
 fn document_ref(document: &Value) -> Result<EntityRef, WorkspaceError> {
-    let envelope = document.get("envelope").ok_or(WorkspaceError::TypeMismatch)?;
+    let envelope = document
+        .get("envelope")
+        .ok_or(WorkspaceError::TypeMismatch)?;
     let entity_id: EntityId = serde_json::from_value(
         envelope
             .get("entity_id")
@@ -1223,7 +1272,11 @@ fn append_ref(
     Ok(())
 }
 
-fn set_string(document: &mut Value, field: &'static str, value: String) -> Result<(), WorkspaceError> {
+fn set_string(
+    document: &mut Value,
+    field: &'static str,
+    value: String,
+) -> Result<(), WorkspaceError> {
     document_object_mut(document)?.insert(field.to_owned(), Value::String(value));
     Ok(())
 }
@@ -1259,13 +1312,80 @@ fn ref_with_kind(entity_id: EntityId, kind: &str) -> Result<EntityRef, Workspace
     EntityRef::from_id(entity_id, kind).map_err(WorkspaceError::from)
 }
 
+fn utc_is_after(candidate: &str, reference: &str) -> bool {
+    match (parse_utc_datetime(candidate), parse_utc_datetime(reference)) {
+        (Some(candidate), Some(reference)) => candidate > reference,
+        _ => false,
+    }
+}
+
+fn parse_utc_datetime(value: &str) -> Option<(u16, u8, u8, u8, u8, u8, u32)> {
+    let body = value.strip_suffix('Z')?;
+    let (whole, fraction) = match body.split_once('.') {
+        Some((whole, fraction)) => {
+            if fraction.is_empty()
+                || fraction.len() > 9
+                || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+            {
+                return None;
+            }
+            (whole, Some(fraction))
+        }
+        None => (body, None),
+    };
+    let bytes = whole.as_bytes();
+    if bytes.len() != 19
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+    {
+        return None;
+    }
+    let year = whole[0..4].parse::<u16>().ok()?;
+    let month = whole[5..7].parse::<u8>().ok()?;
+    let day = whole[8..10].parse::<u8>().ok()?;
+    let hour = whole[11..13].parse::<u8>().ok()?;
+    let minute = whole[14..16].parse::<u8>().ok()?;
+    let second = whole[17..19].parse::<u8>().ok()?;
+    if !(1..=12).contains(&month)
+        || hour > 23
+        || minute > 59
+        || second > 60
+        || day == 0
+        || day > days_in_month(year, month)?
+    {
+        return None;
+    }
+    let nanosecond = fraction.map_or(0, |fraction| {
+        let value = fraction.parse::<u32>().unwrap_or_default();
+        value * 10_u32.pow(9_u32.saturating_sub(u32::try_from(fraction.len()).unwrap_or(9)))
+    });
+    Some((year, month, day, hour, minute, second, nanosecond))
+}
+
+fn days_in_month(year: u16, month: u8) -> Option<u8> {
+    Some(match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if year.is_multiple_of(400) || (year.is_multiple_of(4) && !year.is_multiple_of(100)) => {
+            29
+        }
+        2 => 28,
+        _ => return None,
+    })
+}
+
 fn validate_workspace_key(value: &str) -> Result<(), WorkspaceError> {
     if value.len() < 3 || value.len() > 128 {
         return Err(WorkspaceError::InvalidWorkspaceKey);
     }
     let mut chars = value.chars();
     if !chars.next().is_some_and(|ch| ch.is_ascii_lowercase())
-        || !chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '_' | '.' | '-'))
+        || !chars.all(|ch| {
+            ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '_' | '.' | '-')
+        })
     {
         return Err(WorkspaceError::InvalidWorkspaceKey);
     }
@@ -1286,9 +1406,9 @@ fn require_key(value: &str, field: &'static str) -> Result<(), WorkspaceError> {
             .chars()
             .next()
             .is_some_and(|ch| ch.is_ascii_lowercase())
-        || !value
-            .chars()
-            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '_' | '.' | '-'))
+        || !value.chars().all(|ch| {
+            ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '_' | '.' | '-')
+        })
     {
         return Err(WorkspaceError::EmptyField(field));
     }

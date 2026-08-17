@@ -3,9 +3,9 @@
 use ptah_identifiers::{EntityId, EntityRef};
 use ptah_ledger::{CanonicalRecord, EntityRecordRepository, Ledger};
 use ptah_workspace::{
-    AddParticipant, AttachSession, AttachmentKind, CreateSession, CreateWorkspace, HandoffProjection,
-    IssueGrant, RecoveryProjection, ScopeProjection, SessionAuthority, SessionKind, WorkerProjection,
-    WorkspaceError, WorkspaceStore,
+    AddParticipant, AttachSession, AttachmentKind, CreateSession, CreateWorkspace,
+    HandoffProjection, IssueGrant, RecoveryProjection, ScopeProjection, SessionAuthority,
+    SessionKind, WorkerProjection, WorkspaceError, WorkspaceStore,
 };
 use serde_json::Value;
 use std::{fs, path::PathBuf, sync::Arc};
@@ -15,16 +15,18 @@ fn reference(kind: &str) -> EntityRef {
 }
 
 fn db_path(label: &str) -> PathBuf {
-    let path = std::env::temp_dir().join(format!(
-        "ptah-a06-{label}-{}.sqlite3",
-        EntityId::new_v7()
-    ));
+    let path =
+        std::env::temp_dir().join(format!("ptah-a06-{label}-{}.sqlite3", EntityId::new_v7()));
     let _ = fs::remove_file(&path);
     path
 }
 
+fn clock_at(value: &'static str) -> Arc<dyn Fn() -> String + Send + Sync> {
+    Arc::new(move || value.to_owned())
+}
+
 fn clock() -> Arc<dyn Fn() -> String + Send + Sync> {
-    Arc::new(|| "2026-08-17T03:00:00Z".to_owned())
+    clock_at("2026-08-17T03:00:00Z")
 }
 
 fn create_workspace(store: &mut WorkspaceStore, key: &str) -> ptah_workspace::WorkspaceProjection {
@@ -85,7 +87,9 @@ fn workspace_identity_survives_disconnect_and_runtime_restart() {
 
     let second_session = create_session(&mut reopened, workspace_ref.clone(), authority);
     assert_ne!(first_session, second_session);
-    let after = reopened.workspace(workspace_id).expect("workspace after session");
+    let after = reopened
+        .workspace(workspace_id)
+        .expect("workspace after session");
     assert_eq!(after.workspace_ref, workspace_ref);
 }
 
@@ -120,7 +124,7 @@ fn missing_session_attachment_is_explicit_after_reopen() {
     let (workspace_id, session_id) = {
         let mut store = WorkspaceStore::open(&path, clock()).expect("open");
         let workspace = create_workspace(&mut store, "missing.attachment");
-        let session = create_session(&mut store, workspace.workspace_ref, authority);
+        let session = create_session(&mut store, workspace.workspace_ref.clone(), authority);
         (workspace.workspace_ref.entity_id, session.entity_id)
     };
 
@@ -219,6 +223,42 @@ fn cross_workspace_retrieval_requires_membership_or_secure_grant() {
             None,
         )
         .expect("membership allows access");
+}
+
+#[test]
+fn expired_secure_grant_fails_closed_after_clock_advances() {
+    let path = db_path("expired-grant");
+    let (source_id, target_id, actor, grant) = {
+        let mut store =
+            WorkspaceStore::open(&path, clock_at("2026-08-17T03:00:00Z")).expect("open");
+        let source = create_workspace(&mut store, "expired.source");
+        let target = create_workspace(&mut store, "expired.target");
+        let actor = reference("identity.principal");
+        let grant = store
+            .issue_grant(IssueGrant {
+                subject_ref: target.workspace_ref.clone(),
+                grantee_ref: actor.clone(),
+                scopes: vec!["workspace.read".to_owned()],
+                policy_ref: reference("policy.workspace"),
+                provider_generation: 2,
+                fence_token: 1,
+                expires_at: "2026-08-17T04:00:00Z".to_owned(),
+                authority_ref: reference("authority.owner"),
+            })
+            .expect("grant");
+        (
+            source.workspace_ref.entity_id,
+            target.workspace_ref.entity_id,
+            actor,
+            grant,
+        )
+    };
+
+    let reopened = WorkspaceStore::open(&path, clock_at("2026-08-17T05:00:00Z")).expect("reopen");
+    assert!(matches!(
+        reopened.authorize_retrieval(&actor, source_id, target_id, "workspace.read", Some(&grant),),
+        Err(WorkspaceError::InvalidGrant)
+    ));
 }
 
 #[test]

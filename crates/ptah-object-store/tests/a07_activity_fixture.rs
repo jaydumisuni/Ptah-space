@@ -15,7 +15,10 @@ fn create_attempt_fixture(
             max_attempts: 2,
         })
         .expect("create Activity");
-    assert_eq!(runtime.admit_next().expect("admit Activity"), Some(activity_id));
+    assert_eq!(
+        runtime.admit_next().expect("admit Activity"),
+        Some(activity_id)
+    );
     let operation_id = runtime
         .create_operation(
             activity_id,
@@ -34,7 +37,9 @@ fn create_attempt_fixture(
             },
         )
         .expect("create Operation");
-    runtime.make_operation_ready(operation_id).expect("make ready");
+    runtime
+        .make_operation_ready(operation_id)
+        .expect("make ready");
     let context = AttemptContext {
         node_ref: reference("core.node"),
         node_generation: 7,
@@ -49,9 +54,13 @@ fn create_attempt_fixture(
     let attempt_id = runtime
         .create_attempt(operation_id, context.clone())
         .expect("create Attempt");
-    runtime.dispatch_attempt(attempt_id).expect("dispatch Attempt");
+    runtime
+        .dispatch_attempt(attempt_id)
+        .expect("dispatch Attempt");
     runtime.accept_attempt(attempt_id).expect("accept Attempt");
-    runtime.begin_attempt_execution(attempt_id).expect("begin Attempt");
+    runtime
+        .begin_attempt_execution(attempt_id)
+        .expect("begin Attempt");
     let nonce = runtime
         .attempt(attempt_id)
         .expect("read Attempt")

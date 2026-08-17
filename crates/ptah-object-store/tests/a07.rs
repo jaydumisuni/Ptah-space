@@ -1,3 +1,5 @@
+//! A07 durable Object/Revision/Artifact graph and local CAS integration acceptance suite.
+
 use ptah_activity_runtime::{
     ActivityRuntime, ActivitySpec, AttemptContext, IdempotencyClass, LedgerJournal, OperationSpec,
     RetryClass, SideEffectClass,

@@ -25,8 +25,7 @@ pub const A07_SCHEMA_VERSION: &str = "0.1.0";
 /// Frozen Content schema.
 pub const CONTENT_SCHEMA_ID: &str = "urn:ptah:schema:object:content:0.1.0";
 /// Frozen hash-observation schema.
-pub const HASH_OBSERVATION_SCHEMA_ID: &str =
-    "urn:ptah:schema:object:hash-observation:0.1.0";
+pub const HASH_OBSERVATION_SCHEMA_ID: &str = "urn:ptah:schema:object:hash-observation:0.1.0";
 /// Frozen Object schema.
 pub const OBJECT_SCHEMA_ID: &str = "urn:ptah:schema:object:object:0.1.0";
 /// Frozen Object Revision schema.
@@ -46,8 +45,7 @@ pub const LOCATION_SCHEMA_ID: &str = "urn:ptah:schema:storage:location:0.1.0";
 pub const LOCATION_OBSERVATION_SCHEMA_ID: &str =
     "urn:ptah:schema:storage:location-observation:0.1.0";
 /// Frozen Storage Verification schema.
-pub const STORAGE_VERIFICATION_SCHEMA_ID: &str =
-    "urn:ptah:schema:storage:verification:0.1.0";
+pub const STORAGE_VERIFICATION_SCHEMA_ID: &str = "urn:ptah:schema:storage:verification:0.1.0";
 
 const ACTIVITY_SCHEMA_ID: &str = "urn:ptah:schema:activity:activity:0.1.0";
 const OPERATION_SCHEMA_ID: &str = "urn:ptah:schema:activity:operation:0.1.0";

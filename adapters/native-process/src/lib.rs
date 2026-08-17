@@ -1184,7 +1184,7 @@ mod tests {
     fn pipe_mode_keeps_stdout_and_stderr_independent_and_exit_is_observed() {
         let provider = provider();
         let id = provider
-            .spawn(pipe_spec("printf OUT; printf ERR >&2", 1024))
+            .spawn(pipe_spec("sleep 0.05; printf OUT; printf ERR >&2", 1024))
             .expect("spawn");
         let initial = provider.snapshot(id).expect("snapshot");
         assert_eq!(initial.record.state, ProcessState::Running);

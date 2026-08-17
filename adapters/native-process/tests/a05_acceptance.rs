@@ -191,6 +191,28 @@ fn retained_terminal_detaches_and_reconnects_without_killing_work() {
 
 #[cfg(unix)]
 #[test]
+fn policy_required_disconnect_terminates_terminal() {
+    let provider = provider();
+    let mut spec = pty("sleep 5");
+    spec.disconnect_policy = DisconnectPolicy::Terminate;
+    let process = provider.spawn(spec).expect("spawn");
+    let attachment = provider
+        .attach(process, reference("identity.principal"))
+        .expect("attach");
+
+    provider.detach(process, &attachment).expect("detach");
+    let exit = provider
+        .wait_for_exit(process, Duration::from_secs(2))
+        .expect("policy termination observed");
+    assert!(!exit.success);
+    assert_eq!(
+        provider.snapshot(process).expect("snapshot").record.state,
+        ProcessState::Exited
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn stale_attachment_and_replaced_control_lease_fail_closed() {
     let provider = provider();
     let process = provider.spawn(pty("sleep 0.15")).expect("spawn");
@@ -287,6 +309,7 @@ fn bounded_stream_truncation_is_visible() {
         .stdout
         .expect("stdout");
     assert_eq!(stdout.bytes, b"6789");
+    assert!(stdout.sequence > 0);
     assert_eq!(stdout.total_bytes, 10);
     assert_eq!(stdout.retained_bytes, 4);
     assert_eq!(stdout.truncated_bytes, 6);

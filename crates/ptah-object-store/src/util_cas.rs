@@ -71,10 +71,7 @@ fn same_production_identity(left: &Value, right: &Value) -> Result<bool, ObjectS
     Ok(true)
 }
 
-fn receipt_attempt_context_matches(
-    receipt: &Value,
-    attempt: &Value,
-) -> Result<bool, ObjectStoreError> {
+fn receipt_attempt_context_matches(receipt: &Value, attempt: &Value) -> bool {
     for field in [
         "correlation_nonce",
         "node_ref",
@@ -88,10 +85,10 @@ fn receipt_attempt_context_matches(
         "producer_version",
     ] {
         if receipt.get(field) != attempt.get(field) {
-            return Ok(false);
+            return false;
         }
     }
-    Ok(true)
+    true
 }
 
 fn verify_cas_target(

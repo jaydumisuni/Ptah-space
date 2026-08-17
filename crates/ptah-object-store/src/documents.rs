@@ -1,3 +1,7 @@
+#[expect(
+    clippy::too_many_arguments,
+    reason = "frozen Hash Observation constructor mirrors required contract fields"
+)]
 fn hash_observation_document(
     observation_ref: &EntityRef,
     content_ref: &EntityRef,
@@ -33,6 +37,10 @@ fn hash_observation_document(
     })
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "frozen Content constructor mirrors required contract fields"
+)]
 fn content_document(
     content_ref: &EntityRef,
     hash_observation_ref: &EntityRef,

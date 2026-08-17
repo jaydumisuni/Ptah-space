@@ -35,18 +35,21 @@ fn relationship_and_view_foundations_update_object_projections() {
         })
         .expect("create Relationship");
     assert!(contains_ref(
-        &store.latest(first.object_ref.entity_id).expect("first Object"),
+        &store
+            .latest(first.object_ref.entity_id)
+            .expect("first Object"),
         "relationship_refs",
         &relationship_ref
     ));
     assert!(contains_ref(
-        &store.latest(second.object_ref.entity_id).expect("second Object"),
+        &store
+            .latest(second.object_ref.entity_id)
+            .expect("second Object"),
         "relationship_refs",
         &relationship_ref
     ));
 
-    let view_evidence =
-        create_evidence(&runtime, &workspace, &authority, EvidenceMode::OutputOnly);
+    let view_evidence = create_evidence(&runtime, &workspace, &authority, EvidenceMode::OutputOnly);
     let view_ref = store
         .create_view(ViewSpec {
             workspace_ref: workspace.clone(),
@@ -60,7 +63,9 @@ fn relationship_and_view_foundations_update_object_projections() {
         })
         .expect("create View");
     assert!(contains_ref(
-        &store.latest(first.object_ref.entity_id).expect("first Object"),
+        &store
+            .latest(first.object_ref.entity_id)
+            .expect("first Object"),
         "view_refs",
         &view_ref
     ));

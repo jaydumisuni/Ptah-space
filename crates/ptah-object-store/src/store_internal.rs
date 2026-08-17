@@ -58,13 +58,9 @@ impl ObjectStore {
         ensure_workspace(&activity, workspace_ref)?;
         ensure_workspace(&operation, workspace_ref)?;
         ensure_workspace(&attempt, workspace_ref)?;
-        if !same_ref(&envelope_authority(&activity)?, authority_ref) {
-            return Err(ObjectStoreError::AuthorityMismatch);
-        }
-        let required_authority_refs = field_refs(&operation, "required_authority_refs")?;
-        if !required_authority_refs
-            .iter()
-            .any(|reference| same_ref(reference, authority_ref))
+        if !same_ref(&envelope_authority(&activity)?, authority_ref)
+            || !same_ref(&envelope_authority(&operation)?, authority_ref)
+            || !same_ref(&envelope_authority(&attempt)?, authority_ref)
         {
             return Err(ObjectStoreError::AuthorityMismatch);
         }

@@ -14,11 +14,15 @@ fn runtime_documents_keep_core_identity_separation() {
         )
         .expect("register");
 
-    let object = store.latest(registration.object_ref.entity_id).expect("Object");
+    let object = store
+        .latest(registration.object_ref.entity_id)
+        .expect("Object");
     let revision = store
         .latest(registration.revision_ref.entity_id)
         .expect("Revision");
-    let content = store.latest(registration.content_ref.entity_id).expect("Content");
+    let content = store
+        .latest(registration.content_ref.entity_id)
+        .expect("Content");
 
     assert_eq!(
         object
@@ -41,7 +45,16 @@ fn runtime_documents_keep_core_identity_separation() {
             .and_then(serde_json::Value::as_str),
         Some(CONTENT_SCHEMA_ID)
     );
-    assert_ne!(registration.object_ref.entity_id, registration.revision_ref.entity_id);
-    assert_ne!(registration.object_ref.entity_id, registration.content_ref.entity_id);
-    assert_ne!(registration.revision_ref.entity_id, registration.content_ref.entity_id);
+    assert_ne!(
+        registration.object_ref.entity_id,
+        registration.revision_ref.entity_id
+    );
+    assert_ne!(
+        registration.object_ref.entity_id,
+        registration.content_ref.entity_id
+    );
+    assert_ne!(
+        registration.revision_ref.entity_id,
+        registration.content_ref.entity_id
+    );
 }

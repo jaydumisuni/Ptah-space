@@ -45,6 +45,13 @@ fn generated_revision_requires_distinct_targeted_promotion_evidence() {
         )
         .expect("explicit promotion");
     let artifact = ledger_document(&temp.ledger(), artifact_ref.entity_id);
+    assert_eq!(
+        artifact
+            .get("envelope")
+            .and_then(|value| value.get("schema_id"))
+            .and_then(serde_json::Value::as_str),
+        Some(ARTIFACT_SCHEMA_ID)
+    );
     let promotion_operation: EntityRef = serde_json::from_value(
         artifact
             .get("production_correlation")

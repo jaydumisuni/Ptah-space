@@ -84,7 +84,7 @@ impl ObjectStore {
                 || !same_ref(&field_ref(&receipt, "activity_ref")?, &evidence.activity_ref)
                 || !same_ref(&field_ref(&receipt, "operation_ref")?, &evidence.operation_ref)
                 || !same_ref(&field_ref(&receipt, "attempt_ref")?, &evidence.attempt_ref)
-                || !receipt_attempt_context_matches(&receipt, &attempt)?
+                || !receipt_attempt_context_matches(&receipt, &attempt)
             {
                 return Err(ObjectStoreError::ProductionEvidenceMismatch);
             }
@@ -239,8 +239,12 @@ impl ObjectStore {
             || prefix.len() != 2
             || digest.len() != 64
             || &digest[..2] != prefix
-            || !prefix.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-            || !digest.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            || !prefix
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            || !digest
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
         {
             return Err(ObjectStoreError::InvalidCasKey);
         }

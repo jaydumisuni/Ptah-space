@@ -1,10 +1,12 @@
 impl ObjectStore {
     /// Explicitly promote one exact Object Revision into an Artifact role.
     ///
-    /// Registration never calls this method implicitly.
+    /// Registration never calls this method implicitly. The command specification
+    /// is consumed as a one-shot promotion authority request.
     ///
     /// # Errors
     /// Fails if the Revision/evidence/workspace does not match canonical truth.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn promote_artifact(
         &mut self,
         revision_id: EntityId,
@@ -34,7 +36,6 @@ impl ObjectStore {
         let now = (self.clock)();
         let mut subjects = spec.subject_refs.clone();
         append_unique_ref(&mut subjects, object_ref.clone());
-
         let draft = artifact_document(
             &artifact_ref,
             revision_id,
@@ -59,15 +60,17 @@ impl ObjectStore {
         )?;
         append_document_ref(&mut object, "artifact_refs", artifact_ref.clone())?;
         bump_document(&mut object, &now)?;
-
         self.write_documents(&[draft, promoted, object])?;
         Ok(artifact_ref)
     }
 
     /// Create the A07 Relationship identity plus immutable first Relationship Revision.
     ///
+    /// The command specification is consumed as one bounded relationship request.
+    ///
     /// # Errors
     /// Fails for invalid evidence, empty endpoints/type or projection-update conflicts.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn create_relationship(
         &mut self,
         spec: RelationshipSpec,
@@ -87,7 +90,6 @@ impl ObjectStore {
         let relationship_ref = EntityRef::new(RELATIONSHIP_KIND)?;
         let relationship_revision_ref = EntityRef::new(RELATIONSHIP_REVISION_KIND)?;
         let now = (self.clock)();
-
         let relationship_revision = json!({
             "envelope": envelope(
                 &relationship_revision_ref,
@@ -150,8 +152,11 @@ impl ObjectStore {
 
     /// Create one structured View over exact Object Revisions.
     ///
+    /// The command specification is consumed as one bounded View request.
+    ///
     /// # Errors
     /// Fails for invalid source Revision/evidence/workspace or projection update.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn create_view(&mut self, spec: ViewSpec) -> Result<EntityRef, ObjectStoreError> {
         require_non_empty(&spec.view_kind, "view_kind")?;
         require_non_empty(&spec.view_schema_id, "view_schema_id")?;

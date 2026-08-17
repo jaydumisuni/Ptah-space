@@ -4,8 +4,24 @@ fn create_evidence(
     authority_ref: &EntityRef,
     mode: EvidenceMode,
 ) -> EvidenceBundle {
+    create_evidence_for_target(
+        runtime,
+        workspace_ref,
+        authority_ref,
+        mode,
+        reference("object.object"),
+    )
+}
+
+fn create_evidence_for_target(
+    runtime: &ActivityRuntime,
+    workspace_ref: &EntityRef,
+    authority_ref: &EntityRef,
+    mode: EvidenceMode,
+    logical_target_ref: EntityRef,
+) -> EvidenceBundle {
     let (activity_id, operation_id, attempt_id, context, nonce) =
-        create_attempt_fixture(runtime, workspace_ref, authority_ref);
+        create_attempt_fixture(runtime, workspace_ref, authority_ref, logical_target_ref);
     let (receipt_ids, completion_receipt_id) = match mode {
         EvidenceMode::Register => {
             let output = append_receipt(

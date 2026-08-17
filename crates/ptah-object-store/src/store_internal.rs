@@ -31,6 +31,7 @@ impl ObjectStore {
     fn validate_production(
         &self,
         workspace_ref: &EntityRef,
+        authority_ref: &EntityRef,
         evidence: &ProductionEvidence,
         required_receipt_kinds: &[&'static str],
     ) -> Result<ValidatedProduction, ObjectStoreError> {
@@ -55,6 +56,18 @@ impl ObjectStore {
         let attempt =
             self.latest_document(evidence.attempt_ref.entity_id, ATTEMPT_SCHEMA_ID)?;
         ensure_workspace(&activity, workspace_ref)?;
+        ensure_workspace(&operation, workspace_ref)?;
+        ensure_workspace(&attempt, workspace_ref)?;
+        if !same_ref(&envelope_authority(&activity)?, authority_ref) {
+            return Err(ObjectStoreError::AuthorityMismatch);
+        }
+        let required_authority_refs = field_refs(&operation, "required_authority_refs")?;
+        if !required_authority_refs
+            .iter()
+            .any(|reference| same_ref(reference, authority_ref))
+        {
+            return Err(ObjectStoreError::AuthorityMismatch);
+        }
         if !same_ref(&field_ref(&operation, "activity_ref")?, &evidence.activity_ref)
             || !same_ref(&field_ref(&attempt, "operation_ref")?, &evidence.operation_ref)
         {
@@ -69,6 +82,7 @@ impl ObjectStore {
             return Err(ObjectStoreError::ProductionEvidenceMismatch);
         }
         let attached_receipts: Vec<EntityRef> = field_refs(&attempt, "receipt_refs")?;
+        let logical_target_refs: Vec<EntityRef> = field_refs(&operation, "logical_target_refs")?;
         let mut found: HashMap<&'static str, Vec<EntityRef>> = required_receipt_kinds
             .iter()
             .copied()
@@ -80,6 +94,7 @@ impl ObjectStore {
                 return Err(ObjectStoreError::ProductionEvidenceMismatch);
             }
             let receipt = self.latest_document(receipt_ref.entity_id, RECEIPT_SCHEMA_ID)?;
+            ensure_workspace(&receipt, workspace_ref)?;
             if field_string(&receipt, "receipt_outcome")? != "positive"
                 || !same_ref(&field_ref(&receipt, "activity_ref")?, &evidence.activity_ref)
                 || !same_ref(&field_ref(&receipt, "operation_ref")?, &evidence.operation_ref)
@@ -104,6 +119,7 @@ impl ObjectStore {
             correlation,
             receipt_refs: unique_refs(evidence.receipt_refs.clone()),
             hash_receipt_refs: found.remove("hash_verification").unwrap_or_default(),
+            logical_target_refs,
         })
     }
 

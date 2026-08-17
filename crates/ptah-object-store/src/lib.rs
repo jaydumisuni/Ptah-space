@@ -194,7 +194,7 @@ impl OriginClass {
 pub struct RegisterObjectSpec {
     /// Workspace scope owning the logical Object.
     pub workspace_ref: EntityRef,
-    /// Authority authorizing registration.
+    /// Authority authorizing registration; must match exact A04 authority evidence.
     pub authority_ref: EntityRef,
     /// Frozen free-form Object class key.
     pub object_class: String,
@@ -240,7 +240,7 @@ pub struct Registration {
 pub struct ArtifactPromotionSpec {
     /// Workspace scope.
     pub workspace_ref: EntityRef,
-    /// Authority explicitly authorizing promotion.
+    /// Authority explicitly authorizing promotion; must match exact A04 authority evidence.
     pub authority_ref: EntityRef,
     /// Artifact type key.
     pub artifact_type: String,
@@ -250,7 +250,7 @@ pub struct ArtifactPromotionSpec {
     pub purpose: String,
     /// Optional additional subjects.
     pub subject_refs: Vec<EntityRef>,
-    /// Exact original production evidence for the promoted Revision.
+    /// Exact distinct A04 promotion evidence targeting the promoted Revision.
     pub production: ProductionEvidence,
 }
 
@@ -259,7 +259,7 @@ pub struct ArtifactPromotionSpec {
 pub struct RelationshipSpec {
     /// Workspace scope.
     pub workspace_ref: EntityRef,
-    /// Authority creating the Relationship.
+    /// Authority creating the Relationship; must match exact A04 authority evidence.
     pub authority_ref: EntityRef,
     /// Subject references.
     pub subject_refs: Vec<EntityRef>,
@@ -276,7 +276,7 @@ pub struct RelationshipSpec {
 pub struct ViewSpec {
     /// Workspace scope.
     pub workspace_ref: EntityRef,
-    /// Authority creating the View.
+    /// Authority creating the View; must match exact A04 authority evidence.
     pub authority_ref: EntityRef,
     /// View kind key.
     pub view_kind: String,
@@ -297,7 +297,7 @@ pub struct ViewSpec {
 pub struct VerificationSpec {
     /// Workspace scope.
     pub workspace_ref: EntityRef,
-    /// Authority recording verification.
+    /// Authority recording verification; must match exact A04 authority evidence.
     pub authority_ref: EntityRef,
     /// Exact A04 readback/hash/completion evidence.
     pub production: ProductionEvidence,
@@ -352,6 +352,9 @@ pub enum ObjectStoreError {
     /// A production reference has the wrong canonical kind.
     #[error("invalid production reference kind for {0}")]
     InvalidProductionKind(&'static str),
+    /// Claimed request authority is not bound to the exact durable A04 Activity/Operation.
+    #[error("request authority is not bound to the exact durable A04 execution authority")]
+    AuthorityMismatch,
     /// Production evidence does not match durable A04 truth.
     #[error("production evidence is not bound to the exact durable A04 execution context")]
     ProductionEvidenceMismatch,
@@ -403,6 +406,7 @@ struct ValidatedProduction {
     correlation: Value,
     receipt_refs: Vec<EntityRef>,
     hash_receipt_refs: Vec<EntityRef>,
+    logical_target_refs: Vec<EntityRef>,
 }
 
 include!("store_register.rs");

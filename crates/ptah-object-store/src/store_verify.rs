@@ -23,6 +23,7 @@ impl ObjectStore {
     ) -> Result<VerificationReport, ObjectStoreError> {
         let validated = self.validate_production(
             &spec.workspace_ref,
+            &spec.authority_ref,
             &spec.production,
             &["readback"],
         )?;

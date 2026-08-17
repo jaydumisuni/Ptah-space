@@ -2,6 +2,7 @@ fn create_attempt_fixture(
     runtime: &ActivityRuntime,
     workspace_ref: &EntityRef,
     authority_ref: &EntityRef,
+    logical_target_ref: EntityRef,
 ) -> (EntityId, EntityId, EntityId, AttemptContext, String) {
     let activity_id = runtime
         .create_activity(ActivitySpec {
@@ -24,7 +25,7 @@ fn create_attempt_fixture(
             activity_id,
             OperationSpec {
                 operation_kind: "object.a07_operation".to_owned(),
-                logical_target_refs: vec![reference("object.object")],
+                logical_target_refs: vec![logical_target_ref],
                 command_or_action_ref: reference("core.command"),
                 side_effect_class: SideEffectClass::IdempotentMutation,
                 retry_class: RetryClass::RetrySafe,

@@ -27,6 +27,18 @@ fn envelope_workspace(document: &Value) -> Result<EntityRef, ObjectStoreError> {
     )?)
 }
 
+fn envelope_authority(document: &Value) -> Result<EntityRef, ObjectStoreError> {
+    let envelope = document
+        .get("envelope")
+        .ok_or(ObjectStoreError::TypeMismatch)?;
+    Ok(serde_json::from_value(
+        envelope
+            .get("authority_ref")
+            .cloned()
+            .ok_or(ObjectStoreError::AuthorityMismatch)?,
+    )?)
+}
+
 fn document_in_workspace(
     document: &Value,
     workspace_ref: &EntityRef,

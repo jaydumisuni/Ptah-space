@@ -50,6 +50,7 @@ impl ObjectStore {
         let digest = registration_digest(bytes, &spec)?;
         let validated = self.validate_production(
             &spec.workspace_ref,
+            &spec.authority_ref,
             &spec.production,
             &["output_observation", "hash_verification"],
         )?;

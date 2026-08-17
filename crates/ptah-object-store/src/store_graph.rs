@@ -1,11 +1,12 @@
 impl ObjectStore {
     /// Explicitly promote one exact Object Revision into an Artifact role.
     ///
-    /// Registration never calls this method implicitly. The command specification
-    /// is consumed as a one-shot promotion authority request.
+    /// Registration never calls this method implicitly. Promotion requires a
+    /// distinct A04 Operation that targets the exact Revision and carries its own
+    /// positive output evidence.
     ///
     /// # Errors
-    /// Fails if the Revision/evidence/workspace does not match canonical truth.
+    /// Fails if the Revision/evidence/workspace/authority does not match canonical truth.
     #[allow(clippy::needless_pass_by_value)]
     pub fn promote_artifact(
         &mut self,
@@ -17,15 +18,24 @@ impl ObjectStore {
         require_non_empty(&spec.purpose, "purpose")?;
         let validated = self.validate_production(
             &spec.workspace_ref,
+            &spec.authority_ref,
             &spec.production,
             &["output_observation"],
         )?;
         let revision = self.latest_document(revision_id, REVISION_SCHEMA_ID)?;
         ensure_workspace(&revision, &spec.workspace_ref)?;
+        let revision_ref = EntityRef::from_id(revision_id, REVISION_KIND)?;
+        if !validated
+            .logical_target_refs
+            .iter()
+            .any(|reference| same_ref(reference, &revision_ref))
+        {
+            return Err(ObjectStoreError::ProductionEvidenceMismatch);
+        }
         let revision_correlation = revision
             .get("production_correlation")
             .ok_or(ObjectStoreError::ProductionEvidenceMismatch)?;
-        if !same_production_identity(revision_correlation, &validated.correlation)? {
+        if same_production_identity(revision_correlation, &validated.correlation)? {
             return Err(ObjectStoreError::ProductionEvidenceMismatch);
         }
         let object_ref = field_ref(&revision, "object_ref")?;
@@ -84,6 +94,7 @@ impl ObjectStore {
         }
         let validated = self.validate_production(
             &spec.workspace_ref,
+            &spec.authority_ref,
             &spec.production,
             &["output_observation"],
         )?;
@@ -166,6 +177,7 @@ impl ObjectStore {
         }
         let validated = self.validate_production(
             &spec.workspace_ref,
+            &spec.authority_ref,
             &spec.production,
             &["output_observation"],
         )?;

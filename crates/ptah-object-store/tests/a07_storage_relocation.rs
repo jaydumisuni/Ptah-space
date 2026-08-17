@@ -9,8 +9,8 @@ fn moved_cas_root_preserves_artifact_and_revision_identity() {
     let artifact_ref;
     let registration;
     {
-        let mut store =
-            ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock()).expect("open A07");
+        let mut store = ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock())
+            .expect("open A07");
         registration = store
             .register_bytes(
                 b"relocatable artifact bytes",

@@ -4,13 +4,19 @@ fn moved_cas_root_preserves_artifact_and_revision_identity() {
     let runtime = runtime(&temp.ledger());
     let workspace = reference("core.workspace");
     let authority = reference("identity.principal");
+    let store_config = config();
     let registration_evidence =
         create_evidence(&runtime, &workspace, &authority, EvidenceMode::Register);
     let artifact_ref;
     let registration;
     {
-        let mut store = ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock())
-            .expect("open A07");
+        let mut store = ObjectStore::open(
+            temp.ledger(),
+            temp.cas(),
+            store_config.clone(),
+            fixed_clock(),
+        )
+        .expect("open A07");
         registration = store
             .register_bytes(
                 b"relocatable artifact bytes",
@@ -38,15 +44,28 @@ fn moved_cas_root_preserves_artifact_and_revision_identity() {
     }
 
     fs::rename(temp.cas(), temp.moved_cas()).expect("move local CAS root");
-    let store = ObjectStore::open(temp.ledger(), temp.moved_cas(), config(), fixed_clock())
-        .expect("reopen moved CAS");
-    assert_eq!(
-        store
-            .read_revision(registration.revision_ref.entity_id)
-            .expect("read relocated bytes"),
-        b"relocatable artifact bytes"
-    );
-    let artifact = store.latest(artifact_ref.entity_id).expect("same Artifact");
+    let readback = create_evidence(&runtime, &workspace, &authority, EvidenceMode::Readback);
+    let mut store = ObjectStore::open(
+        temp.ledger(),
+        temp.moved_cas(),
+        store_config.clone(),
+        fixed_clock(),
+    )
+    .expect("reopen moved CAS");
+    let verification = store
+        .verify_location(
+            registration.location_ref.entity_id,
+            VerificationSpec {
+                workspace_ref: workspace.clone(),
+                authority_ref: authority.clone(),
+                production: readback.production,
+            },
+        )
+        .expect("verify relocated bytes");
+    assert_eq!(verification.outcome, "verified");
+    drop(store);
+
+    let artifact = ledger_document(&temp.ledger(), artifact_ref.entity_id);
     let artifact_id_text = artifact_ref.entity_id.to_string();
     let revision_id_text = registration.revision_ref.entity_id.to_string();
     assert_eq!(
@@ -65,4 +84,25 @@ fn moved_cas_root_preserves_artifact_and_revision_identity() {
             .and_then(serde_json::Value::as_str),
         Some(revision_id_text.as_str())
     );
+
+    let mismatch_evidence =
+        create_evidence(&runtime, &workspace, &authority, EvidenceMode::Readback);
+    let mut mismatched = ObjectStore::open(
+        temp.ledger(),
+        temp.moved_cas(),
+        config(),
+        fixed_clock(),
+    )
+    .expect("open mismatched backend identity");
+    assert!(matches!(
+        mismatched.verify_location(
+            registration.location_ref.entity_id,
+            VerificationSpec {
+                workspace_ref: workspace,
+                authority_ref: authority,
+                production: mismatch_evidence.production,
+            },
+        ),
+        Err(ObjectStoreError::TypeMismatch)
+    ));
 }

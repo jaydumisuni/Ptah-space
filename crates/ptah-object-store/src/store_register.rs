@@ -142,6 +142,45 @@ impl ObjectStore {
         if let Some(existing) =
             self.find_local_cas_location(&spec.workspace_ref, content_ref, object_key)?
         {
+            let mut location = self.latest_document(existing.entity_id, LOCATION_SCHEMA_ID)?;
+            let lifecycle_state = location
+                .get("lifecycle")
+                .and_then(|value| value.get("current_state"))
+                .and_then(Value::as_str)
+                .ok_or(ObjectStoreError::TypeMismatch)?;
+            if lifecycle_state != "available" {
+                return Err(ObjectStoreError::VerificationFailed);
+            }
+            let health_state = field_string(&location, "health_state")?;
+            let verification_state = field_string(&location, "verification_state")?;
+            if health_state != "healthy"
+                || matches!(verification_state, "failed" | "stale")
+            {
+                let observation_ref = EntityRef::new(LOCATION_OBSERVATION_KIND)?;
+                documents.push(location_observation_document(
+                    &observation_ref,
+                    &existing,
+                    byte_size,
+                    digest,
+                    object_key,
+                    &spec.workspace_ref,
+                    &spec.authority_ref,
+                    &self.config,
+                    &validated.receipt_refs,
+                    now,
+                ));
+                append_document_ref(&mut location, "observation_refs", observation_ref)?;
+                append_document_refs(
+                    &mut location,
+                    "receipt_refs",
+                    &validated.receipt_refs,
+                )?;
+                set_string(&mut location, "health_state", "healthy")?;
+                set_string(&mut location, "verification_state", "unverified")?;
+                set_string(&mut location, "last_observed_at", now)?;
+                bump_document(&mut location, now)?;
+                documents.push(location);
+            }
             return Ok(existing);
         }
         let location_ref = EntityRef::new(LOCATION_KIND)?;

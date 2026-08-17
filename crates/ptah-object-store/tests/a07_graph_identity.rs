@@ -14,15 +14,9 @@ fn runtime_documents_keep_core_identity_separation() {
         )
         .expect("register");
 
-    let object = store
-        .latest(registration.object_ref.entity_id)
-        .expect("Object");
-    let revision = store
-        .latest(registration.revision_ref.entity_id)
-        .expect("Revision");
-    let content = store
-        .latest(registration.content_ref.entity_id)
-        .expect("Content");
+    let object = ledger_document(&temp.ledger(), registration.object_ref.entity_id);
+    let revision = ledger_document(&temp.ledger(), registration.revision_ref.entity_id);
+    let content = ledger_document(&temp.ledger(), registration.content_ref.entity_id);
 
     assert_eq!(
         object

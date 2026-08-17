@@ -12,8 +12,9 @@ impl ObjectStore {
     /// The command specification is consumed as one bounded verification request.
     ///
     /// # Errors
-    /// Fails for invalid evidence/workspace or ledger/I/O errors. Integrity
-    /// mismatch is returned as a negative report rather than manufactured success.
+    /// Fails for invalid evidence/workspace, a Location bound to a different
+    /// configured backend/connection, or ledger/I/O errors. Integrity mismatch
+    /// is returned as a negative report rather than manufactured success.
     #[allow(clippy::needless_pass_by_value)]
     pub fn verify_location(
         &mut self,
@@ -30,6 +31,7 @@ impl ObjectStore {
         if field_string(&location, "location_kind")? != "local_cas" {
             return Err(ObjectStoreError::TypeMismatch);
         }
+        ensure_location_binding(&location, &self.config)?;
         let location_ref = document_ref(&location)?;
         let content_ref = field_ref(&location, "content_ref")?;
         let content = self.latest_document(content_ref.entity_id, CONTENT_SCHEMA_ID)?;
@@ -103,52 +105,6 @@ impl ObjectStore {
             observed_size: observed.observed_size,
         })
     }
-
-    /// Read bytes for one exact Revision and fail closed unless current CAS bytes
-    /// still match canonical Content identity.
-    ///
-    /// This is a synchronous integrity gate; use [`Self::verify_location`] when a
-    /// durable verification record is required.
-    ///
-    /// # Errors
-    /// Fails if the Revision/Content/Location is absent or bytes do not match.
-    pub fn read_revision(&self, revision_id: EntityId) -> Result<Vec<u8>, ObjectStoreError> {
-        let revision = self.latest_document(revision_id, REVISION_SCHEMA_ID)?;
-        let content_ref = field_ref(&revision, "content_ref")?;
-        let content = self.latest_document(content_ref.entity_id, CONTENT_SCHEMA_ID)?;
-        let workspace_ref = envelope_workspace(&content)?;
-        let digest = content
-            .get("canonical_digest")
-            .and_then(|value| value.get("digest"))
-            .and_then(Value::as_str)
-            .ok_or(ObjectStoreError::TypeMismatch)?;
-        let expected_size = field_u64(&content, "byte_size")?;
-        let key = cas_object_key(digest)?;
-        let location = self
-            .find_local_cas_location(&workspace_ref, &content_ref, &key)?
-            .ok_or(ObjectStoreError::NotFound(content_ref.entity_id))?;
-        let location_doc = self.latest_document(location.entity_id, LOCATION_SCHEMA_ID)?;
-        let path = self.cas_path(&location_object_key(&location_doc)?)?;
-        let bytes = fs::read(path)?;
-        let size = u64::try_from(bytes.len()).map_err(|_| ObjectStoreError::RevisionOverflow)?;
-        if size != expected_size || Self::sha256(&bytes) != digest {
-            return Err(ObjectStoreError::VerificationFailed);
-        }
-        Ok(bytes)
-    }
-
-    /// Read the latest canonical JSON document for an entity.
-    ///
-    /// # Errors
-    /// Fails when the entity is absent.
-    pub fn latest(&self, entity_id: EntityId) -> Result<Value, ObjectStoreError> {
-        Ok(self
-            .ledger
-            .latest_record(entity_id)?
-            .ok_or(ObjectStoreError::NotFound(entity_id))?
-            .document()
-            .clone())
-    }
 }
 
 fn observe_cas(
@@ -156,6 +112,35 @@ fn observe_cas(
     expected_digest: &str,
     expected_size: u64,
 ) -> Result<CasObservation, ObjectStoreError> {
+    match fs::symlink_metadata(target) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            return Ok(CasObservation {
+                outcome: "unreadable",
+                observed_digest: None,
+                observed_size: None,
+                health: "corrupt",
+            });
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(CasObservation {
+                outcome: "missing",
+                observed_digest: None,
+                observed_size: None,
+                health: "missing",
+            });
+        }
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+            return Ok(CasObservation {
+                outcome: "permission_denied",
+                observed_digest: None,
+                observed_size: None,
+                health: "degraded",
+            });
+        }
+        Err(error) => return Err(error.into()),
+    }
+
     match fs::read(target) {
         Ok(bytes) => {
             let observed_digest = ObjectStore::sha256(&bytes);

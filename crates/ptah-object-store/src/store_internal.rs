@@ -144,6 +144,11 @@ impl ObjectStore {
             if !document_in_workspace(&document, workspace_ref)?
                 || field_string(&document, "location_kind")? != "local_cas"
                 || !same_ref(&field_ref(&document, "content_ref")?, content_ref)
+                || !same_ref(&field_ref(&document, "backend_ref")?, &self.config.backend_ref)
+                || !same_ref(
+                    &field_ref(&document, "connection_ref")?,
+                    &self.config.connection_ref,
+                )
             {
                 continue;
             }
@@ -210,10 +215,12 @@ impl ObjectStore {
         match fs::hard_link(&temp, &target) {
             Ok(()) => {
                 fs::remove_file(&temp)?;
+                sync_cas_directory(parent)?;
                 verify_cas_target(&target, bytes, digest)
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 let _ = fs::remove_file(&temp);
+                sync_cas_directory(parent)?;
                 verify_cas_target(&target, bytes, digest)
             }
             Err(error) => {

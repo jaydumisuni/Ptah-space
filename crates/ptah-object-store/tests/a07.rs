@@ -5,6 +5,7 @@ use ptah_activity_runtime::{
     RetryClass, SideEffectClass,
 };
 use ptah_identifiers::{EntityId, EntityRef};
+use ptah_ledger::{EntityRecordRepository, Ledger};
 use ptah_object_store::{
     ARTIFACT_SCHEMA_ID, ArtifactPromotionSpec, CONTENT_SCHEMA_ID, HASH_OBSERVATION_SCHEMA_ID,
     LOCATION_SCHEMA_ID, OBJECT_SCHEMA_ID, ObjectStore, ObjectStoreConfig, ObjectStoreError,

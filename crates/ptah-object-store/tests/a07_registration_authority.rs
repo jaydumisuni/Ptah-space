@@ -14,9 +14,7 @@ fn generated_revision_is_not_an_artifact_until_explicit_promotion() {
         )
         .expect("register generated candidate");
 
-    let before = store
-        .latest(registration.object_ref.entity_id)
-        .expect("Object before promotion");
+    let before = ledger_document(&temp.ledger(), registration.object_ref.entity_id);
     assert_eq!(
         before
             .get("artifact_refs")
@@ -40,9 +38,7 @@ fn generated_revision_is_not_an_artifact_until_explicit_promotion() {
             },
         )
         .expect("explicit promotion");
-    let artifact = store
-        .latest(artifact_ref.entity_id)
-        .expect("Artifact projection");
+    let artifact = ledger_document(&temp.ledger(), artifact_ref.entity_id);
     assert_eq!(
         artifact
             .get("envelope")
@@ -57,9 +53,7 @@ fn generated_revision_is_not_an_artifact_until_explicit_promotion() {
             .and_then(serde_json::Value::as_str),
         Some("promoted")
     );
-    let after = store
-        .latest(registration.object_ref.entity_id)
-        .expect("Object after promotion");
+    let after = ledger_document(&temp.ledger(), registration.object_ref.entity_id);
     assert!(contains_ref(&after, "artifact_refs", &artifact_ref));
 }
 

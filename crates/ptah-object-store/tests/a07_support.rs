@@ -33,6 +33,16 @@ fn register_spec(
     }
 }
 
+fn ledger_document(ledger_path: &Path, entity_id: EntityId) -> serde_json::Value {
+    let ledger = Ledger::open(ledger_path).expect("open A03 ledger for test inspection");
+    ledger
+        .latest_record(entity_id)
+        .expect("read A03 record")
+        .expect("canonical record retained")
+        .document()
+        .clone()
+}
+
 fn contains_ref(document: &serde_json::Value, field: &str, expected: &EntityRef) -> bool {
     document
         .get(field)

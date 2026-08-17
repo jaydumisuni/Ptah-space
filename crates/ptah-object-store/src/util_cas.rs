@@ -91,11 +91,43 @@ fn receipt_attempt_context_matches(receipt: &Value, attempt: &Value) -> bool {
     true
 }
 
+fn ensure_regular_cas_file(target: &Path) -> Result<(), ObjectStoreError> {
+    let metadata = fs::symlink_metadata(target)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(ObjectStoreError::CasIntegrityMismatch);
+    }
+    Ok(())
+}
+
+fn ensure_location_binding(
+    document: &Value,
+    config: &ObjectStoreConfig,
+) -> Result<(), ObjectStoreError> {
+    if !same_ref(&field_ref(document, "backend_ref")?, &config.backend_ref)
+        || !same_ref(
+            &field_ref(document, "connection_ref")?,
+            &config.connection_ref,
+        )
+    {
+        return Err(ObjectStoreError::TypeMismatch);
+    }
+    Ok(())
+}
+
+fn sync_cas_directory(path: &Path) -> Result<(), ObjectStoreError> {
+    #[cfg(unix)]
+    fs::File::open(path)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
 fn verify_cas_target(
     target: &Path,
     expected_bytes: &[u8],
     expected_digest: &str,
 ) -> Result<(), ObjectStoreError> {
+    ensure_regular_cas_file(target)?;
     let retained = fs::read(target)?;
     let observed_digest = format!("{:x}", Sha256::digest(&retained));
     if retained.len() != expected_bytes.len()

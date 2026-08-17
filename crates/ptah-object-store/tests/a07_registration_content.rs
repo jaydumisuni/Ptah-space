@@ -116,3 +116,38 @@ fn existing_digest_target_is_verified_and_never_overwritten() {
         b"malicious or corrupt winner"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn symlink_digest_target_is_rejected_without_following_outside_cas() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempRoot::new();
+    let runtime = runtime(&temp.ledger());
+    let workspace = reference("core.workspace");
+    let authority = reference("identity.principal");
+    let mut store =
+        ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock()).expect("open A07");
+    let bytes = b"outside bytes must not satisfy CAS target";
+    let digest = ObjectStore::sha256(bytes);
+    let outside = temp.root.join("outside.bin");
+    fs::write(&outside, bytes).expect("write external target");
+    let target = temp.cas().join("sha256").join(&digest[..2]).join(&digest);
+    fs::create_dir_all(target.parent().expect("target parent")).expect("create CAS directory");
+    symlink(&outside, &target).expect("seed symlink target");
+
+    let evidence = create_evidence(&runtime, &workspace, &authority, EvidenceMode::Register);
+    assert!(matches!(
+        store.register_bytes(
+            bytes,
+            register_spec(&workspace, &authority, evidence.production),
+        ),
+        Err(ObjectStoreError::CasIntegrityMismatch)
+    ));
+    assert!(
+        fs::symlink_metadata(&target)
+            .expect("symlink retained")
+            .file_type()
+            .is_symlink()
+    );
+}

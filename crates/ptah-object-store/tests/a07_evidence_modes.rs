@@ -68,7 +68,8 @@ fn create_evidence(
     EvidenceBundle {
         production: ProductionEvidence {
             activity_ref: EntityRef::from_id(activity_id, "core.activity").expect("Activity ref"),
-            operation_ref: EntityRef::from_id(operation_id, "core.operation").expect("Operation ref"),
+            operation_ref: EntityRef::from_id(operation_id, "core.operation")
+                .expect("Operation ref"),
             attempt_ref: EntityRef::from_id(attempt_id, "core.attempt").expect("Attempt ref"),
             receipt_refs,
         },

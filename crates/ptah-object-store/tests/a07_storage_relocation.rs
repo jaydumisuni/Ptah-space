@@ -48,7 +48,7 @@ fn moved_cas_root_preserves_artifact_and_revision_identity() {
     let mut store = ObjectStore::open(
         temp.ledger(),
         temp.moved_cas(),
-        store_config.clone(),
+        store_config,
         fixed_clock(),
     )
     .expect("reopen moved CAS");
@@ -56,14 +56,13 @@ fn moved_cas_root_preserves_artifact_and_revision_identity() {
         .verify_location(
             registration.location_ref.entity_id,
             VerificationSpec {
-                workspace_ref: workspace.clone(),
-                authority_ref: authority.clone(),
+                workspace_ref: workspace,
+                authority_ref: authority,
                 production: readback.production,
             },
         )
         .expect("verify relocated bytes");
     assert_eq!(verification.outcome, "verified");
-    drop(store);
 
     let artifact = ledger_document(&temp.ledger(), artifact_ref.entity_id);
     let artifact_id_text = artifact_ref.entity_id.to_string();
@@ -84,16 +83,30 @@ fn moved_cas_root_preserves_artifact_and_revision_identity() {
             .and_then(serde_json::Value::as_str),
         Some(revision_id_text.as_str())
     );
+}
+
+#[test]
+fn location_bound_to_another_backend_or_connection_is_rejected() {
+    let temp = TempRoot::new();
+    let runtime = runtime(&temp.ledger());
+    let workspace = reference("core.workspace");
+    let authority = reference("identity.principal");
+    let evidence = create_evidence(&runtime, &workspace, &authority, EvidenceMode::Register);
+    let registration = {
+        let mut store = ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock())
+            .expect("open first backend");
+        store
+            .register_bytes(
+                b"backend-bound bytes",
+                register_spec(&workspace, &authority, evidence.production),
+            )
+            .expect("register on first backend")
+    };
 
     let mismatch_evidence =
         create_evidence(&runtime, &workspace, &authority, EvidenceMode::Readback);
-    let mut mismatched = ObjectStore::open(
-        temp.ledger(),
-        temp.moved_cas(),
-        config(),
-        fixed_clock(),
-    )
-    .expect("open mismatched backend identity");
+    let mut mismatched = ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock())
+        .expect("open different backend identity");
     assert!(matches!(
         mismatched.verify_location(
             registration.location_ref.entity_id,

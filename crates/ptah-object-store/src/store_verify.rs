@@ -1,0 +1,170 @@
+impl ObjectStore {
+    /// Independently re-read and verify one local CAS Location, retaining a
+    /// Storage Verification and fresh Location Observation.
+    ///
+    /// # Errors
+    /// Fails for invalid evidence/workspace or ledger/I/O errors. Integrity
+    /// mismatch is returned as a negative report rather than manufactured success.
+    pub fn verify_location(
+        &mut self,
+        location_id: EntityId,
+        spec: VerificationSpec,
+    ) -> Result<VerificationReport, ObjectStoreError> {
+        let validated = self.validate_production(
+            &spec.workspace_ref,
+            &spec.production,
+            &["readback"],
+        )?;
+        let mut location = self.latest_document(location_id, LOCATION_SCHEMA_ID)?;
+        ensure_workspace(&location, &spec.workspace_ref)?;
+        if field_string(&location, "location_kind")? != "local_cas" {
+            return Err(ObjectStoreError::TypeMismatch);
+        }
+        let location_ref = document_ref(&location)?;
+        let content_ref = field_ref(&location, "content_ref")?;
+        let content = self.latest_document(content_ref.entity_id, CONTENT_SCHEMA_ID)?;
+        ensure_workspace(&content, &spec.workspace_ref)?;
+        let expected_digest = content
+            .get("canonical_digest")
+            .and_then(|value| value.get("digest"))
+            .and_then(Value::as_str)
+            .ok_or(ObjectStoreError::TypeMismatch)?
+            .to_owned();
+        let expected_size = field_u64(&content, "byte_size")?;
+        let object_key = location_object_key(&location)?;
+        let target = self.cas_path(&object_key)?;
+
+        let (outcome, observed_digest, observed_size, health) = match fs::read(&target) {
+            Ok(bytes) => {
+                let observed_digest = Self::sha256(&bytes);
+                let observed_size =
+                    u64::try_from(bytes.len()).map_err(|_| ObjectStoreError::RevisionOverflow)?;
+                if observed_digest != expected_digest {
+                    (
+                        "digest_mismatch",
+                        Some(observed_digest),
+                        Some(observed_size),
+                        "corrupt",
+                    )
+                } else if observed_size != expected_size {
+                    (
+                        "size_mismatch",
+                        Some(observed_digest),
+                        Some(observed_size),
+                        "corrupt",
+                    )
+                } else {
+                    (
+                        "verified",
+                        Some(observed_digest),
+                        Some(observed_size),
+                        "healthy",
+                    )
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                ("missing", None, None, "missing")
+            }
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                ("permission_denied", None, None, "degraded")
+            }
+            Err(error) => return Err(error.into()),
+        };
+
+        let now = (self.clock)();
+        let verification_ref = EntityRef::new(STORAGE_VERIFICATION_KIND)?;
+        let observation_ref = EntityRef::new(LOCATION_OBSERVATION_KIND)?;
+        let verification = storage_verification_document(
+            &verification_ref,
+            &content_ref,
+            &location_ref,
+            &expected_digest,
+            expected_size,
+            observed_digest.as_deref(),
+            observed_size,
+            outcome,
+            &spec,
+            &self.config,
+            &validated,
+            &now,
+        );
+        let observation = verification_location_observation_document(
+            &observation_ref,
+            &location_ref,
+            observed_size,
+            observed_digest.as_deref(),
+            &object_key,
+            health,
+            &spec,
+            &self.config,
+            &validated,
+            &now,
+        );
+
+        append_document_ref(&mut location, "verification_refs", verification_ref.clone())?;
+        append_document_ref(&mut location, "observation_refs", observation_ref)?;
+        append_document_refs(&mut location, "receipt_refs", &validated.receipt_refs)?;
+        set_string(&mut location, "verification_state", if outcome == "verified" { "verified" } else { "failed" })?;
+        set_string(&mut location, "health_state", health)?;
+        set_string(&mut location, "last_verified_at", &now)?;
+        set_string(&mut location, "last_observed_at", &now)?;
+        bump_document(&mut location, &now)?;
+        self.write_documents(&[verification, observation, location])?;
+
+        Ok(VerificationReport {
+            verification_ref,
+            location_ref,
+            outcome: outcome.to_owned(),
+            expected_sha256: expected_digest,
+            observed_sha256: observed_digest,
+            expected_size,
+            observed_size,
+        })
+    }
+
+    /// Read bytes for one exact Revision and fail closed unless current CAS bytes
+    /// still match canonical Content identity.
+    ///
+    /// This is a synchronous integrity gate; use [`Self::verify_location`] when a
+    /// durable verification record is required.
+    ///
+    /// # Errors
+    /// Fails if the Revision/Content/Location is absent or bytes do not match.
+    pub fn read_revision(&self, revision_id: EntityId) -> Result<Vec<u8>, ObjectStoreError> {
+        let revision = self.latest_document(revision_id, REVISION_SCHEMA_ID)?;
+        let content_ref = field_ref(&revision, "content_ref")?;
+        let content = self.latest_document(content_ref.entity_id, CONTENT_SCHEMA_ID)?;
+        let workspace_ref = envelope_workspace(&content)?;
+        let digest = content
+            .get("canonical_digest")
+            .and_then(|value| value.get("digest"))
+            .and_then(Value::as_str)
+            .ok_or(ObjectStoreError::TypeMismatch)?;
+        let expected_size = field_u64(&content, "byte_size")?;
+        let key = cas_object_key(digest)?;
+        let location = self
+            .find_local_cas_location(&workspace_ref, &content_ref, &key)?
+            .ok_or(ObjectStoreError::NotFound(content_ref.entity_id))?;
+        let location_doc = self.latest_document(location.entity_id, LOCATION_SCHEMA_ID)?;
+        let path = self.cas_path(&location_object_key(&location_doc)?)?;
+        let bytes = fs::read(path)?;
+        let size = u64::try_from(bytes.len()).map_err(|_| ObjectStoreError::RevisionOverflow)?;
+        if size != expected_size || Self::sha256(&bytes) != digest {
+            return Err(ObjectStoreError::VerificationFailed);
+        }
+        Ok(bytes)
+    }
+
+    /// Read the latest canonical JSON document for an entity.
+    ///
+    /// # Errors
+    /// Fails when the entity is absent.
+    pub fn latest(&self, entity_id: EntityId) -> Result<Value, ObjectStoreError> {
+        Ok(self
+            .ledger
+            .latest_record(entity_id)?
+            .ok_or(ObjectStoreError::NotFound(entity_id))?
+            .document()
+            .clone())
+    }
+}

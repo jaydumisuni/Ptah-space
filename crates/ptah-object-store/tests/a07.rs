@@ -25,38 +25,20 @@ use std::{
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 const NOW: &str = "2026-08-17T17:30:00Z";
 
-struct TempRoot {
-    root: PathBuf,
-}
-
+struct TempRoot { root: PathBuf }
 impl TempRoot {
     fn new() -> Self {
         let serial = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!(
-            "ptah-a07-object-store-test-{}-{serial}",
-            process::id()
-        ));
+        let root = std::env::temp_dir().join(format!("ptah-a07-object-store-test-{}-{serial}", process::id()));
         fs::create_dir_all(&root).expect("create temp root");
         Self { root }
     }
-
-    fn ledger(&self) -> PathBuf {
-        self.root.join("ptah.sqlite3")
-    }
-
-    fn cas(&self) -> PathBuf {
-        self.root.join("cas")
-    }
-
-    fn moved_cas(&self) -> PathBuf {
-        self.root.join("cas-moved")
-    }
+    fn ledger(&self) -> PathBuf { self.root.join("ptah.sqlite3") }
+    fn cas(&self) -> PathBuf { self.root.join("cas") }
+    fn moved_cas(&self) -> PathBuf { self.root.join("cas-moved") }
 }
-
 impl Drop for TempRoot {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
-    }
+    fn drop(&mut self) { let _ = fs::remove_dir_all(&self.root); }
 }
 
 struct EvidenceBundle {
@@ -66,22 +48,10 @@ struct EvidenceBundle {
     operation_id: EntityId,
     attempt_id: EntityId,
 }
-
 #[derive(Clone, Copy)]
-enum EvidenceMode {
-    Register,
-    Readback,
-    OutputOnly,
-}
-
-fn reference(kind: &str) -> EntityRef {
-    EntityRef::new(kind).expect("valid test reference")
-}
-
-fn fixed_clock() -> StoreClock {
-    Arc::new(|| NOW.to_owned())
-}
-
+enum EvidenceMode { Register, Readback, OutputOnly }
+fn reference(kind: &str) -> EntityRef { EntityRef::new(kind).expect("valid test reference") }
+fn fixed_clock() -> StoreClock { Arc::new(|| NOW.to_owned()) }
 fn config() -> ObjectStoreConfig {
     ObjectStoreConfig {
         backend_ref: reference("storage.backend"),
@@ -90,7 +60,6 @@ fn config() -> ObjectStoreConfig {
         producer_version: "a07-test-1.0.0".to_owned(),
     }
 }
-
 fn runtime(ledger_path: &Path) -> ActivityRuntime {
     let journal = Arc::new(LedgerJournal::open(ledger_path).expect("open A04 journal"));
     ActivityRuntime::new(8, journal, fixed_clock()).expect("create A04 runtime")
@@ -105,4 +74,5 @@ include!("a07_registration_authority.rs");
 include!("a07_storage_schema.rs");
 include!("a07_storage_relocation.rs");
 include!("a07_storage_integrity.rs");
-include!("a07_graph.rs");
+include!("a07_graph_relationship.rs");
+include!("a07_graph_identity.rs");

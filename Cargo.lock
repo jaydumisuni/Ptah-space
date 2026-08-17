@@ -474,6 +474,16 @@ dependencies = [
 [[package]]
 name = "ptah-object-store"
 version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-activity-runtime",
+ "ptah-identifiers",
+ "ptah-ledger",
+ "ptah-receipts",
+ "rusqlite",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
+]
 
 [[package]]
 name = "ptah-provider-api"

@@ -1,0 +1,117 @@
+name: A07 lock bootstrap
+
+on:
+  push:
+    branches:
+      - a07-object-store-candidate
+    paths:
+      - "crates/ptah-object-store/Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/a07-lock-bootstrap.yml"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  refresh-lock-only:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out candidate branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: a07-object-store-candidate
+          fetch-depth: 0
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+
+      - name: Capture exact external dependency universe
+        run: |
+          python - <<'PY'
+          import json, re
+          from pathlib import Path
+
+          def external_packages(text):
+              packages=[]
+              for block in text.split('[[package]]')[1:]:
+                  block='\n'+block
+                  name=re.search(r'\nname = "([^"]+)"', block)
+                  version=re.search(r'\nversion = "([^"]+)"', block)
+                  source=re.search(r'\nsource = "([^"]+)"', block)
+                  checksum=re.search(r'\nchecksum = "([^"]+)"', block)
+                  if name and version and source:
+                      packages.append({
+                          'name':name.group(1),
+                          'version':version.group(1),
+                          'source':source.group(1),
+                          'checksum':checksum.group(1) if checksum else None,
+                      })
+              return sorted(packages,key=lambda x:(x['name'],x['version'],x['source']))
+
+          before=external_packages(Path('Cargo.lock').read_text())
+          assert len(before)==81, len(before)
+          assert not any(item['source'].startswith('git+') for item in before)
+          Path('/tmp/a07-external-before.json').write_text(json.dumps(before,sort_keys=True))
+          PY
+
+      - name: Refresh only workspace package dependency metadata
+        run: |
+          set -euo pipefail
+          cargo metadata --format-version 1 >/tmp/a07-metadata.json
+
+      - name: Prove resolver did not change external packages
+        run: |
+          python - <<'PY'
+          import json, re
+          from pathlib import Path
+
+          def external_packages(text):
+              packages=[]
+              for block in text.split('[[package]]')[1:]:
+                  block='\n'+block
+                  name=re.search(r'\nname = "([^"]+)"', block)
+                  version=re.search(r'\nversion = "([^"]+)"', block)
+                  source=re.search(r'\nsource = "([^"]+)"', block)
+                  checksum=re.search(r'\nchecksum = "([^"]+)"', block)
+                  if name and version and source:
+                      packages.append({
+                          'name':name.group(1),
+                          'version':version.group(1),
+                          'source':source.group(1),
+                          'checksum':checksum.group(1) if checksum else None,
+                      })
+              return sorted(packages,key=lambda x:(x['name'],x['version'],x['source']))
+
+          before=json.loads(Path('/tmp/a07-external-before.json').read_text())
+          after=external_packages(Path('Cargo.lock').read_text())
+          assert after==before, 'external dependency universe changed'
+          text=Path('Cargo.lock').read_text()
+          block=next(
+              '\n'+candidate for candidate in text.split('[[package]]')[1:]
+              if '\nname = "ptah-object-store"' in '\n'+candidate
+          )
+          expected=[
+              'ptah-identifiers','ptah-ledger','ptah-receipts','rusqlite',
+              'serde','serde_json','sha2','thiserror 2.0.17'
+          ]
+          for dependency in expected:
+              assert f' "{dependency}",' in block, dependency
+          PY
+
+      - name: Remove one-shot bootstrap and commit exact lock refresh
+        run: |
+          set -euo pipefail
+          rm .github/workflows/a07-lock-bootstrap.yml
+          git add Cargo.lock .github/workflows/a07-lock-bootstrap.yml
+          test -n "$(git status --porcelain)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "A07 — Refresh locked workspace dependency metadata"
+          git push origin HEAD:a07-object-store-candidate

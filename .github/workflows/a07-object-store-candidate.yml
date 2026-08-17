@@ -1,0 +1,169 @@
+name: A07 object store candidate proof
+
+on:
+  pull_request:
+    paths:
+      - "crates/ptah-object-store/**"
+      - "Cargo.lock"
+      - ".github/workflows/a07-object-store-candidate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prove-a07:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact A07 head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify exact clean committed head
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
+          rustup default 1.97.1
+
+      - name: Prove A07 ownership and dependency boundary
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/a07-object-store
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          manifest = tomllib.loads(Path('crates/ptah-object-store/Cargo.toml').read_text())
+          assert set(manifest['dependencies']) == {
+              'ptah-identifiers', 'ptah-ledger', 'rusqlite', 'serde',
+              'serde_json', 'sha2', 'thiserror'
+          }
+          assert set(manifest['dev-dependencies']) == {'ptah-receipts'}
+
+          source = '\n'.join(
+              path.read_text()
+              for path in sorted(Path('crates/ptah-object-store/src').glob('*.rs'))
+          )
+          required = [
+              'fs::hard_link(&temp, &destination)',
+              '.create_new(true)',
+              'file.sync_all()?',
+              'sync_cas_publication(parent, &self.cas_root)?',
+              'fs::symlink_metadata(path)?',
+              '"verification_state": "unverified"',
+              '"verification_state", verification_state',
+              '"output_observation"',
+              '"hash_verification"',
+              '"readback"',
+              '"operation_observation"',
+              'SQLITE_OPEN_READ_ONLY',
+          ]
+          for needle in required:
+              assert needle in source, needle
+          assert 'fs::rename(' not in source
+          assert 'INSERT INTO ptah_entity_records' not in source
+          assert 'UPDATE ptah_entity_records' not in source
+          PY
+
+      - name: Verify locked dependency universe is unchanged
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          text = Path('Cargo.lock').read_text()
+          external = []
+          for block in text.split('[[package]]')[1:]:
+              block = '\n' + block
+              name = re.search(r'\nname = "([^"]+)"', block)
+              version = re.search(r'\nversion = "([^"]+)"', block)
+              source = re.search(r'\nsource = "([^"]+)"', block)
+              if name and version and source:
+                  external.append((name.group(1), version.group(1), source.group(1)))
+          assert len(external) == 81, len(external)
+          assert not any(source.startswith('git+') for _, _, source in external)
+          block = next(
+              block for block in text.split('[[package]]')[1:]
+              if '\nname = "ptah-object-store"' in '\n' + block
+          )
+          for dependency in [
+              'ptah-identifiers', 'ptah-ledger', 'ptah-receipts', 'rusqlite',
+              'serde', 'serde_json', 'sha2', 'thiserror 2.0.17'
+          ]:
+              assert f' "{dependency}",' in block, dependency
+          PY
+
+      - name: Prove format lint and A07 semantics
+        run: |
+          set -euo pipefail
+          cargo fmt --all --check
+          cargo clippy -p ptah-object-store --all-features --locked -- -D warnings 2>&1 | tee evidence/a07-object-store/clippy.txt
+          cargo test -p ptah-object-store --locked 2>&1 | tee evidence/a07-object-store/tests.txt
+
+      - name: Bind exact-head evidence
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+
+          root = Path('evidence/a07-object-store')
+          def sha(path):
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+          report = {
+              'record_type': 'ptah.a07.object_store_exact_head_proof',
+              'status': 'pass',
+              'tested_head': os.environ['PTAH_EXACT_SHA'],
+              'checked_out_head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'workflow_run_id': os.environ['RUN_ID'],
+              'workflow_run_attempt': os.environ['RUN_ATTEMPT'],
+              'cargo_lock_sha256': sha('Cargo.lock'),
+              'object_store_source_tree_sha256': hashlib.sha256(
+                  b''.join(
+                      path.name.encode() + b'\0' + path.read_bytes() + b'\0'
+                      for path in sorted(Path('crates/ptah-object-store/src').glob('*.rs'))
+                  )
+              ).hexdigest(),
+              'manifest_sha256': sha('crates/ptah-object-store/Cargo.toml'),
+              'cas_race_safe_publication': True,
+              'cas_symlink_rejected': True,
+              'content_identity_separate_from_object_identity': True,
+              'availability_separate_from_verification': True,
+              'receipt_evidence_required': True,
+              'production_authorized': False,
+          }
+          assert report['tested_head'] == report['checked_out_head']
+          (root / 'exact-head-evidence.json').write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+
+      - name: Confirm proof did not mutate repository
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Retain A07 exact-head evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a07-object-store-${{ env.PTAH_EXACT_SHA }}-${{ github.run_attempt }}
+          path: evidence/a07-object-store/
+          if-no-files-found: error
+          retention-days: 30

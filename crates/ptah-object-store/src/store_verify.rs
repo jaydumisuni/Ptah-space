@@ -1,10 +1,20 @@
+struct CasObservation {
+    outcome: &'static str,
+    observed_digest: Option<String>,
+    observed_size: Option<u64>,
+    health: &'static str,
+}
+
 impl ObjectStore {
     /// Independently re-read and verify one local CAS Location, retaining a
     /// Storage Verification and fresh Location Observation.
     ///
+    /// The command specification is consumed as one bounded verification request.
+    ///
     /// # Errors
     /// Fails for invalid evidence/workspace or ledger/I/O errors. Integrity
     /// mismatch is returned as a negative report rather than manufactured success.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn verify_location(
         &mut self,
         location_id: EntityId,
@@ -33,43 +43,7 @@ impl ObjectStore {
         let expected_size = field_u64(&content, "byte_size")?;
         let object_key = location_object_key(&location)?;
         let target = self.cas_path(&object_key)?;
-
-        let (outcome, observed_digest, observed_size, health) = match fs::read(&target) {
-            Ok(bytes) => {
-                let observed_digest = Self::sha256(&bytes);
-                let observed_size =
-                    u64::try_from(bytes.len()).map_err(|_| ObjectStoreError::RevisionOverflow)?;
-                if observed_digest != expected_digest {
-                    (
-                        "digest_mismatch",
-                        Some(observed_digest),
-                        Some(observed_size),
-                        "corrupt",
-                    )
-                } else if observed_size != expected_size {
-                    (
-                        "size_mismatch",
-                        Some(observed_digest),
-                        Some(observed_size),
-                        "corrupt",
-                    )
-                } else {
-                    (
-                        "verified",
-                        Some(observed_digest),
-                        Some(observed_size),
-                        "healthy",
-                    )
-                }
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                ("missing", None, None, "missing")
-            }
-            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
-                ("permission_denied", None, None, "degraded")
-            }
-            Err(error) => return Err(error.into()),
-        };
+        let observed = observe_cas(&target, &expected_digest, expected_size)?;
 
         let now = (self.clock)();
         let verification_ref = EntityRef::new(STORAGE_VERIFICATION_KIND)?;
@@ -80,9 +54,9 @@ impl ObjectStore {
             &location_ref,
             &expected_digest,
             expected_size,
-            observed_digest.as_deref(),
-            observed_size,
-            outcome,
+            observed.observed_digest.as_deref(),
+            observed.observed_size,
+            observed.outcome,
             &spec,
             &self.config,
             &validated,
@@ -91,10 +65,10 @@ impl ObjectStore {
         let observation = verification_location_observation_document(
             &observation_ref,
             &location_ref,
-            observed_size,
-            observed_digest.as_deref(),
+            observed.observed_size,
+            observed.observed_digest.as_deref(),
             &object_key,
-            health,
+            observed.health,
             &spec,
             &self.config,
             &validated,
@@ -104,8 +78,16 @@ impl ObjectStore {
         append_document_ref(&mut location, "verification_refs", verification_ref.clone())?;
         append_document_ref(&mut location, "observation_refs", observation_ref)?;
         append_document_refs(&mut location, "receipt_refs", &validated.receipt_refs)?;
-        set_string(&mut location, "verification_state", if outcome == "verified" { "verified" } else { "failed" })?;
-        set_string(&mut location, "health_state", health)?;
+        set_string(
+            &mut location,
+            "verification_state",
+            if observed.outcome == "verified" {
+                "verified"
+            } else {
+                "failed"
+            },
+        )?;
+        set_string(&mut location, "health_state", observed.health)?;
         set_string(&mut location, "last_verified_at", &now)?;
         set_string(&mut location, "last_observed_at", &now)?;
         bump_document(&mut location, &now)?;
@@ -114,11 +96,11 @@ impl ObjectStore {
         Ok(VerificationReport {
             verification_ref,
             location_ref,
-            outcome: outcome.to_owned(),
+            outcome: observed.outcome.to_owned(),
             expected_sha256: expected_digest,
-            observed_sha256: observed_digest,
+            observed_sha256: observed.observed_digest,
             expected_size,
-            observed_size,
+            observed_size: observed.observed_size,
         })
     }
 
@@ -166,5 +148,45 @@ impl ObjectStore {
             .ok_or(ObjectStoreError::NotFound(entity_id))?
             .document()
             .clone())
+    }
+}
+
+fn observe_cas(
+    target: &Path,
+    expected_digest: &str,
+    expected_size: u64,
+) -> Result<CasObservation, ObjectStoreError> {
+    match fs::read(target) {
+        Ok(bytes) => {
+            let observed_digest = ObjectStore::sha256(&bytes);
+            let observed_size =
+                u64::try_from(bytes.len()).map_err(|_| ObjectStoreError::RevisionOverflow)?;
+            let (outcome, health) = if observed_digest != expected_digest {
+                ("digest_mismatch", "corrupt")
+            } else if observed_size != expected_size {
+                ("size_mismatch", "corrupt")
+            } else {
+                ("verified", "healthy")
+            };
+            Ok(CasObservation {
+                outcome,
+                observed_digest: Some(observed_digest),
+                observed_size: Some(observed_size),
+                health,
+            })
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(CasObservation {
+            outcome: "missing",
+            observed_digest: None,
+            observed_size: None,
+            health: "missing",
+        }),
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => Ok(CasObservation {
+            outcome: "permission_denied",
+            observed_digest: None,
+            observed_size: None,
+            health: "degraded",
+        }),
+        Err(error) => Err(error.into()),
     }
 }

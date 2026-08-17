@@ -14,7 +14,9 @@ fn location_uses_provider_relative_key_and_optional_fields_are_omitted() {
         )
         .expect("register");
 
-    let location = store.latest(registration.location_ref.entity_id).expect("Location");
+    let location = store
+        .latest(registration.location_ref.entity_id)
+        .expect("Location");
     assert_eq!(
         location
             .get("envelope")
@@ -36,7 +38,9 @@ fn location_uses_provider_relative_key_and_optional_fields_are_omitted() {
     assert!(alias_value.starts_with("sha256/"));
     assert!(!alias_value.contains(temp.root.to_string_lossy().as_ref()));
 
-    let content = store.latest(registration.content_ref.entity_id).expect("Content");
+    let content = store
+        .latest(registration.content_ref.entity_id)
+        .expect("Content");
     assert_eq!(
         content
             .get("envelope")

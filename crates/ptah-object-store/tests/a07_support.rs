@@ -1,8 +1,4 @@
-fn complete_evidence(
-    runtime: &ActivityRuntime,
-    evidence: &EvidenceBundle,
-    result_ref: EntityRef,
-) {
+fn complete_evidence(runtime: &ActivityRuntime, evidence: &EvidenceBundle, result_ref: EntityRef) {
     runtime
         .complete_attempt(evidence.attempt_id, evidence.completion_receipt_id)
         .expect("complete Attempt");

@@ -1,0 +1,72 @@
+name: A09 disposable private-candidate packager
+
+on:
+  pull_request:
+    paths:
+      - ".a09-pack/**"
+      - ".github/workflows/a09-private-packager.yml"
+      - "adapters/git-cli/**"
+      - "Cargo.lock"
+
+permissions:
+  contents: write
+
+env:
+  PTAH_BASE_SHA: a43371815abca240d4f48b617aafa6011db817e4
+  PTAH_BRANCH: a09-private-packaging
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+
+      - name: Reconstruct, prove, and publish disposable object source
+        run: |
+          set -euo pipefail
+          if [ ! -f .a09-pack/chunk-000 ]; then
+            echo "packaging payload already consumed"
+            exit 0
+          fi
+          test "$(git rev-parse HEAD^)" = "$PTAH_BASE_SHA"
+          cat .a09-pack/chunk-* > /tmp/a09-source.tar.gz
+          echo '7c7fda4e0af2ec5341528217f241e495edcc1112a1b0766ad3a3bc36599e75d5  /tmp/a09-source.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/a09-source.tar.gz -C .
+          cargo generate-lockfile
+          cat > /tmp/a09-private.sha256 <<'EOF'
+          8f4ce52a1a529ea63c1733865ff1af38697828aebac7435911c231e4c05e8d16  Cargo.lock
+          bfa0e6634be3fac9ef295e6e79f513e61501ce2987b8a9c1be6e3315b74b716d  adapters/git-cli/Cargo.toml
+          e0b19745921022f70b24b7ef3db1eb1c40a725b4fb74b71bb265618f949902b4  adapters/git-cli/src/lib.rs
+          e6a2b349f246d1b5ba021d07d2a413c0c86297b7e3a342c825a2e02f2661f333  adapters/git-cli/src/provider.rs
+          425db6b83b9d904f8ed690af5eda73b9f4a0be3b99d3d44082f120d3c2fffbb0  adapters/git-cli/src/types.rs
+          402b23c3b883e2144091ca86fdfed279573400ac44d68215cc44bc400b0cf72d  adapters/git-cli/src/util.rs
+          dfa3c66b8b114ef2404512e3ef5373542ff7de08be801adc08bef7cda55a5c20  adapters/git-cli/tests/a09.rs
+          EOF
+          sed -i 's/^          //' /tmp/a09-private.sha256
+          sha256sum -c /tmp/a09-private.sha256
+          python tools/check_rust_dependency_lock.py --output /tmp/a09-dependency-lock.json
+          cargo fmt --all --check
+          cargo clippy -p git-cli --all-targets --all-features --locked -- -D warnings
+          test "$(cargo test -p git-cli --test a09 --locked -- --list | grep -c ': test$')" -eq 13
+          cargo test -p git-cli --test a09 --locked
+          test "$(cargo test -p ptah-ledger -p ptah-activity-runtime -p ptah-object-store -p ptah-transfer --locked -- --list | grep -c ': test$')" -eq 85
+          cargo test -p ptah-ledger -p ptah-activity-runtime -p ptah-object-store -p ptah-transfer --locked
+          test "$(cargo test --workspace --locked -- --list | grep -c ': test$')" -ge 174
+          cargo test --workspace --locked
+          rm -rf .a09-pack
+          git diff --check "$PTAH_BASE_SHA"
+          git config user.name "THE TECH GUY"
+          git config user.email "65334711+jaydumisuni@users.noreply.github.com"
+          git add -A
+          git commit -m "A09 pack: verified private candidate objects"
+          git push origin "HEAD:refs/heads/$PTAH_BRANCH"

@@ -51,7 +51,7 @@ fn relationship_and_view_foundations_update_object_projections() {
             workspace_ref: workspace.clone(),
             authority_ref: authority.clone(),
             view_kind: "structured_index".to_owned(),
-            view_schema_id: OBJECT_SCHEMA_ID.to_owned(),
+            view_schema_id: "urn:ptah:schema:test:structured-index:0.1.0".to_owned(),
             view_schema_version: "0.1.0".to_owned(),
             source_revision_refs: vec![first.revision_ref.clone()],
             origin_class: OriginClass::Generated,

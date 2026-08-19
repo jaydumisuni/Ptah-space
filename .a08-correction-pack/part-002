@@ -1,0 +1,403 @@
+@@ -210,8 +256,29 @@ impl TransferEngine {
+         let run = latest_document(&self.ledger, run_id, TRANSFER_RUN_SCHEMA_ID)?;
+         ensure_run_state(&run, &["transferring"])?;
+         ensure_mode(&run, TransferMode::Upload)?;
+-        if field_refs(&run, "manifest_refs")?.len() < 2 {
+-            return Err(TransferError::VerificationFailed);
++        let verified_manifest_ref = source_verification_manifest(&run)?;
++        let manifest_refs = field_refs(&run, "manifest_refs")?;
++        if !manifest_refs
++            .last()
++            .is_some_and(|reference| same_ref(reference, &verified_manifest_ref))
++        {
++            return Err(TransferError::SourceVerificationMissing);
++        }
++        let manifest = latest_document(
++            &self.ledger,
++            verified_manifest_ref.entity_id,
++            TRANSFER_MANIFEST_SCHEMA_ID,
++        )?;
++        let has_size = manifest
++            .get("expected_size")
++            .and_then(Value::as_u64)
++            .is_some();
++        let has_digest = manifest
++            .get("expected_digests")
++            .and_then(Value::as_array)
++            .is_some_and(|digests| !digests.is_empty());
++        if !has_size || !has_digest {
++            return Err(TransferError::SourceVerificationMissing);
+         }
+         Ok(sink.finalize()?)
+     }
+@@ -268,12 +335,17 @@ impl TransferEngine {
+ 
+         let mut destination_hasher = Sha256::new();
+         let mut destination_size = 0u64;
+-        loop {
+-            let chunk = sink.read_back_chunk(destination_size, chunk_size)?;
++        while destination_size < expected_size {
++            let remaining = expected_size
++                .checked_sub(destination_size)
++                .ok_or(TransferError::AccountingOverflow)?;
++            let requested = usize::try_from(remaining.min(chunk_size as u64))
++                .map_err(|_| TransferError::AccountingOverflow)?;
++            let chunk = sink.read_back_chunk(destination_size, requested)?;
+             if chunk.is_empty() {
+                 break;
+             }
+-            if chunk.len() > chunk_size {
++            if chunk.len() > requested {
+                 return Err(TransferError::VerificationFailed);
+             }
+             destination_hasher.update(&chunk);
+@@ -283,6 +355,18 @@ impl TransferEngine {
+                 )
+                 .ok_or(TransferError::AccountingOverflow)?;
+         }
++        if destination_size == expected_size {
++            let trailing = sink.read_back_chunk(destination_size, 1)?;
++            if !trailing.is_empty() {
++                destination_hasher.update(&trailing);
++                destination_size = destination_size
++                    .checked_add(
++                        u64::try_from(trailing.len())
++                            .map_err(|_| TransferError::AccountingOverflow)?,
++                    )
++                    .ok_or(TransferError::AccountingOverflow)?;
++            }
++        }
+         let destination_sha = format!("{:x}", destination_hasher.finalize());
+         let passed = destination_size == expected_size && destination_sha == expected_sha;
+         let domains = upload_verification_domains(
+@@ -317,7 +401,11 @@ impl TransferEngine {
+             append_ref(&mut run, "receipt_refs", receipt.clone())?;
+         }
+         if passed {
+-            bump(&mut run, &now)?;
++            if run_state(&run)? == "uncertain" {
++                set_lifecycle(&mut run, "verifying", &now)?;
++            } else {
++                bump(&mut run, &now)?;
++            }
+         } else {
+             set_lifecycle(&mut run, "failed", &now)?;
+         }
+diff --git a/crates/ptah-transfer/src/model.rs b/crates/ptah-transfer/src/model.rs
+index e007f59..ddb36c6 100644
+--- a/crates/ptah-transfer/src/model.rs
++++ b/crates/ptah-transfer/src/model.rs
+@@ -349,7 +349,7 @@ pub struct TransferRunHandle {
+ pub struct ProgressReport {
+     /// Progress Snapshot identity.
+     pub snapshot_ref: EntityRef,
+-    /// Total bytes received into partial state.
++    /// Received bytes not yet independently verified.
+     pub bytes_received_unverified: u64,
+     /// Bytes whose chunk digests were re-read and verified.
+     pub bytes_verified: u64,
+@@ -448,6 +448,9 @@ pub enum TransferError {
+     /// Digest/size/read-back verification failed.
+     #[error("transfer verification failed")]
+     VerificationFailed,
++    /// Upload provider finalization was requested before exact source verification was retained.
++    #[error("upload source verification is missing or no longer current")]
++    SourceVerificationMissing,
+     /// Provider acknowledgement cannot satisfy completion proof.
+     #[error("provider acknowledgement is insufficient for transfer completion")]
+     AckNotCompletion,
+diff --git a/crates/ptah-transfer/tests/a08_download.rs b/crates/ptah-transfer/tests/a08_download.rs
+index 72f9ec5..44b461c 100644
+--- a/crates/ptah-transfer/tests/a08_download.rs
++++ b/crates/ptah-transfer/tests/a08_download.rs
+@@ -376,6 +376,17 @@ fn digest_mismatch_retains_negative_verification_and_fails_run() {
+             .and_then(serde_json::Value::as_str),
+         Some("failed")
+     );
++    assert_eq!(
++        verification_domain_state(&verification, VerificationDomain::TransportCompleted),
++        "failed"
++    );
++    assert_eq!(
++        verification_domain_state(
++            &verification,
++            VerificationDomain::TransportChecksumsMatched
++        ),
++        "passed"
++    );
+ }
+ 
+ #[test]
+@@ -611,3 +622,121 @@ fn successful_download_retains_exact_source_and_destination_digests() {
+         "verifying"
+     );
+ }
++
++#[test]
++fn uncertain_download_converges_to_verifying_after_successful_readback() {
++    let temp = TempRoot::new();
++    let runtime = runtime(&temp.ledger());
++    let mut engine = engine(&temp);
++    let bytes = b"uncertain-download-convergence";
++    let request = request_spec(bytes, TransferMode::Download);
++    let request_ref = engine.create_request(request.clone()).expect("request");
++    let transfer = create_attempt(
++        &runtime,
++        &request.workspace_ref,
++        &request.authority_ref,
++        request_ref.clone(),
++    );
++    let handle = engine
++        .start_download(
++            request_ref.entity_id,
++            start_evidence(&runtime, &transfer),
++            start_spec(),
++        )
++        .expect("start");
++    engine
++        .append_download_chunk(handle.run_ref.entity_id, 0, bytes)
++        .expect("bytes");
++    engine
++        .acknowledge_transport(
++            handle.run_ref.entity_id,
++            ProviderAcknowledgement::Uncertain,
++            output_evidence(&runtime, &transfer),
++        )
++        .expect("uncertain acknowledgement");
++    assert_eq!(
++        lifecycle_state(&temp.ledger(), handle.run_ref.entity_id),
++        "uncertain"
++    );
++    let verify = create_attempt(
++        &runtime,
++        &request.workspace_ref,
++        &request.authority_ref,
++        handle.run_ref.clone(),
++    );
++    let report = engine
++        .verify_and_materialize_download(
++            handle.run_ref.entity_id,
++            temp.destination(),
++            Path::new("uncertain.bin"),
++            readback_evidence(&runtime, &verify),
++        )
++        .expect("verify uncertain download");
++    assert_eq!(report.verification_state, "verified");
++    assert_eq!(
++        lifecycle_state(&temp.ledger(), handle.run_ref.entity_id),
++        "verifying"
++    );
++}
++
++#[test]
++fn oversized_retained_range_is_rejected_before_allocation() {
++    let temp = TempRoot::new();
++    let runtime = runtime(&temp.ledger());
++    let mut engine = engine(&temp);
++    let bytes = b"bounded-range-proof";
++    let request = request_spec(bytes, TransferMode::Download);
++    let request_ref = engine.create_request(request.clone()).expect("request");
++    let transfer = create_attempt(
++        &runtime,
++        &request.workspace_ref,
++        &request.authority_ref,
++        request_ref.clone(),
++    );
++    let handle = engine
++        .start_download(
++            request_ref.entity_id,
++            start_evidence(&runtime, &transfer),
++            start_spec(),
++        )
++        .expect("start");
++    engine
++        .append_download_chunk(handle.run_ref.entity_id, 0, bytes)
++        .expect("bytes");
++
++    let run = ledger_document(&temp.ledger(), handle.run_ref.entity_id);
++    let snapshot_ref: EntityRef = serde_json::from_value(
++        run.get("progress_snapshot_refs")
++            .and_then(serde_json::Value::as_array)
++            .and_then(|refs| refs.last())
++            .cloned()
++            .expect("snapshot ref"),
++    )
++    .expect("snapshot EntityRef");
++    let mut snapshot = ledger_document(&temp.ledger(), snapshot_ref.entity_id);
++    snapshot["ranges"][0]["length"] = serde_json::json!(bytes.len() as u64 + 1024);
++    append_document_revision(&temp.ledger(), snapshot);
++
++    engine
++        .acknowledge_transport(
++            handle.run_ref.entity_id,
++            ProviderAcknowledgement::Acknowledged,
++            output_evidence(&runtime, &transfer),
++        )
++        .expect("ack");
++    let verify = create_attempt(
++        &runtime,
++        &request.workspace_ref,
++        &request.authority_ref,
++        handle.run_ref.clone(),
++    );
++    assert!(matches!(
++        engine.verify_and_materialize_download(
++            handle.run_ref.entity_id,
++            temp.destination(),
++            Path::new("oversized-range.bin"),
++            readback_evidence(&runtime, &verify),
++        ),
++        Err(TransferError::PartialStateCorrupt)
++    ));
++}
+diff --git a/crates/ptah-transfer/tests/a08_support.rs b/crates/ptah-transfer/tests/a08_support.rs
+index a634276..1089e2d 100644
+--- a/crates/ptah-transfer/tests/a08_support.rs
++++ b/crates/ptah-transfer/tests/a08_support.rs
+@@ -4,7 +4,7 @@ use ptah_activity_runtime::{
+ };
+ use ptah_events::EventBus;
+ use ptah_identifiers::{EntityId, EntityRef};
+-use ptah_ledger::{EntityRecordRepository, Ledger};
++use ptah_ledger::{CanonicalRecord, EntityRecordRepository, Ledger};
+ use ptah_receipts::{
+     AuthorityClass, ProofLevel, ReceiptContext, ReceiptKind, ReceiptOutcome, ReceiptSpec,
+ };
+@@ -18,15 +18,10 @@ use sha2::{Digest, Sha256};
+ use std::{
+     fs, io,
+     path::{Path, PathBuf},
+-    process,
+-    sync::{
+-        Arc, OnceLock,
+-        atomic::{AtomicU64, Ordering},
+-    },
++    sync::{Arc, OnceLock},
+ };
+ 
+ const NOW: &str = "2026-08-19T20:00:00Z";
+-static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+ 
+ struct TempRoot {
+     root: PathBuf,
+@@ -34,10 +29,11 @@ struct TempRoot {
+ 
+ impl TempRoot {
+     fn new() -> Self {
+-        let serial = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+-        let root =
+-            std::env::temp_dir().join(format!("ptah-a08-transfer-{}-{serial}", process::id()));
+-        fs::create_dir_all(&root).expect("create test root");
++        let root = std::env::temp_dir().join(format!(
++            "ptah-a08-transfer-{}",
++            EntityId::new_v7()
++        ));
++        fs::create_dir(&root).expect("create unique test root");
+         Self { root }
+     }
+ 
+@@ -409,6 +405,42 @@ fn lifecycle_state(path: &Path, id: EntityId) -> String {
+         .to_owned()
+ }
+ 
++fn append_document_revision(path: &Path, mut document: serde_json::Value) {
++    let envelope = document
++        .get_mut("envelope")
++        .and_then(serde_json::Value::as_object_mut)
++        .expect("document envelope");
++    let revision = envelope
++        .get("record_revision")
++        .and_then(serde_json::Value::as_u64)
++        .expect("record revision")
++        + 1;
++    envelope.insert("record_revision".to_owned(), serde_json::json!(revision));
++    envelope.insert("updated_at".to_owned(), serde_json::json!(NOW));
++    let record = CanonicalRecord::from_document(document).expect("canonical revision");
++    let mut ledger = Ledger::open(path).expect("open ledger for revision");
++    let write = ledger.begin_write().expect("begin revision write");
++    write.insert(&record).expect("insert revision");
++    write.commit().expect("commit revision");
++}
++
++fn verification_domain_state(
++    verification: &serde_json::Value,
++    domain: VerificationDomain,
++) -> String {
++    let domain_value = serde_json::to_value(domain).expect("domain value");
++    verification
++        .get("domain_results")
++        .and_then(serde_json::Value::as_array)
++        .expect("domain results")
++        .iter()
++        .find(|result| result.get("domain") == Some(&domain_value))
++        .and_then(|result| result.get("result"))
++        .and_then(serde_json::Value::as_str)
++        .expect("domain state")
++        .to_owned()
++}
++
+ fn assert_resume_manifest_bindings(
+     ledger_path: &Path,
+     run_ref: &EntityRef,
+@@ -463,6 +495,7 @@ fn assert_resume_manifest_bindings(
+ struct MemorySink {
+     bytes: Vec<u8>,
+     acknowledgement: Option<ProviderAcknowledgement>,
++    finalize_calls: usize,
+ }
+ 
+ impl UploadSink for MemorySink {
+@@ -476,6 +509,7 @@ impl UploadSink for MemorySink {
+     }
+ 
+     fn finalize(&mut self) -> io::Result<ProviderAcknowledgement> {
++        self.finalize_calls += 1;
+         Ok(self
+             .acknowledgement
+             .unwrap_or(ProviderAcknowledgement::Acknowledged))
+@@ -490,3 +524,37 @@ impl UploadSink for MemorySink {
+         Ok(self.bytes[offset..end].to_vec())
+     }
+ }
++
++#[derive(Default)]
++struct EndlessReadbackSink {
++    bytes: Vec<u8>,
++    readback_calls: usize,
++}
++
++impl UploadSink for EndlessReadbackSink {
++    fn write_chunk(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
++        let offset = usize::try_from(offset).map_err(|_| io::Error::other("offset overflow"))?;
++        if offset != self.bytes.len() {
++            return Err(io::Error::other("non-contiguous upload"));
++        }
++        self.bytes.extend_from_slice(bytes);
++        Ok(())
++    }
++
++    fn finalize(&mut self) -> io::Result<ProviderAcknowledgement> {
++        Ok(ProviderAcknowledgement::Acknowledged)
++    }
++
++    fn read_back_chunk(&mut self, offset: u64, max_len: usize) -> io::Result<Vec<u8>> {
++        self.readback_calls += 1;
++        if max_len == 0 {
++            return Err(io::Error::other("zero readback bound"));
++        }
++        let offset = usize::try_from(offset).map_err(|_| io::Error::other("offset overflow"))?;
++        if offset < self.bytes.len() {
++            let end = offset.saturating_add(max_len).min(self.bytes.len());
++            return Ok(self.bytes[offset..end].to_vec());
++        }
++        Ok(vec![0xA5; max_len])
++    }
++}
+diff --git a/crates/ptah-transfer/tests/a08_upload.rs b/crates/ptah-transfer/tests/a08_upload.rs
+index 0102d08..5b995c9 100644
+--- a/crates/ptah-transfer/tests/a08_upload.rs
++++ b/crates/ptah-transfer/tests/a08_upload.rs
+@@ -131,4 +131,330 @@ fn upload_source_mismatch_is_retained_before_provider_finalize() {
+         "failed"
+     );
+     assert_eq!(sink.bytes, bytes);

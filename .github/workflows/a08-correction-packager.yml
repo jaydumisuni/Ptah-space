@@ -1,0 +1,110 @@
+name: A08 review-correction private packager
+
+on:
+  pull_request:
+    paths:
+      - ".a08-correction-pack/**"
+      - ".github/workflows/a08-correction-packager.yml"
+
+permissions:
+  contents: write
+
+env:
+  PTAH_PACKAGING_SHA: ${{ github.event.pull_request.head.sha }}
+  PTAH_OLD_A08_SHA: a43371815abca240d4f48b617aafa6011db817e4
+  PTAH_A07_SHA: 05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4
+  PTAH_BRANCH: a08-resumable-transfer-engine
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package-corrected-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact disposable packaging commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_PACKAGING_SHA }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          rustc -Vv
+          cargo -V
+
+      - name: Reconstruct exact privately reviewed correction
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$PTAH_OLD_A08_SHA"
+          cat .a08-correction-pack/part-000 .a08-correction-pack/part-001 .a08-correction-pack/part-002 .a08-correction-pack/part-003 > /tmp/a08-correction.patch
+          echo 'd571c6b7e3aa98658ec8eec57c283ef5aa87cd4a09c2c86052a3fe9be9367f9f  /tmp/a08-correction.patch' | sha256sum -c -
+          git apply --check /tmp/a08-correction.patch
+          git apply /tmp/a08-correction.patch
+          cat > /tmp/a08-corrected-files.sha256 <<'EOF'
+          175d9cada0ea26d2174bba782b65f66b01265288a9a0ef7df378361b5b1baf4b  .github/workflows/a08-transfer-proof.yml
+          6db275cf27ba8961be49e9793c266602f0dec1634aa78c875d9038066b704df2  crates/ptah-events/src/lib.rs
+          1a54fc947b3ffd00b10508f1d4a890feca04092a2ac96583807107fe4829661b  crates/ptah-transfer/src/engine/completion.rs
+          c8d50c73fb3b435a5088b4c10c019a0dda938f74a8fa9884ffd79c1682ff3fd8  crates/ptah-transfer/src/engine/download.rs
+          3dbf8fc104b760232e548803b60a529753d2e935444043a7e9cfe3fb7d63e1cb  crates/ptah-transfer/src/engine/helpers.rs
+          89466999b919e27849e8f88b1580f5b723b7c3f70e39bebc40fa74b17fc503b8  crates/ptah-transfer/src/engine/internal.rs
+          f344b15366d21bf4c2ec47ec4993ed6767d6a81b09007cd3ec960b41d9c78675  crates/ptah-transfer/src/engine/upload.rs
+          a32aa0c4f97aecd2e7beb15062c06537ccdf25fe27712f6152338a601a90eec9  crates/ptah-transfer/src/model.rs
+          040e4603c6e666154c05d2eb73d703f280f15d45ebf76ec5445ba0fc88819f0d  crates/ptah-transfer/tests/a08_download.rs
+          52178aa71b885a42c490e4cc4bc29a0def5a9e0210a2dbac4ff4843ab46cb25a  crates/ptah-transfer/tests/a08_support.rs
+          435aa4259b93d1b2ddcef487e372cd2471853f816a9e031900356299d36ca670  crates/ptah-transfer/tests/a08_upload.rs
+          EOF
+          sed -i 's/^          //' /tmp/a08-corrected-files.sha256
+          sha256sum -c /tmp/a08-corrected-files.sha256
+          test "$(sha256sum Cargo.lock | cut -d' ' -f1)" = "6e7ef35fd0419f75dd0f2b4f9c9c173be1b4a050b26970bb80e3e1cff89c56e3"
+
+      - name: Re-prove corrected A08 candidate
+        run: |
+          set -euo pipefail
+          cargo metadata --locked --format-version 1 > /tmp/a08-cargo-metadata.json
+          python tools/check_rust_dependency_lock.py --output /tmp/a08-dependency-lock.json
+          cargo fmt --all --check
+          cargo clippy -p ptah-events -p ptah-transfer --all-targets --all-features --locked -- -D warnings
+          test "$(cargo test -p ptah-transfer --test a08 --locked -- --list | grep -c ': test$')" -eq 18
+          cargo test -p ptah-transfer --locked
+          test "$(cargo test -p ptah-ledger -p ptah-activity-runtime -p ptah-object-store --locked -- --list | grep -c ': test$')" -eq 74
+          cargo test -p ptah-ledger -p ptah-activity-runtime -p ptah-object-store --locked
+          test "$(cargo test --workspace --locked -- --list | grep -c ': test$')" -eq 170
+          cargo test --workspace --locked
+
+      - name: Freeze product tree and attempt canonical object publication
+        run: |
+          set -euo pipefail
+          rm -rf .a08-correction-pack
+          rm -f .github/workflows/a08-correction-packager.yml
+          python - <<'PY'
+          import os, subprocess
+          old=os.environ['PTAH_OLD_A08_SHA']
+          files=subprocess.check_output(['git','diff','--name-only',old], text=True).splitlines()
+          allowed={
+            '.github/workflows/a08-transfer-proof.yml',
+            'crates/ptah-events/src/lib.rs',
+            'crates/ptah-transfer/src/engine/completion.rs',
+            'crates/ptah-transfer/src/engine/download.rs',
+            'crates/ptah-transfer/src/engine/helpers.rs',
+            'crates/ptah-transfer/src/engine/internal.rs',
+            'crates/ptah-transfer/src/engine/upload.rs',
+            'crates/ptah-transfer/src/model.rs',
+            'crates/ptah-transfer/tests/a08_download.rs',
+            'crates/ptah-transfer/tests/a08_support.rs',
+            'crates/ptah-transfer/tests/a08_upload.rs',
+          }
+          assert set(files)==allowed, (files, sorted(allowed))
+          PY
+          git diff --check "$PTAH_OLD_A08_SHA"
+          git config user.name "THE TECH GUY"
+          git config user.email "65334711+jaydumisuni@users.noreply.github.com"
+          git add -A
+          git commit --amend -m "A08: resumable transfer engine (review corrections)"
+          test "$(git rev-parse HEAD^)" = "$PTAH_OLD_A08_SHA"
+          echo "FINAL_COMMIT=$(git rev-parse HEAD)"
+          echo "FINAL_TREE=$(git rev-parse 'HEAD^{tree}')"
+          echo "FINAL_PARENT=$(git rev-parse HEAD^)"
+          git push --force origin "HEAD:refs/heads/a08-correction-object-publication"

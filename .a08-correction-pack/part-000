@@ -1,0 +1,341 @@
+diff --git a/.github/workflows/a08-transfer-proof.yml b/.github/workflows/a08-transfer-proof.yml
+index 4fa39c0..f984c3e 100644
+--- a/.github/workflows/a08-transfer-proof.yml
++++ b/.github/workflows/a08-transfer-proof.yml
+@@ -4,6 +4,7 @@ on:
+   pull_request:
+     paths:
+       - "crates/ptah-transfer/**"
++      - "crates/ptah-events/**"
+       - "Cargo.lock"
+       - ".github/workflows/a08-transfer-proof.yml"
+ 
+@@ -42,33 +43,33 @@ jobs:
+           import os, subprocess
+           base=os.environ['PTAH_BASE_SHA']; head=os.environ['PTAH_EXACT_SHA']
+           files=subprocess.check_output(['git','diff','--name-only',base,head], text=True).splitlines()
+-          bad=[p for p in files if not (p=='Cargo.lock' or p=='.github/workflows/a08-transfer-proof.yml' or p.startswith('crates/ptah-transfer/'))]
++          bad=[p for p in files if not (p=='Cargo.lock' or p=='.github/workflows/a08-transfer-proof.yml' or p.startswith('crates/ptah-transfer/') or p.startswith('crates/ptah-events/'))]
+           assert not bad, f'A08 scope drift: {bad}'
+           assert 'crates/ptah-transfer/src/lib.rs' in files
+           PY
+           git diff --check "$PTAH_BASE_SHA" "$PTAH_EXACT_SHA"
+ 
+-      - name: Prove repository Cargo lock is deterministic
++      - name: Prove repository Cargo lock resolves without mutation
+         run: |
+           set -euo pipefail
+           mkdir -p /tmp/a08-proof
+           cp Cargo.lock /tmp/a08-proof/Cargo.lock.repository
+-          cargo generate-lockfile
++          cargo metadata --locked --format-version 1 > /tmp/a08-proof/cargo-metadata.json
+           cmp -s Cargo.lock /tmp/a08-proof/Cargo.lock.repository
+           git diff --exit-code -- Cargo.lock
+-          cp Cargo.lock /tmp/a08-proof/Cargo.lock.generated
++          cp Cargo.lock /tmp/a08-proof/Cargo.lock.validated
+           python tools/check_rust_dependency_lock.py --output /tmp/a08-proof/dependency-lock-report.json
+ 
+       - name: Check formatting and deny warnings
+         run: |
+           cargo fmt --all --check
+-          cargo clippy -p ptah-transfer --all-targets --all-features --locked -- -D warnings
++          cargo clippy -p ptah-events -p ptah-transfer --all-targets --all-features --locked -- -D warnings
+ 
+       - name: Prove A08 behavior corpus
+         run: |
+           set -euo pipefail
+           count=$(cargo test -p ptah-transfer --test a08 --locked -- --list | grep -c ': test$')
+-          test "$count" -eq 11
++          test "$count" -eq 18
+           echo "$count" > /tmp/a08-proof/a08-test-count.txt
+           cargo test -p ptah-transfer --locked
+ 
+@@ -84,7 +85,7 @@ jobs:
+         run: |
+           set -euo pipefail
+           count=$(cargo test --workspace --locked -- --list | grep -c ': test$')
+-          test "$count" -ge 162
++          test "$count" -eq 170
+           echo "$count" > /tmp/a08-proof/workspace-test-count.txt
+           cargo test --workspace --locked
+ 
+@@ -112,7 +113,7 @@ jobs:
+             'workspace_test_count':int((root/'workspace-test-count.txt').read_text()),
+             'git_dependency_count':0,
+             'github_interactive_path_used':False,
+-            'proofs':['scope_lock','deterministic_cargo_lock','dependency_policy','cargo_fmt','clippy_deny_warnings','a08_behavior','a03_a04_a07_regression','full_workspace_regression'],
++            'proofs':['scope_lock','locked_cargo_resolution','dependency_policy','cargo_fmt','clippy_deny_warnings','a08_behavior','a03_a04_a07_regression','full_workspace_regression'],
+             'status':'exact_head_confirmation_passed',
+           }
+           assert payload['exact_head_match']
+diff --git a/crates/ptah-events/src/lib.rs b/crates/ptah-events/src/lib.rs
+index 2e2031a..db5ad39 100644
+--- a/crates/ptah-events/src/lib.rs
++++ b/crates/ptah-events/src/lib.rs
+@@ -292,21 +292,24 @@ impl EventBus {
+         self.sender.subscribe()
+     }
+ 
+-    /// Emit one validated Event and assign its monotonic per-scope sequence.
++    /// Prepare one validated Event and reserve its monotonic per-scope sequence.
+     ///
+-    /// Delivery failure to live subscribers does not invalidate the Event or turn
+-    /// it into execution proof.
++    /// Preparation does not retain, replay, or broadcast the Event. Callers that
++    /// need durable ordering may therefore write the canonical Event document in
++    /// the same transaction as the state it describes, then call [`Self::publish`].
++    /// A failed durable transaction may leave a harmless sequence gap but cannot
++    /// create an observable phantom Event.
+     ///
+     /// # Errors
+     /// Returns an [`EventError`] when the specification is invalid, sequencing overflows, or state is unavailable.
+-    pub fn emit(&self, spec: EventSpec) -> Result<Event, EventError> {
++    pub fn prepare(&self, spec: EventSpec) -> Result<Event, EventError> {
+         validate_spec(&spec)?;
+         let mut state = self.state.lock().map_err(|_| EventError::Poisoned)?;
+         let scope = spec.sequence_scope_ref.entity_id;
+         let next = state.next_sequence.entry(scope).or_insert(0);
+         let sequence = *next;
+         *next = next.checked_add(1).ok_or(EventError::SequenceOverflow)?;
+-        let event = Event {
++        Ok(Event {
+             id: EntityId::new_v7(),
+             kind: spec.event_type,
+             class: spec.event_class,
+@@ -320,10 +323,38 @@ impl EventBus {
+             occurred_at: spec.occurred_at,
+             payload: spec.payload,
+             receipt_ref: spec.receipt_ref,
+-        };
++        })
++    }
++
++    /// Retain and broadcast a previously prepared Event.
++    ///
++    /// Publishing is idempotent by canonical Event identity. It is intentionally
++    /// separate from [`Self::prepare`] so durable callers can publish only after
++    /// their ledger transaction commits.
++    ///
++    /// # Errors
++    /// Returns [`EventError::Poisoned`] when retained Event state is unavailable.
++    pub fn publish(&self, event: Event) -> Result<(), EventError> {
++        let mut state = self.state.lock().map_err(|_| EventError::Poisoned)?;
++        if state.history.iter().any(|retained| retained.id == event.id) {
++            return Ok(());
++        }
+         state.history.push(event.clone());
+         drop(state);
+-        let _ = self.sender.send(event.clone());
++        let _ = self.sender.send(event);
++        Ok(())
++    }
++
++    /// Emit one validated Event and assign its monotonic per-scope sequence.
++    ///
++    /// Delivery failure to live subscribers does not invalidate the Event or turn
++    /// it into execution proof. Durable callers should use prepare/commit/publish.
++    ///
++    /// # Errors
++    /// Returns an [`EventError`] when validation, sequencing, or retained state fails.
++    pub fn emit(&self, spec: EventSpec) -> Result<Event, EventError> {
++        let event = self.prepare(spec)?;
++        self.publish(event.clone())?;
+         Ok(event)
+     }
+ 
+@@ -520,6 +551,26 @@ mod tests {
+         assert_eq!(bus.replay(scope, 1).expect("replay"), vec![second]);
+     }
+ 
++    #[test]
++    fn prepared_event_is_not_observable_until_published() {
++        let bus = EventBus::default();
++        let spec = basic_spec();
++        let scope = spec.sequence_scope_ref.entity_id;
++        let event = bus.prepare(spec).expect("prepare Event");
++        assert!(
++            bus.replay(scope, 0)
++                .expect("replay before publish")
++                .is_empty()
++        );
++        assert_eq!(bus.len().expect("count before publish"), 0);
++        bus.publish(event.clone()).expect("publish Event");
++        assert_eq!(
++            bus.replay(scope, 0).expect("replay after publish"),
++            vec![event]
++        );
++        assert_eq!(bus.len().expect("count after publish"), 1);
++    }
++
+     #[test]
+     fn attempt_event_requires_operation_and_activity_hierarchy() {
+         let bus = EventBus::default();
+diff --git a/crates/ptah-transfer/src/engine/completion.rs b/crates/ptah-transfer/src/engine/completion.rs
+index 1707e9f..ca6a73a 100644
+--- a/crates/ptah-transfer/src/engine/completion.rs
++++ b/crates/ptah-transfer/src/engine/completion.rs
+@@ -1,3 +1,4 @@
++use super::helpers::{TransferDomainObservation, run_state};
+ use super::{
+     AcceptedOutputRefs, CONTENT_SCHEMA_ID, DigestValue, DomainResultState, EntityId, EntityRef,
+     File, Path, ProviderAcknowledgement, TRANSFER_RUN_SCHEMA_ID, TransferEngine, TransferError,
+@@ -99,7 +100,12 @@ impl TransferEngine {
+                 execution,
+                 &request,
+                 partial_digest,
+-                partial_size,
++                TransferDomainObservation {
++                    observed_size: partial_size,
++                    transport_completed: DomainResultState::Partial,
++                    transport_checksums: DomainResultState::Partial,
++                    destination_readback: DomainResultState::NotPerformed,
++                },
+                 None,
+             );
+         }
+@@ -121,7 +127,12 @@ impl TransferEngine {
+                 execution,
+                 &request,
+                 partial_digest,
+-                partial_size,
++                TransferDomainObservation {
++                    observed_size: partial_size,
++                    transport_completed: DomainResultState::Failed,
++                    transport_checksums: DomainResultState::Passed,
++                    destination_readback: DomainResultState::NotPerformed,
++                },
+                 None,
+             );
+         }
+@@ -147,16 +158,35 @@ impl TransferEngine {
+                 execution,
+                 &request,
+                 staged_digest,
+-                staged_size,
++                TransferDomainObservation {
++                    observed_size: staged_size,
++                    transport_completed: DomainResultState::Failed,
++                    transport_checksums: DomainResultState::Failed,
++                    destination_readback: DomainResultState::Failed,
++                },
+                 Some(temp),
+             );
+         }
+-        fs::rename(&temp, &target)?;
++        fs::hard_link(&temp, &target).map_err(|error| {
++            if error.kind() == std::io::ErrorKind::AlreadyExists {
++                TransferError::UnsafeDestination
++            } else {
++                TransferError::from(error)
++            }
++        })?;
++        fs::remove_file(&temp)?;
+         sync_directory(parent)?;
+         let (destination_digest, destination_size) = sha256_reader(File::open(&target)?)?;
+         if destination_digest != partial_digest || destination_size != partial_size {
+             let quarantine = parent.join(format!(".ptah-{}.quarantine", run_ref.entity_id));
+-            let _ = fs::rename(&target, &quarantine);
++            let retained_path =
++                if !quarantine.exists() && fs::hard_link(&target, &quarantine).is_ok() {
++                    let _ = fs::remove_file(&target);
++                    quarantine
++                } else {
++                    let _ = fs::remove_file(&target);
++                    partial.clone()
++                };
+             return self.retain_failed_verification(
+                 run,
+                 run_ref,
+@@ -165,8 +195,13 @@ impl TransferEngine {
+                 execution,
+                 &request,
+                 destination_digest,
+-                destination_size,
+-                Some(quarantine),
++                TransferDomainObservation {
++                    observed_size: destination_size,
++                    transport_completed: DomainResultState::Failed,
++                    transport_checksums: DomainResultState::Failed,
++                    destination_readback: DomainResultState::Failed,
++                },
++                Some(retained_path),
+             );
+         }
+ 
+@@ -175,8 +210,12 @@ impl TransferEngine {
+             &execution,
+             expected_sha.clone(),
+             &destination_digest,
+-            destination_size,
+-            true,
++            TransferDomainObservation {
++                observed_size: destination_size,
++                transport_completed: DomainResultState::Passed,
++                transport_checksums: DomainResultState::Passed,
++                destination_readback: DomainResultState::Passed,
++            },
+         );
+         let verification_state = verification_state_for_request(&request, &domain_results);
+         let verification_ref = EntityRef::new("transfer.verification")?;
+@@ -198,7 +237,11 @@ impl TransferEngine {
+         for receipt in &execution.receipt_refs {
+             append_ref(&mut run, "receipt_refs", receipt.clone())?;
+         }
+-        bump(&mut run, &now)?;
++        if run_state(&run)? == "uncertain" {
++            set_lifecycle(&mut run, "verifying", &now)?;
++        } else {
++            bump(&mut run, &now)?;
++        }
+         write_documents(&mut self.ledger, &[verification, run])?;
+         Ok(report_from_verification(
+             run_ref,
+diff --git a/crates/ptah-transfer/src/engine/download.rs b/crates/ptah-transfer/src/engine/download.rs
+index bdaf6dd..ff0619b 100644
+--- a/crates/ptah-transfer/src/engine/download.rs
++++ b/crates/ptah-transfer/src/engine/download.rs
+@@ -67,28 +67,38 @@ impl TransferEngine {
+         }
+         let mut file = OpenOptions::new().read(true).write(true).open(&path)?;
+         file.seek(SeekFrom::Start(offset))?;
+-        file.write_all(bytes)?;
+-        file.sync_data()?;
+-
+-        let mut readback = vec![0u8; bytes.len()];
+-        file.seek(SeekFrom::Start(offset))?;
+-        file.read_exact(&mut readback)?;
+-        if readback != bytes {
+-            return Err(TransferError::PartialStateCorrupt);
+-        }
++        let write_and_readback = (|| -> Result<Vec<u8>, TransferError> {
++            file.write_all(bytes)?;
++            file.sync_data()?;
++            let mut readback = vec![0u8; bytes.len()];
++            file.seek(SeekFrom::Start(offset))?;
++            file.read_exact(&mut readback)?;
++            if readback != bytes {
++                return Err(TransferError::PartialStateCorrupt);
++            }
++            Ok(readback)
++        })();
++        let readback = match write_and_readback {
++            Ok(readback) => readback,
++            Err(error) => {
++                if file.set_len(offset).and_then(|()| file.sync_all()).is_err() {
++                    return Err(TransferError::PartialStateCorrupt);
++                }
++                return Err(error);
++            }
++        };
+         let digest = sha256_bytes(&readback);
+         let length = u64::try_from(bytes.len()).map_err(|_| TransferError::AccountingOverflow)?;
+         let total = offset
+             .checked_add(length)
+             .ok_or(TransferError::AccountingOverflow)?;
+-        let mut ranges = self.latest_ranges(&run)?;
+-        ranges.push(RangeRecord {
++        let ranges = [RangeRecord {
+             offset,
+             length,
+             state: "verified",
+             digest,

@@ -110,3 +110,4 @@ include!("a07_storage_relocation.rs");
 include!("a07_storage_integrity.rs");
 include!("a07_graph_relationship.rs");
 include!("a07_graph_identity.rs");
+include!("a07_contract_validation.rs");

@@ -13,9 +13,9 @@ impl ObjectStore {
         revision_id: EntityId,
         spec: ArtifactPromotionSpec,
     ) -> Result<EntityRef, ObjectStoreError> {
-        require_non_empty(&spec.artifact_type, "artifact_type")?;
-        require_non_empty(&spec.artifact_version, "artifact_version")?;
-        require_non_empty(&spec.purpose, "purpose")?;
+        require_family_key(&spec.artifact_type, "artifact_type")?;
+        require_bounded_text(&spec.artifact_version, 256, "artifact_version")?;
+        require_bounded_text(&spec.purpose, 4096, "purpose")?;
         let validated = self.validate_production(
             &spec.workspace_ref,
             &spec.authority_ref,
@@ -85,7 +85,7 @@ impl ObjectStore {
         &mut self,
         spec: RelationshipSpec,
     ) -> Result<EntityRef, ObjectStoreError> {
-        require_non_empty(&spec.relationship_type, "relationship_type")?;
+        require_family_key(&spec.relationship_type, "relationship_type")?;
         if spec.subject_refs.is_empty() {
             return Err(ObjectStoreError::EmptyField("subject_refs"));
         }
@@ -169,9 +169,9 @@ impl ObjectStore {
     /// Fails for invalid source Revision/evidence/workspace or projection update.
     #[allow(clippy::needless_pass_by_value)]
     pub fn create_view(&mut self, spec: ViewSpec) -> Result<EntityRef, ObjectStoreError> {
-        require_non_empty(&spec.view_kind, "view_kind")?;
-        require_non_empty(&spec.view_schema_id, "view_schema_id")?;
-        require_non_empty(&spec.view_schema_version, "view_schema_version")?;
+        require_family_key(&spec.view_kind, "view_kind")?;
+        require_schema_id(&spec.view_schema_id, "view_schema_id")?;
+        require_semver(&spec.view_schema_version, "view_schema_version")?;
         if spec.source_revision_refs.is_empty() {
             return Err(ObjectStoreError::EmptyField("source_revision_refs"));
         }

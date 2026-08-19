@@ -1,3 +1,73 @@
+impl ObjectStore {
+    fn now(&self) -> Result<String, ObjectStoreError> {
+        let now = (self.clock)();
+        require_utc_datetime(&now)?;
+        Ok(now)
+    }
+}
+
+fn require_utc_datetime(value: &str) -> Result<(), ObjectStoreError> {
+    let Some(without_z) = value.strip_suffix('Z') else {
+        return Err(ObjectStoreError::TypeMismatch);
+    };
+    let separator = without_z.find(['T', 't']).ok_or(ObjectStoreError::TypeMismatch)?;
+    let (date, time_with_separator) = without_z.split_at(separator);
+    let time = &time_with_separator[1..];
+    if date.len() != 10
+        || date.as_bytes().get(4) != Some(&b'-')
+        || date.as_bytes().get(7) != Some(&b'-')
+    {
+        return Err(ObjectStoreError::TypeMismatch);
+    }
+    let year = parse_fixed_decimal(&date[0..4])?;
+    let month = parse_fixed_decimal(&date[5..7])?;
+    let day = parse_fixed_decimal(&date[8..10])?;
+    if !(1..=12).contains(&month) || day == 0 || day > days_in_month(year, month) {
+        return Err(ObjectStoreError::TypeMismatch);
+    }
+
+    let (clock, fraction) = time
+        .split_once('.')
+        .map_or((time, None), |(clock, fraction)| (clock, Some(fraction)));
+    if clock.len() != 8
+        || clock.as_bytes().get(2) != Some(&b':')
+        || clock.as_bytes().get(5) != Some(&b':')
+        || fraction.is_some_and(|part| {
+            part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit())
+        })
+    {
+        return Err(ObjectStoreError::TypeMismatch);
+    }
+    let hour = parse_fixed_decimal(&clock[0..2])?;
+    let minute = parse_fixed_decimal(&clock[3..5])?;
+    let second = parse_fixed_decimal(&clock[6..8])?;
+    if hour > 23 || minute > 59 || second > 60 {
+        return Err(ObjectStoreError::TypeMismatch);
+    }
+    Ok(())
+}
+
+fn parse_fixed_decimal(value: &str) -> Result<u32, ObjectStoreError> {
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(ObjectStoreError::TypeMismatch);
+    }
+    value.parse().map_err(|_| ObjectStoreError::TypeMismatch)
+}
+
+const fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
+const fn is_leap_year(year: u32) -> bool {
+    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
+}
+
 fn document_ref(document: &Value) -> Result<EntityRef, ObjectStoreError> {
     let envelope = document
         .get("envelope")

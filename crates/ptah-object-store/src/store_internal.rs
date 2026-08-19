@@ -264,13 +264,13 @@ impl ObjectStore {
             || algorithm != "sha256"
             || prefix.len() != 2
             || digest.len() != 64
-            || &digest[..2] != prefix
             || !prefix
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
             || !digest
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            || digest.as_bytes().get(..2) != Some(prefix.as_bytes())
         {
             return Err(ObjectStoreError::InvalidCasKey);
         }

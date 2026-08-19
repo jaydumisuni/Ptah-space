@@ -213,3 +213,87 @@ fn missing_location_is_reobserved_after_successful_rematerialization() {
         3
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn symlinked_cas_prefix_cannot_redirect_registration_outside_root() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempRoot::new();
+    let runtime = runtime(&temp.ledger());
+    let workspace = reference("core.workspace");
+    let authority = reference("identity.principal");
+    let mut store =
+        ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock()).expect("open A07");
+    let bytes = b"contained registration";
+    let digest = ObjectStore::sha256(bytes);
+    let algorithm_dir = temp.cas().join("sha256");
+    fs::create_dir(&algorithm_dir).expect("create algorithm directory");
+    let outside = temp.root.join("outside-write");
+    fs::create_dir(&outside).expect("create outside directory");
+    symlink(&outside, algorithm_dir.join(&digest[..2])).expect("symlink prefix outside CAS");
+
+    let evidence = create_evidence(&runtime, &workspace, &authority, EvidenceMode::Register);
+    assert!(matches!(
+        store.register_bytes(
+            bytes,
+            register_spec(&workspace, &authority, evidence.production),
+        ),
+        Err(ObjectStoreError::CasIntegrityMismatch)
+    ));
+    assert!(!outside.join(&digest).exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_cas_prefix_cannot_redirect_verification_outside_root() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempRoot::new();
+    let runtime = runtime(&temp.ledger());
+    let workspace = reference("core.workspace");
+    let authority = reference("identity.principal");
+    let mut store =
+        ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock()).expect("open A07");
+    let evidence = create_evidence(&runtime, &workspace, &authority, EvidenceMode::Register);
+    let registration = store
+        .register_bytes(
+            b"contained verification",
+            register_spec(&workspace, &authority, evidence.production),
+        )
+        .expect("register");
+    let prefix = temp.cas().join("sha256").join(&registration.sha256[..2]);
+    let saved_prefix = temp.root.join("saved-prefix");
+    fs::rename(&prefix, &saved_prefix).expect("move real prefix aside");
+    let outside = temp.root.join("outside-read");
+    fs::create_dir(&outside).expect("create outside directory");
+    symlink(&outside, &prefix).expect("symlink prefix outside CAS");
+
+    let readback = create_evidence_for_target(
+        &runtime,
+        &workspace,
+        &authority,
+        EvidenceMode::Readback,
+        registration.location_ref.clone(),
+    );
+    assert!(matches!(
+        store.verify_location(
+            registration.location_ref.entity_id,
+            VerificationSpec {
+                workspace_ref: workspace,
+                authority_ref: authority,
+                production: readback.production,
+            },
+        ),
+        Err(ObjectStoreError::CasIntegrityMismatch)
+    ));
+    let location = ledger_document(&temp.ledger(), registration.location_ref.entity_id);
+    assert_eq!(
+        location
+            .get("verification_refs")
+            .and_then(serde_json::Value::as_array)
+            .expect("verification refs")
+            .len(),
+        0
+    );
+}

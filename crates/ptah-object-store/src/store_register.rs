@@ -9,9 +9,7 @@ impl ObjectStore {
         config: ObjectStoreConfig,
         clock: StoreClock,
     ) -> Result<Self, ObjectStoreError> {
-        if config.producer_version.trim().is_empty() {
-            return Err(ObjectStoreError::EmptyField("producer_version"));
-        }
+        require_bounded_text(&config.producer_version, 256, "producer_version")?;
         let ledger_path = ledger_path.as_ref().to_path_buf();
         let cas_root = cas_root.as_ref().to_path_buf();
         fs::create_dir_all(&cas_root)?;
@@ -219,13 +217,13 @@ fn registration_digest(
     bytes: &[u8],
     spec: &RegisterObjectSpec,
 ) -> Result<String, ObjectStoreError> {
-    require_non_empty(&spec.object_class, "object_class")?;
-    require_non_empty(&spec.created_reason, "created_reason")?;
+    require_family_key(&spec.object_class, "object_class")?;
+    require_bounded_text(&spec.created_reason, 4096, "created_reason")?;
     if spec.source_refs.is_empty() {
         return Err(ObjectStoreError::MissingSourceRefs);
     }
     if let Some(name) = &spec.declared_name {
-        require_non_empty(name, "declared_name")?;
+        require_bounded_text(name, 8192, "declared_name")?;
     }
     let digest = ObjectStore::sha256(bytes);
     if let Some(expected) = &spec.expected_sha256 {

@@ -205,7 +205,12 @@ impl ObjectStore {
     ) -> Result<(), ObjectStoreError> {
         let target = self.cas_path(object_key)?;
         let parent = target.parent().ok_or(ObjectStoreError::InvalidCasKey)?;
-        fs::create_dir_all(parent)?;
+        let algorithm_dir = parent.parent().ok_or(ObjectStoreError::InvalidCasKey)?;
+        ensure_or_create_real_directory(algorithm_dir)?;
+        ensure_or_create_real_directory(parent)?;
+        if !cas_parent_hierarchy_exists_and_is_safe(&self.cas_root, &target)? {
+            return Err(ObjectStoreError::CasIntegrityMismatch);
+        }
         if target.exists() {
             return verify_cas_target(&target, bytes, digest);
         }
@@ -222,6 +227,10 @@ impl ObjectStore {
         }
         drop(file);
 
+        if !cas_parent_hierarchy_exists_and_is_safe(&self.cas_root, &target)? {
+            let _ = fs::remove_file(&temp);
+            return Err(ObjectStoreError::CasIntegrityMismatch);
+        }
         match fs::hard_link(&temp, &target) {
             Ok(()) => {
                 fs::remove_file(&temp)?;

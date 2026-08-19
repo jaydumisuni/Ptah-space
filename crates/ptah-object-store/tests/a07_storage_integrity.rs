@@ -19,7 +19,13 @@ fn integrity_verifier_records_success_then_detects_corruption() {
         )
         .expect("register");
 
-    let verify_evidence = create_evidence(&runtime, &workspace, &authority, EvidenceMode::Readback);
+    let verify_evidence = create_evidence_for_target(
+        &runtime,
+        &workspace,
+        &authority,
+        EvidenceMode::Readback,
+        registration.location_ref.clone(),
+    );
     let report = store
         .verify_location(
             registration.location_ref.entity_id,
@@ -46,8 +52,13 @@ fn integrity_verifier_records_success_then_detects_corruption() {
         .join(&registration.sha256);
     fs::write(&target, b"corrupted bytes").expect("corrupt CAS target");
 
-    let corrupt_evidence =
-        create_evidence(&runtime, &workspace, &authority, EvidenceMode::Readback);
+    let corrupt_evidence = create_evidence_for_target(
+        &runtime,
+        &workspace,
+        &authority,
+        EvidenceMode::Readback,
+        registration.location_ref.clone(),
+    );
     let corrupt = store
         .verify_location(
             registration.location_ref.entity_id,
@@ -71,6 +82,52 @@ fn integrity_verifier_records_success_then_detects_corruption() {
             .get("health_state")
             .and_then(serde_json::Value::as_str),
         Some("corrupt")
+    );
+}
+
+#[test]
+fn unrelated_readback_evidence_cannot_verify_location() {
+    let temp = TempRoot::new();
+    let runtime = runtime(&temp.ledger());
+    let workspace = reference("core.workspace");
+    let authority = reference("identity.principal");
+    let mut store =
+        ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock()).expect("open A07");
+    let registration_evidence =
+        create_evidence(&runtime, &workspace, &authority, EvidenceMode::Register);
+    let registration = store
+        .register_bytes(
+            b"exact target verification",
+            register_spec(&workspace, &authority, registration_evidence.production),
+        )
+        .expect("register");
+
+    let unrelated = create_evidence(&runtime, &workspace, &authority, EvidenceMode::Readback);
+    assert!(matches!(
+        store.verify_location(
+            registration.location_ref.entity_id,
+            VerificationSpec {
+                workspace_ref: workspace,
+                authority_ref: authority,
+                production: unrelated.production,
+            },
+        ),
+        Err(ObjectStoreError::ProductionEvidenceMismatch)
+    ));
+    let location = ledger_document(&temp.ledger(), registration.location_ref.entity_id);
+    assert_eq!(
+        location
+            .get("verification_refs")
+            .and_then(serde_json::Value::as_array)
+            .expect("verification refs")
+            .len(),
+        0
+    );
+    assert_eq!(
+        location
+            .get("verification_state")
+            .and_then(serde_json::Value::as_str),
+        Some("unverified")
     );
 }
 
@@ -104,8 +161,13 @@ fn missing_location_is_reobserved_after_successful_rematerialization() {
         .join(&first.sha256);
     fs::remove_file(&target).expect("remove materialization");
 
-    let missing_evidence =
-        create_evidence(&runtime, &workspace, &authority, EvidenceMode::Readback);
+    let missing_evidence = create_evidence_for_target(
+        &runtime,
+        &workspace,
+        &authority,
+        EvidenceMode::Readback,
+        first.location_ref.clone(),
+    );
     let missing = store
         .verify_location(
             first.location_ref.entity_id,

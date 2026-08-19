@@ -27,6 +27,13 @@ fn moved_cas_root_preserves_artifact_and_revision_identity() {
                 ),
             )
             .expect("register");
+        let promotion_evidence = create_evidence_for_target(
+            &runtime,
+            &workspace,
+            &authority,
+            EvidenceMode::OutputOnly,
+            registration.revision_ref.clone(),
+        );
         artifact_ref = store
             .promote_artifact(
                 registration.revision_ref.entity_id,
@@ -37,7 +44,7 @@ fn moved_cas_root_preserves_artifact_and_revision_identity() {
                     artifact_version: "1.0.0".to_owned(),
                     purpose: "prove backend path is not Artifact identity".to_owned(),
                     subject_refs: Vec::new(),
-                    production: registration_evidence.production.clone(),
+                    production: promotion_evidence.production,
                 },
             )
             .expect("promote");

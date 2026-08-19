@@ -1,0 +1,392 @@
+             attempt_ref: execution.attempt_ref.clone(),
+-        });
++        }];
+         self.write_progress(
+             &mut run,
+             &run_ref,
+diff --git a/crates/ptah-transfer/src/engine/helpers.rs b/crates/ptah-transfer/src/engine/helpers.rs
+index ee5a323..3cf298a 100644
+--- a/crates/ptah-transfer/src/engine/helpers.rs
++++ b/crates/ptah-transfer/src/engine/helpers.rs
+@@ -189,8 +189,20 @@ pub(super) fn ensure_request_state(
+     Ok(())
+ }
+ 
++pub(super) fn run_state(document: &Value) -> Result<&str, TransferError> {
++    document
++        .get("lifecycle")
++        .and_then(|value| value.get("current_state"))
++        .and_then(Value::as_str)
++        .ok_or(TransferError::TypeMismatch)
++}
++
+ pub(super) fn ensure_run_state(document: &Value, allowed: &[&str]) -> Result<(), TransferError> {
+-    ensure_request_state(document, allowed)
++    let state = run_state(document)?;
++    if !allowed.contains(&state) {
++        return Err(TransferError::InvalidTransition);
++    }
++    Ok(())
+ }
+ 
+ pub(super) fn ensure_mode(document: &Value, expected: TransferMode) -> Result<(), TransferError> {
+@@ -340,21 +352,28 @@ pub(super) fn expected_canonical_sha256(
+     }
+ }
+ 
++#[derive(Debug, Clone, Copy)]
++pub(super) struct TransferDomainObservation {
++    pub(super) observed_size: u64,
++    pub(super) transport_completed: DomainResultState,
++    pub(super) transport_checksums: DomainResultState,
++    pub(super) destination_readback: DomainResultState,
++}
++
+ #[allow(clippy::needless_pass_by_value)]
+ pub(super) fn verified_transfer_domains(
+     request: &TransferRequestSpec,
+     execution: &ValidatedExecution,
+     expected_sha: Option<String>,
+     destination_sha: &str,
+-    observed_size: u64,
+-    transport_completed: bool,
++    observation: TransferDomainObservation,
+ ) -> Vec<VerificationDomainResult> {
+     let evidence = execution.receipt_refs.clone();
+     let size_state = request
+         .source
+         .expected_size
+         .map_or(DomainResultState::NotPerformed, |size| {
+-            if size == observed_size {
++            if size == observation.observed_size {
+                 DomainResultState::Passed
+             } else {
+                 DomainResultState::Failed
+@@ -373,40 +392,36 @@ pub(super) fn verified_transfer_domains(
+     vec![
+         domain_result(
+             VerificationDomain::TransportCompleted,
+-            if transport_completed {
+-                DomainResultState::Passed
+-            } else {
+-                DomainResultState::Unknown
+-            },
+-            Some(observed_size),
++            observation.transport_completed,
++            Some(observation.observed_size),
+             Vec::new(),
+             evidence.clone(),
+         ),
+         domain_result(
+             VerificationDomain::ByteCountMatched,
+             size_state,
+-            Some(observed_size),
++            Some(observation.observed_size),
+             Vec::new(),
+             evidence.clone(),
+         ),
+         domain_result(
+             VerificationDomain::TransportChecksumsMatched,
+-            DomainResultState::Passed,
+-            Some(observed_size),
++            observation.transport_checksums,
++            Some(observation.observed_size),
+             Vec::new(),
+             evidence.clone(),
+         ),
+         domain_result(
+             VerificationDomain::ContentDigestMatched,
+             digest_state,
+-            Some(observed_size),
++            Some(observation.observed_size),
+             vec![DigestValue::canonical_sha256(destination_sha)],
+             evidence.clone(),
+         ),
+         domain_result(
+             VerificationDomain::DestinationReadbackMatched,
+-            digest_state,
+-            Some(observed_size),
++            observation.destination_readback,
++            Some(observation.observed_size),
+             vec![DigestValue::canonical_sha256(destination_sha)],
+             evidence,
+         ),
+@@ -418,16 +433,10 @@ pub(super) fn failed_transfer_domains(
+     execution: &ValidatedExecution,
+     expected_sha: Option<String>,
+     observed_sha: &str,
+-    observed_size: u64,
++    observation: TransferDomainObservation,
+ ) -> Vec<VerificationDomainResult> {
+-    let mut domains = verified_transfer_domains(
+-        request,
+-        execution,
+-        expected_sha,
+-        observed_sha,
+-        observed_size,
+-        true,
+-    );
++    let mut domains =
++        verified_transfer_domains(request, execution, expected_sha, observed_sha, observation);
+     for result in &mut domains {
+         if matches!(
+             result.domain,
+diff --git a/crates/ptah-transfer/src/engine/internal.rs b/crates/ptah-transfer/src/engine/internal.rs
+index eeecc06..ddeb95a 100644
+--- a/crates/ptah-transfer/src/engine/internal.rs
++++ b/crates/ptah-transfer/src/engine/internal.rs
+@@ -1,3 +1,4 @@
++use super::helpers::TransferDomainObservation;
+ use super::{
+     ATTEMPT_SCHEMA_ID, AcceptedOutputRefs, CONTENT_SCHEMA_ID, DomainResultState, EVENT_ENTITY_KIND,
+     EntityId, EntityRef, EventClass, EventPayload, EventSpec, File, HashMap, LOCATION_SCHEMA_ID,
+@@ -12,6 +13,7 @@ use super::{
+     set_lifecycle, sha256_bytes, transfer_run_document, utc_shape, validate_execution,
+     validate_start_spec, verification_document, write_documents,
+ };
++use serde_json::json;
+ 
+ impl TransferEngine {
+     #[allow(clippy::needless_pass_by_value)]
+@@ -127,7 +129,7 @@ impl TransferEngine {
+     ) -> Result<ProgressReport, TransferError> {
+         let now = self.now()?;
+         let snapshot_ref = EntityRef::new("transfer.progress_snapshot")?;
+-        let event = self.event_bus.emit(EventSpec {
++        let event = self.event_bus.prepare(EventSpec {
+             event_type: "transfer.progress_snapshot".to_owned(),
+             event_class: EventClass::LedgerDerived,
+             source_ref: self.config.producer_ref.clone(),
+@@ -163,6 +165,7 @@ impl TransferEngine {
+         bump(run, &now)?;
+         let event_document = event.canonical_document();
+         write_documents(&mut self.ledger, &[event_document, snapshot, run.clone()])?;
++        let _ = self.event_bus.publish(event);
+         Ok(ProgressReport {
+             snapshot_ref,
+             bytes_received_unverified,
+@@ -234,19 +237,31 @@ impl TransferEngine {
+ 
+     pub(super) fn latest_ranges(&self, run: &Value) -> Result<Vec<RangeRecord>, TransferError> {
+         let refs = field_refs(run, "progress_snapshot_refs")?;
+-        let Some(reference) = refs.last() else {
+-            return Ok(Vec::new());
+-        };
+-        let snapshot = latest_document(
+-            &self.ledger,
+-            reference.entity_id,
+-            crate::TRANSFER_PROGRESS_SCHEMA_ID,
+-        )?;
+-        let values = snapshot
+-            .get("ranges")
+-            .and_then(Value::as_array)
+-            .ok_or(TransferError::TypeMismatch)?;
+-        values.iter().map(range_from_value).collect()
++        let mut ranges = Vec::new();
++        for reference in refs {
++            let snapshot = latest_document(
++                &self.ledger,
++                reference.entity_id,
++                crate::TRANSFER_PROGRESS_SCHEMA_ID,
++            )?;
++            let values = snapshot
++                .get("ranges")
++                .and_then(Value::as_array)
++                .ok_or(TransferError::TypeMismatch)?;
++            for value in values {
++                let range = range_from_value(value)?;
++                if !ranges.iter().any(|retained: &RangeRecord| {
++                    retained.offset == range.offset
++                        && retained.length == range.length
++                        && retained.digest == range.digest
++                        && same_ref(&retained.attempt_ref, &range.attempt_ref)
++                }) {
++                    ranges.push(range);
++                }
++            }
++        }
++        ranges.sort_by_key(|range| range.offset);
++        Ok(ranges)
+     }
+ 
+     pub(super) fn verify_partial_ranges(
+@@ -255,6 +270,7 @@ impl TransferEngine {
+         ranges: &[RangeRecord],
+     ) -> Result<u64, TransferError> {
+         let mut file = File::open(partial_path(&self.staging_root, run_ref))?;
++        let file_len = file.metadata()?.len();
+         let mut total = 0u64;
+         for range in ranges {
+             if range.state != "verified" {
+@@ -263,6 +279,13 @@ impl TransferEngine {
+             if range.length == 0 || range.offset != total {
+                 return Err(TransferError::PartialStateCorrupt);
+             }
++            let end = range
++                .offset
++                .checked_add(range.length)
++                .ok_or(TransferError::AccountingOverflow)?;
++            if end > file_len {
++                return Err(TransferError::PartialStateCorrupt);
++            }
+             let length =
+                 usize::try_from(range.length).map_err(|_| TransferError::AccountingOverflow)?;
+             let mut bytes = vec![0u8; length];
+@@ -289,8 +312,8 @@ impl TransferEngine {
+         execution: ValidatedExecution,
+         request: &TransferRequestSpec,
+         observed_digest: String,
+-        observed_size: u64,
+-        _quarantine_path: Option<PathBuf>,
++        observation: TransferDomainObservation,
++        quarantine_path: Option<PathBuf>,
+     ) -> Result<TransferVerificationReport, TransferError> {
+         let expected = expected_canonical_sha256(&request.source)?;
+         let domains = failed_transfer_domains(
+@@ -298,11 +321,11 @@ impl TransferEngine {
+             &execution,
+             expected.clone(),
+             &observed_digest,
+-            observed_size,
++            observation,
+         );
+         let verification_ref = EntityRef::new("transfer.verification")?;
+         let now = self.now()?;
+-        let verification = verification_document(
++        let mut verification = verification_document(
+             &verification_ref,
+             &run_ref,
+             &workspace_ref,
+@@ -315,6 +338,12 @@ impl TransferEngine {
+             &[],
+             &now,
+         );
++        if let Some(path) = quarantine_path {
++            verification["limitations"] = json!([format!(
++                "quarantine_or_staging_path_alias={}",
++                path.display()
++            )]);
++        }
+         append_ref(&mut run, "verification_refs", verification_ref.clone())?;
+         for receipt in &execution.receipt_refs {
+             append_ref(&mut run, "receipt_refs", receipt.clone())?;
+diff --git a/crates/ptah-transfer/src/engine/upload.rs b/crates/ptah-transfer/src/engine/upload.rs
+index 1401a97..d3819d1 100644
+--- a/crates/ptah-transfer/src/engine/upload.rs
++++ b/crates/ptah-transfer/src/engine/upload.rs
+@@ -1,3 +1,4 @@
++use super::helpers::run_state;
+ use super::{
+     Digest, DigestValue, EntityId, EntityRef, File, Path, ProviderAcknowledgement, RangeRecord,
+     Read, Sha256, StartTransferSpec, TRANSFER_MANIFEST_SCHEMA_ID, TRANSFER_RUN_SCHEMA_ID,
+@@ -10,6 +11,35 @@ use super::{
+     verification_document, verification_state_for_request, write_documents,
+ };
+ 
++const UPLOAD_PROGRESS_BATCH_RANGES: usize = 64;
++const SOURCE_VERIFICATION_MANIFEST_KEY: &str = "ptah.a08.upload_source_verification_manifest_ref";
++
++fn set_source_verification_manifest(
++    run: &mut Value,
++    manifest_ref: &EntityRef,
++) -> Result<(), TransferError> {
++    let extensions = run
++        .get_mut("extensions")
++        .and_then(Value::as_object_mut)
++        .ok_or(TransferError::TypeMismatch)?;
++    extensions.insert(
++        SOURCE_VERIFICATION_MANIFEST_KEY.to_owned(),
++        serde_json::to_value(manifest_ref)?,
++    );
++    Ok(())
++}
++
++fn source_verification_manifest(run: &Value) -> Result<EntityRef, TransferError> {
++    serde_json::from_value(
++        run.get("extensions")
++            .and_then(Value::as_object)
++            .and_then(|extensions| extensions.get(SOURCE_VERIFICATION_MANIFEST_KEY))
++            .cloned()
++            .ok_or(TransferError::SourceVerificationMissing)?,
++    )
++    .map_err(TransferError::from)
++}
++
+ impl TransferEngine {
+     /// Start one upload Run from an exact A04 Request/dispatch Attempt.
+     ///
+@@ -52,7 +82,7 @@ impl TransferEngine {
+         let execution = self.execution_from_run(&run)?;
+         let mut source = File::open(source_path)?;
+         let mut hasher = Sha256::new();
+-        let mut ranges = Vec::new();
++        let mut pending_ranges = Vec::new();
+         let mut offset = 0u64;
+         let mut buffer = vec![0u8; chunk_size];
+         loop {
+@@ -64,7 +94,7 @@ impl TransferEngine {
+             sink.write_chunk(offset, chunk)?;
+             hasher.update(chunk);
+             let length = u64::try_from(read).map_err(|_| TransferError::AccountingOverflow)?;
+-            ranges.push(RangeRecord {
++            pending_ranges.push(RangeRecord {
+                 offset,
+                 length,
+                 state: "received_unverified",
+@@ -74,20 +104,35 @@ impl TransferEngine {
+             offset = offset
+                 .checked_add(length)
+                 .ok_or(TransferError::AccountingOverflow)?;
+-            let _ = self.write_progress(
+-                &mut run,
+-                &run_ref,
+-                &workspace_ref,
+-                &authority_ref,
+-                &execution,
+-                request.source.expected_size,
+-                offset,
+-                0,
+-                0,
+-                &ranges,
+-            )?;
+-            run = latest_document(&self.ledger, run_id, TRANSFER_RUN_SCHEMA_ID)?;
++            if pending_ranges.len() >= UPLOAD_PROGRESS_BATCH_RANGES {
++                let _ = self.write_progress(
++                    &mut run,
++                    &run_ref,
++                    &workspace_ref,
++                    &authority_ref,
++                    &execution,
++                    request.source.expected_size,
++                    offset,
++                    0,
++                    0,
++                    &pending_ranges,
++                )?;
++                pending_ranges.clear();
++                run = latest_document(&self.ledger, run_id, TRANSFER_RUN_SCHEMA_ID)?;
++            }
+         }
++        let _ = self.write_progress(
++            &mut run,
++            &run_ref,
++            &workspace_ref,
++            &authority_ref,
++            &execution,
++            request.source.expected_size,
++            offset,
++            0,
++            0,
++            &pending_ranges,
++        )?;
+         Ok(UploadTransportReport {
+             run_ref,
+             source_sha256: format!("{:x}", hasher.finalize()),
+@@ -189,6 +234,7 @@ impl TransferEngine {
+             json!([DigestValue::canonical_sha256(&observation.source_sha256)]);
+         observed_manifest["created_at"] = json!(now);
+         append_ref(&mut run, "manifest_refs", manifest_ref.clone())?;
++        set_source_verification_manifest(&mut run, &manifest_ref)?;
+         for receipt in &execution.receipt_refs {
+             append_ref(&mut run, "receipt_refs", receipt.clone())?;
+         }

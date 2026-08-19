@@ -1,0 +1,327 @@
++    let run = ledger_document(&temp.ledger(), handle.run_ref.entity_id);
++    let verification_ref: EntityRef = serde_json::from_value(
++        run.get("verification_refs")
++            .and_then(serde_json::Value::as_array)
++            .and_then(|refs| refs.last())
++            .cloned()
++            .expect("retained verification ref"),
++    )
++    .expect("verification EntityRef");
++    let verification = ledger_document(&temp.ledger(), verification_ref.entity_id);
++    assert_eq!(
++        verification
++            .get("verification_state")
++            .and_then(serde_json::Value::as_str),
++        Some("failed")
++    );
++    assert_eq!(
++        verification_domain_state(&verification, VerificationDomain::ContentDigestMatched),
++        "failed"
++    );
++}
++
++#[test]
++fn upload_finalize_fails_before_source_verification_without_touching_provider() {
++    let temp = TempRoot::new();
++    fs::create_dir_all(temp.source_root()).expect("source root");
++    let bytes = b"finalize-requires-source-verification";
++    fs::write(temp.source_root().join("payload.bin"), bytes).expect("write source");
++    let runtime = runtime(&temp.ledger());
++    let mut engine = engine(&temp);
++    let request = request_spec(bytes, TransferMode::Upload);
++    let request_ref = engine.create_request(request.clone()).expect("request");
++    let transfer = create_attempt(
++        &runtime,
++        &request.workspace_ref,
++        &request.authority_ref,
++        request_ref.clone(),
++    );
++    let handle = engine
++        .start_upload(
++            request_ref.entity_id,
++            start_evidence(&runtime, &transfer),
++            start_spec(),
++        )
++        .expect("start");
++    let mut sink = MemorySink::default();
++    engine
++        .stream_upload_file(
++            handle.run_ref.entity_id,
++            temp.source_root(),
++            Path::new("payload.bin"),
++            &mut sink,
++            5,
++        )
++        .expect("stream");
++
++    assert!(matches!(
++        engine.finalize_upload_transport(handle.run_ref.entity_id, &mut sink),
++        Err(TransferError::SourceVerificationMissing)
++    ));
++    assert_eq!(sink.finalize_calls, 0);
++    assert_eq!(
++        lifecycle_state(&temp.ledger(), handle.run_ref.entity_id),
++        "transferring"
++    );
++}
++
++#[test]
++fn upload_finalize_requires_exact_source_verification_identity() {
++    let temp = TempRoot::new();
++    fs::create_dir_all(temp.source_root()).expect("source root");
++    let bytes = b"source-verification-identity";
++    fs::write(temp.source_root().join("payload.bin"), bytes).expect("write source");
++    let runtime = runtime(&temp.ledger());
++    let mut engine = engine(&temp);
++    let request = request_spec(bytes, TransferMode::Upload);
++    let request_ref = engine.create_request(request.clone()).expect("request");
++    let transfer = create_attempt(
++        &runtime,
++        &request.workspace_ref,
++        &request.authority_ref,
++        request_ref.clone(),
++    );
++    let handle = engine
++        .start_upload(
++            request_ref.entity_id,
++            start_evidence(&runtime, &transfer),
++            start_spec(),
++        )
++        .expect("start");
++    let mut sink = MemorySink::default();
++    let observed = engine
++        .stream_upload_file(
++            handle.run_ref.entity_id,
++            temp.source_root(),
++            Path::new("payload.bin"),
++            &mut sink,
++            5,
++        )
++        .expect("stream");
++    engine
++        .verify_upload_source(
++            handle.run_ref.entity_id,
++            &observed,
++            hash_evidence(&runtime, &transfer),
++        )
++        .expect("source verification");
++
++    let mut run = ledger_document(&temp.ledger(), handle.run_ref.entity_id);
++    assert_eq!(
++        run.get("manifest_refs")
++            .and_then(serde_json::Value::as_array)
++            .expect("manifest refs")
++            .len(),
++        2
++    );
++    run.get_mut("extensions")
++        .and_then(serde_json::Value::as_object_mut)
++        .expect("extensions")
++        .remove("ptah.a08.upload_source_verification_manifest_ref");
++    append_document_revision(&temp.ledger(), run);
++
++    assert!(matches!(
++        engine.finalize_upload_transport(handle.run_ref.entity_id, &mut sink),
++        Err(TransferError::SourceVerificationMissing)
++    ));
++}
++
++#[test]
++fn upload_readback_is_bounded_even_if_provider_never_reports_eof() {
++    let temp = TempRoot::new();
++    fs::create_dir_all(temp.source_root()).expect("source root");
++    let bytes = b"bounded-upload-readback";
++    fs::write(temp.source_root().join("payload.bin"), bytes).expect("write source");
++    let runtime = runtime(&temp.ledger());
++    let mut engine = engine(&temp);
++    let request = request_spec(bytes, TransferMode::Upload);
++    let request_ref = engine.create_request(request.clone()).expect("request");
++    let transfer = create_attempt(
++        &runtime,
++        &request.workspace_ref,
++        &request.authority_ref,
++        request_ref.clone(),
++    );
++    let handle = engine
++        .start_upload(
++            request_ref.entity_id,
++            start_evidence(&runtime, &transfer),
++            start_spec(),
++        )
++        .expect("start");
++    let mut sink = EndlessReadbackSink::default();
++    let observed = engine
++        .stream_upload_file(
++            handle.run_ref.entity_id,
++            temp.source_root(),
++            Path::new("payload.bin"),
++            &mut sink,
++            4,
++        )
++        .expect("stream");
++    engine
++        .verify_upload_source(
++            handle.run_ref.entity_id,
++            &observed,
++            hash_evidence(&runtime, &transfer),
++        )
++        .expect("source verification");
++    let ack = engine
++        .finalize_upload_transport(handle.run_ref.entity_id, &mut sink)
++        .expect("finalize");
++    engine
++        .acknowledge_transport(
++            handle.run_ref.entity_id,
++            ack,
++            output_evidence(&runtime, &transfer),
++        )
++        .expect("ack");
++    let verify = create_attempt(
++        &runtime,
++        &request.workspace_ref,
++        &request.authority_ref,
++        handle.run_ref.clone(),
++    );
++    assert!(matches!(
++        engine.verify_upload_sink(
++            handle.run_ref.entity_id,
++            &mut sink,
++            readback_evidence(&runtime, &verify),
++            4,
++        ),
++        Err(TransferError::VerificationFailed)
++    ));
++    assert_eq!(sink.readback_calls, bytes.len().div_ceil(4) + 1);
++    assert_eq!(
++        lifecycle_state(&temp.ledger(), handle.run_ref.entity_id),
++        "failed"
++    );
++}
++
++#[test]
++fn upload_progress_batches_ranges_and_retains_linear_delta_history() {
++    let temp = TempRoot::new();
++    fs::create_dir_all(temp.source_root()).expect("source root");
++    let bytes: Vec<u8> = (0u8..130u8).collect();
++    fs::write(temp.source_root().join("payload.bin"), &bytes).expect("write source");
++    let runtime = runtime(&temp.ledger());
++    let mut engine = engine(&temp);
++    let request = request_spec(&bytes, TransferMode::Upload);
++    let request_ref = engine.create_request(request.clone()).expect("request");
++    let transfer = create_attempt(
++        &runtime,
++        &request.workspace_ref,
++        &request.authority_ref,
++        request_ref.clone(),
++    );
++    let handle = engine
++        .start_upload(
++            request_ref.entity_id,
++            start_evidence(&runtime, &transfer),
++            start_spec(),
++        )
++        .expect("start");
++    let mut sink = MemorySink::default();
++    engine
++        .stream_upload_file(
++            handle.run_ref.entity_id,
++            temp.source_root(),
++            Path::new("payload.bin"),
++            &mut sink,
++            1,
++        )
++        .expect("stream");
++
++    let run = ledger_document(&temp.ledger(), handle.run_ref.entity_id);
++    let refs = run
++        .get("progress_snapshot_refs")
++        .and_then(serde_json::Value::as_array)
++        .expect("progress refs");
++    assert_eq!(refs.len(), 3);
++    let mut retained_ranges = 0usize;
++    for value in refs {
++        let reference: EntityRef = serde_json::from_value(value.clone()).expect("snapshot ref");
++        let snapshot = ledger_document(&temp.ledger(), reference.entity_id);
++        let ranges = snapshot
++            .get("ranges")
++            .and_then(serde_json::Value::as_array)
++            .expect("ranges");
++        assert!(ranges.len() <= 64);
++        retained_ranges += ranges.len();
++    }
++    assert_eq!(retained_ranges, bytes.len());
++}
++
++#[test]
++fn uncertain_upload_converges_to_verifying_after_successful_readback() {
++    let temp = TempRoot::new();
++    fs::create_dir_all(temp.source_root()).expect("source root");
++    let bytes = b"uncertain-upload-convergence";
++    fs::write(temp.source_root().join("payload.bin"), bytes).expect("write source");
++    let runtime = runtime(&temp.ledger());
++    let mut engine = engine(&temp);
++    let request = request_spec(bytes, TransferMode::Upload);
++    let request_ref = engine.create_request(request.clone()).expect("request");
++    let transfer = create_attempt(
++        &runtime,
++        &request.workspace_ref,
++        &request.authority_ref,
++        request_ref.clone(),
++    );
++    let handle = engine
++        .start_upload(
++            request_ref.entity_id,
++            start_evidence(&runtime, &transfer),
++            start_spec(),
++        )
++        .expect("start");
++    let mut sink = MemorySink::default();
++    let observed = engine
++        .stream_upload_file(
++            handle.run_ref.entity_id,
++            temp.source_root(),
++            Path::new("payload.bin"),
++            &mut sink,
++            4,
++        )
++        .expect("stream");
++    engine
++        .verify_upload_source(
++            handle.run_ref.entity_id,
++            &observed,
++            hash_evidence(&runtime, &transfer),
++        )
++        .expect("source verification");
++    engine
++        .finalize_upload_transport(handle.run_ref.entity_id, &mut sink)
++        .expect("finalize");
++    engine
++        .acknowledge_transport(
++            handle.run_ref.entity_id,
++            ProviderAcknowledgement::Uncertain,
++            output_evidence(&runtime, &transfer),
++        )
++        .expect("uncertain acknowledgement");
++    assert_eq!(
++        lifecycle_state(&temp.ledger(), handle.run_ref.entity_id),
++        "uncertain"
++    );
++    let verify = create_attempt(
++        &runtime,
++        &request.workspace_ref,
++        &request.authority_ref,
++        handle.run_ref.clone(),
++    );
++    engine
++        .verify_upload_sink(
++            handle.run_ref.entity_id,
++            &mut sink,
++            readback_evidence(&runtime, &verify),
++            4,
++        )
++        .expect("verify sink");
++    assert_eq!(
++        lifecycle_state(&temp.ledger(), handle.run_ref.entity_id),
++        "verifying"
++    );
+ }

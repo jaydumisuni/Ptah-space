@@ -54,7 +54,7 @@ impl ObjectStore {
             &spec.production,
             &["output_observation", "hash_verification"],
         )?;
-        let now = (self.clock)();
+        let now = self.now()?;
         let object_key = cas_object_key(&digest)?;
         self.publish_cas(bytes, &digest, &object_key)?;
 

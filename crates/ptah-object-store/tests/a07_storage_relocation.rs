@@ -51,7 +51,13 @@ fn moved_cas_root_preserves_artifact_and_revision_identity() {
     }
 
     fs::rename(temp.cas(), temp.moved_cas()).expect("move local CAS root");
-    let readback = create_evidence(&runtime, &workspace, &authority, EvidenceMode::Readback);
+    let readback = create_evidence_for_target(
+        &runtime,
+        &workspace,
+        &authority,
+        EvidenceMode::Readback,
+        registration.location_ref.clone(),
+    );
     let mut store = ObjectStore::open(
         temp.ledger(),
         temp.moved_cas(),
@@ -110,8 +116,13 @@ fn location_bound_to_another_backend_or_connection_is_rejected() {
             .expect("register on first backend")
     };
 
-    let mismatch_evidence =
-        create_evidence(&runtime, &workspace, &authority, EvidenceMode::Readback);
+    let mismatch_evidence = create_evidence_for_target(
+        &runtime,
+        &workspace,
+        &authority,
+        EvidenceMode::Readback,
+        registration.location_ref.clone(),
+    );
     let mut mismatched = ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock())
         .expect("open different backend identity");
     assert!(matches!(

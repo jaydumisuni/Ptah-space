@@ -158,11 +158,8 @@ fn observe_cas(
         Err(error) => return Err(error.into()),
     }
 
-    match fs::read(target) {
-        Ok(bytes) => {
-            let observed_digest = ObjectStore::sha256(&bytes);
-            let observed_size =
-                u64::try_from(bytes.len()).map_err(|_| ObjectStoreError::RevisionOverflow)?;
+    match hash_cas_file(target) {
+        Ok((observed_digest, observed_size)) => {
             let (outcome, health) = if observed_digest != expected_digest {
                 ("digest_mismatch", "corrupt")
             } else if observed_size != expected_size {

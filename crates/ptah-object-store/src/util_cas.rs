@@ -1,4 +1,4 @@
-const CAS_IO_BUFFER_SIZE: usize = 64 * 1024;
+const CAS_IO_BUFFER_SIZE: usize = 16 * 1024;
 
 fn envelope(
     entity_ref: &EntityRef,

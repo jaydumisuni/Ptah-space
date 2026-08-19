@@ -32,8 +32,15 @@ impl ObjectStore {
         if field_string(&location, "location_kind")? != "local_cas" {
             return Err(ObjectStoreError::TypeMismatch);
         }
-        ensure_location_binding(&location, &self.config)?;
         let location_ref = document_ref(&location)?;
+        if !validated
+            .logical_target_refs
+            .iter()
+            .any(|reference| same_ref(reference, &location_ref))
+        {
+            return Err(ObjectStoreError::ProductionEvidenceMismatch);
+        }
+        ensure_location_binding(&location, &self.config)?;
         let content_ref = field_ref(&location, "content_ref")?;
         let content = self.latest_document(content_ref.entity_id, CONTENT_SCHEMA_ID)?;
         ensure_workspace(&content, &spec.workspace_ref)?;

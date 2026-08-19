@@ -112,3 +112,41 @@ fn producer_version_respects_frozen_text_bound() {
     ));
     assert!(!temp.cas().exists());
 }
+
+#[test]
+fn kind_scan_reuses_a03_canonical_tamper_validation() {
+    let temp = TempRoot::new();
+    let runtime = runtime(&temp.ledger());
+    let workspace = reference("core.workspace");
+    let authority = reference("identity.principal");
+    let mut store =
+        ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock()).expect("open A07");
+    let bytes = b"canonical scan integrity";
+    let first_evidence = create_evidence(&runtime, &workspace, &authority, EvidenceMode::Register);
+    let first = store
+        .register_bytes(
+            bytes,
+            register_spec(&workspace, &authority, first_evidence.production),
+        )
+        .expect("first registration");
+
+    let forged_authority = reference("identity.principal");
+    let forged_json = serde_json::to_string(&forged_authority).expect("serialize forged authority");
+    let connection = rusqlite::Connection::open(temp.ledger()).expect("open tamper connection");
+    connection
+        .execute(
+            "UPDATE ptah_entity_records SET authority_ref_json = ?1 WHERE entity_id = ?2",
+            rusqlite::params![forged_json, first.content_ref.entity_id.to_string()],
+        )
+        .expect("tamper canonical authority index");
+    drop(connection);
+
+    let second_evidence = create_evidence(&runtime, &workspace, &authority, EvidenceMode::Register);
+    assert!(matches!(
+        store.register_bytes(
+            bytes,
+            register_spec(&workspace, &authority, second_evidence.production),
+        ),
+        Err(ObjectStoreError::Ledger(_))
+    ));
+}

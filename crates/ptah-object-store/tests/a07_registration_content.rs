@@ -76,16 +76,14 @@ fn expected_digest_mismatch_blocks_cas_and_metadata_registration() {
     let evidence = create_evidence(&runtime, &workspace, &authority, EvidenceMode::Register);
     let mut spec = register_spec(&workspace, &authority, evidence.production);
     spec.expected_sha256 = Some("0".repeat(64));
+    let records_before = ledger_record_count(&temp.ledger());
 
     assert!(matches!(
         store.register_bytes(bytes, spec),
         Err(ObjectStoreError::ExpectedDigestMismatch { .. })
     ));
-    let target = temp
-        .cas()
-        .join("sha256")
-        .join(&observed[..2])
-        .join(&observed);
+    assert_eq!(ledger_record_count(&temp.ledger()), records_before);
+    let target = cas_object_path(&temp.cas(), &observed);
     assert!(!target.exists());
 }
 
@@ -99,7 +97,7 @@ fn existing_digest_target_is_verified_and_never_overwritten() {
         ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock()).expect("open A07");
     let bytes = b"correct bytes";
     let digest = ObjectStore::sha256(bytes);
-    let target = temp.cas().join("sha256").join(&digest[..2]).join(&digest);
+    let target = cas_object_path(&temp.cas(), &digest);
     fs::create_dir_all(target.parent().expect("target parent")).expect("create CAS directory");
     fs::write(&target, b"malicious or corrupt winner").expect("seed corrupt target");
 
@@ -132,7 +130,7 @@ fn symlink_digest_target_is_rejected_without_following_outside_cas() {
     let digest = ObjectStore::sha256(bytes);
     let outside = temp.root.join("outside.bin");
     fs::write(&outside, bytes).expect("write external target");
-    let target = temp.cas().join("sha256").join(&digest[..2]).join(&digest);
+    let target = cas_object_path(&temp.cas(), &digest);
     fs::create_dir_all(target.parent().expect("target parent")).expect("create CAS directory");
     symlink(&outside, &target).expect("seed symlink target");
 

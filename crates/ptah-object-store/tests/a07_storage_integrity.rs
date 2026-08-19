@@ -45,11 +45,7 @@ fn integrity_verifier_records_success_then_detects_corruption() {
         Some("verified")
     );
 
-    let target = temp
-        .cas()
-        .join("sha256")
-        .join(&registration.sha256[..2])
-        .join(&registration.sha256);
+    let target = cas_object_path(&temp.cas(), &registration.sha256);
     fs::write(&target, b"corrupted bytes").expect("corrupt CAS target");
 
     let corrupt_evidence = create_evidence_for_target(
@@ -70,6 +66,13 @@ fn integrity_verifier_records_success_then_detects_corruption() {
         )
         .expect("record negative verification");
     assert_eq!(corrupt.outcome, "digest_mismatch");
+    let corrupt_record = ledger_document(&temp.ledger(), corrupt.verification_ref.entity_id);
+    assert_eq!(
+        corrupt_record
+            .get("outcome")
+            .and_then(serde_json::Value::as_str),
+        Some("digest_mismatch")
+    );
     let location = ledger_document(&temp.ledger(), registration.location_ref.entity_id);
     assert_eq!(
         location
@@ -154,11 +157,7 @@ fn missing_location_is_reobserved_after_successful_rematerialization() {
             register_spec(&workspace, &authority, registration_evidence.production),
         )
         .expect("initial registration");
-    let target = temp
-        .cas()
-        .join("sha256")
-        .join(&first.sha256[..2])
-        .join(&first.sha256);
+    let target = cas_object_path(&temp.cas(), &first.sha256);
     fs::remove_file(&target).expect("remove materialization");
 
     let missing_evidence = create_evidence_for_target(
@@ -179,6 +178,13 @@ fn missing_location_is_reobserved_after_successful_rematerialization() {
         )
         .expect("record missing Location");
     assert_eq!(missing.outcome, "missing");
+    let missing_record = ledger_document(&temp.ledger(), missing.verification_ref.entity_id);
+    assert_eq!(
+        missing_record
+            .get("outcome")
+            .and_then(serde_json::Value::as_str),
+        Some("missing")
+    );
 
     let replacement_evidence =
         create_evidence(&runtime, &workspace, &authority, EvidenceMode::Register);
@@ -211,6 +217,100 @@ fn missing_location_is_reobserved_after_successful_rematerialization() {
             .expect("Location observations")
             .len(),
         3
+    );
+}
+
+#[test]
+fn multi_chunk_cas_registration_and_readback_are_verified() {
+    let temp = TempRoot::new();
+    let runtime = runtime(&temp.ledger());
+    let workspace = reference("core.workspace");
+    let authority = reference("identity.principal");
+    let mut store =
+        ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock()).expect("open A07");
+    let bytes = vec![0x5a; 200 * 1024 + 17];
+    let registration_evidence =
+        create_evidence(&runtime, &workspace, &authority, EvidenceMode::Register);
+    let registration = store
+        .register_bytes(
+            &bytes,
+            register_spec(&workspace, &authority, registration_evidence.production),
+        )
+        .expect("register multi-chunk bytes");
+    let readback = create_evidence_for_target(
+        &runtime,
+        &workspace,
+        &authority,
+        EvidenceMode::Readback,
+        registration.location_ref.clone(),
+    );
+    let report = store
+        .verify_location(
+            registration.location_ref.entity_id,
+            VerificationSpec {
+                workspace_ref: workspace,
+                authority_ref: authority,
+                production: readback.production,
+            },
+        )
+        .expect("verify multi-chunk bytes");
+    assert_eq!(report.outcome, "verified");
+    assert_eq!(report.observed_size, Some(bytes.len() as u64));
+    assert_eq!(report.observed_sha256.as_deref(), Some(registration.sha256.as_str()));
+}
+
+#[test]
+fn malformed_non_ascii_stored_cas_key_fails_closed_without_panicking() {
+    let temp = TempRoot::new();
+    let runtime = runtime(&temp.ledger());
+    let workspace = reference("core.workspace");
+    let authority = reference("identity.principal");
+    let mut store =
+        ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock()).expect("open A07");
+    let evidence = create_evidence(&runtime, &workspace, &authority, EvidenceMode::Register);
+    let registration = store
+        .register_bytes(
+            b"malformed stored key",
+            register_spec(&workspace, &authority, evidence.production),
+        )
+        .expect("register");
+    let malicious_digest = format!("€{}", "a".repeat(61));
+    assert_eq!(malicious_digest.len(), 64);
+    mutate_latest_document(
+        &temp.ledger(),
+        registration.location_ref.entity_id,
+        |document| {
+            document["backend_aliases"][0]["alias_value"] =
+                serde_json::Value::String(format!("sha256/aa/{malicious_digest}"));
+        },
+    );
+
+    let readback = create_evidence_for_target(
+        &runtime,
+        &workspace,
+        &authority,
+        EvidenceMode::Readback,
+        registration.location_ref.clone(),
+    );
+    assert!(matches!(
+        store.verify_location(
+            registration.location_ref.entity_id,
+            VerificationSpec {
+                workspace_ref: workspace,
+                authority_ref: authority,
+                production: readback.production,
+            },
+        ),
+        Err(ObjectStoreError::InvalidCasKey)
+    ));
+    let location = ledger_document(&temp.ledger(), registration.location_ref.entity_id);
+    assert_eq!(
+        location
+            .get("verification_refs")
+            .and_then(serde_json::Value::as_array)
+            .expect("verification refs")
+            .len(),
+        0
     );
 }
 

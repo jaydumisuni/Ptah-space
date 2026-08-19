@@ -292,21 +292,24 @@ impl EventBus {
         self.sender.subscribe()
     }
 
-    /// Emit one validated Event and assign its monotonic per-scope sequence.
+    /// Prepare one validated Event and reserve its monotonic per-scope sequence.
     ///
-    /// Delivery failure to live subscribers does not invalidate the Event or turn
-    /// it into execution proof.
+    /// Preparation does not retain, replay, or broadcast the Event. Callers that
+    /// need durable ordering may therefore write the canonical Event document in
+    /// the same transaction as the state it describes, then call [`Self::publish`].
+    /// A failed durable transaction may leave a harmless sequence gap but cannot
+    /// create an observable phantom Event.
     ///
     /// # Errors
     /// Returns an [`EventError`] when the specification is invalid, sequencing overflows, or state is unavailable.
-    pub fn emit(&self, spec: EventSpec) -> Result<Event, EventError> {
+    pub fn prepare(&self, spec: EventSpec) -> Result<Event, EventError> {
         validate_spec(&spec)?;
         let mut state = self.state.lock().map_err(|_| EventError::Poisoned)?;
         let scope = spec.sequence_scope_ref.entity_id;
         let next = state.next_sequence.entry(scope).or_insert(0);
         let sequence = *next;
         *next = next.checked_add(1).ok_or(EventError::SequenceOverflow)?;
-        let event = Event {
+        Ok(Event {
             id: EntityId::new_v7(),
             kind: spec.event_type,
             class: spec.event_class,
@@ -320,10 +323,38 @@ impl EventBus {
             occurred_at: spec.occurred_at,
             payload: spec.payload,
             receipt_ref: spec.receipt_ref,
-        };
+        })
+    }
+
+    /// Retain and broadcast a previously prepared Event.
+    ///
+    /// Publishing is idempotent by canonical Event identity. It is intentionally
+    /// separate from [`Self::prepare`] so durable callers can publish only after
+    /// their ledger transaction commits.
+    ///
+    /// # Errors
+    /// Returns [`EventError::Poisoned`] when retained Event state is unavailable.
+    pub fn publish(&self, event: Event) -> Result<(), EventError> {
+        let mut state = self.state.lock().map_err(|_| EventError::Poisoned)?;
+        if state.history.iter().any(|retained| retained.id == event.id) {
+            return Ok(());
+        }
         state.history.push(event.clone());
         drop(state);
-        let _ = self.sender.send(event.clone());
+        let _ = self.sender.send(event);
+        Ok(())
+    }
+
+    /// Emit one validated Event and assign its monotonic per-scope sequence.
+    ///
+    /// Delivery failure to live subscribers does not invalidate the Event or turn
+    /// it into execution proof. Durable callers should use prepare/commit/publish.
+    ///
+    /// # Errors
+    /// Returns an [`EventError`] when validation, sequencing, or retained state fails.
+    pub fn emit(&self, spec: EventSpec) -> Result<Event, EventError> {
+        let event = self.prepare(spec)?;
+        self.publish(event.clone())?;
         Ok(event)
     }
 
@@ -518,6 +549,26 @@ mod tests {
         assert_eq!(first.sequence(), 0);
         assert_eq!(second.sequence(), 1);
         assert_eq!(bus.replay(scope, 1).expect("replay"), vec![second]);
+    }
+
+    #[test]
+    fn prepared_event_is_not_observable_until_published() {
+        let bus = EventBus::default();
+        let spec = basic_spec();
+        let scope = spec.sequence_scope_ref.entity_id;
+        let event = bus.prepare(spec).expect("prepare Event");
+        assert!(
+            bus.replay(scope, 0)
+                .expect("replay before publish")
+                .is_empty()
+        );
+        assert_eq!(bus.len().expect("count before publish"), 0);
+        bus.publish(event.clone()).expect("publish Event");
+        assert_eq!(
+            bus.replay(scope, 0).expect("replay after publish"),
+            vec![event]
+        );
+        assert_eq!(bus.len().expect("count after publish"), 1);
     }
 
     #[test]

@@ -1,17 +1,30 @@
 #![forbid(unsafe_code)]
-//! Non-claiming Phase 0C boundary for `ptah-transfer`.
+//! A08 transfer runtime: durable Request/Run/Manifest/Progress/Verification truth
+//! with resumable partial byte materialization.
 //!
-//! No runtime capability is implemented or authorized by this crate.
+//! A08 never promotes provider acknowledgement into Content/Object/Location
+//! truth. A04 remains execution-proof authority and A07 remains object/storage
+//! acceptance authority.
 
-/// Records that this package is only a Phase 0C scaffold.
-pub const PTAH_TRANSFER_RUNTIME_AUTHORIZED: bool = false;
+mod engine;
+mod model;
+mod records;
+mod util;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub use engine::{TransferClock, TransferEngine, UploadSink};
+pub use model::*;
 
-    #[test]
-    fn scaffold_cannot_claim_runtime_authorization() {
-        assert!(!PTAH_TRANSFER_RUNTIME_AUTHORIZED);
-    }
-}
+/// Frozen A08 transfer schema version.
+pub const A08_SCHEMA_VERSION: &str = "0.1.0";
+/// Frozen Transfer Request schema.
+pub const TRANSFER_REQUEST_SCHEMA_ID: &str = "urn:ptah:schema:transfer:transfer-request:0.1.0";
+/// Frozen Transfer Run schema.
+pub const TRANSFER_RUN_SCHEMA_ID: &str = "urn:ptah:schema:transfer:transfer-run:0.1.0";
+/// Frozen Transfer Manifest schema.
+pub const TRANSFER_MANIFEST_SCHEMA_ID: &str = "urn:ptah:schema:transfer:transfer-manifest:0.1.0";
+/// Frozen Transfer Progress Snapshot schema.
+pub const TRANSFER_PROGRESS_SCHEMA_ID: &str =
+    "urn:ptah:schema:transfer:transfer-progress-snapshot:0.1.0";
+/// Frozen Transfer Verification schema.
+pub const TRANSFER_VERIFICATION_SCHEMA_ID: &str =
+    "urn:ptah:schema:transfer:transfer-verification:0.1.0";

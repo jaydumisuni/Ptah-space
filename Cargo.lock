@@ -524,6 +524,17 @@ dependencies = [
 [[package]]
 name = "ptah-transfer"
 version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-activity-runtime",
+ "ptah-events",
+ "ptah-identifiers",
+ "ptah-ledger",
+ "ptah-receipts",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
+]
 
 [[package]]
 name = "ptah-workspace"

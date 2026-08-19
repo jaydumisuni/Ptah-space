@@ -1,3 +1,5 @@
+const CAS_IO_BUFFER_SIZE: usize = 64 * 1024;
+
 fn envelope(
     entity_ref: &EntityRef,
     schema_id: &str,
@@ -84,7 +86,10 @@ fn receipt_attempt_context_matches(receipt: &Value, attempt: &Value) -> bool {
         "producer_instance_ref",
         "producer_version",
     ] {
-        if receipt.get(field) != attempt.get(field) {
+        let (Some(observed), Some(expected)) = (receipt.get(field), attempt.get(field)) else {
+            return false;
+        };
+        if observed != expected {
             return false;
         }
     }
@@ -168,15 +173,48 @@ fn verify_cas_target(
     expected_digest: &str,
 ) -> Result<(), ObjectStoreError> {
     ensure_regular_cas_file(target)?;
-    let retained = fs::read(target)?;
-    let observed_digest = format!("{:x}", Sha256::digest(&retained));
-    if retained.len() != expected_bytes.len()
-        || observed_digest != expected_digest
-        || retained != expected_bytes
-    {
+    let mut file = fs::File::open(target)?;
+    let mut hasher = Sha256::new();
+    let mut offset = 0usize;
+    let mut buffer = [0u8; CAS_IO_BUFFER_SIZE];
+    loop {
+        let read = std::io::Read::read(&mut file, &mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        let end = offset
+            .checked_add(read)
+            .ok_or(ObjectStoreError::CasIntegrityMismatch)?;
+        if expected_bytes.get(offset..end) != Some(&buffer[..read]) {
+            return Err(ObjectStoreError::CasIntegrityMismatch);
+        }
+        hasher.update(&buffer[..read]);
+        offset = end;
+    }
+    let observed_digest = format!("{:x}", hasher.finalize());
+    if offset != expected_bytes.len() || observed_digest != expected_digest {
         return Err(ObjectStoreError::CasIntegrityMismatch);
     }
     Ok(())
+}
+
+fn hash_cas_file(target: &Path) -> Result<(String, u64), io::Error> {
+    let mut file = fs::File::open(target)?;
+    let mut hasher = Sha256::new();
+    let mut observed_size = 0u64;
+    let mut buffer = [0u8; CAS_IO_BUFFER_SIZE];
+    loop {
+        let read = std::io::Read::read(&mut file, &mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+        let read_u64 = u64::try_from(read).map_err(|_| io::Error::other("CAS read size overflow"))?;
+        observed_size = observed_size
+            .checked_add(read_u64)
+            .ok_or_else(|| io::Error::other("CAS observed size overflow"))?;
+    }
+    Ok((format!("{:x}", hasher.finalize()), observed_size))
 }
 
 fn cas_object_key(digest: &str) -> Result<String, ObjectStoreError> {

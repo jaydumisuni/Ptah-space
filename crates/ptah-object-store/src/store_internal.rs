@@ -90,7 +90,8 @@ impl ObjectStore {
                 return Err(ObjectStoreError::ProductionEvidenceMismatch);
             }
             let receipt = self.latest_document(receipt_ref.entity_id, RECEIPT_SCHEMA_ID)?;
-            ensure_workspace(&receipt, workspace_ref)?;
+            // A04 Receipt envelopes intentionally do not carry Workspace scope.
+            // Workspace is already fenced by the exact Activity -> Operation -> Attempt chain.
             if field_string(&receipt, "receipt_outcome")? != "positive"
                 || !same_ref(&field_ref(&receipt, "activity_ref")?, &evidence.activity_ref)
                 || !same_ref(&field_ref(&receipt, "operation_ref")?, &evidence.operation_ref)

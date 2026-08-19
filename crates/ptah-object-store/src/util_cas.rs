@@ -91,6 +91,46 @@ fn receipt_attempt_context_matches(receipt: &Value, attempt: &Value) -> bool {
     true
 }
 
+fn ensure_real_directory(path: &Path) -> Result<(), ObjectStoreError> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(ObjectStoreError::CasIntegrityMismatch);
+    }
+    Ok(())
+}
+
+fn ensure_or_create_real_directory(path: &Path) -> Result<(), ObjectStoreError> {
+    match fs::create_dir(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    ensure_real_directory(path)
+}
+
+fn cas_parent_hierarchy_exists_and_is_safe(
+    cas_root: &Path,
+    target: &Path,
+) -> Result<bool, ObjectStoreError> {
+    ensure_real_directory(cas_root)?;
+    let prefix_dir = target.parent().ok_or(ObjectStoreError::InvalidCasKey)?;
+    let algorithm_dir = prefix_dir.parent().ok_or(ObjectStoreError::InvalidCasKey)?;
+    if algorithm_dir.parent() != Some(cas_root) {
+        return Err(ObjectStoreError::InvalidCasKey);
+    }
+    for directory in [algorithm_dir, prefix_dir] {
+        match fs::symlink_metadata(directory) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return Err(ObjectStoreError::CasIntegrityMismatch);
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(true)
+}
+
 fn ensure_regular_cas_file(target: &Path) -> Result<(), ObjectStoreError> {
     let metadata = fs::symlink_metadata(target)?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {

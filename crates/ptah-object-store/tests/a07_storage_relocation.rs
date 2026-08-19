@@ -104,10 +104,16 @@ fn location_bound_to_another_backend_or_connection_is_rejected() {
     let runtime = runtime(&temp.ledger());
     let workspace = reference("core.workspace");
     let authority = reference("identity.principal");
+    let store_config = config();
     let evidence = create_evidence(&runtime, &workspace, &authority, EvidenceMode::Register);
     let registration = {
-        let mut store = ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock())
-            .expect("open first backend");
+        let mut store = ObjectStore::open(
+            temp.ledger(),
+            temp.cas(),
+            store_config.clone(),
+            fixed_clock(),
+        )
+        .expect("open first backend");
         store
             .register_bytes(
                 b"backend-bound bytes",
@@ -123,8 +129,16 @@ fn location_bound_to_another_backend_or_connection_is_rejected() {
         EvidenceMode::Readback,
         registration.location_ref.clone(),
     );
-    let mut mismatched = ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock())
-        .expect("open different backend identity");
+    let mut mismatched_config = store_config;
+    mismatched_config.backend_ref = reference("storage.backend");
+    mismatched_config.connection_ref = reference("storage.connection");
+    let mut mismatched = ObjectStore::open(
+        temp.ledger(),
+        temp.cas(),
+        mismatched_config,
+        fixed_clock(),
+    )
+    .expect("open explicitly different backend identity");
     assert!(matches!(
         mismatched.verify_location(
             registration.location_ref.entity_id,

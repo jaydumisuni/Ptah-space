@@ -11,8 +11,10 @@ impl ObjectStore {
     ) -> Result<Self, ObjectStoreError> {
         require_bounded_text(&config.producer_version, 256, "producer_version")?;
         let ledger_path = ledger_path.as_ref().to_path_buf();
-        let cas_root = cas_root.as_ref().to_path_buf();
-        fs::create_dir_all(&cas_root)?;
+        let requested_cas_root = cas_root.as_ref().to_path_buf();
+        fs::create_dir_all(&requested_cas_root)?;
+        let cas_root = fs::canonicalize(&requested_cas_root)?;
+        ensure_real_directory(&cas_root)?;
         let ledger = Ledger::open(&ledger_path)?;
         Ok(Self {
             ledger_path,

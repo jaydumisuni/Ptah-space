@@ -173,31 +173,28 @@ impl ObjectStore {
     }
 
     fn latest_documents_by_kind(&self, kind: &str) -> Result<Vec<Value>, ObjectStoreError> {
-        // A03 owns this database. A07 uses a read-only projection over the same
-        // canonical rows only because A03's public repository trait has no
-        // kind-scan yet. No writes or secondary metadata authority occur here.
+        // A03 owns canonical record integrity. SQLite is used only to discover
+        // entity identities because A03's public repository trait has no kind
+        // scan yet; every discovered entity is re-read through A03 before A07
+        // trusts its kind or document bytes.
         let connection = Connection::open_with_flags(
             &self.ledger_path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
         connection.busy_timeout(READ_ONLY_BUSY_TIMEOUT)?;
-        let mut statement = connection.prepare(
-            "SELECT r.document_json
-             FROM ptah_entity_records AS r
-             WHERE r.entity_kind = ?1
-               AND r.record_revision = (
-                   SELECT MAX(r2.record_revision)
-                   FROM ptah_entity_records AS r2
-                   WHERE r2.entity_id = r.entity_id
-               )
-             ORDER BY r.entity_id",
-        )?;
-        let rows = statement.query_map([kind], |row| row.get::<_, String>(0))?;
-        rows.map(|row| {
-            let document_json = row?;
-            serde_json::from_str(&document_json).map_err(ObjectStoreError::from)
-        })
-        .collect()
+        let mut statement =
+            connection.prepare("SELECT DISTINCT entity_id FROM ptah_entity_records ORDER BY entity_id")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        let mut documents = Vec::new();
+        for row in rows {
+            let entity_id: EntityId = row?.parse()?;
+            if let Some(record) = self.ledger.latest_record(entity_id)?
+                && record.entity_kind().as_str() == kind
+            {
+                documents.push(record.document().clone());
+            }
+        }
+        Ok(documents)
     }
 
     fn publish_cas(

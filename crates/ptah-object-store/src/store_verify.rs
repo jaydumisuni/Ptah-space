@@ -55,7 +55,7 @@ impl ObjectStore {
         let target = self.cas_path(&object_key)?;
         let observed = observe_cas(&self.cas_root, &target, &expected_digest, expected_size)?;
 
-        let now = (self.clock)();
+        let now = self.now()?;
         let verification_ref = EntityRef::new(STORAGE_VERIFICATION_KIND)?;
         let observation_ref = EntityRef::new(LOCATION_OBSERVATION_KIND)?;
         let verification = storage_verification_document(

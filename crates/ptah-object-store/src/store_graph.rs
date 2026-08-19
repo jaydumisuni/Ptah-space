@@ -43,7 +43,7 @@ impl ObjectStore {
         ensure_workspace(&object, &spec.workspace_ref)?;
 
         let artifact_ref = EntityRef::new(ARTIFACT_KIND)?;
-        let now = (self.clock)();
+        let now = self.now()?;
         let mut subjects = spec.subject_refs.clone();
         append_unique_ref(&mut subjects, object_ref.clone());
         let draft = artifact_document(
@@ -100,7 +100,7 @@ impl ObjectStore {
         )?;
         let relationship_ref = EntityRef::new(RELATIONSHIP_KIND)?;
         let relationship_revision_ref = EntityRef::new(RELATIONSHIP_REVISION_KIND)?;
-        let now = (self.clock)();
+        let now = self.now()?;
         let relationship_revision = json!({
             "envelope": envelope(
                 &relationship_revision_ref,
@@ -182,7 +182,7 @@ impl ObjectStore {
             &["output_observation"],
         )?;
         let view_ref = EntityRef::new(VIEW_KIND)?;
-        let now = (self.clock)();
+        let now = self.now()?;
         let view = json!({
             "envelope": envelope(
                 &view_ref,

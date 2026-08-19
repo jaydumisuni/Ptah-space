@@ -150,3 +150,29 @@ fn kind_scan_reuses_a03_canonical_tamper_validation() {
         Err(ObjectStoreError::Ledger(_))
     ));
 }
+
+#[test]
+fn invalid_clock_cannot_publish_canonical_a07_state() {
+    let temp = TempRoot::new();
+    let runtime = runtime(&temp.ledger());
+    let workspace = reference("core.workspace");
+    let authority = reference("identity.principal");
+    let bad_clock: StoreClock = Arc::new(|| "2026-02-30T25:61:61Z".to_owned());
+    let mut store =
+        ObjectStore::open(temp.ledger(), temp.cas(), config(), bad_clock).expect("open A07");
+    let evidence = create_evidence(&runtime, &workspace, &authority, EvidenceMode::Register);
+
+    assert!(matches!(
+        store.register_bytes(
+            b"invalid canonical timestamp",
+            register_spec(&workspace, &authority, evidence.production),
+        ),
+        Err(ObjectStoreError::TypeMismatch)
+    ));
+    assert_eq!(
+        fs::read_dir(temp.cas())
+            .expect("read CAS root after rejected timestamp")
+            .count(),
+        0
+    );
+}

@@ -149,3 +149,36 @@ fn producing_activity_attempt_and_receipts_must_match_exactly() {
         Err(ObjectStoreError::ProductionEvidenceMismatch)
     ));
 }
+
+#[test]
+fn missing_execution_context_on_attempt_and_receipts_fails_closed() {
+    let temp = TempRoot::new();
+    let runtime = runtime(&temp.ledger());
+    let workspace = reference("core.workspace");
+    let authority = reference("identity.principal");
+    let evidence = create_evidence(&runtime, &workspace, &authority, EvidenceMode::Register);
+    mutate_latest_document(&temp.ledger(), evidence.attempt_id, |document| {
+        document
+            .as_object_mut()
+            .expect("Attempt document object")
+            .remove("producer_version");
+    });
+    for receipt_ref in &evidence.production.receipt_refs {
+        mutate_latest_document(&temp.ledger(), receipt_ref.entity_id, |document| {
+            document
+                .as_object_mut()
+                .expect("Receipt document object")
+                .remove("producer_version");
+        });
+    }
+
+    let mut store =
+        ObjectStore::open(temp.ledger(), temp.cas(), config(), fixed_clock()).expect("open A07");
+    assert!(matches!(
+        store.register_bytes(
+            b"missing context must not self-match",
+            register_spec(&workspace, &authority, evidence.production),
+        ),
+        Err(ObjectStoreError::ProductionEvidenceMismatch)
+    ));
+}

@@ -53,7 +53,7 @@ impl ObjectStore {
         let expected_size = field_u64(&content, "byte_size")?;
         let object_key = location_object_key(&location)?;
         let target = self.cas_path(&object_key)?;
-        let observed = observe_cas(&target, &expected_digest, expected_size)?;
+        let observed = observe_cas(&self.cas_root, &target, &expected_digest, expected_size)?;
 
         let now = (self.clock)();
         let verification_ref = EntityRef::new(STORAGE_VERIFICATION_KIND)?;
@@ -116,10 +116,19 @@ impl ObjectStore {
 }
 
 fn observe_cas(
+    cas_root: &Path,
     target: &Path,
     expected_digest: &str,
     expected_size: u64,
 ) -> Result<CasObservation, ObjectStoreError> {
+    if !cas_parent_hierarchy_exists_and_is_safe(cas_root, target)? {
+        return Ok(CasObservation {
+            outcome: "missing",
+            observed_digest: None,
+            observed_size: None,
+            health: "missing",
+        });
+    }
     match fs::symlink_metadata(target) {
         Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
             return Ok(CasObservation {

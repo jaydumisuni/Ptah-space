@@ -1,0 +1,33 @@
+name: A08 correction exact-source export
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/a08-correction-source-export.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove base and export exact source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "a43371815abca240d4f48b617aafa6011db817e4"
+          git archive --format=tar.gz --output=/tmp/a08-correction-source.tar.gz a43371815abca240d4f48b617aafa6011db817e4
+          sha256sum /tmp/a08-correction-source.tar.gz > /tmp/a08-correction-source.sha256
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a08-correction-source-a433718
+          path: |
+            /tmp/a08-correction-source.tar.gz
+            /tmp/a08-correction-source.sha256
+          retention-days: 7
+          if-no-files-found: error

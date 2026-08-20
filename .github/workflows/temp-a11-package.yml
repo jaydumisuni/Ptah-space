@@ -1,0 +1,122 @@
+name: TEMP A11 frozen candidate packaging
+
+on:
+  pull_request:
+    paths:
+      - ".a11-pack/**"
+      - ".github/workflows/temp-a11-package.yml"
+
+permissions:
+  contents: write
+
+env:
+  PTAH_A08_SHA: d19bcf3e86373b2710fbf731e094a9a3f8e2a469
+  PTAH_A08_TREE: 4eb5ffe1686e1b472ed2c6959679fe54c891fb30
+  PTAH_PAYLOAD_SHA256: 6858c55f0623d1a5a524cadae0f743f6e94d6d740e814a9568c8ec912625ab00
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out disposable transport branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Lock transport ancestry and scope
+        run: |
+          set -euo pipefail
+          git cat-file -e "$PTAH_A08_SHA^{commit}"
+          test "$(git rev-parse "$PTAH_A08_SHA^{tree}")" = "$PTAH_A08_TREE"
+          test "${{ github.event.pull_request.base.sha }}" = "$PTAH_A08_SHA"
+          python - <<'PY'
+          import subprocess
+          base='d19bcf3e86373b2710fbf731e094a9a3f8e2a469'
+          changed=subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines()
+          bad=[p for p in changed if not (p.startswith('.a11-pack/') or p=='.github/workflows/temp-a11-package.yml')]
+          assert not bad, f'transport scope drift: {bad}'
+          assert any(p.startswith('.a11-pack/chunk-') for p in changed), 'missing payload chunks'
+          PY
+
+      - name: Reconstruct and verify frozen payload
+        run: |
+          set -euo pipefail
+          cat .a11-pack/chunk-*.b64 | base64 -d > /tmp/a11-payload.tar.gz
+          echo "$PTAH_PAYLOAD_SHA256  /tmp/a11-payload.tar.gz" | sha256sum -c -
+          python - <<'PY'
+          import tarfile
+          p='/tmp/a11-payload.tar.gz'
+          with tarfile.open(p,'r:gz') as tf:
+              for m in tf.getmembers():
+                  n=m.name
+                  assert not n.startswith('/'), f'absolute tar path: {n}'
+                  assert '..' not in n.split('/'), f'traversal tar path: {n}'
+                  assert not (m.issym() or m.islnk()), f'link not allowed: {n}'
+              tf.extractall('/tmp/a11-reconstruct')
+          PY
+
+      - name: Materialize candidate and verify frozen file hashes
+        run: |
+          set -euo pipefail
+          cp -a /tmp/a11-reconstruct/payload/. ./
+          while IFS= read -r p; do test -n "$p" && rm -f -- "$p"; done < /tmp/a11-reconstruct/delete.txt
+          rm -rf .a11-pack .github/workflows/temp-a11-package.yml
+          python - <<'PY'
+          import hashlib, pathlib, subprocess
+          expected = {
+            '.github/workflows/a11-browser-provider-proof.yml': '0547a66f0c233967ba759a6dd723327cdadb10690123d38274911c3adccc88a6',
+            'Cargo.lock': 'c910a141b9e666e0be33add0a85ad3209a4055b890e354201213f12661318b86',
+            'Cargo.toml': '94b8d2169207981ff914fb333c95779008d94c6a45f09fb2e93f85dc885dea1d',
+            'browser-provider/README.md': '1b6c9b17610b41444a4a1ed582b255094f0df7fc8128855625c35ff84b7197db',
+            'browser-provider/package.json': '17f95f411c79ad16527ed771dcb68af5b5df9ba06b50dd4b270a444b4b954f9b',
+            'browser-provider/src/core.mjs': 'd0026daee28183dc611345e21e7912a77fe6c2f727700964dcbba9e86c7cf1eb',
+            'browser-provider/src/errors.mjs': '9248deffe3d793430e3ae1318588c08f9dd715b17850dc72de374a8b2b6e0094',
+            'browser-provider/src/index.mjs': 'df16ce16990d24ccb5ae0df9391ce7c74ea3389390bb4d75d74d91205a18d752',
+            'browser-provider/src/locks.mjs': '821f1e759ff0786414470a82adaa197d77f32b80520ccc40709db4091c9b0abd',
+            'browser-provider/src/playwright_backend.mjs': 'fd33c7764c3eba4285567f1979862efd27296788197fc56c15b9b75d2a66b11c',
+            'browser-provider/src/server.mjs': 'ced091acbd6268cb6b916fcf63e5c039d654f5b57a51d0409202a8ad5dcc3bf2',
+            'browser-provider/test/playwright-qualification.test.mjs': '8a5e92c1453634c082a14d22ebc93e0cce3c46111fe231f1db4f3cb77d56a6cb',
+            'browser-provider/test/provider-core.test.mjs': 'cc1d2311196822db4b41aeee5ef5fdbd1c5b9e335613d12010ba7eb17641d3d4',
+            'crates/ptah-browser-runtime/Cargo.toml': '0040341d8f204436857c70ba9b42f949ee13466af69ca92af6b1da7fc1c2b836',
+            'crates/ptah-browser-runtime/README.md': '4dea6dba9f93b844c147334ec7646313c415e8fb5c66dd0c5e1f1115e516e44d',
+            'crates/ptah-browser-runtime/src/lib.rs': 'dabe1ade77053977177132edc68c1ba384e85f78f28b6a3d527a40451c726a6a',
+            'crates/ptah-browser-runtime/tests/a11.rs': 'e87dac88b052108516ad5fa0bc2c99f57e5b6a9df8d9e5eb23d51b3dced39c0e',
+            'crates/ptah-provider-api/src/lib.rs': '031cac373cff1591761db97a3bc458d7a49b19cf3a24beccd6a94b67106c7b79',
+          }
+          deleted={'browser-provider/test/scaffold.test.mjs'}
+          for path, want in expected.items():
+              p=pathlib.Path(path)
+              assert p.is_file(), f'missing frozen file: {path}'
+              got=hashlib.sha256(p.read_bytes()).hexdigest()
+              assert got==want, f'hash mismatch {path}: {got} != {want}'
+          for path in deleted:
+              assert not pathlib.Path(path).exists(), f'deleted file still present: {path}'
+          base='d19bcf3e86373b2710fbf731e094a9a3f8e2a469'
+          expected_paths=set(expected)|deleted
+          changed=set(subprocess.check_output(['git','diff','--name-only',base],text=True).splitlines())
+          assert changed==expected_paths, f'candidate scope mismatch: missing={sorted(expected_paths-changed)} extra={sorted(changed-expected_paths)}'
+          PY
+          git diff --check "$PTAH_A08_SHA"
+
+      - name: Create canonical one-commit A11 object
+        id: canonical
+        run: |
+          set -euo pipefail
+          git add -A
+          tree=$(git write-tree)
+          commit=$(printf "%s\n" "A11: Browser Provider" | git commit-tree "$tree" -p "$PTAH_A08_SHA")
+          test "$(git rev-parse "$commit^")" = "$PTAH_A08_SHA"
+          test "$(git rev-list --count "$PTAH_A08_SHA..$commit")" -eq 1
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+          git push origin "$commit:refs/heads/a11-browser-provider" --force
+          {
+            echo "### Canonical A11 candidate"
+            echo "- commit: `$commit`"
+            echo "- tree: `$tree`"
+            echo "- parent: `$PTAH_A08_SHA`"
+            echo "- payload SHA-256: `$PTAH_PAYLOAD_SHA256`"
+          } >> "$GITHUB_STEP_SUMMARY"

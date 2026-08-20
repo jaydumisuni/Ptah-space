@@ -1,0 +1,32 @@
+name: TEMP A10 exact-A07 source export
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/a10-a07-source-export.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4
+          persist-credentials: false
+      - name: Export exact A07 source
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a07-source
+          git rev-parse HEAD > /tmp/a07-source/HEAD.txt
+          git rev-parse 'HEAD^{tree}' > /tmp/a07-source/TREE.txt
+          git archive --format=tar.gz --output=/tmp/a07-source/ptah-a07-source.tar.gz HEAD
+          sha256sum /tmp/a07-source/ptah-a07-source.tar.gz > /tmp/a07-source/archive.sha256
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: temp-a10-a07-source
+          path: /tmp/a07-source/
+          if-no-files-found: error
+          retention-days: 1

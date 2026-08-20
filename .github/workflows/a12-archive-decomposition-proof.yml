@@ -86,6 +86,13 @@ jobs:
           echo 'd3a8ba457ae25c27c84fd2830a2efdcc5b1d40bf585d4eb0d35f47e99e5d4774  /tmp/a12/libarchive-3.8.7.tar.xz' | sha256sum -c -
           tar -xJf /tmp/a12/libarchive-3.8.7.tar.xz -C /tmp/a12/libarchive-src
 
+      - name: Provision exact-helper compression development libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libbz2-dev liblzma-dev liblz4-dev libzstd-dev zlib1g-dev libssl-dev libxml2-dev
+
       - name: Build exact static libarchive and A12 helper
         shell: bash
         run: |

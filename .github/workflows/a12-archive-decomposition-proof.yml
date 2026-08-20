@@ -25,9 +25,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = '2e98ddccd99775e4e7fab61936b4b7f9b319c162'
-          test "$(git rev-parse HEAD~2)" = '05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4'
-          git diff --name-only 05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4...HEAD > /tmp/a12-files.txt
+          CANDIDATE=2e98ddccd99775e4e7fab61936b4b7f9b319c162
+          BASE=05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4
+          test "$(git rev-parse HEAD~2)" = "$CANDIDATE"
+          test "$(git rev-parse HEAD~3)" = "$BASE"
+          test "$(git diff --name-only "$CANDIDATE"...HEAD | sort -u)" = '.github/workflows/a12-archive-decomposition-proof.yml'
+          git diff --name-only "$BASE"...HEAD > /tmp/a12-files.txt
           cat /tmp/a12-files.txt
           python3 - <<'PY'
           from pathlib import Path

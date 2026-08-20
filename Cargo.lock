@@ -412,6 +412,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptah-browser-runtime"
+version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-activity-runtime",
+ "ptah-identifiers",
+ "ptah-ledger",
+ "ptah-object-store",
+ "ptah-provider-api",
+ "ptah-transfer",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "ptah-checkpoint"
 version = "0.0.0-phase0c"
 

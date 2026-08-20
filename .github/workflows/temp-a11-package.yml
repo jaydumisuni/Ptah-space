@@ -48,8 +48,7 @@ jobs:
           echo "$PTAH_PAYLOAD_SHA256  /tmp/a11-payload.tar.gz" | sha256sum -c -
           python - <<'PY'
           import tarfile
-          p='/tmp/a11-payload.tar.gz'
-          with tarfile.open(p,'r:gz') as tf:
+          with tarfile.open('/tmp/a11-payload.tar.gz','r:gz') as tf:
               for m in tf.getmembers():
                   n=m.name
                   assert not n.startswith('/'), f'absolute tar path: {n}'
@@ -58,12 +57,13 @@ jobs:
               tf.extractall('/tmp/a11-reconstruct')
           PY
 
-      - name: Materialize candidate and verify frozen file hashes
+      - name: Materialize, stage and verify frozen candidate
         run: |
           set -euo pipefail
           cp -a /tmp/a11-reconstruct/payload/. ./
           while IFS= read -r p; do test -n "$p" && rm -f -- "$p"; done < /tmp/a11-reconstruct/delete.txt
           rm -rf .a11-pack .github/workflows/temp-a11-package.yml
+          git add -A
           python - <<'PY'
           import hashlib, pathlib, subprocess
           expected = {
@@ -87,32 +87,30 @@ jobs:
             'crates/ptah-provider-api/src/lib.rs': '031cac373cff1591761db97a3bc458d7a49b19cf3a24beccd6a94b67106c7b79',
           }
           deleted={'browser-provider/test/scaffold.test.mjs'}
-          for path, want in expected.items():
+          for path,want in expected.items():
               p=pathlib.Path(path)
               assert p.is_file(), f'missing frozen file: {path}'
               got=hashlib.sha256(p.read_bytes()).hexdigest()
               assert got==want, f'hash mismatch {path}: {got} != {want}'
           for path in deleted:
               assert not pathlib.Path(path).exists(), f'deleted file still present: {path}'
-          base='d19bcf3e86373b2710fbf731e094a9a3f8e2a469'
           expected_paths=set(expected)|deleted
-          changed=set(subprocess.check_output(['git','diff','--name-only',base],text=True).splitlines())
+          changed=set(subprocess.check_output(['git','diff','--cached','--name-only','d19bcf3e86373b2710fbf731e094a9a3f8e2a469'],text=True).splitlines())
           assert changed==expected_paths, f'candidate scope mismatch: missing={sorted(expected_paths-changed)} extra={sorted(changed-expected_paths)}'
           PY
-          git diff --check "$PTAH_A08_SHA"
+          git diff --cached --check "$PTAH_A08_SHA"
 
       - name: Create canonical one-commit A11 object
         id: canonical
         run: |
           set -euo pipefail
-          git add -A
           tree=$(git write-tree)
           commit=$(printf "%s\n" "A11: Browser Provider" | git commit-tree "$tree" -p "$PTAH_A08_SHA")
           test "$(git rev-parse "$commit^")" = "$PTAH_A08_SHA"
           test "$(git rev-list --count "$PTAH_A08_SHA..$commit")" -eq 1
+          git push origin "$commit:refs/heads/a11-browser-provider" --force
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "tree=$tree" >> "$GITHUB_OUTPUT"
-          git push origin "$commit:refs/heads/a11-browser-provider" --force
           {
             echo "### Canonical A11 candidate"
             echo "- commit: `$commit`"

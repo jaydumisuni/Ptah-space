@@ -1,0 +1,34 @@
+name: TEMP A08 current review source export
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/a08-review-export-current.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: d19bcf3e86373b2710fbf731e094a9a3f8e2a469
+          persist-credentials: false
+      - name: Export exact current A08 source
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a08-current
+          git rev-parse HEAD > /tmp/a08-current/HEAD.txt
+          git rev-parse 'HEAD^{tree}' > /tmp/a08-current/TREE.txt
+          tar -czf /tmp/a08-current/ptah-a08-d19bcf3.tar.gz \
+            Cargo.toml Cargo.lock .cargo tools crates \
+            .github/workflows/a08-transfer-proof.yml
+          sha256sum /tmp/a08-current/ptah-a08-d19bcf3.tar.gz > /tmp/a08-current/archive.sha256
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: temp-a08-d19bcf3-source
+          path: /tmp/a08-current/
+          if-no-files-found: error
+          retention-days: 1

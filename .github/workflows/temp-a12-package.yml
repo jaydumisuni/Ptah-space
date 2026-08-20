@@ -23,8 +23,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cat > /tmp/a12-chunks.sha256 <<'EOF'
+          76b9bbdb457ed4fb48924356e471c7668729e5556ad512dba9e5d4ce670ee811  .a12-pack/part-00
+          c85b5944ddc4b6cd5e1808365306692846a1127f13551cd9358809effd749c3f  .a12-pack/part-01
+          670b32a2837a34cdce0c01d61a70ab24264ed5bb118c2a0e6550651a6566bd17  .a12-pack/part-02
+          2405a2cce770651a582457c0fafaa1783508229af95aa68e0b7811e62f38b1cc  .a12-pack/part-03
+          1610ac190842906473a4c66818ad9c2046edd045efbb9670ee6c6bef6b2ca0fe  .a12-pack/part-04
+          EOF
+          sha256sum -c /tmp/a12-chunks.sha256
           mkdir -p /tmp/a12-stage
-          base64 -d .a12-pack/a12-source.tar.xz.b64 > /tmp/a12-source.tar.xz
+          cat .a12-pack/part-00 .a12-pack/part-01 .a12-pack/part-02 .a12-pack/part-03 .a12-pack/part-04 | base64 -d > /tmp/a12-source.tar.xz
           tar -C /tmp/a12-stage -xJf /tmp/a12-source.tar.xz
           cd /tmp/a12-stage
           cat > /tmp/a12-manifest.sha256 <<'EOF'
@@ -64,7 +72,7 @@ jobs:
           test ! -s /tmp/a12-diff-mismatch
           git commit -m 'A12: archive decomposition pipeline with locked libarchive adapter'
           test "$(git rev-parse HEAD^)" = '05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4'
-          git push origin HEAD:refs/heads/a12-archive-decomposition-libarchive
+          git push --force-with-lease origin HEAD:refs/heads/a12-archive-decomposition-libarchive
           git rev-parse HEAD | tee /tmp/a12-candidate-commit.txt
           git rev-parse 'HEAD^{tree}' | tee /tmp/a12-candidate-tree.txt
 

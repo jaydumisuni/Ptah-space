@@ -1,0 +1,40 @@
+name: TEMP A12 exact A07 source export
+
+on:
+  push:
+    branches:
+      - temp/a12-a07-export-20260820
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact branch state
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify frozen A07 parent and package source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4"
+          git diff --name-only HEAD^ HEAD | grep -Fx '.github/workflows/temp-a12-a07-export.yml'
+          test "$(git diff --name-only HEAD^ HEAD | wc -l)" -eq 1
+          git archive --format=tar.gz --output=/tmp/ptah-a07-source.tar.gz 05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4
+          sha256sum /tmp/ptah-a07-source.tar.gz | tee /tmp/ptah-a07-source.sha256
+          printf '%s\n' '05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4' > /tmp/ptah-a07-source.commit
+
+      - name: Upload exact source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ptah-a07-source-for-a12
+          path: |
+            /tmp/ptah-a07-source.tar.gz
+            /tmp/ptah-a07-source.sha256
+            /tmp/ptah-a07-source.commit
+          if-no-files-found: error
+          retention-days: 1

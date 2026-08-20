@@ -1,0 +1,37 @@
+name: TEMP A11 exact A08 source export
+
+on:
+  pull_request:
+  push:
+    branches:
+      - temp/a11-a08-export-20260820
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: temp/a11-a08-export-20260820
+          fetch-depth: 0
+      - name: Verify transport-only delta and export exact A08
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 'd19bcf3e86373b2710fbf731e094a9a3f8e2a469'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/temp-a11-a08-export.yml'
+          git archive --format=tar.gz --output=/tmp/ptah-a08-source.tar.gz d19bcf3e86373b2710fbf731e094a9a3f8e2a469
+          sha256sum /tmp/ptah-a08-source.tar.gz > /tmp/ptah-a08-source.sha256
+          printf '%s\n' 'd19bcf3e86373b2710fbf731e094a9a3f8e2a469' > /tmp/ptah-a08-source.commit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ptah-a08-source-for-a11
+          path: |
+            /tmp/ptah-a08-source.tar.gz
+            /tmp/ptah-a08-source.sha256
+            /tmp/ptah-a08-source.commit
+          if-no-files-found: error
+          retention-days: 1

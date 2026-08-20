@@ -1,0 +1,197 @@
+name: TEMP A11 exact canonical proof
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/temp-a11-exact-proof.yml"
+
+permissions:
+  contents: read
+
+env:
+  PTAH_CANONICAL_SHA: cf02bec49775479ede404f0a80d1aa5cd03742e5
+  PTAH_CANONICAL_TREE: 9fa433d36c272badf72d5c2af41f5994a258bd82
+  PTAH_A08_SHA: d19bcf3e86373b2710fbf731e094a9a3f8e2a469
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prove-canonical-a11:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out exact frozen A11 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_CANONICAL_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Lock canonical identity predecessor tree and scope
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_CANONICAL_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$PTAH_CANONICAL_TREE"
+          test "$(git rev-parse HEAD^)" = "$PTAH_A08_SHA"
+          test "$(git rev-list --count "$PTAH_A08_SHA..$PTAH_CANONICAL_SHA")" -eq 1
+          python - <<'PY'
+          import os, subprocess
+          base=os.environ['PTAH_A08_SHA']; head=os.environ['PTAH_CANONICAL_SHA']
+          files=subprocess.check_output(['git','diff','--name-only',base,head], text=True).splitlines()
+          allowed=lambda p: (
+              p in {'Cargo.toml','Cargo.lock','.github/workflows/a11-browser-provider-proof.yml'}
+              or p.startswith('browser-provider/')
+              or p.startswith('crates/ptah-provider-api/')
+              or p.startswith('crates/ptah-browser-runtime/')
+          )
+          bad=[p for p in files if not allowed(p)]
+          assert not bad, f'A11 scope drift: {bad}'
+          assert len(files)==19, f'expected 19 changed A11 files, got {len(files)}'
+          PY
+          git diff --check "$PTAH_A08_SHA" "$PTAH_CANONICAL_SHA"
+
+      - name: Install pinned Rust 1.97.1
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          rustc -Vv | tee /tmp/rustc-version.txt
+          cargo -V | tee /tmp/cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+
+      - name: Prove locked Cargo dependency universe
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a11-proof
+          cp Cargo.lock /tmp/a11-proof/Cargo.lock.repository
+          cargo metadata --locked --format-version 1 > /tmp/a11-proof/cargo-metadata.json
+          cmp -s Cargo.lock /tmp/a11-proof/Cargo.lock.repository
+          python tools/check_rust_dependency_lock.py --output /tmp/a11-proof/dependency-lock-report.json
+          python - <<'PY'
+          import json
+          p=json.load(open('/tmp/a11-proof/dependency-lock-report.json'))
+          assert p['registry_package_count'] == 97, p
+          assert p['git_dependency_count'] == 0, p
+          assert p['resolved_package_count'] == 117, p
+          PY
+
+      - name: Rust format strict lint and exact acceptance
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo clippy -p ptah-provider-api -p ptah-browser-runtime --all-targets --all-features --locked -- -D warnings
+          ! grep -R -n -E 'TODO|FIXME|todo!\(|unimplemented!\(|panic!\(|unsafe[[:space:]]*\{' crates/ptah-browser-runtime/src crates/ptah-provider-api/src
+          a11_count=$(cargo test -p ptah-browser-runtime --test a11 --locked -- --list | grep -c ': test$')
+          provider_count=$(cargo test -p ptah-provider-api --locked -- --list | grep -c ': test$')
+          workspace_count=$(cargo test --workspace --locked -- --list | grep -c ': test$')
+          test "$a11_count" -eq 11
+          test "$provider_count" -eq 4
+          test "$workspace_count" -eq 182
+          printf '%s\n' "$a11_count" > /tmp/a11-proof/a11-rust-test-count.txt
+          printf '%s\n' "$provider_count" > /tmp/a11-proof/provider-api-test-count.txt
+          printf '%s\n' "$workspace_count" > /tmp/a11-proof/workspace-test-count.txt
+          cargo test -p ptah-provider-api -p ptah-browser-runtime --locked
+          cargo test --workspace --locked
+
+      - name: Install exact Node 24.18.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: browser-provider/package-lock.json
+
+      - name: Prove locked Browser package and mechanical corpus
+        working-directory: browser-provider
+        run: |
+          set -euo pipefail
+          node -v | tee /tmp/a11-proof/node-version.txt
+          test "$(node -v)" = "v24.18.0"
+          npm ci --ignore-scripts
+          npm run check
+          test "$(node -p "require('./node_modules/playwright/package.json').version")" = "1.60.0"
+          test "$(node -p "require('./node_modules/playwright-core/package.json').version")" = "1.60.0"
+          node --test --test-reporter=tap test/provider-core.test.mjs | tee /tmp/a11-proof/browser-mechanical.tap
+          grep -q '^# tests 15$' /tmp/a11-proof/browser-mechanical.tap
+          grep -q '^# pass 15$' /tmp/a11-proof/browser-mechanical.tap
+          grep -q '^# fail 0$' /tmp/a11-proof/browser-mechanical.tap
+
+      - name: Install locked Playwright Chromium
+        working-directory: browser-provider
+        run: |
+          set -euo pipefail
+          npx playwright install --with-deps chromium
+
+      - name: Physically qualify locked Playwright Chromium
+        working-directory: browser-provider
+        env:
+          PTAH_PLAYWRIGHT_PHYSICAL: "1"
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap test/playwright-qualification.test.mjs | tee /tmp/a11-proof/browser-physical.tap
+          grep -q '^# tests 1$' /tmp/a11-proof/browser-physical.tap
+          grep -q '^# pass 1$' /tmp/a11-proof/browser-physical.tap
+          grep -q '^# fail 0$' /tmp/a11-proof/browser-physical.tap
+
+      - name: Verify source remained byte-clean after qualification
+        run: |
+          set -euo pipefail
+          rm -rf browser-provider/node_modules
+          git diff --exit-code
+          git diff --cached --exit-code
+          git status --porcelain=v1 --untracked-files=all | tee /tmp/a11-proof/git-status.txt
+          test ! -s /tmp/a11-proof/git-status.txt
+          test "$(git rev-parse HEAD)" = "$PTAH_CANONICAL_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$PTAH_CANONICAL_TREE"
+
+      - name: Write retained exact-head A11 proof record
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path('/tmp/a11-proof')
+          package=json.load(open('browser-provider/package-lock.json'))
+          payload={
+            'record_type':'ptah.phase0c.a11.browser_exact_head_proof',
+            'schema_version':'0.1.0',
+            'created_at':datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            'implementation_commit':os.environ['PTAH_CANONICAL_SHA'],
+            'implementation_tree':os.environ['PTAH_CANONICAL_TREE'],
+            'base_commit':os.environ['PTAH_A08_SHA'],
+            'exact_head_match':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==os.environ['PTAH_CANONICAL_SHA'],
+            'one_commit_over_a08':int(subprocess.check_output(['git','rev-list','--count',f"{os.environ['PTAH_A08_SHA']}..{os.environ['PTAH_CANONICAL_SHA']}"],text=True).strip())==1,
+            'cargo_lock_sha256':hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
+            'workspace_manifest_sha256':hashlib.sha256(Path('Cargo.toml').read_bytes()).hexdigest(),
+            'browser_lock_sha256':hashlib.sha256(Path('browser-provider/package-lock.json').read_bytes()).hexdigest(),
+            'rust_toolchain':'1.97.1',
+            'node_version':'24.18.0',
+            'playwright_version':package['packages']['node_modules/playwright']['version'],
+            'playwright_core_version':package['packages']['node_modules/playwright-core']['version'],
+            'chromium_version':'148.0.7778.96',
+            'chromium_revision':'1223',
+            'a11_rust_test_count':int((root/'a11-rust-test-count.txt').read_text()),
+            'provider_api_test_count':int((root/'provider-api-test-count.txt').read_text()),
+            'workspace_test_count':int((root/'workspace-test-count.txt').read_text()),
+            'browser_mechanical_test_count':15,
+            'browser_physical_test_count':1,
+            'registry_package_count':97,
+            'resolved_package_count':117,
+            'git_dependency_count':0,
+            'proof_runner_correction':'generated browser-provider/node_modules removed before clean-tree assertion; canonical A11 bytes unchanged',
+            'proofs':['exact_predecessor_and_scope','locked_dependency_policy','cargo_fmt','clippy_deny_warnings','a11_rust_acceptance','full_workspace_regression','node_24_18_0_lock','playwright_1_60_0_lock','chromium_148_0_7778_96_revision_1223_lock','browser_mechanical_corpus','real_chromium_persistent_profile_restart','navigation_ack_postcondition_separation','browser_privacy_redaction','detach_reconnect','upload_materialization_boundary','bounded_download_read','post_qualification_clean_source'],
+            'status':'exact_head_physical_browser_proof_passed',
+          }
+          assert payload['exact_head_match'] and payload['one_commit_over_a08']
+          (root/'a11-proof.json').write_text(json.dumps(payload,indent=2)+'\n')
+          PY
+          sha256sum /tmp/a11-proof/a11-proof.json | tee /tmp/a11-proof/a11-proof.sha256
+          sha256sum Cargo.lock Cargo.toml browser-provider/package-lock.json > /tmp/a11-proof/repository-hashes.sha256
+
+      - name: Upload retained A11 proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a11-canonical-proof-${{ env.PTAH_CANONICAL_SHA }}
+          path: /tmp/a11-proof/
+          if-no-files-found: error
+          retention-days: 30

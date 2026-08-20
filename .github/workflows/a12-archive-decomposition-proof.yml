@@ -1,0 +1,147 @@
+name: A12 archive decomposition exact-head proof
+
+on:
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/ptah-archive-decomposition/**'
+      - 'adapters/decomposition-libarchive/**'
+      - '.github/workflows/a12-archive-decomposition-proof.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: temp/a12-exact-proof-20260820
+          fetch-depth: 0
+
+      - name: Lock candidate and A12 change scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '2e98ddccd99775e4e7fab61936b4b7f9b319c162'
+          test "$(git rev-parse HEAD~2)" = '05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4'
+          git diff --name-only 05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4...HEAD > /tmp/a12-files.txt
+          cat /tmp/a12-files.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          allowed={'Cargo.toml','Cargo.lock','.github/workflows/a12-archive-decomposition-proof.yml'}
+          prefixes=('crates/ptah-archive-decomposition/','adapters/decomposition-libarchive/')
+          files=[x.strip() for x in Path('/tmp/a12-files.txt').read_text().splitlines() if x.strip()]
+          bad=[f for f in files if f not in allowed and not f.startswith(prefixes)]
+          assert files and not bad, (files,bad)
+          PY
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustc +1.97.1 --version --verbose
+          cargo +1.97.1 --version
+
+      - name: Locked dependency policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/check_rust_dependency_lock.py
+          python3 - <<'PY'
+          import pathlib,tomllib
+          lock=tomllib.loads(pathlib.Path('Cargo.lock').read_text())
+          registry=[p for p in lock['package'] if str(p.get('source','')).startswith('registry+')]
+          git=[p for p in lock['package'] if str(p.get('source','')).startswith('git+')]
+          print(f'registry={len(registry)} git={len(git)}')
+          assert len(registry)==97
+          assert not git
+          PY
+
+      - name: Rust format and scoped Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +1.97.1 fmt --all --check
+          cargo +1.97.1 clippy -p ptah-archive-decomposition -p decomposition-libarchive --all-targets --all-features --locked -- -D warnings
+
+      - name: A12 ordinary behavior and inherited regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +1.97.1 test -p ptah-archive-decomposition --locked
+          cargo +1.97.1 test -p decomposition-libarchive --locked
+          cargo +1.97.1 test -p ptah-ledger -p ptah-activity-runtime -p ptah-object-store --locked
+          cargo +1.97.1 test --workspace --locked
+
+      - name: Fetch exact locked libarchive 3.8.7 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a12/libarchive-src
+          curl --fail --location --retry 5 --retry-all-errors https://libarchive.org/downloads/libarchive-3.8.7.tar.xz --output /tmp/a12/libarchive-3.8.7.tar.xz
+          echo 'd3a8ba457ae25c27c84fd2830a2efdcc5b1d40bf585d4eb0d35f47e99e5d4774  /tmp/a12/libarchive-3.8.7.tar.xz' | sha256sum -c -
+          tar -xJf /tmp/a12/libarchive-3.8.7.tar.xz -C /tmp/a12/libarchive-src
+
+      - name: Build exact static libarchive and A12 helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC=/tmp/a12/libarchive-src/libarchive-3.8.7
+          BLD=/tmp/a12/libarchive-build
+          INS=/tmp/a12/libarchive-install
+          cmake -S "$SRC" -B "$BLD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$INS" -DBUILD_SHARED_LIBS=OFF -DENABLE_TAR=OFF -DENABLE_CPIO=OFF -DENABLE_CAT=OFF -DENABLE_UNZIP=OFF -DENABLE_TEST=OFF
+          cmake --build "$BLD" --target archive_static -j2
+          cmake --install "$BLD"
+          grep -Fx 'Version: 3.8.7' "$INS/lib/pkgconfig/libarchive.pc"
+          SOURCE_SHA=d3a8ba457ae25c27c84fd2830a2efdcc5b1d40bf585d4eb0d35f47e99e5d4774
+          CFLAGS=$(PKG_CONFIG_PATH="$INS/lib/pkgconfig" pkg-config --cflags libarchive)
+          LIBS=$(PKG_CONFIG_PATH="$INS/lib/pkgconfig" pkg-config --libs --static libarchive)
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -fstack-protector-strong -D_FORTIFY_SOURCE=2 -DPTAH_LIBARCHIVE_SOURCE_SHA=\"$SOURCE_SHA\" $CFLAGS adapters/decomposition-libarchive/helper/ptah_libarchive_helper.c $LIBS -o /tmp/a12/ptah-libarchive-helper
+          /tmp/a12/ptah-libarchive-helper --probe | tee /tmp/a12/probe.txt
+          grep -Fx 'protocol=1' /tmp/a12/probe.txt
+          grep -Fx 'libarchive=3.8.7' /tmp/a12/probe.txt
+          grep -Fx "source_sha256=$SOURCE_SHA" /tmp/a12/probe.txt
+          grep -Fx 'filters=in_process' /tmp/a12/probe.txt
+          if ldd /tmp/a12/ptah-libarchive-helper | grep -qi libarchive; then exit 1; fi
+          cc -std=c11 -Wall -Wextra -Wpedantic -Werror -fanalyzer -DPTAH_LIBARCHIVE_SOURCE_SHA=\"$SOURCE_SHA\" $CFLAGS -fsyntax-only adapters/decomposition-libarchive/helper/ptah_libarchive_helper.c
+
+      - name: Run physical qualification including wrong-version fencing
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_SHA=d3a8ba457ae25c27c84fd2830a2efdcc5b1d40bf585d4eb0d35f47e99e5d4774
+          cat > /tmp/a12/ptah-libarchive-helper-wrong <<EOF2
+          #!/bin/sh
+          if [ "\$1" = "--probe" ]; then
+            printf '%s\n' 'protocol=1' 'libarchive=3.7.4' "source_sha256=$SOURCE_SHA" 'filters=in_process'
+            exit 0
+          fi
+          exit 64
+          EOF2
+          chmod +x /tmp/a12/ptah-libarchive-helper-wrong
+          export PTAH_A12_LIBARCHIVE_HELPER=/tmp/a12/ptah-libarchive-helper
+          export PTAH_A12_WRONG_LIBARCHIVE_HELPER=/tmp/a12/ptah-libarchive-helper-wrong
+          cargo +1.97.1 test -p decomposition-libarchive --test physical --locked -- --ignored --nocapture
+
+      - name: Retain exact candidate proof record
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a12-proof
+          printf '%s\n' '2e98ddccd99775e4e7fab61936b4b7f9b319c162' > /tmp/a12-proof/candidate-commit.txt
+          git rev-parse 2e98ddccd99775e4e7fab61936b4b7f9b319c162^{tree} > /tmp/a12-proof/candidate-tree.txt
+          sha256sum Cargo.lock > /tmp/a12-proof/cargo-lock.sha256
+          sha256sum /tmp/a12/ptah-libarchive-helper > /tmp/a12-proof/helper.sha256
+          cp /tmp/a12/probe.txt /tmp/a12-proof/libarchive-probe.txt
+          printf '%s\n' 'ordinary workspace PASS; physical A12 suite PASS' > /tmp/a12-proof/result.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: a12-archive-decomposition-2e98ddccd99775e4e7fab61936b4b7f9b319c162
+          path: /tmp/a12-proof
+          if-no-files-found: error
+          retention-days: 14

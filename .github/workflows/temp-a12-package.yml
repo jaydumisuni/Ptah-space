@@ -1,0 +1,80 @@
+name: TEMP A12 frozen-source publisher
+
+on:
+  push:
+    branches:
+      - temp/a12-packaging-20260820
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout disposable transport lane
+        uses: actions/checkout@v4
+        with:
+          ref: temp/a12-packaging-20260820
+          fetch-depth: 0
+
+      - name: Reconstruct and verify frozen A12 byte set
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a12-stage
+          base64 -d .a12-pack/a12-source.tar.xz.b64 > /tmp/a12-source.tar.xz
+          tar -C /tmp/a12-stage -xJf /tmp/a12-source.tar.xz
+          cd /tmp/a12-stage
+          cat > /tmp/a12-manifest.sha256 <<'EOF'
+          0fe59b2b2c248159378f6a156d4d9e648cf51688533c0bc564ca1f7e1bc6c4c6  Cargo.toml
+          5c065cf6154368d3cb87f8e9a78ea79d247a98d26aa7c01ef8d79b3171d1037b  Cargo.lock
+          bd98de8c55e6cf098cbcf557034bec683cde070a9596fc64c7f3cc8d6c3f7303  adapters/decomposition-libarchive/Cargo.toml
+          786b06efcb3fe9b1ef71f626c7a15d39ff61d2ee054cce48ba8286e48470204d  adapters/decomposition-libarchive/src/lib.rs
+          143b64f71baa5efeec634e679bad103389fec5bfaa0537006c0dd928a93ccdd1  adapters/decomposition-libarchive/helper/ptah_libarchive_helper.c
+          fd8a38dd88b685bf6fac77bcafad998d71bb48d91f992d4aa3107f89693446e5  adapters/decomposition-libarchive/tests/adapter.rs
+          0a8688aae2b7aee75affd2b1a8d0c7c86fee836603e192f2b3be0d01dd88a65e  adapters/decomposition-libarchive/tests/physical.rs
+          7273cfb6495a412ed4da51d9e3c4d5275a98cc81dd4b72e3ae588978e338bcbe  crates/ptah-archive-decomposition/Cargo.toml
+          c8c5d177080fde599a9fe224c23e442cb8fdf875e7718002c2dc4c9933fef702  crates/ptah-archive-decomposition/src/lib.rs
+          c2de4b66f22004e06847f2129cda5064d71492ce74e572336e6954b55c243629  crates/ptah-archive-decomposition/src/model.rs
+          6c964523d96ae65bd8016fece7e5553b49f7124a675028d674426a7925ab8748  crates/ptah-archive-decomposition/src/persist.rs
+          6ece4532a0b833c17fb72d1b9f5be4a1871973815d1f99c3a854a6727ff2aca1  crates/ptah-archive-decomposition/src/policy.rs
+          f65c82c175662a075b02c6e18513f5389c085b5a68e87900e959642a9f5de7ff  crates/ptah-archive-decomposition/tests/a12.rs
+          EOF
+          sha256sum -c /tmp/a12-manifest.sha256
+          test "$(find . -type f | sort | wc -l)" -eq 13
+
+      - name: Build exactly one canonical A12 commit over frozen A07
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'ptah-shadow-tenfold'
+          git config user.email 'ptah-shadow-tenfold@users.noreply.github.com'
+          git checkout --detach 05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4
+          while IFS= read -r path; do
+            mkdir -p "$(dirname "$path")"
+            cp "/tmp/a12-stage/$path" "$path"
+          done < <(awk '{print $2}' /tmp/a12-manifest.sha256)
+          git add -- $(awk '{print $2}' /tmp/a12-manifest.sha256)
+          test "$(git diff --cached --name-only | sort | wc -l)" -eq 13
+          comm -3 \
+            <(git diff --cached --name-only | sort) \
+            <(awk '{print $2}' /tmp/a12-manifest.sha256 | sort) | tee /tmp/a12-diff-mismatch
+          test ! -s /tmp/a12-diff-mismatch
+          git commit -m 'A12: archive decomposition pipeline with locked libarchive adapter'
+          test "$(git rev-parse HEAD^)" = '05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4'
+          git push origin HEAD:refs/heads/a12-archive-decomposition-libarchive
+          git rev-parse HEAD | tee /tmp/a12-candidate-commit.txt
+          git rev-parse 'HEAD^{tree}' | tee /tmp/a12-candidate-tree.txt
+
+      - name: Upload publication evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: a12-publication-evidence
+          path: |
+            /tmp/a12-manifest.sha256
+            /tmp/a12-candidate-commit.txt
+            /tmp/a12-candidate-tree.txt
+          if-no-files-found: error
+          retention-days: 1

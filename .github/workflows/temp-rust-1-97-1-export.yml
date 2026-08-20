@@ -1,0 +1,55 @@
+name: TEMP Rust 1.97.1 toolchain export
+
+on:
+  pull_request:
+  push:
+    branches:
+      - temp/rust-1-97-1-export-20260820
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout transport-only branch
+        uses: actions/checkout@v4
+        with:
+          ref: temp/rust-1-97-1-export-20260820
+          fetch-depth: 0
+
+      - name: Verify transport-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4"
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/temp-rust-1-97-1-export.yml'
+
+      - name: Install exact Ptah Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustc +1.97.1 --version --verbose | tee /tmp/rustc-version.txt
+          cargo +1.97.1 --version | tee /tmp/cargo-version.txt
+          rustfmt +1.97.1 --version | tee /tmp/rustfmt-version.txt
+          cargo +1.97.1 clippy --version | tee /tmp/clippy-version.txt
+          TOOLCHAIN="$(rustup which --toolchain 1.97.1 rustc)"
+          TOOLCHAIN_ROOT="$(dirname "$(dirname "$TOOLCHAIN")")"
+          tar -C "$(dirname "$TOOLCHAIN_ROOT")" -cJf /tmp/rust-1.97.1-toolchain.tar.xz "$(basename "$TOOLCHAIN_ROOT")"
+          sha256sum /tmp/rust-1.97.1-toolchain.tar.xz | tee /tmp/rust-1.97.1-toolchain.sha256
+
+      - name: Upload pinned toolchain
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-1.97.1-ptah-toolchain
+          path: |
+            /tmp/rust-1.97.1-toolchain.tar.xz
+            /tmp/rust-1.97.1-toolchain.sha256
+            /tmp/rustc-version.txt
+            /tmp/cargo-version.txt
+            /tmp/rustfmt-version.txt
+            /tmp/clippy-version.txt
+          if-no-files-found: error
+          retention-days: 1

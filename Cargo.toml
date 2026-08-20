@@ -13,6 +13,7 @@ members = [
   "crates/ptah-transfer",
   "crates/ptah-provider-api",
   "crates/ptah-checkpoint",
+  "crates/ptah-archive-decomposition",
   "services/ptah-node",
   "services/ptah-control",
   "adapters/container-oci",

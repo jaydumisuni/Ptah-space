@@ -205,6 +205,13 @@ dependencies = [
 [[package]]
 name = "git-cli"
 version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-activity-runtime",
+ "ptah-identifiers",
+ "ptah-provider-api",
+ "serde",
+ "thiserror 2.0.17",
+]
 
 [[package]]
 name = "hashbrown"

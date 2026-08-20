@@ -23,7 +23,7 @@ jobs:
           git rev-parse HEAD > /tmp/a08-current/HEAD.txt
           git rev-parse 'HEAD^{tree}' > /tmp/a08-current/TREE.txt
           tar -czf /tmp/a08-current/ptah-a08-d19bcf3.tar.gz \
-            Cargo.toml Cargo.lock .cargo tools crates \
+            Cargo.toml Cargo.lock tools crates \
             .github/workflows/a08-transfer-proof.yml
           sha256sum /tmp/a08-current/ptah-a08-d19bcf3.tar.gz > /tmp/a08-current/archive.sha256
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

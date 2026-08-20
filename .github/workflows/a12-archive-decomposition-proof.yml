@@ -3,57 +3,73 @@ name: A12 archive decomposition exact-head proof
 on:
   pull_request:
     paths:
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'crates/ptah-archive-decomposition/**'
-      - 'adapters/decomposition-libarchive/**'
       - '.github/workflows/a12-archive-decomposition-proof.yml'
 
 permissions:
   contents: read
 
+env:
+  PTAH_A12_SHA: 2e98ddccd99775e4e7fab61936b4b7f9b319c162
+  PTAH_A12_TREE: 31652c5aaf89c978c31c8846c0e762b21831c9f2
+  PTAH_A07_SHA: 05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4
+  LIBARCHIVE_VERSION: 3.8.7
+  LIBARCHIVE_SOURCE_SHA256: d3a8ba457ae25c27c84fd2830a2efdcc5b1d40bf585d4eb0d35f47e99e5d4774
+  CARGO_TERM_COLOR: always
+
 jobs:
   prove:
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out exact frozen A12 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: temp/a12-exact-proof-20260820
+          ref: ${{ env.PTAH_A12_SHA }}
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Lock candidate and A12 change scope
+      - name: Lock exact candidate tree predecessor and A12 scope
         shell: bash
         run: |
           set -euo pipefail
-          CANDIDATE=2e98ddccd99775e4e7fab61936b4b7f9b319c162
-          BASE=05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4
-          test "$(git rev-parse HEAD~2)" = "$CANDIDATE"
-          test "$(git rev-parse HEAD~3)" = "$BASE"
-          test "$(git diff --name-only "$CANDIDATE"...HEAD | sort -u)" = '.github/workflows/a12-archive-decomposition-proof.yml'
-          git diff --name-only "$BASE"...HEAD > /tmp/a12-files.txt
+          test "$(git rev-parse HEAD)" = "$PTAH_A12_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$PTAH_A12_TREE"
+          test "$(git rev-parse HEAD^)" = "$PTAH_A07_SHA"
+          test "$(git rev-list --count "$PTAH_A07_SHA..$PTAH_A12_SHA")" -eq 1
+          git diff --name-only "$PTAH_A07_SHA" "$PTAH_A12_SHA" > /tmp/a12-files.txt
           cat /tmp/a12-files.txt
           python3 - <<'PY'
+          import os
           from pathlib import Path
-          allowed={'Cargo.toml','Cargo.lock','.github/workflows/a12-archive-decomposition-proof.yml'}
+          allowed={'Cargo.toml','Cargo.lock'}
           prefixes=('crates/ptah-archive-decomposition/','adapters/decomposition-libarchive/')
           files=[x.strip() for x in Path('/tmp/a12-files.txt').read_text().splitlines() if x.strip()]
           bad=[f for f in files if f not in allowed and not f.startswith(prefixes)]
-          assert files and not bad, (files,bad)
+          assert len(files)==13, f'expected 13 canonical A12 files, got {len(files)}: {files}'
+          assert not bad, f'A12 scope drift: {bad}'
           PY
+          git diff --check "$PTAH_A07_SHA" "$PTAH_A12_SHA"
 
       - name: Install pinned Rust 1.97.1
         shell: bash
         run: |
           set -euo pipefail
           rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
-          rustc +1.97.1 --version --verbose
-          cargo +1.97.1 --version
+          rustup default 1.97.1
+          rustc -Vv | tee /tmp/a12-rustc-version.txt
+          cargo -V | tee /tmp/a12-cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
 
       - name: Locked dependency policy
         shell: bash
         run: |
           set -euo pipefail
-          python3 tools/check_rust_dependency_lock.py
+          mkdir -p /tmp/a12-proof
+          cp Cargo.lock /tmp/a12-proof/Cargo.lock.repository
+          cargo metadata --locked --format-version 1 > /tmp/a12-proof/cargo-metadata.json
+          cmp -s Cargo.lock /tmp/a12-proof/Cargo.lock.repository
+          python3 tools/check_rust_dependency_lock.py --output /tmp/a12-proof/dependency-lock-report.json
           python3 - <<'PY'
           import pathlib,tomllib
           lock=tomllib.loads(pathlib.Path('Cargo.lock').read_text())
@@ -68,26 +84,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.97.1 fmt --all --check
-          cargo +1.97.1 clippy -p ptah-archive-decomposition -p decomposition-libarchive --all-targets --all-features --locked -- -D warnings
+          cargo fmt --all --check
+          cargo clippy -p ptah-archive-decomposition -p decomposition-libarchive --all-targets --all-features --locked -- -D warnings
+          ! grep -R -n -E 'TODO|FIXME|todo!\(|unimplemented!\(|panic!\(|unsafe[[:space:]]*\{' crates/ptah-archive-decomposition/src adapters/decomposition-libarchive/src
 
       - name: A12 ordinary behavior and inherited regressions
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.97.1 test -p ptah-archive-decomposition --locked
-          cargo +1.97.1 test -p decomposition-libarchive --locked
-          cargo +1.97.1 test -p ptah-ledger -p ptah-activity-runtime -p ptah-object-store --locked
-          cargo +1.97.1 test --workspace --locked
+          a12_count=$(cargo test -p ptah-archive-decomposition --test a12 --locked -- --list | grep -c ': test$')
+          test "$a12_count" -eq 10
+          printf '%s\n' "$a12_count" > /tmp/a12-proof/a12-test-count.txt
+          cargo test -p ptah-archive-decomposition --locked
+          cargo test -p decomposition-libarchive --locked
+          inherited_count=$(cargo test -p ptah-ledger -p ptah-activity-runtime -p ptah-object-store --locked -- --list | grep -c ': test$')
+          test "$inherited_count" -eq 74
+          printf '%s\n' "$inherited_count" > /tmp/a12-proof/inherited-test-count.txt
+          cargo test -p ptah-ledger -p ptah-activity-runtime -p ptah-object-store --locked
+          cargo test --workspace --locked
 
       - name: Fetch exact locked libarchive 3.8.7 source
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/a12/libarchive-src
-          curl --fail --location --retry 5 --retry-all-errors https://libarchive.org/downloads/libarchive-3.8.7.tar.xz --output /tmp/a12/libarchive-3.8.7.tar.xz
-          echo 'd3a8ba457ae25c27c84fd2830a2efdcc5b1d40bf585d4eb0d35f47e99e5d4774  /tmp/a12/libarchive-3.8.7.tar.xz' | sha256sum -c -
-          tar -xJf /tmp/a12/libarchive-3.8.7.tar.xz -C /tmp/a12/libarchive-src
+          curl --fail --location --retry 5 --retry-all-errors "https://libarchive.org/downloads/libarchive-${LIBARCHIVE_VERSION}.tar.xz" --output "/tmp/a12/libarchive-${LIBARCHIVE_VERSION}.tar.xz"
+          echo "$LIBARCHIVE_SOURCE_SHA256  /tmp/a12/libarchive-${LIBARCHIVE_VERSION}.tar.xz" | sha256sum -c -
+          tar -xJf "/tmp/a12/libarchive-${LIBARCHIVE_VERSION}.tar.xz" -C /tmp/a12/libarchive-src
 
       - name: Provision exact-helper compression development libraries
         shell: bash
@@ -100,34 +123,32 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SRC=/tmp/a12/libarchive-src/libarchive-3.8.7
+          SRC="/tmp/a12/libarchive-src/libarchive-${LIBARCHIVE_VERSION}"
           BLD=/tmp/a12/libarchive-build
           INS=/tmp/a12/libarchive-install
           cmake -S "$SRC" -B "$BLD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$INS" -DBUILD_SHARED_LIBS=OFF -DENABLE_TAR=OFF -DENABLE_CPIO=OFF -DENABLE_CAT=OFF -DENABLE_UNZIP=OFF -DENABLE_TEST=OFF
           cmake --build "$BLD" --target archive_static -j2
           cmake --install "$BLD"
-          grep -Fx 'Version: 3.8.7' "$INS/lib/pkgconfig/libarchive.pc"
-          SOURCE_SHA=d3a8ba457ae25c27c84fd2830a2efdcc5b1d40bf585d4eb0d35f47e99e5d4774
+          grep -Fx "Version: $LIBARCHIVE_VERSION" "$INS/lib/pkgconfig/libarchive.pc"
           CFLAGS=$(PKG_CONFIG_PATH="$INS/lib/pkgconfig" pkg-config --cflags libarchive)
           LIBS=$(PKG_CONFIG_PATH="$INS/lib/pkgconfig" pkg-config --libs --static libarchive)
-          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -fstack-protector-strong -D_FORTIFY_SOURCE=2 -DPTAH_LIBARCHIVE_SOURCE_SHA=\"$SOURCE_SHA\" $CFLAGS adapters/decomposition-libarchive/helper/ptah_libarchive_helper.c $LIBS -o /tmp/a12/ptah-libarchive-helper
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -fstack-protector-strong -D_FORTIFY_SOURCE=2 -DPTAH_LIBARCHIVE_SOURCE_SHA=\"$LIBARCHIVE_SOURCE_SHA256\" $CFLAGS adapters/decomposition-libarchive/helper/ptah_libarchive_helper.c $LIBS -o /tmp/a12/ptah-libarchive-helper
           /tmp/a12/ptah-libarchive-helper --probe | tee /tmp/a12/probe.txt
           grep -Fx 'protocol=1' /tmp/a12/probe.txt
-          grep -Fx 'libarchive=3.8.7' /tmp/a12/probe.txt
-          grep -Fx "source_sha256=$SOURCE_SHA" /tmp/a12/probe.txt
+          grep -Fx "libarchive=$LIBARCHIVE_VERSION" /tmp/a12/probe.txt
+          grep -Fx "source_sha256=$LIBARCHIVE_SOURCE_SHA256" /tmp/a12/probe.txt
           grep -Fx 'filters=in_process' /tmp/a12/probe.txt
           if ldd /tmp/a12/ptah-libarchive-helper | grep -qi libarchive; then exit 1; fi
-          cc -std=c11 -Wall -Wextra -Wpedantic -Werror -fanalyzer -DPTAH_LIBARCHIVE_SOURCE_SHA=\"$SOURCE_SHA\" $CFLAGS -fsyntax-only adapters/decomposition-libarchive/helper/ptah_libarchive_helper.c
+          cc -std=c11 -Wall -Wextra -Wpedantic -Werror -fanalyzer -DPTAH_LIBARCHIVE_SOURCE_SHA=\"$LIBARCHIVE_SOURCE_SHA256\" $CFLAGS -fsyntax-only adapters/decomposition-libarchive/helper/ptah_libarchive_helper.c
 
       - name: Run physical qualification including wrong-version fencing
         shell: bash
         run: |
           set -euo pipefail
-          SOURCE_SHA=d3a8ba457ae25c27c84fd2830a2efdcc5b1d40bf585d4eb0d35f47e99e5d4774
           cat > /tmp/a12/ptah-libarchive-helper-wrong <<EOF2
           #!/bin/sh
           if [ "\$1" = "--probe" ]; then
-            printf '%s\n' 'protocol=1' 'libarchive=3.7.4' "source_sha256=$SOURCE_SHA" 'filters=in_process'
+            printf '%s\n' 'protocol=1' 'libarchive=3.7.4' "source_sha256=$LIBARCHIVE_SOURCE_SHA256" 'filters=in_process'
             exit 0
           fi
           exit 64
@@ -135,23 +156,65 @@ jobs:
           chmod +x /tmp/a12/ptah-libarchive-helper-wrong
           export PTAH_A12_LIBARCHIVE_HELPER=/tmp/a12/ptah-libarchive-helper
           export PTAH_A12_WRONG_LIBARCHIVE_HELPER=/tmp/a12/ptah-libarchive-helper-wrong
-          cargo +1.97.1 test -p decomposition-libarchive --test physical --locked -- --ignored --nocapture
+          physical_count=$(cargo test -p decomposition-libarchive --test physical --locked -- --ignored --list | grep -c ': test$')
+          test "$physical_count" -eq 6
+          printf '%s\n' "$physical_count" > /tmp/a12-proof/physical-test-count.txt
+          cargo test -p decomposition-libarchive --test physical --locked -- --ignored --nocapture
+
+      - name: Verify canonical A12 source remained byte-clean
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          git diff --cached --exit-code
+          git status --porcelain=v1 --untracked-files=all | tee /tmp/a12-proof/git-status.txt
+          test ! -s /tmp/a12-proof/git-status.txt
+          test "$(git rev-parse HEAD)" = "$PTAH_A12_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$PTAH_A12_TREE"
 
       - name: Retain exact candidate proof record
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/a12-proof
-          printf '%s\n' '2e98ddccd99775e4e7fab61936b4b7f9b319c162' > /tmp/a12-proof/candidate-commit.txt
-          git rev-parse 2e98ddccd99775e4e7fab61936b4b7f9b319c162^{tree} > /tmp/a12-proof/candidate-tree.txt
-          sha256sum Cargo.lock > /tmp/a12-proof/cargo-lock.sha256
-          sha256sum /tmp/a12/ptah-libarchive-helper > /tmp/a12-proof/helper.sha256
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess
+          from datetime import datetime,timezone
+          from pathlib import Path
+          root=Path('/tmp/a12-proof')
+          payload={
+            'record_type':'ptah.phase0c.a12.archive_decomposition_exact_head_proof',
+            'schema_version':'0.1.0',
+            'created_at':datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            'implementation_commit':os.environ['PTAH_A12_SHA'],
+            'implementation_tree':os.environ['PTAH_A12_TREE'],
+            'base_commit':os.environ['PTAH_A07_SHA'],
+            'exact_head_match':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==os.environ['PTAH_A12_SHA'],
+            'one_commit_over_a07':int(subprocess.check_output(['git','rev-list','--count',f"{os.environ['PTAH_A07_SHA']}..{os.environ['PTAH_A12_SHA']}"],text=True).strip())==1,
+            'cargo_lock_sha256':hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
+            'workspace_manifest_sha256':hashlib.sha256(Path('Cargo.toml').read_bytes()).hexdigest(),
+            'rust_toolchain':'1.97.1',
+            'libarchive_version':os.environ['LIBARCHIVE_VERSION'],
+            'libarchive_source_sha256':os.environ['LIBARCHIVE_SOURCE_SHA256'],
+            'a12_test_count':int((root/'a12-test-count.txt').read_text()),
+            'inherited_test_count':int((root/'inherited-test-count.txt').read_text()),
+            'physical_test_count':int((root/'physical-test-count.txt').read_text()),
+            'registry_package_count':97,
+            'git_dependency_count':0,
+            'proof_runner_correction':'proof lane checks out immutable canonical A12 directly; no HEAD~N ancestry-depth assumptions',
+            'proofs':['exact_candidate_tree_predecessor_scope','locked_dependency_policy','cargo_fmt','clippy_deny_warnings','a12_behavior','inherited_a03_a04_a07_regression','full_locked_workspace','exact_libarchive_source_digest','static_libarchive_3_8_7','c_fanalyzer','wrong_version_fencing','physical_archive_qualification','post_qualification_clean_source'],
+            'status':'exact_head_physical_archive_proof_passed',
+          }
+          assert payload['exact_head_match'] and payload['one_commit_over_a07']
+          (root/'a12-proof.json').write_text(json.dumps(payload,indent=2)+'\n')
+          PY
+          sha256sum /tmp/a12-proof/a12-proof.json | tee /tmp/a12-proof/a12-proof.sha256
+          sha256sum Cargo.lock Cargo.toml /tmp/a12/ptah-libarchive-helper > /tmp/a12-proof/repository-and-helper-hashes.sha256
           cp /tmp/a12/probe.txt /tmp/a12-proof/libarchive-probe.txt
-          printf '%s\n' 'ordinary workspace PASS; physical A12 suite PASS' > /tmp/a12-proof/result.txt
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload retained A12 proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: a12-archive-decomposition-2e98ddccd99775e4e7fab61936b4b7f9b319c162
+          name: a12-canonical-proof-${{ env.PTAH_A12_SHA }}
           path: /tmp/a12-proof
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30

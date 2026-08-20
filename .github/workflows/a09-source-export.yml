@@ -1,0 +1,45 @@
+name: TEMP A09 product-source export
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/a09-source-export.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 65c62b6210dedb4427063ee88be2f225b46bf396
+          persist-credentials: false
+      - name: Export only frozen A09 product files
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a09-product
+          git rev-parse HEAD > /tmp/a09-product/SOURCE_HEAD.txt
+          tar -czf /tmp/a09-product/a09-product.tar.gz \
+            adapters/git-cli/Cargo.toml \
+            adapters/git-cli/src/lib.rs \
+            adapters/git-cli/src/provider.rs \
+            adapters/git-cli/src/types.rs \
+            adapters/git-cli/src/util.rs \
+            adapters/git-cli/tests/a09.rs
+          sha256sum /tmp/a09-product/a09-product.tar.gz > /tmp/a09-product/archive.sha256
+          sha256sum \
+            adapters/git-cli/Cargo.toml \
+            adapters/git-cli/src/lib.rs \
+            adapters/git-cli/src/provider.rs \
+            adapters/git-cli/src/types.rs \
+            adapters/git-cli/src/util.rs \
+            adapters/git-cli/tests/a09.rs \
+            > /tmp/a09-product/files.sha256
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: temp-a09-product-source
+          path: /tmp/a09-product/
+          if-no-files-found: error
+          retention-days: 1

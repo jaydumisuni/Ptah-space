@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - temp/a12-a07-export-20260820
+  pull_request:
 
 permissions:
   contents: read
@@ -15,15 +16,15 @@ jobs:
       - name: Checkout exact branch state
         uses: actions/checkout@v4
         with:
+          ref: temp/a12-a07-export-20260820
           fetch-depth: 0
 
       - name: Verify frozen A07 parent and package source
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4"
-          git diff --name-only HEAD^ HEAD | grep -Fx '.github/workflows/temp-a12-a07-export.yml'
-          test "$(git diff --name-only HEAD^ HEAD | wc -l)" -eq 1
+          test "$(git rev-parse HEAD~2)" = "05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4"
+          test "$(git diff --name-only 05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4..HEAD | sort -u)" = '.github/workflows/temp-a12-a07-export.yml'
           git archive --format=tar.gz --output=/tmp/ptah-a07-source.tar.gz 05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4
           sha256sum /tmp/ptah-a07-source.tar.gz | tee /tmp/ptah-a07-source.sha256
           printf '%s\n' '05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4' > /tmp/ptah-a07-source.commit

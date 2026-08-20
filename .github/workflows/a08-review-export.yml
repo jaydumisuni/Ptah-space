@@ -1,0 +1,34 @@
+name: TEMP A08 exact source export
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/a08-review-export.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: a43371815abca240d4f48b617aafa6011db817e4
+          persist-credentials: false
+      - name: Export exact A08 source
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a08-source
+          git rev-parse HEAD > /tmp/a08-source/HEAD.txt
+          git rev-parse 'HEAD^{tree}' > /tmp/a08-source/TREE.txt
+          tar -czf /tmp/a08-source/ptah-a08-a433718.tar.gz \
+            Cargo.toml Cargo.lock .cargo tools crates \
+            .github/workflows/a08-transfer-proof.yml
+          sha256sum /tmp/a08-source/ptah-a08-a433718.tar.gz > /tmp/a08-source/archive.sha256
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: temp-a08-a433718-source
+          path: /tmp/a08-source/
+          if-no-files-found: error
+          retention-days: 1

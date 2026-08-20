@@ -1,0 +1,32 @@
+name: TEMP A09 product source export
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/a09-product-source-export.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 65c62b6210dedb4427063ee88be2f225b46bf396
+          persist-credentials: false
+      - name: Export exact A09 product files only
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a09-product
+          git rev-parse HEAD > /tmp/a09-product/SOURCE_HEAD.txt
+          tar -czf /tmp/a09-product/a09-product.tar.gz adapters/git-cli
+          sha256sum /tmp/a09-product/a09-product.tar.gz > /tmp/a09-product/archive.sha256
+          find adapters/git-cli -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/a09-product/files.sha256
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: temp-a09-product-source-clean
+          path: /tmp/a09-product/
+          if-no-files-found: error
+          retention-days: 1

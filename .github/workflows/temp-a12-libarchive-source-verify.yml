@@ -1,0 +1,79 @@
+name: TEMP A12 verify locked libarchive 3.8.7 source
+
+on:
+  pull_request:
+  push:
+    branches:
+      - temp/a12-libarchive-source-verify-20260820
+
+permissions:
+  contents: read
+
+jobs:
+  verify-export:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout transport-only branch
+        uses: actions/checkout@v4
+        with:
+          ref: temp/a12-libarchive-source-verify-20260820
+          fetch-depth: 0
+
+      - name: Verify transport-only delta and frozen A07 lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4"
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/temp-a12-libarchive-source-verify.yml'
+          sha256sum Cargo.lock
+          test "$(sha256sum Cargo.lock | cut -d' ' -f1)" = "cc53b5297013c4808723c1f660851030ce5b7c4aae1a4d3873e658ef88383c1c"
+
+      - name: Verify all locked backend artifact digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ptah-backends/download /tmp/ptah-backends/evidence
+          python3 tools/verify_backend_artifacts.py \
+            --download-root /tmp/ptah-backends/download \
+            --output /tmp/ptah-backends/evidence/backend-artifacts.json
+          test "$(sha256sum /tmp/ptah-backends/download/libarchive-3.8.7.tar.xz | cut -d' ' -f1)" = \
+            "d3a8ba457ae25c27c84fd2830a2efdcc5b1d40bf585d4eb0d35f47e99e5d4774"
+
+      - name: Verify locked release signatures with final verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ptah-backends/signature-work
+          python3 tools/verify_backend_signatures_final.py \
+            --download-root /tmp/ptah-backends/download \
+            --work-root /tmp/ptah-backends/signature-work \
+            --output /tmp/ptah-backends/evidence/backend-signatures-final.json
+          python3 - <<'PY'
+          import json, pathlib
+          report=json.loads(pathlib.Path('/tmp/ptah-backends/evidence/backend-signatures-final.json').read_text())
+          entry=next(x for x in report['results'] if x['component']=='libarchive-source')
+          assert entry['status']=='signature_verified'
+          assert entry['expected_primary_fingerprint']=='659C84C0E23EA1FA97E0B58CC040B508D63D2B36'
+          assert entry['key_sha256']=='b2c91d075f112508442384dd1649735a84e81aea7ce1593d49a8f658ab66779f'
+          assert entry['signature_sha256']=='09eafe305f7f1bb1622d5247b6acf275e1a24b88f76f124269fd0dd94828079d'
+          assert report['runtime_implementation_authorized'] is False
+          PY
+
+      - name: Create minimal verified-source handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a12-libarchive-handoff
+          cp /tmp/ptah-backends/download/libarchive-3.8.7.tar.xz /tmp/a12-libarchive-handoff/
+          cp /tmp/ptah-backends/evidence/backend-artifacts.json /tmp/a12-libarchive-handoff/
+          cp /tmp/ptah-backends/evidence/backend-signatures-final.json /tmp/a12-libarchive-handoff/
+          sha256sum /tmp/a12-libarchive-handoff/libarchive-3.8.7.tar.xz > /tmp/a12-libarchive-handoff/libarchive-3.8.7.tar.xz.sha256
+          printf '%s\n' '05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4' > /tmp/a12-libarchive-handoff/a07-source-commit.txt
+
+      - name: Upload verified libarchive source
+        uses: actions/upload-artifact@v4
+        with:
+          name: a12-verified-libarchive-3.8.7-source
+          path: /tmp/a12-libarchive-handoff
+          if-no-files-found: error
+          retention-days: 1

@@ -68,7 +68,7 @@ jobs:
         run: |
           set -euo pipefail
           count=$(cargo test -p git-cli --locked -- --list | grep -c ': test$')
-          test "$count" -eq 13
+          test "$count" -eq 19
           echo "$count" > /tmp/a09-proof/a09-test-count.txt
           cargo test -p git-cli --locked
 
@@ -84,7 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           count=$(cargo test --workspace --locked -- --list | grep -c ': test$')
-          test "$count" -eq 182
+          test "$count" -eq 188
           echo "$count" > /tmp/a09-proof/workspace-test-count.txt
           cargo test --workspace --locked
 

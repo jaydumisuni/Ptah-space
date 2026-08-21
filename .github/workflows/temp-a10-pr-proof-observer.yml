@@ -66,8 +66,8 @@ jobs:
           mkdir /tmp/containerd
           tar -xzf /tmp/containerd.tgz -C /tmp/containerd
           /tmp/containerd/bin/ctr run --help | grep -F -- '--runc-binary'
-          rg -n '\.arg\("--runc-binary"\)' adapters/container-oci/src/backend.rs
-          rg -n '\.arg\(&self\.runc_path\)' adapters/container-oci/src/backend.rs
+          grep -nF '.arg("--runc-binary")' adapters/container-oci/src/backend.rs
+          grep -nF '.arg(&self.runc_path)' adapters/container-oci/src/backend.rs
 
       - name: Verify formatting and production hazard boundary
         shell: bash
@@ -76,7 +76,7 @@ jobs:
           for f in adapters/container-oci/src/*.rs adapters/container-oci/tests/*.rs; do
             rustfmt +1.97.1 --edition 2021 --check "$f"
           done
-          if rg -n '(unsafe\s*\{|panic!|unwrap\(|expect\(|todo!|unimplemented!)' adapters/container-oci/src; then
+          if grep -R -nE 'unsafe[[:space:]]*\{|panic!|unwrap\(|expect\(|todo!|unimplemented!' adapters/container-oci/src; then
             echo 'production hazard construct found' >&2
             exit 1
           fi

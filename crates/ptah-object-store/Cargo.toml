@@ -4,9 +4,26 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+autotests = false
 
 [lints]
 workspace = true
 
+[dependencies]
+ptah-identifiers = { path = "../ptah-identifiers", version = "=0.0.0-phase0c" }
+ptah-ledger = { path = "../ptah-ledger", version = "=0.0.0-phase0c" }
+rusqlite = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+ptah-activity-runtime = { path = "../ptah-activity-runtime", version = "=0.0.0-phase0c" }
+ptah-receipts = { path = "../ptah-receipts", version = "=0.0.0-phase0c" }
+
 [lib]
 path = "src/lib.rs"
+
+[[test]]
+name = "a07"
+path = "tests/a07.rs"

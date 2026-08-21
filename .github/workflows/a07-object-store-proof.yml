@@ -1,0 +1,96 @@
+name: A07 object store exact-head proof
+
+on:
+  pull_request:
+    paths:
+      - "crates/ptah-object-store/**"
+      - "Cargo.lock"
+      - ".github/workflows/a07-object-store-proof.yml"
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha }}
+  PTAH_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  CARGO_TERM_COLOR: always
+
+jobs:
+  a07-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          rustc -Vv
+          cargo -V
+
+      - name: Verify exact head and A07 scope
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          python - <<'PY'
+          import os, subprocess
+          base=os.environ['PTAH_BASE_SHA']; head=os.environ['PTAH_EXACT_SHA']
+          files=subprocess.check_output(['git','diff','--name-only',base,head], text=True).splitlines()
+          bad=[p for p in files if not (p=='Cargo.lock' or p=='.github/workflows/a07-object-store-proof.yml' or p.startswith('crates/ptah-object-store/'))]
+          assert not bad, f'A07 scope drift: {bad}'
+          assert 'crates/ptah-object-store/src/lib.rs' in files
+          PY
+          git diff --check "$PTAH_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Verify exact dependency selection
+        run: |
+          mkdir -p /tmp/a07-proof
+          python tools/check_rust_dependency_lock.py --output /tmp/a07-proof/dependency-lock-report.json
+
+      - name: Check formatting and deny warnings
+        run: |
+          cargo fmt --all --check
+          cargo clippy -p ptah-object-store --all-targets --all-features --locked -- -D warnings
+
+      - name: Prove A07 behavior
+        run: cargo test -p ptah-object-store --locked
+
+      - name: Regress A03 and A04 foundations
+        run: cargo test -p ptah-ledger -p ptah-activity-runtime --locked
+
+      - name: Write exact-head proof record
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path('/tmp/a07-proof'); root.mkdir(parents=True, exist_ok=True)
+          head=os.environ['PTAH_EXACT_SHA']; base=os.environ['PTAH_BASE_SHA']
+          files=subprocess.check_output(['git','diff','--name-only',base,head], text=True).splitlines()
+          payload={
+            'record_type':'ptah.phase0c.a07.object_store_exact_head_proof',
+            'created_at':datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            'implementation_commit':head,
+            'checked_out_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+            'exact_head_match':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==head,
+            'cargo_lock_sha256':hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
+            'changed_files':files,
+            'proofs':['cargo_fmt','clippy_deny_warnings','a07_tests','a03_a04_regressions','dependency_lock','scope_lock'],
+          }
+          assert payload['exact_head_match']
+          (root/'a07-proof.json').write_text(json.dumps(payload,indent=2)+'\n')
+          PY
+
+      - name: Upload A07 proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a07-object-store-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/a07-proof/
+          if-no-files-found: error
+          retention-days: 30

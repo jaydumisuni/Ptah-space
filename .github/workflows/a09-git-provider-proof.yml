@@ -1,0 +1,132 @@
+name: A09 Git Provider exact-head proof
+
+on:
+  pull_request:
+    paths:
+      - "adapters/git-cli/**"
+      - "Cargo.lock"
+      - ".github/workflows/a09-git-provider-proof.yml"
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha }}
+  PTAH_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  CARGO_TERM_COLOR: always
+
+jobs:
+  a09-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          rustc -Vv
+          cargo -V
+          git --version
+
+      - name: Verify exact head and A09 scope
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          python - <<'PY'
+          import os, subprocess
+          base=os.environ['PTAH_BASE_SHA']; head=os.environ['PTAH_EXACT_SHA']
+          files=subprocess.check_output(['git','diff','--name-only',base,head], text=True).splitlines()
+          bad=[p for p in files if not (p=='Cargo.lock' or p=='.github/workflows/a09-git-provider-proof.yml' or p.startswith('adapters/git-cli/'))]
+          assert not bad, f'A09 scope drift: {bad}'
+          assert 'adapters/git-cli/src/lib.rs' in files
+          PY
+          git diff --check "$PTAH_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Prove committed Cargo lock and dependency policy
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a09-proof
+          cp Cargo.lock /tmp/a09-proof/Cargo.lock.repository
+          cargo metadata --locked --format-version 1 > /tmp/a09-proof/cargo-metadata.json
+          cmp -s Cargo.lock /tmp/a09-proof/Cargo.lock.repository
+          git diff --exit-code -- Cargo.lock
+          python tools/check_rust_dependency_lock.py --output /tmp/a09-proof/dependency-lock-report.json
+
+      - name: Check formatting and deny warnings
+        run: |
+          cargo fmt --all --check
+          cargo clippy -p git-cli --all-targets --all-features --locked -- -D warnings
+
+      - name: Prove A09 behavior corpus
+        run: |
+          set -euo pipefail
+          count=$(cargo test -p git-cli --locked -- --list | grep -c ': test$')
+          test "$count" -eq 13
+          echo "$count" > /tmp/a09-proof/a09-test-count.txt
+          cargo test -p git-cli --locked
+
+      - name: Regress A03 A04 A07 and A08 foundations
+        run: |
+          set -euo pipefail
+          count=$(cargo test -p ptah-ledger -p ptah-activity-runtime -p ptah-object-store -p ptah-transfer --locked -- --list | grep -c ': test$')
+          test "$count" -eq 92
+          echo "$count" > /tmp/a09-proof/inherited-test-count.txt
+          cargo test -p ptah-ledger -p ptah-activity-runtime -p ptah-object-store -p ptah-transfer --locked
+
+      - name: Prove full locked workspace
+        run: |
+          set -euo pipefail
+          count=$(cargo test --workspace --locked -- --list | grep -c ': test$')
+          test "$count" -eq 182
+          echo "$count" > /tmp/a09-proof/workspace-test-count.txt
+          cargo test --workspace --locked
+
+      - name: Write exact-head A09 confirmation record
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path('/tmp/a09-proof')
+          head=os.environ['PTAH_EXACT_SHA']; base=os.environ['PTAH_BASE_SHA']
+          payload={
+            'record_type':'ptah.phase0c.a09.git_provider_exact_head_confirmation',
+            'schema_version':'0.1.0',
+            'created_at':datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            'implementation_commit':head,
+            'implementation_tree':subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip(),
+            'checked_out_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+            'base_commit':base,
+            'exact_head_match':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==head,
+            'cargo_lock_sha256':hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
+            'workspace_manifest_sha256':hashlib.sha256(Path('Cargo.toml').read_bytes()).hexdigest(),
+            'a09_test_count':int((root/'a09-test-count.txt').read_text()),
+            'inherited_test_count':int((root/'inherited-test-count.txt').read_text()),
+            'workspace_test_count':int((root/'workspace-test-count.txt').read_text()),
+            'git_dependency_count':0,
+            'github_interactive_path_used':False,
+            'proofs':['scope_lock','locked_cargo_resolution','dependency_policy','cargo_fmt','clippy_deny_warnings','a09_behavior','a03_a04_a07_a08_regression','full_workspace_regression'],
+            'status':'exact_head_confirmation_passed',
+          }
+          assert payload['exact_head_match']
+          (root/'a09-proof.json').write_text(json.dumps(payload,indent=2)+'\n')
+          PY
+          sha256sum /tmp/a09-proof/a09-proof.json | tee /tmp/a09-proof/a09-proof.sha256
+          sha256sum Cargo.lock Cargo.toml > /tmp/a09-proof/repository-hashes.sha256
+          git status --porcelain=v1 > /tmp/a09-proof/git-status.txt
+          test ! -s /tmp/a09-proof/git-status.txt
+
+      - name: Upload A09 exact-head confirmation evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a09-git-provider-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/a09-proof/
+          if-no-files-found: error
+          retention-days: 30

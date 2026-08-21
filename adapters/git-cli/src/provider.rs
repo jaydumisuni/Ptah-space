@@ -20,7 +20,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+const GIT_COMMAND_TIMEOUT: Duration = Duration::from_mins(2);
 const GIT_WAIT_POLL: Duration = Duration::from_millis(10);
 
 /// UTC observation clock used by the Git Provider.

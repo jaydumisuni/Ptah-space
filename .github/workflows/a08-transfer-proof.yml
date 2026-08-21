@@ -1,0 +1,133 @@
+name: A08 transfer exact-head proof
+
+on:
+  pull_request:
+    paths:
+      - "crates/ptah-transfer/**"
+      - "crates/ptah-events/**"
+      - "Cargo.lock"
+      - ".github/workflows/a08-transfer-proof.yml"
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha }}
+  PTAH_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  CARGO_TERM_COLOR: always
+
+jobs:
+  a08-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          rustc -Vv
+          cargo -V
+
+      - name: Verify exact head and A08 scope
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          python - <<'PY'
+          import os, subprocess
+          base=os.environ['PTAH_BASE_SHA']; head=os.environ['PTAH_EXACT_SHA']
+          files=subprocess.check_output(['git','diff','--name-only',base,head], text=True).splitlines()
+          bad=[p for p in files if not (p=='Cargo.lock' or p=='.github/workflows/a08-transfer-proof.yml' or p.startswith('crates/ptah-transfer/') or p.startswith('crates/ptah-events/'))]
+          assert not bad, f'A08 scope drift: {bad}'
+          assert 'crates/ptah-transfer/src/lib.rs' in files
+          PY
+          git diff --check "$PTAH_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Prove repository Cargo lock resolves without mutation
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a08-proof
+          cp Cargo.lock /tmp/a08-proof/Cargo.lock.repository
+          cargo metadata --locked --format-version 1 > /tmp/a08-proof/cargo-metadata.json
+          cmp -s Cargo.lock /tmp/a08-proof/Cargo.lock.repository
+          git diff --exit-code -- Cargo.lock
+          cp Cargo.lock /tmp/a08-proof/Cargo.lock.validated
+          python tools/check_rust_dependency_lock.py --output /tmp/a08-proof/dependency-lock-report.json
+
+      - name: Check formatting and deny warnings
+        run: |
+          cargo fmt --all --check
+          cargo clippy -p ptah-events -p ptah-transfer --all-targets --all-features --locked -- -D warnings
+
+      - name: Prove A08 behavior corpus
+        run: |
+          set -euo pipefail
+          count=$(cargo test -p ptah-transfer --test a08 --locked -- --list | grep -c ': test$')
+          test "$count" -eq 18
+          echo "$count" > /tmp/a08-proof/a08-test-count.txt
+          cargo test -p ptah-transfer --locked
+
+      - name: Regress A03 A04 and A07 foundations
+        run: |
+          set -euo pipefail
+          count=$(cargo test -p ptah-ledger -p ptah-activity-runtime -p ptah-object-store --locked -- --list | grep -c ': test$')
+          test "$count" -eq 74
+          echo "$count" > /tmp/a08-proof/inherited-test-count.txt
+          cargo test -p ptah-ledger -p ptah-activity-runtime -p ptah-object-store --locked
+
+      - name: Prove full locked workspace
+        run: |
+          set -euo pipefail
+          count=$(cargo test --workspace --locked -- --list | grep -c ': test$')
+          test "$count" -eq 170
+          echo "$count" > /tmp/a08-proof/workspace-test-count.txt
+          cargo test --workspace --locked
+
+      - name: Write exact-head A08 confirmation record
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path('/tmp/a08-proof')
+          head=os.environ['PTAH_EXACT_SHA']; base=os.environ['PTAH_BASE_SHA']
+          payload={
+            'record_type':'ptah.phase0c.a08.transfer_exact_head_confirmation',
+            'schema_version':'0.1.0',
+            'created_at':datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            'implementation_commit':head,
+            'implementation_tree':subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip(),
+            'checked_out_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+            'base_commit':base,
+            'exact_head_match':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==head,
+            'cargo_lock_sha256':hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
+            'workspace_manifest_sha256':hashlib.sha256(Path('Cargo.toml').read_bytes()).hexdigest(),
+            'a08_test_count':int((root/'a08-test-count.txt').read_text()),
+            'inherited_test_count':int((root/'inherited-test-count.txt').read_text()),
+            'workspace_test_count':int((root/'workspace-test-count.txt').read_text()),
+            'git_dependency_count':0,
+            'github_interactive_path_used':False,
+            'proofs':['scope_lock','locked_cargo_resolution','dependency_policy','cargo_fmt','clippy_deny_warnings','a08_behavior','a03_a04_a07_regression','full_workspace_regression'],
+            'status':'exact_head_confirmation_passed',
+          }
+          assert payload['exact_head_match']
+          (root/'a08-proof.json').write_text(json.dumps(payload,indent=2)+'\n')
+          PY
+          sha256sum /tmp/a08-proof/a08-proof.json | tee /tmp/a08-proof/a08-proof.sha256
+          sha256sum Cargo.lock Cargo.toml > /tmp/a08-proof/repository-hashes.sha256
+          git status --porcelain=v1 > /tmp/a08-proof/git-status.txt
+          test ! -s /tmp/a08-proof/git-status.txt
+
+      - name: Upload A08 exact-head confirmation evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a08-transfer-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/a08-proof/
+          if-no-files-found: error
+          retention-days: 30

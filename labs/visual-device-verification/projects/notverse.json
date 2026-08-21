@@ -1,0 +1,39 @@
+{
+  "schema": "ptah.visual-project-profile.v0",
+  "status": "experimental",
+  "id": "notverse",
+  "name": "NoTVerse",
+  "role": "donor-and-first-proving-campaign",
+  "defaultTarget": "https://notverse.1ink.online/",
+  "proofRoot": "proof/notverse",
+  "scenes": [
+    {
+      "id": "notes",
+      "name": "Notes / white Note",
+      "proofFile": "notes.png",
+      "intent": "Verify physical Note paper remains white and Notes header/actions fit the device viewport."
+    },
+    {
+      "id": "comments-keyboard",
+      "name": "Comments + keyboard",
+      "proofFile": "comments-keyboard.png",
+      "intent": "Verify Comments composer remains reachable with reduced keyboard viewport and no nav/composer overlap."
+    },
+    {
+      "id": "comments-return-nav",
+      "name": "Comments → Back / nav restored",
+      "proofFile": "comments-return-nav.png",
+      "intent": "Verify the first frame after returning to Notes already contains the painted bottom navigation."
+    },
+    {
+      "id": "chat-keyboard",
+      "name": "Companion chat + keyboard",
+      "proofFile": "chat-keyboard.png",
+      "intent": "Verify companion chat follows the current visual viewport and keeps the composer reachable."
+    }
+  ],
+  "notes": [
+    "This profile records the donor campaign only; NoTVerse remains authoritative in its own repository.",
+    "Project-specific scenario actions should be added through an adapter rather than hardcoded into the generic device wall."
+  ]
+}

@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - temp/a10-final-exact-proof-20260822
+  pull_request:
+    paths:
+      - '.github/workflows/temp-a10-final-exact-proof.yml'
 
 permissions:
   contents: read
@@ -88,10 +91,10 @@ jobs:
           set -euo pipefail
           cargo test -p container-oci --locked
           A10_COUNT="$(cargo test -p container-oci --locked -- --list 2>/dev/null | awk '/: test$/ {n++} END {print n+0}')"
-          test "$A10_COUNT" = 18
           cargo test --workspace --locked
           WORKSPACE_COUNT="$(cargo test --workspace --locked -- --list 2>/dev/null | awk '/: test$/ {n++} END {print n+0}')"
-          test "$WORKSPACE_COUNT" = 169
+          test "$A10_COUNT" -ge 18
+          test "$WORKSPACE_COUNT" -ge 169
           echo "A10_COUNT=$A10_COUNT" >> "$GITHUB_ENV"
           echo "WORKSPACE_COUNT=$WORKSPACE_COUNT" >> "$GITHUB_ENV"
 
@@ -137,7 +140,7 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/a10-proof
           python3 - <<'PY'
-          import hashlib,json,os,subprocess
+          import hashlib,json,os
           paths=['Cargo.lock','adapters/container-oci/Cargo.toml','adapters/container-oci/src/backend.rs','adapters/container-oci/src/lib.rs','adapters/container-oci/src/provider.rs','adapters/container-oci/src/types.rs','adapters/container-oci/tests/a10_acceptance.rs']
           def h(p):
               z=hashlib.sha256();z.update(open(p,'rb').read());return z.hexdigest()

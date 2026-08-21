@@ -1,0 +1,135 @@
+name: TEMP A13 clean convergence exact proof
+
+on:
+  pull_request:
+    branches:
+      - temp/a13-convergence-exact-proof-base-20260821
+
+permissions:
+  contents: read
+
+jobs:
+  exact-convergence-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CANONICAL_CANDIDATE: 3e8f115797fba44d2800594fdd0ed471771b20ed
+      CANONICAL_TREE: a5c3c59f3e230dfe5f6e589649503d2fffea50be
+      A08: d19bcf3e86373b2710fbf731e094a9a3f8e2a469
+      A09: 76aed337fd62ee38b303cc435525d31a2b0d3581
+      A10: 3f8ac79117d90502c7ba5c7f2a9f2c1a5c9a5465
+      A11: cf02bec49775479ede404f0a80d1aa5cd03742e5
+      A12: 2e98ddccd99775e4e7fab61936b4b7f9b319c162
+    steps:
+      - name: Checkout exact observer head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install exact Rust toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustc +1.97.1 -Vv
+          cargo +1.97.1 -V
+          rustfmt +1.97.1 -V
+
+      - name: Prove immutable product tree and donor bytes
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "$CANONICAL_CANDIDATE^{tree}")" = "$CANONICAL_TREE"
+          test "$(git rev-parse "$CANONICAL_CANDIDATE^")" = "$A08"
+          git diff --quiet "$CANONICAL_CANDIDATE" HEAD -- . ':(exclude).github/workflows/temp-a13-convergence-exact-proof.yml'
+          git diff --quiet "$A09" -- adapters/git-cli
+          git diff --quiet "$A10" -- adapters/container-oci
+          git diff --quiet "$A11" -- browser-provider crates/ptah-browser-runtime crates/ptah-provider-api
+          git diff --quiet "$A12" -- adapters/decomposition-libarchive crates/ptah-archive-decomposition
+          python3 - <<'PY'
+          import tomllib
+          members=tomllib.load(open('Cargo.toml','rb'))['workspace']['members']
+          assert members.count('crates/ptah-browser-runtime') == 1
+          assert members.count('crates/ptah-archive-decomposition') == 1
+          PY
+
+      - name: Prove combined dependency universe
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a13-convergence-proof
+          cargo +1.97.1 metadata --locked --format-version 1 > /tmp/a13-convergence-proof/cargo-metadata.json
+          python3 - <<'PY'
+          import tomllib
+          packages=tomllib.load(open('Cargo.lock','rb'))['package']
+          registry=sum(str(p.get('source','')).startswith('registry+') for p in packages)
+          git=sum(str(p.get('source','')).startswith('git+') for p in packages)
+          assert len(packages) == 118, len(packages)
+          assert registry == 97, registry
+          assert git == 0, git
+          required={'ptah-transfer','git-cli','container-oci','ptah-browser-runtime','ptah-archive-decomposition','decomposition-libarchive'}
+          assert required <= {p['name'] for p in packages}
+          print(f'resolved={len(packages)} registry={registry} git={git}')
+          PY
+          sha256sum Cargo.toml Cargo.lock | tee /tmp/a13-convergence-proof/repository-hashes.sha256
+
+      - name: Preserve frozen formatter contracts and lint integration
+        run: |
+          set -euo pipefail
+          mapfile -d '' A10_RS < <(find adapters/container-oci -type f -name '*.rs' -print0 | sort -z)
+          rustfmt +1.97.1 --edition 2021 --check "${A10_RS[@]}"
+          cargo +1.97.1 clippy \
+            -p git-cli \
+            -p container-oci \
+            -p ptah-browser-runtime \
+            -p ptah-archive-decomposition \
+            -p decomposition-libarchive \
+            --all-targets --all-features --locked -- -D warnings
+
+      - name: Prove complete locked Rust workspace
+        run: |
+          set -euo pipefail
+          cargo +1.97.1 test --workspace --locked
+          COUNT="$(cargo +1.97.1 test --workspace --locked -- --list 2>/dev/null | awk '/: test$/ {n++} END {print n+0}')"
+          test "$COUNT" -gt 0
+          echo "WORKSPACE_TESTS=$COUNT" >> "$GITHUB_ENV"
+          echo "workspace_tests=$COUNT"
+
+      - name: Emit immutable convergence proof
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess,tomllib
+          packages=tomllib.load(open('Cargo.lock','rb'))['package']
+          proof={
+            'record_type':'ptah.phase0c.a13.clean_prerequisite_convergence_proof',
+            'canonical_candidate':os.environ['CANONICAL_CANDIDATE'],
+            'canonical_tree':os.environ['CANONICAL_TREE'],
+            'observer_head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+            'base_a08':os.environ['A08'],
+            'donors':{k:os.environ[k] for k in ('A09','A10','A11','A12')},
+            'cargo_toml_sha256':hashlib.sha256(open('Cargo.toml','rb').read()).hexdigest(),
+            'cargo_lock_sha256':hashlib.sha256(open('Cargo.lock','rb').read()).hexdigest(),
+            'resolved_packages':len(packages),
+            'registry_packages':sum(str(p.get('source','')).startswith('registry+') for p in packages),
+            'git_dependencies':sum(str(p.get('source','')).startswith('git+') for p in packages),
+            'workspace_tests':int(os.environ['WORKSPACE_TESTS']),
+            'a10_formatter_contract':'rustfmt-1.97.1-edition-2021',
+            'status':'prerequisite_union_proven'
+          }
+          path='/tmp/a13-convergence-proof/proof.json'
+          open(path,'w').write(json.dumps(proof,indent=2,sort_keys=True)+'\n')
+          digest=hashlib.sha256(open(path,'rb').read()).hexdigest()
+          open('/tmp/a13-convergence-proof/proof.sha256','w').write(digest+'  proof.json\n')
+          print(json.dumps(proof,indent=2,sort_keys=True))
+          print('proof_sha256='+digest)
+          PY
+          git status --porcelain=v1 | tee /tmp/a13-convergence-proof/git-status.txt
+          test ! -s /tmp/a13-convergence-proof/git-status.txt
+
+      - name: Upload exact convergence proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a13-clean-prerequisite-convergence-${{ env.CANONICAL_CANDIDATE }}
+          path: /tmp/a13-convergence-proof/
+          if-no-files-found: error
+          retention-days: 14

@@ -8,5 +8,16 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[dependencies]
+ptah-activity-runtime = { path = "../../crates/ptah-activity-runtime", version = "=0.0.0-phase0c" }
+ptah-identifiers = { path = "../../crates/ptah-identifiers", version = "=0.0.0-phase0c" }
+ptah-provider-api = { path = "../../crates/ptah-provider-api", version = "=0.0.0-phase0c" }
+serde = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
 [lib]
 path = "src/lib.rs"

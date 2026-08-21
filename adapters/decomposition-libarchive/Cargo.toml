@@ -4,9 +4,27 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+autotests = false
 
 [lints]
 workspace = true
 
+[dependencies]
+ptah-archive-decomposition = { path = "../../crates/ptah-archive-decomposition", version = "=0.0.0-phase0c" }
+ptah-identifiers = { path = "../../crates/ptah-identifiers", version = "=0.0.0-phase0c" }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+ptah-object-store = { path = "../../crates/ptah-object-store", version = "=0.0.0-phase0c" }
+
 [lib]
 path = "src/lib.rs"
+
+[[test]]
+name = "adapter"
+path = "tests/adapter.rs"
+
+[[test]]
+name = "physical"
+path = "tests/physical.rs"

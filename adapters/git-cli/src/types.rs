@@ -80,7 +80,8 @@ pub struct GitExecutionContext {
 pub struct GitCloneSpec {
     /// Remote transport descriptor. This is an alias, never canonical repository identity.
     pub remote: String,
-    /// Exact reference expression to resolve before materialization.
+    /// Exact reference to resolve before materialization. This must be `HEAD` or a fully
+    /// qualified refname such as `refs/heads/main` or `refs/tags/v1`.
     pub reference: String,
     /// Provider-root-relative destination path.
     pub destination: PathBuf,
@@ -182,8 +183,13 @@ pub enum GitMaterializationFailureKind {
         stage: String,
         /// Process exit code.
         exit_code: i32,
-        /// Sanitized and bounded standard-error observation.
+        /// Bounded standard-error observation.
         stderr: String,
+    },
+    /// A mechanical Git subprocess exceeded the bounded execution deadline.
+    Timeout {
+        /// Bounded command stage.
+        stage: String,
     },
     /// Materialized repository did not prove the exact pre-resolved commit.
     CommitMismatch,
@@ -259,6 +265,12 @@ pub enum GitProviderError {
         exit_code: i32,
         /// Bounded standard-error evidence.
         stderr: String,
+    },
+    /// One mechanical Git command exceeded its execution deadline.
+    #[error("Git command timed out at {stage}")]
+    CommandTimeout {
+        /// Bounded command stage.
+        stage: String,
     },
     /// Materialization began and failed with retained bounded evidence.
     #[error("Git materialization failed; inspect retained failure evidence")]

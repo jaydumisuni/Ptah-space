@@ -244,14 +244,8 @@ pub struct ProviderRevision {
 }
 
 impl ProviderRevision {
-    /// Validate the frozen minimum evidence needed for a process Provider revision.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`ProviderError`] when the revision is not a process Provider or
-    /// mandatory package/configuration/facility evidence is absent.
-    pub fn validate_process(&self) -> Result<(), ProviderError> {
-        if self.provider_kind != ProviderKind::Process {
+    fn validate_kind(&self, expected: ProviderKind) -> Result<(), ProviderError> {
+        if self.provider_kind != expected {
             return Err(ProviderError::ProviderKindMismatch);
         }
         require_text(&self.implementation_name, "implementation_name")?;
@@ -262,6 +256,26 @@ impl ProviderRevision {
             return Err(ProviderError::MissingEvidence("supported_facility_refs"));
         }
         Ok(())
+    }
+
+    /// Validate the frozen minimum evidence needed for a process Provider revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ProviderError`] when the revision is not a process Provider or
+    /// mandatory package/configuration/facility evidence is absent.
+    pub fn validate_process(&self) -> Result<(), ProviderError> {
+        self.validate_kind(ProviderKind::Process)
+    }
+
+    /// Validate the frozen minimum evidence needed for a Browser Provider revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ProviderError`] when the revision is not a Browser Provider or
+    /// mandatory package/configuration/facility evidence is absent.
+    pub fn validate_browser(&self) -> Result<(), ProviderError> {
+        self.validate_kind(ProviderKind::Browser)
     }
 }
 
@@ -299,14 +313,14 @@ pub struct ProviderInstance {
 }
 
 impl ProviderInstance {
-    /// Validate local process-Provider instance evidence.
+    /// Validate local Provider-instance evidence independent of Provider kind.
     ///
     /// # Errors
     ///
     /// Returns [`ProviderError::MissingNodeBinding`] for a zero Node generation,
     /// [`ProviderError::MissingEvidence`] when no observation exists, or
     /// [`ProviderError::EmptyField`] for an empty start timestamp.
-    pub fn validate_local_process(&self) -> Result<(), ProviderError> {
+    pub fn validate_local(&self) -> Result<(), ProviderError> {
         if self.node_generation == 0 {
             return Err(ProviderError::MissingNodeBinding);
         }
@@ -315,6 +329,15 @@ impl ProviderInstance {
             return Err(ProviderError::MissingEvidence("observation_refs"));
         }
         Ok(())
+    }
+
+    /// Validate local process-Provider instance evidence.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same validation errors as [`Self::validate_local`].
+    pub fn validate_local_process(&self) -> Result<(), ProviderError> {
+        self.validate_local()
     }
 }
 
@@ -340,18 +363,13 @@ pub struct ProviderContext {
 }
 
 impl ProviderContext {
-    /// Build execution context after validating the matching revision/instance pair.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`ProviderError`] when the revision or instance is invalid or
-    /// their revision reference does not match.
-    pub fn from_process(
+    fn from_kind(
         revision: &ProviderRevision,
         instance: &ProviderInstance,
+        expected: ProviderKind,
     ) -> Result<Self, ProviderError> {
-        revision.validate_process()?;
-        instance.validate_local_process()?;
+        revision.validate_kind(expected)?;
+        instance.validate_local()?;
         if instance.provider_revision_ref != revision.revision_ref {
             return Err(ProviderError::MissingEvidence(
                 "instance/provider revision match",
@@ -367,6 +385,32 @@ impl ProviderContext {
             connection_epoch: instance.connection_epoch,
             implementation_version: revision.implementation_version.clone(),
         })
+    }
+
+    /// Build execution context after validating the matching process revision/instance pair.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ProviderError`] when the revision or instance is invalid or
+    /// their revision reference does not match.
+    pub fn from_process(
+        revision: &ProviderRevision,
+        instance: &ProviderInstance,
+    ) -> Result<Self, ProviderError> {
+        Self::from_kind(revision, instance, ProviderKind::Process)
+    }
+
+    /// Build Browser execution context after validating the exact Browser revision/instance pair.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ProviderError`] when Browser kind/evidence validation fails or
+    /// the instance is not bound to the exact Provider Revision.
+    pub fn from_browser(
+        revision: &ProviderRevision,
+        instance: &ProviderInstance,
+    ) -> Result<Self, ProviderError> {
+        Self::from_kind(revision, instance, ProviderKind::Browser)
     }
 }
 
@@ -401,6 +445,47 @@ mod tests {
             security_requirements: Vec::new(),
             known_limitations: Vec::new(),
         }
+    }
+
+    fn browser_revision() -> ProviderRevision {
+        let mut revision = revision();
+        revision.provider_kind = ProviderKind::Browser;
+        revision.implementation_name = "ptah-browser-provider".to_owned();
+        revision.implementation_version = "1.60.0".to_owned();
+        revision
+    }
+
+    fn instance_for(revision_ref: EntityRef) -> ProviderInstance {
+        ProviderInstance {
+            instance_ref: reference("runtime.provider_instance"),
+            provider_revision_ref: revision_ref,
+            node_ref: reference("core.node"),
+            node_generation: 1,
+            provider_generation: ProviderGeneration::new(1).expect("generation"),
+            connection_epoch: 1,
+            reachability: ProviderReachability::Reachable,
+            readiness: ProviderReadiness::Ready,
+            health: ProviderHealth::Healthy,
+            endpoint_aliases: Vec::new(),
+            process_or_service_refs: Vec::new(),
+            observation_refs: vec![reference("proof.evidence")],
+            started_at: "2026-08-20T00:00:00Z".to_owned(),
+            limitations: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn browser_context_requires_browser_kind_and_exact_revision() {
+        let browser = browser_revision();
+        let instance = instance_for(browser.revision_ref.clone());
+        let context = ProviderContext::from_browser(&browser, &instance).expect("browser context");
+        assert_eq!(context.provider_ref, browser.provider_ref);
+
+        let process_revision = revision();
+        assert_eq!(
+            ProviderContext::from_browser(&process_revision, &instance),
+            Err(ProviderError::ProviderKindMismatch)
+        );
     }
 
     #[test]

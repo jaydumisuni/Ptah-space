@@ -77,6 +77,15 @@ checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 [[package]]
 name = "container-oci"
 version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-activity-runtime",
+ "ptah-identifiers",
+ "ptah-provider-api",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
+]
 
 [[package]]
 name = "cpufeatures"
@@ -100,6 +109,13 @@ dependencies = [
 [[package]]
 name = "decomposition-libarchive"
 version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-archive-decomposition",
+ "ptah-identifiers",
+ "ptah-object-store",
+ "sha2",
+ "thiserror 2.0.17",
+]
 
 [[package]]
 name = "digest"
@@ -413,6 +429,36 @@ dependencies = [
  "ptah-identifiers",
  "ptah-ledger",
  "ptah-receipts",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "ptah-archive-decomposition"
+version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-activity-runtime",
+ "ptah-identifiers",
+ "ptah-ledger",
+ "ptah-object-store",
+ "ptah-receipts",
+ "rusqlite",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "ptah-browser-runtime"
+version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-activity-runtime",
+ "ptah-identifiers",
+ "ptah-ledger",
+ "ptah-object-store",
+ "ptah-provider-api",
+ "ptah-transfer",
  "serde",
  "serde_json",
  "thiserror 2.0.17",

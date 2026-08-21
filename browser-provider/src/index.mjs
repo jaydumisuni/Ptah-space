@@ -1,7 +1,6 @@
 /**
- * Phase 0C scaffold only. No Browser Provider runtime is implemented or authorized.
+ * Ptah A11 mechanical Browser Provider control surface.
+ * Concrete Playwright is loaded only by server.mjs so contract tests remain deterministic.
  */
-export const scaffoldStatus = Object.freeze({
-  phase: "0C",
-  runtimeAuthorized: false,
-});
+export { ProviderCore, BrowserProviderError, isDefaultPersonalProfilePath, redactEvidence, redactUrl } from "./core.mjs";
+export { LOCKED_RUNTIME, MAX_DOWNLOAD_CHUNK_BYTES, PROVIDER_PROTOCOL } from "./locks.mjs";

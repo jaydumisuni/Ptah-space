@@ -1,4 +1,4 @@
-name: TEMP A10 immutable refreeze observer proof
+name: TEMP A10 immutable corrected observer proof
 
 on:
   pull_request:
@@ -12,10 +12,10 @@ jobs:
   prove-immutable-a10:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout immutable A10 proof target
+      - name: Checkout immutable corrected A10 target
         uses: actions/checkout@v4
         with:
-          ref: 1bbd01244107fd57f18087d4642023ad9540c369
+          ref: 810eb04b6032913cbeb3b6473d3b3ca449fc1c07
           fetch-depth: 0
 
       - name: Install exact Ptah Rust toolchain
@@ -31,12 +31,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TARGET=1bbd01244107fd57f18087d4642023ad9540c369
+          TARGET=810eb04b6032913cbeb3b6473d3b3ca449fc1c07
           BASE=05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4
           test "$(git rev-parse HEAD)" = "$TARGET"
           test "$(git rev-parse HEAD^)" = "$BASE"
           cat > /tmp/expected-scope <<'EOF'
-          .github/workflows/temp-a10-refreeze-proof.yml
           Cargo.lock
           adapters/container-oci/Cargo.toml
           adapters/container-oci/src/backend.rs
@@ -51,12 +50,24 @@ jobs:
           printf '%s  %s\n' \
             702efc2c6fa9f95390297baf8ee7d7ab9a3bf37bcb6b37258fc86d6da6fb7fc8 Cargo.lock \
             8a2f6a62551bc503aaf3314586fdee4f67d94014ed5676b43d4ab81619a9d3c3 adapters/container-oci/Cargo.toml \
-            41e455399b7117dc55549d0d8558f15759413e20923a31e00a3d9c9f6a053c15 adapters/container-oci/src/backend.rs \
+            fc1bc71621157d7a5091f8dd287a8ab51b7efd23eae70aa7136253d077742145 adapters/container-oci/src/backend.rs \
             74a8b4efd3adf9c8baca7198ad96dd6d39a3995f7f3c4a0f88365f4677022ad8 adapters/container-oci/src/lib.rs \
             9e9ac66af488daff5371c6288b10e54ea3e46c6b62b154ed6c15a8a580a07507 adapters/container-oci/src/provider.rs \
             c5fbbc1cb61a86441d548d9cd4ad8008a03f791f8294398b9a69fea10ba08192 adapters/container-oci/src/types.rs \
             c674a4f8b6a3db4a3d1b96c8bf465435b620ed04b18680ccae38fe5e14450bb4 adapters/container-oci/tests/a10_acceptance.rs \
             | sha256sum --check --strict
+
+      - name: Verify exact containerd runc-binary support
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/containerd.tgz https://github.com/containerd/containerd/releases/download/v2.3.1/containerd-2.3.1-linux-amd64.tar.gz
+          echo '628448bd973610c656c1cbea8e88b32fafd85b23cc1aa4a3372eb7198478c054  /tmp/containerd.tgz' | sha256sum --check --strict
+          mkdir /tmp/containerd
+          tar -xzf /tmp/containerd.tgz -C /tmp/containerd
+          /tmp/containerd/bin/ctr run --help | grep -F -- '--runc-binary'
+          rg -n '\.arg\("--runc-binary"\)' adapters/container-oci/src/backend.rs
+          rg -n '\.arg\(&self\.runc_path\)' adapters/container-oci/src/backend.rs
 
       - name: Verify formatting and production hazard boundary
         shell: bash
@@ -102,7 +113,7 @@ jobs:
           set -euo pipefail
           cargo +1.97.1 test -p container-oci --locked
           COUNT="$(cargo +1.97.1 test -p container-oci --locked -- --list 2>/dev/null | awk '/: test$/ {n++} END {print n+0}')"
-          test "$COUNT" = 14
+          test "$COUNT" = 15
           echo "A10_TESTS=$COUNT" >> "$GITHUB_ENV"
 
       - name: Full exact-predecessor workspace regression
@@ -111,7 +122,7 @@ jobs:
           set -euo pipefail
           cargo +1.97.1 test --workspace --locked
           COUNT="$(cargo +1.97.1 test --workspace --locked -- --list 2>/dev/null | awk '/: test$/ {n++} END {print n+0}')"
-          test "$COUNT" = 165
+          test "$COUNT" = 166
           echo "WORKSPACE_TESTS=$COUNT" >> "$GITHUB_ENV"
 
       - name: Emit immutable proof manifest
@@ -127,18 +138,24 @@ jobs:
           ]
           def h(p): return hashlib.sha256(open(p,'rb').read()).hexdigest()
           proof={
-            'record_type':'ptah.phase0c.a10.oci_provider_refreeze_immutable_proof',
+            'record_type':'ptah.phase0c.a10.oci_provider_runc_bound_immutable_proof',
             'target_head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+            'target_tree':subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip(),
             'parent':subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip(),
             'files':{p:h(p) for p in paths},
             'rust':'1.97.1',
             'dependency_resolution':{'resolved':116,'registry':97,'git':0},
+            'containerd_version':'2.3.1',
+            'containerd_archive_sha256':'628448bd973610c656c1cbea8e88b32fafd85b23cc1aa4a3372eb7198478c054',
+            'runc_version':'1.4.2',
+            'runc_binary_sha256':'ac8a90f9e225bb9322189937b230cdc5478d5753f0e31e1bda98a5cf06bd9539',
+            'exact_runc_path_mechanical_binding':'pass',
             'a10_tests':int(os.environ['A10_TESTS']),
             'workspace_tests':int(os.environ['WORKSPACE_TESTS']),
             'rustfmt_edition_2021':'pass',
             'clippy_deny_warnings':'pass',
             'production_hazard_scan':'pass',
-            'physical_runtime_qualification':'Kratos exact containerd 2.3.1 / runc 1.4.2 boundary already passed; separate Ubuntu 24.04.4 host-image profile not claimed',
+            'physical_runtime_qualification':'Kratos exact containerd 2.3.1 / runc 1.4.2 OCI boundary passed; Ubuntu 24.04.4 host-image profile not claimed',
             'status':'source_exact_head_proven'
           }
           with open('/tmp/a10-immutable-proof.json','w') as f:
@@ -152,9 +169,9 @@ jobs:
       - name: Upload immutable proof
         uses: actions/upload-artifact@v4
         with:
-          name: a10-refreeze-immutable-proof
+          name: a10-runc-bound-immutable-proof
           path: |
             /tmp/a10-immutable-proof.json
             /tmp/a10-immutable-proof.sha256
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 30

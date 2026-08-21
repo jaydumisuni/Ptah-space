@@ -1,0 +1,208 @@
+name: TEMP A10 refreeze exact-head proof
+
+on:
+  push:
+    branches:
+      - temp/a10-refreeze-proof-20260821
+
+permissions:
+  contents: write
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout temporary lane
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install exact Ptah Rust toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustc +1.97.1 --version --verbose
+          cargo +1.97.1 --version
+          rustfmt +1.97.1 --version
+          cargo +1.97.1 clippy --version
+
+      - name: Normalize temporary lane directly over exact A07 when required
+        id: normalize
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4
+          BRANCH=temp/a10-refreeze-proof-20260821
+          declare -A EXPECTED=(
+            [adapters/container-oci/Cargo.toml]=8a2f6a62551bc503aaf3314586fdee4f67d94014ed5676b43d4ab81619a9d3c3
+            [adapters/container-oci/src/lib.rs]=74a8b4efd3adf9c8baca7198ad96dd6d39a3995f7f3c4a0f88365f4677022ad8
+            [adapters/container-oci/src/backend.rs]=41e455399b7117dc55549d0d8558f15759413e20923a31e00a3d9c9f6a053c15
+            [adapters/container-oci/src/provider.rs]=9e9ac66af488daff5371c6288b10e54ea3e46c6b62b154ed6c15a8a580a07507
+            [adapters/container-oci/src/types.rs]=c5fbbc1cb61a86441d548d9cd4ad8008a03f791f8294398b9a69fea10ba08192
+            [adapters/container-oci/tests/a10_acceptance.rs]=c674a4f8b6a3db4a3d1b96c8bf465435b620ed04b18680ccae38fe5e14450bb4
+          )
+          for path in "${!EXPECTED[@]}"; do
+            test -f "$path"
+            test "$(sha256sum "$path" | cut -d' ' -f1)" = "${EXPECTED[$path]}"
+          done
+
+          if test "$(git rev-parse HEAD^)" = "$BASE"; then
+            echo 'normalized=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          STAGE="$(mktemp -d)"
+          mkdir -p "$STAGE/adapters/container-oci/src" "$STAGE/adapters/container-oci/tests" "$STAGE/.github/workflows"
+          cp adapters/container-oci/Cargo.toml "$STAGE/adapters/container-oci/Cargo.toml"
+          cp adapters/container-oci/src/{lib.rs,backend.rs,provider.rs,types.rs} "$STAGE/adapters/container-oci/src/"
+          cp adapters/container-oci/tests/a10_acceptance.rs "$STAGE/adapters/container-oci/tests/"
+          cp .github/workflows/temp-a10-refreeze-proof.yml "$STAGE/.github/workflows/"
+
+          git reset --hard "$BASE"
+          cp -R "$STAGE/adapters/container-oci" adapters/
+          cp "$STAGE/.github/workflows/temp-a10-refreeze-proof.yml" .github/workflows/
+          cargo +1.97.1 generate-lockfile
+          test "$(sha256sum Cargo.lock | cut -d' ' -f1)" = 702efc2c6fa9f95390297baf8ee7d7ab9a3bf37bcb6b37258fc86d6da6fb7fc8
+
+          git add Cargo.lock adapters/container-oci .github/workflows/temp-a10-refreeze-proof.yml
+          git config user.name 'Ptah proof automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git commit -m 'TEMP A10 exact-A07 refreeze proof candidate'
+          test "$(git rev-parse HEAD^)" = "$BASE"
+          git push --force origin "HEAD:$BRANCH"
+          echo 'normalized=true' >> "$GITHUB_OUTPUT"
+
+      - name: Verify exact parent, scope and frozen bytes
+        if: steps.normalize.outputs.normalized == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4
+          test "$(git rev-parse HEAD^)" = "$BASE"
+          cat > /tmp/expected-scope <<'EOF'
+          .github/workflows/temp-a10-refreeze-proof.yml
+          Cargo.lock
+          adapters/container-oci/Cargo.toml
+          adapters/container-oci/src/backend.rs
+          adapters/container-oci/src/lib.rs
+          adapters/container-oci/src/provider.rs
+          adapters/container-oci/src/types.rs
+          adapters/container-oci/tests/a10_acceptance.rs
+          EOF
+          git diff --name-only "$BASE" HEAD | sort > /tmp/actual-scope
+          sort /tmp/expected-scope -o /tmp/expected-scope
+          diff -u /tmp/expected-scope /tmp/actual-scope
+
+          printf '%s  %s\n' \
+            702efc2c6fa9f95390297baf8ee7d7ab9a3bf37bcb6b37258fc86d6da6fb7fc8 Cargo.lock \
+            8a2f6a62551bc503aaf3314586fdee4f67d94014ed5676b43d4ab81619a9d3c3 adapters/container-oci/Cargo.toml \
+            41e455399b7117dc55549d0d8558f15759413e20923a31e00a3d9c9f6a053c15 adapters/container-oci/src/backend.rs \
+            74a8b4efd3adf9c8baca7198ad96dd6d39a3995f7f3c4a0f88365f4677022ad8 adapters/container-oci/src/lib.rs \
+            9e9ac66af488daff5371c6288b10e54ea3e46c6b62b154ed6c15a8a580a07507 adapters/container-oci/src/provider.rs \
+            c5fbbc1cb61a86441d548d9cd4ad8008a03f791f8294398b9a69fea10ba08192 adapters/container-oci/src/types.rs \
+            c674a4f8b6a3db4a3d1b96c8bf465435b620ed04b18680ccae38fe5e14450bb4 adapters/container-oci/tests/a10_acceptance.rs \
+            | sha256sum --check --strict
+
+      - name: Verify formatting and production hazard boundary
+        if: steps.normalize.outputs.normalized == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in adapters/container-oci/src/*.rs adapters/container-oci/tests/*.rs; do
+            rustfmt +1.97.1 --edition 2021 --check "$f"
+          done
+          if rg -n '(unsafe\s*\{|panic!|unwrap\(|expect\(|todo!|unimplemented!)' adapters/container-oci/src; then
+            echo 'production hazard construct found' >&2
+            exit 1
+          fi
+
+      - name: Verify exact locked dependency universe
+        if: steps.normalize.outputs.normalized == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +1.97.1 metadata --locked --format-version 1 > /tmp/metadata.json
+          python3 - <<'PY'
+          import tomllib
+          with open('Cargo.lock','rb') as f:
+              lock=tomllib.load(f)
+          packages=lock['package']
+          registry=sum(str(p.get('source','')).startswith('registry+') for p in packages)
+          git=sum(str(p.get('source','')).startswith('git+') for p in packages)
+          assert len(packages)==116, len(packages)
+          assert registry==97, registry
+          assert git==0, git
+          c=next(p for p in packages if p['name']=='container-oci')
+          assert c['dependencies']==[
+              'ptah-activity-runtime','ptah-identifiers','ptah-provider-api','serde',
+              'serde_json','sha2','thiserror 2.0.17'
+          ], c['dependencies']
+          print('resolved=116 registry=97 git=0')
+          PY
+
+      - name: Strict scoped Clippy
+        if: steps.normalize.outputs.normalized == 'false'
+        run: cargo +1.97.1 clippy -p container-oci --all-targets --locked -- -D warnings
+
+      - name: A10 behavior proof
+        if: steps.normalize.outputs.normalized == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +1.97.1 test -p container-oci --locked
+          COUNT="$(cargo +1.97.1 test -p container-oci --locked -- --list 2>/dev/null | awk '/: test$/ {n++} END {print n+0}')"
+          test "$COUNT" = 14
+          echo "A10_TESTS=$COUNT" >> "$GITHUB_ENV"
+
+      - name: Full exact-predecessor workspace regression
+        if: steps.normalize.outputs.normalized == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +1.97.1 test --workspace --locked
+          COUNT="$(cargo +1.97.1 test --workspace --locked -- --list 2>/dev/null | awk '/: test$/ {n++} END {print n+0}')"
+          echo "WORKSPACE_TESTS=$COUNT" >> "$GITHUB_ENV"
+          echo "workspace_tests=$COUNT"
+
+      - name: Emit exact-head proof manifest
+        if: steps.normalize.outputs.normalized == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess
+          paths=[
+            'Cargo.lock','adapters/container-oci/Cargo.toml','adapters/container-oci/src/backend.rs',
+            'adapters/container-oci/src/lib.rs','adapters/container-oci/src/provider.rs',
+            'adapters/container-oci/src/types.rs','adapters/container-oci/tests/a10_acceptance.rs'
+          ]
+          def h(p):
+              return hashlib.sha256(open(p,'rb').read()).hexdigest()
+          proof={
+            'record_type':'ptah.phase0c.a10.oci_provider_refreeze_exact_head_proof',
+            'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+            'parent':subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip(),
+            'files':{p:h(p) for p in paths},
+            'rust':'1.97.1',
+            'dependency_resolution':{'resolved':116,'registry':97,'git':0},
+            'a10_tests':int(os.environ['A10_TESTS']),
+            'workspace_tests':int(os.environ['WORKSPACE_TESTS']),
+            'rustfmt_edition_2021':'pass',
+            'clippy_deny_warnings':'pass',
+            'production_hazard_scan':'pass',
+            'status':'source_exact_head_proven'
+          }
+          with open('/tmp/a10-refreeze-proof.json','w') as f:
+              json.dump(proof,f,indent=2,sort_keys=True); f.write('\n')
+          print(json.dumps(proof,indent=2,sort_keys=True))
+          print('proof_sha256='+h('/tmp/a10-refreeze-proof.json'))
+          PY
+
+      - name: Upload exact-head proof
+        if: steps.normalize.outputs.normalized == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: a10-refreeze-exact-head-proof
+          path: /tmp/a10-refreeze-proof.json
+          if-no-files-found: error
+          retention-days: 1

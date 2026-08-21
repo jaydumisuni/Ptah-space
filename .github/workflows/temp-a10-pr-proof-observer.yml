@@ -1,0 +1,24 @@
+name: TEMP A10 derive ctr digest
+
+on:
+  pull_request:
+    branches:
+      - a07-object-revision-artifact-local-cas
+
+permissions:
+  contents: read
+
+jobs:
+  derive-ctr-digest:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Derive exact ctr digest from locked containerd archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/containerd.tgz https://github.com/containerd/containerd/releases/download/v2.3.1/containerd-2.3.1-linux-amd64.tar.gz
+          echo '628448bd973610c656c1cbea8e88b32fafd85b23cc1aa4a3372eb7198478c054  /tmp/containerd.tgz' | sha256sum --check --strict
+          mkdir /tmp/containerd
+          tar -xzf /tmp/containerd.tgz -C /tmp/containerd
+          sha256sum /tmp/containerd/bin/ctr
+          /tmp/containerd/bin/ctr --version

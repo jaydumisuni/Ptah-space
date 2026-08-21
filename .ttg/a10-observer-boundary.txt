@@ -1,0 +1,3 @@
+TEMPORARY OBSERVER BRANCH ONLY — DO NOT MERGE.
+The proof workflow on this branch checks out immutable A10 target 1bbd01244107fd57f18087d4642023ad9540c369 directly.
+This observer branch is not product source and must not become canonical A10 history.

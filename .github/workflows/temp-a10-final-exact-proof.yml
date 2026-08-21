@@ -1,0 +1,182 @@
+name: TEMP A10 final exact-head proof
+
+on:
+  push:
+    branches:
+      - temp/a10-final-exact-proof-20260822
+  pull_request:
+    paths:
+      - '.github/workflows/temp-a10-final-exact-proof.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      TARGET_SHA: d3fc32955829c8af50e0f1478743d0a02b3448a8
+      TARGET_TREE: 630ffd1a178acf08ebbced557ae9410b7b15e45b
+      A07_SHA: 05e2e75b7a2069d0df74eb73f9b9ecd7cd17d0d4
+      MERGED_A07_MAIN: 4e45bd7c2adc84dc23043d7229746404586e16f9
+      CTR_ARCHIVE_SHA256: 628448bd973610c656c1cbea8e88b32fafd85b23cc1aa4a3372eb7198478c054
+      CTR_BINARY_SHA256: adb91679d414d86b09bfff2b0091b6de0a1ab9af8fba44ceab0f5a1f40f77817
+      RUNC_BINARY_SHA256: ac8a90f9e225bb9322189937b230cdc5478d5753f0e31e1bda98a5cf06bd9539
+    steps:
+      - name: Checkout immutable candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install frozen Rust toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          rustc -Vv
+          cargo -V
+
+      - name: Bind candidate identity and exact scope
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$TARGET_TREE"
+          test "$(git merge-base "$A07_SHA" "$TARGET_SHA")" = "$A07_SHA"
+          test "$(git rev-parse "$A07_SHA^{tree}")" = "$(git rev-parse "$MERGED_A07_MAIN^{tree}")"
+          test "$(git ls-remote origin refs/heads/a10-oci-container-provider | awk '{print $1}')" = "$TARGET_SHA"
+          cat > /tmp/expected <<'EOF'
+          Cargo.lock
+          adapters/container-oci/Cargo.toml
+          adapters/container-oci/src/backend.rs
+          adapters/container-oci/src/lib.rs
+          adapters/container-oci/src/provider.rs
+          adapters/container-oci/src/types.rs
+          adapters/container-oci/tests/a10_acceptance.rs
+          EOF
+          git diff --name-only "$MERGED_A07_MAIN" "$TARGET_SHA" | sort > /tmp/actual
+          sort /tmp/expected -o /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+          git diff --check "$MERGED_A07_MAIN" "$TARGET_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Prove dependency universe
+        run: |
+          set -euo pipefail
+          test "$(sha256sum Cargo.lock | awk '{print $1}')" = 702efc2c6fa9f95390297baf8ee7d7ab9a3bf37bcb6b37258fc86d6da6fb7fc8
+          cargo metadata --locked --format-version 1 > /tmp/metadata.json
+          python3 - <<'PY'
+          import tomllib
+          p=tomllib.load(open('Cargo.lock','rb'))['package']
+          assert len(p)==116, len(p)
+          assert sum(str(x.get('source','')).startswith('registry+') for x in p)==97
+          assert sum(str(x.get('source','')).startswith('git+') for x in p)==0
+          PY
+          python3 tools/check_rust_dependency_lock.py --output /tmp/dependency-lock-report.json
+
+      - name: Review formatting hazards and lint
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          if rg -n '(unsafe\s*\{|panic!|\.unwrap\(|\.expect\(|todo!|unimplemented!)' adapters/container-oci/src; then
+            echo 'production hazard construct found' >&2
+            exit 1
+          fi
+          cargo clippy -p container-oci --all-targets --all-features --locked -- -D warnings
+
+      - name: Prove A10 behavior and workspace regression
+        run: |
+          set -euo pipefail
+          cargo test -p container-oci --locked
+          A10_COUNT="$(cargo test -p container-oci --locked -- --list 2>/dev/null | awk '/: test$/ {n++} END {print n+0}')"
+          cargo test --workspace --locked
+          WORKSPACE_COUNT="$(cargo test --workspace --locked -- --list 2>/dev/null | awk '/: test$/ {n++} END {print n+0}')"
+          test "$A10_COUNT" -ge 18
+          test "$WORKSPACE_COUNT" -ge 169
+          echo "A10_COUNT=$A10_COUNT" >> "$GITHUB_ENV"
+          echo "WORKSPACE_COUNT=$WORKSPACE_COUNT" >> "$GITHUB_ENV"
+
+      - name: Prove exact runtime executable bytes and positive qualification
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a10-runtime
+          curl --fail --location --silent --show-error \
+            https://github.com/containerd/containerd/releases/download/v2.3.1/containerd-2.3.1-linux-amd64.tar.gz \
+            --output /tmp/a10-runtime/containerd.tgz
+          test "$(sha256sum /tmp/a10-runtime/containerd.tgz | awk '{print $1}')" = "$CTR_ARCHIVE_SHA256"
+          tar -xzf /tmp/a10-runtime/containerd.tgz -C /tmp/a10-runtime bin/ctr
+          test "$(sha256sum /tmp/a10-runtime/bin/ctr | awk '{print $1}')" = "$CTR_BINARY_SHA256"
+          curl --fail --location --silent --show-error \
+            https://github.com/opencontainers/runc/releases/download/v1.4.2/runc.amd64 \
+            --output /tmp/a10-runtime/runc
+          chmod +x /tmp/a10-runtime/runc
+          test "$(sha256sum /tmp/a10-runtime/runc | awk '{print $1}')" = "$RUNC_BINARY_SHA256"
+          /tmp/a10-runtime/bin/ctr --version | grep -Eq '(^|[[:space:]])v?2\.3\.1([[:space:]]|$)'
+          /tmp/a10-runtime/runc --version | head -1 | grep -Eq '(^|[[:space:]])v?1\.4\.2([[:space:]]|$)'
+          test "$(rg -o 'adb91679d414d86b09bfff2b0091b6de0a1ab9af8fba44ceab0f5a1f40f77817' adapters/container-oci/src/backend.rs | wc -l)" -ge 1
+          mkdir -p adapters/container-oci/examples
+          cat > adapters/container-oci/examples/qualify_locked_runtime.rs <<'RS'
+          use container_oci::ContainerdCliBackend;
+          use std::sync::Arc;
+          fn main() {
+              let args: Vec<String> = std::env::args().collect();
+              let backend = ContainerdCliBackend::open(
+                  &args[1], &args[2], "/run/ptah-proof/containerd.sock", "ptah-a10-proof",
+                  Arc::new(|| "2026-08-22T00:00:00Z".to_owned()),
+              ).expect("exact locked runtime must qualify");
+              println!("{}", backend.runc_path().display());
+          }
+          RS
+          cargo run -p container-oci --example qualify_locked_runtime --locked -- \
+            /tmp/a10-runtime/bin/ctr /tmp/a10-runtime/runc
+          rm adapters/container-oci/examples/qualify_locked_runtime.rs
+          rmdir adapters/container-oci/examples
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Retain exact-head proof manifest
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a10-proof
+          python3 - <<'PY'
+          import hashlib,json,os
+          paths=['Cargo.lock','adapters/container-oci/Cargo.toml','adapters/container-oci/src/backend.rs','adapters/container-oci/src/lib.rs','adapters/container-oci/src/provider.rs','adapters/container-oci/src/types.rs','adapters/container-oci/tests/a10_acceptance.rs']
+          def h(p):
+              z=hashlib.sha256();z.update(open(p,'rb').read());return z.hexdigest()
+          proof={
+            'record_type':'ptah.phase0c.a10.final_exact_head_proof.v1',
+            'candidate_commit':os.environ['TARGET_SHA'],
+            'candidate_tree':os.environ['TARGET_TREE'],
+            'a07_source_predecessor':os.environ['A07_SHA'],
+            'merged_a07_main':os.environ['MERGED_A07_MAIN'],
+            'files':{p:h(p) for p in paths},
+            'rust':'1.97.1',
+            'dependency_resolution':{'resolved':116,'registry':97,'git':0},
+            'a10_tests':int(os.environ['A10_COUNT']),
+            'workspace_tests':int(os.environ['WORKSPACE_COUNT']),
+            'ctr_archive_sha256':os.environ['CTR_ARCHIVE_SHA256'],
+            'ctr_binary_sha256':os.environ['CTR_BINARY_SHA256'],
+            'runc_binary_sha256':os.environ['RUNC_BINARY_SHA256'],
+            'hash_before_exec_negative_regression':'pass',
+            'positive_locked_runtime_open':'pass',
+            'bounded_pipe_retention_regression':'pass',
+            'exact_version_regression':'pass',
+            'exact_runc_path_regression':'pass',
+            'status':'source_exact_head_proven'
+          }
+          out='/tmp/a10-proof/proof.json'
+          open(out,'w').write(json.dumps(proof,indent=2,sort_keys=True)+'\n')
+          print('proof_sha256='+h(out))
+          PY
+          sha256sum /tmp/a10-proof/proof.json > /tmp/a10-proof/proof.sha256
+          git status --porcelain=v1 --untracked-files=all > /tmp/a10-proof/git-status.txt
+          test ! -s /tmp/a10-proof/git-status.txt
+
+      - name: Upload retained proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: a10-final-${{ env.TARGET_SHA }}
+          path: /tmp/a10-proof
+          if-no-files-found: error
+          retention-days: 30

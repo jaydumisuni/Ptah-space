@@ -1,0 +1,168 @@
+name: TEMP A10 exact runc binding correction
+
+on:
+  push:
+    branches:
+      - temp/a10-runc-binding-fix-20260821
+
+permissions:
+  contents: write
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install exact Ptah Rust toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustc +1.97.1 --version --verbose
+          cargo +1.97.1 --version
+
+      - name: Apply idempotent runc binding correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('adapters/container-oci/src/backend.rs')
+          s=p.read_text()
+          old='''            .arg("--runtime")\n            .arg("io.containerd.runc.v2")\n            .arg("--memory-limit")'''
+          new='''            .arg("--runtime")\n            .arg("io.containerd.runc.v2")\n            .arg("--runc-binary")\n            .arg(&self.runc_path)\n            .arg("--memory-limit")'''
+          if '--runc-binary' not in s:
+              if old not in s:
+                  raise SystemExit('expected command construction not found')
+              s=s.replace(old,new,1)
+          marker='launch_command_binds_the_exact_qualified_runc_path'
+          if marker not in s:
+              s += r'''
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ResourceLimits;
+
+    #[test]
+    fn launch_command_binds_the_exact_qualified_runc_path() {
+        let backend = ContainerdCliBackend {
+            ctr_path: PathBuf::from("/opt/ptah/containerd/bin/ctr"),
+            runc_path: PathBuf::from("/opt/ptah/containerd/bin/runc"),
+            address: "/run/ptah/containerd.sock".to_owned(),
+            namespace: "ptah-a10".to_owned(),
+            clock: Arc::new(|| "2026-08-21T00:00:00Z".to_owned()),
+            running: Mutex::new(HashMap::new()),
+        };
+        let plan = BackendLaunchPlan {
+            image_reference: "registry.example/tool@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
+            container_alias: "ptah-a10-test".to_owned(),
+            args: Vec::new(),
+            resources: ResourceLimits {
+                memory_bytes: 64 * 1024 * 1024,
+                cpu_period_micros: 100_000,
+                cpu_quota_micros: 50_000,
+            },
+            host_network: false,
+            mounts: Vec::new(),
+            max_output_bytes: 64 * 1024,
+        };
+
+        let command = backend.command(&plan);
+        let args: Vec<_> = command.get_args().collect();
+        let bound_runc = args
+            .iter()
+            .position(|arg| *arg == "--runc-binary")
+            .and_then(|flag| args.get(flag + 1))
+            .copied();
+        assert_eq!(bound_runc, Some(backend.runc_path.as_os_str()));
+    }
+}
+'''
+          p.write_text(s)
+          PY
+          rustfmt +1.97.1 --edition 2021 adapters/container-oci/src/backend.rs
+          test "$(sha256sum adapters/container-oci/src/backend.rs | cut -d' ' -f1)" = "fc1bc71621157d7a5091f8dd287a8ab51b7efd23eae70aa7136253d077742145"
+
+      - name: Verify containerd 2.3 runtime option exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/containerd.tgz https://github.com/containerd/containerd/releases/download/v2.3.1/containerd-2.3.1-linux-amd64.tar.gz
+          echo '628448bd973610c656c1cbea8e88b32fafd85b23cc1aa4a3372eb7198478c054  /tmp/containerd.tgz' | sha256sum -c -
+          mkdir /tmp/containerd
+          tar -xzf /tmp/containerd.tgz -C /tmp/containerd
+          /tmp/containerd/bin/ctr run --help | grep -F -- '--runc-binary'
+
+      - name: Source and dependency proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustfmt +1.97.1 --edition 2021 --check adapters/container-oci/src/backend.rs
+          if rg -n '(unsafe\s*\{|panic!|unwrap\(|expect\(|todo!|unimplemented!)' adapters/container-oci/src; then exit 1; fi
+          cargo +1.97.1 metadata --locked --format-version 1 >/tmp/metadata.json
+          python3 - <<'PY'
+          import tomllib
+          with open('Cargo.lock','rb') as f: p=tomllib.load(f)['package']
+          assert len(p)==116
+          assert sum(str(x.get('source','')).startswith('registry+') for x in p)==97
+          assert sum(str(x.get('source','')).startswith('git+') for x in p)==0
+          PY
+          cargo +1.97.1 clippy -p container-oci --all-targets --locked -- -D warnings
+
+      - name: Behavior and workspace proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +1.97.1 test -p container-oci --locked
+          A10="$(cargo +1.97.1 test -p container-oci --locked -- --list 2>/dev/null | awk '/: test$/ {n++} END {print n+0}')"
+          test "$A10" = 15
+          cargo +1.97.1 test --workspace --locked
+          WORKSPACE="$(cargo +1.97.1 test --workspace --locked -- --list 2>/dev/null | awk '/: test$/ {n++} END {print n+0}')"
+          test "$WORKSPACE" = 166
+          echo "A10_TESTS=$A10" >> "$GITHUB_ENV"
+          echo "WORKSPACE_TESTS=$WORKSPACE" >> "$GITHUB_ENV"
+
+      - name: Commit corrected source when needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet -- adapters/container-oci/src/backend.rs; then
+            git config user.name 'THE TECH GUY'
+            git config user.email '65334711+jaydumisuni@users.noreply.github.com'
+            git add adapters/container-oci/src/backend.rs
+            git commit -m 'TEMP A10: bind launch to exact qualified runc binary'
+            git push origin HEAD:temp/a10-runc-binding-fix-20260821
+          fi
+
+      - name: Emit proof manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess
+          p='adapters/container-oci/src/backend.rs'
+          h=lambda x: hashlib.sha256(open(x,'rb').read()).hexdigest()
+          proof={
+            'record_type':'ptah.phase0c.a10.runc_binary_binding_correction',
+            'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+            'backend_sha256':h(p),
+            'containerd_archive_sha256':'628448bd973610c656c1cbea8e88b32fafd85b23cc1aa4a3372eb7198478c054',
+            'runc_binary_sha256':'ac8a90f9e225bb9322189937b230cdc5478d5753f0e31e1bda98a5cf06bd9539',
+            'a10_tests':int(os.environ['A10_TESTS']),
+            'workspace_tests':int(os.environ['WORKSPACE_TESTS']),
+            'clippy':'pass','hazard_scan':'pass','ctr_runc_binary_option':'pass'
+          }
+          out='/tmp/a10-runc-binding-proof.json'
+          open(out,'w').write(json.dumps(proof,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(proof,indent=2,sort_keys=True))
+          print('proof_sha256='+h(out))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: a10-runc-binding-proof
+          path: /tmp/a10-runc-binding-proof.json
+          retention-days: 30

@@ -1,0 +1,31 @@
+name: A13 checkpoint verified recovery proof
+
+on:
+  push:
+    branches:
+      - temp/a13-verified-recovery-runtime-20260822
+  pull_request:
+    paths:
+      - 'crates/ptah-checkpoint/**'
+      - '.github/workflows/a13-checkpoint-recovery-proof.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  focused-proof:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install frozen Rust toolchain
+        run: rustup show
+      - name: Formatting proof
+        run: cargo fmt --all -- --check
+      - name: A13 focused tests
+        run: cargo test -p ptah-checkpoint --all-targets
+      - name: Workspace reconciliation regression
+        run: cargo test -p ptah-workspace --all-targets
+      - name: Static lint proof
+        run: cargo clippy -p ptah-checkpoint --all-targets -- -D warnings
+      - name: Diff hygiene
+        run: git diff --check

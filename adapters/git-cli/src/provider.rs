@@ -1,6 +1,6 @@
 use crate::util::{
-    OUTPUT_LIMIT, bounded_text, canonical_root, detect_protocol, remote_label, safe_new_destination,
-    validate_commit_id,
+    OUTPUT_LIMIT, bounded_text, canonical_root, detect_protocol, remote_label,
+    safe_new_destination, validate_commit_id,
 };
 use crate::{
     CloneMode, GitCloneSpec, GitCommandObservation, GitExecutionContext, GitMaterialization,
@@ -365,7 +365,11 @@ impl GitProvider {
             ":(glob)**/.gitattributes".to_owned(),
         ];
         let output = self.run_git("inspect_lfs_attributes", Some(repo), &args, protocol)?;
-        commands.push(command_observation("inspect_lfs_attributes", &args, &output));
+        commands.push(command_observation(
+            "inspect_lfs_attributes",
+            &args,
+            &output,
+        ));
         match output.status.code() {
             Some(0) => Ok(true),
             Some(1) => Ok(false),
@@ -587,9 +591,11 @@ fn expected_materialization_failure(
             exit_code: *exit_code,
             stderr: stderr.clone(),
         }),
-        GitProviderError::CommandTimeout { stage } => Some(GitMaterializationFailureKind::Timeout {
-            stage: stage.clone(),
-        }),
+        GitProviderError::CommandTimeout { stage } => {
+            Some(GitMaterializationFailureKind::Timeout {
+                stage: stage.clone(),
+            })
+        }
         GitProviderError::CommitMismatch => Some(GitMaterializationFailureKind::CommitMismatch),
         GitProviderError::SubmoduleDenied => Some(GitMaterializationFailureKind::SubmoduleDenied),
         GitProviderError::LfsDenied => Some(GitMaterializationFailureKind::LfsDenied),

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Ptah Visual Device Verification Lab</title>
+<style>
+  :root{color-scheme:dark;--bg:#0b0b0f;--panel:#14141a;--line:#2a2a34;--text:#f2f2f4;--muted:#9a9aa5;--accent:#d84c96;--warn:#f0b85c;--ok:#9de4b0}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  header{position:sticky;top:0;z-index:20;background:rgba(11,11,15,.96);backdrop-filter:blur(14px);border-bottom:1px solid var(--line);padding:14px 18px;display:grid;gap:10px}
+  .head-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap}.title strong{font-size:16px}.title small{color:var(--muted)}
+  .controls{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center} button,input,select{background:#1a1a22;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px 10px} input{min-width:240px} button{cursor:pointer} button.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .status{padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#101016;color:var(--muted);font-size:12px}.status b{color:var(--text)}
+  main{padding:22px;display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:28px;align-items:start}
+  .device-card{display:grid;gap:10px;justify-items:center;opacity:.92}.device-card.selected{opacity:1}.device-meta{width:100%;display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:12px}.device-meta button{padding:4px 7px;font-size:11px}
+  .iphone{position:relative;background:#050506;border:2px solid #3b3b43;border-radius:44px;padding:10px;box-shadow:0 24px 60px rgba(0,0,0,.55),inset 0 0 0 1px rgba(255,255,255,.05)}.device-card.selected .iphone{border-color:#696977}.screen{position:relative;overflow:hidden;background:#050506;border-radius:35px;width:var(--w);height:var(--h)}
+  .screen img,.screen iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff}.screen img{object-fit:fill;object-position:top center}.missing{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:24px;background:radial-gradient(circle at 50% 35%,#17121b,#08080b 58%);color:var(--muted);font-size:12px;line-height:1.5}.missing b{display:block;color:var(--warn);font-size:13px;margin-bottom:6px}.missing code{font-size:10px;color:#bbb;word-break:break-all}
+  .live-badge{position:absolute;z-index:8;top:46px;right:8px;padding:4px 7px;border-radius:999px;background:rgba(0,0,0,.72);color:#fff;font-size:9px;letter-spacing:.05em;display:none}.device-card.live .live-badge{display:block}.dynamic-island,.notch{position:absolute;z-index:7;left:50%;transform:translateX(-50%);background:#000;pointer-events:none}.dynamic-island{top:12px;width:112px;height:32px;border-radius:20px}.notch{top:10px;width:160px;height:28px;border-radius:0 0 18px 18px}.home-indicator{position:absolute;z-index:7;left:50%;bottom:16px;transform:translateX(-50%);width:128px;height:5px;border-radius:999px;background:rgba(0,0,0,.75);pointer-events:none}
+  .keyboard{position:absolute;left:0;right:0;bottom:0;height:var(--kb,0px);background:linear-gradient(#d3d6db,#b8bcc3);border-top:1px solid #8c9097;z-index:6;display:none;pointer-events:none}.keyboard.on{display:block}.keyboard::before{content:"keyboard geometry overlay";display:grid;place-items:center;height:100%;color:#555;font-size:12px;font-weight:700;letter-spacing:.04em}.safe-top,.safe-bottom{position:absolute;left:0;right:0;z-index:9;pointer-events:none;display:none}.safe-top{top:0;height:var(--safe-top);background:rgba(255,0,0,.12);border-bottom:1px dashed rgba(255,0,0,.45)}.safe-bottom{bottom:0;height:var(--safe-bottom);background:rgba(0,120,255,.12);border-top:1px dashed rgba(0,120,255,.45)}.show-safe .safe-top,.show-safe .safe-bottom{display:block}
+  .labels{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}.tag{border:1px solid var(--line);border-radius:999px;padding:4px 8px;color:var(--muted);font-size:11px}.tag.captured{color:var(--ok);border-color:#31583b}.tag.missing-tag{color:#e7ba76;border-color:#5d4930}.boundary{font-size:11px;color:var(--warn)}
+  @media(max-width:700px){main{grid-template-columns:1fr;padding:12px}.controls{margin-left:0}input{min-width:180px;max-width:100%}}
+</style>
+</head>
+<body>
+<header>
+  <div class="head-row">
+    <div class="title"><strong>Ptah Visual Device Verification Lab</strong><br><small>Experimental workspace machinery — exact-device evidence only</small></div>
+    <div class="controls">
+      <select id="scene" aria-label="Proof scene"></select>
+      <select id="engine" aria-label="Browser engine"><option value="webkit">WebKit</option><option value="chromium">Chromium</option></select>
+      <select id="device" aria-label="Selected device"></select>
+      <button id="live">Open live selected</button><button id="offline">Proof mode</button><button id="keyboard">Keyboard overlay</button><button id="safe">Safe areas</button>
+    </div>
+  </div>
+  <div class="head-row"><label>Target <input id="target" value="https://notverse.1ink.online/" spellcheck="false"></label><label>Project <input id="project" value="notverse" spellcheck="false"></label></div>
+  <div class="status" id="status"><b>Proof mode:</b> exact capture or explicit missing state. <span class="boundary">This lab is not Ptah runtime authority.</span></div>
+</header>
+<main id="grid"></main>
+<script>
+const fallbackDevices=[
+{id:'iphone-13-mini',name:'iPhone 13 mini',cssViewport:{width:375,height:812},safeArea:{top:50,bottom:34},screenCutout:{type:'notch'},keyboardApproxHeight:291},
+{id:'iphone-13-14',name:'iPhone 13 / 14',cssViewport:{width:390,height:844},safeArea:{top:47,bottom:34},screenCutout:{type:'notch'},keyboardApproxHeight:291},
+{id:'iphone-13-pro-max-14-plus',name:'iPhone 13 Pro Max / 14 Plus',cssViewport:{width:428,height:926},safeArea:{top:47,bottom:34},screenCutout:{type:'notch'},keyboardApproxHeight:301},
+{id:'iphone-14-pro',name:'iPhone 14 Pro',cssViewport:{width:393,height:852},safeArea:{top:59,bottom:34},screenCutout:{type:'dynamic-island'},keyboardApproxHeight:291},
+{id:'iphone-15-pro',name:'iPhone 15 / 15 Pro',cssViewport:{width:393,height:852},safeArea:{top:59,bottom:34},screenCutout:{type:'dynamic-island'},keyboardApproxHeight:291},
+{id:'iphone-15-pro-max',name:'iPhone 15 Plus / Pro Max',cssViewport:{width:430,height:932},safeArea:{top:59,bottom:34},screenCutout:{type:'dynamic-island'},keyboardApproxHeight:301},
+{id:'iphone-16-pro',name:'iPhone 16 Pro',cssViewport:{width:402,height:874},safeArea:{top:62,bottom:34},screenCutout:{type:'dynamic-island'},keyboardApproxHeight:296},
+{id:'iphone-16-pro-max',name:'iPhone 16 Pro Max',cssViewport:{width:440,height:956},safeArea:{top:62,bottom:34},screenCutout:{type:'dynamic-island'},keyboardApproxHeight:306}
+];
+const fallbackScenes=[
+{id:'notes',name:'Notes / white Note',proofFile:'notes.png'},
+{id:'comments-keyboard',name:'Comments + keyboard',proofFile:'comments-keyboard.png'},
+{id:'comments-return-nav',name:'Comments → Back / nav restored',proofFile:'comments-return-nav.png'},
+{id:'chat-keyboard',name:'Companion chat + keyboard',proofFile:'chat-keyboard.png'}
+];
+let devices=fallbackDevices,scenes=fallbackScenes,selected=0,liveIndex=null;const scale=.78,grid=document.querySelector('#grid'),deviceSelect=document.querySelector('#device'),sceneSelect=document.querySelector('#scene');
+async function loadConfig(){try{const [d,p]=await Promise.all([fetch('./device-profiles.json').then(r=>r.json()),fetch('./projects/notverse.json').then(r=>r.json())]);if(Array.isArray(d.profiles))devices=d.profiles;if(Array.isArray(p.scenes))scenes=p.scenes;if(p.defaultTarget)document.querySelector('#target').value=p.defaultTarget;if(p.id)document.querySelector('#project').value=p.id}catch{} buildControls();buildGrid();renderProof()}
+function buildControls(){deviceSelect.replaceChildren();devices.forEach((d,i)=>{const o=document.createElement('option');o.value=i;o.textContent=d.name;deviceSelect.appendChild(o)});sceneSelect.replaceChildren();scenes.forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=s.name;sceneSelect.appendChild(o)})}
+function buildGrid(){grid.replaceChildren();devices.forEach((d,i)=>grid.appendChild(card(d,i)));document.querySelectorAll('[data-select]').forEach(b=>b.onclick=()=>setSelected(b.dataset.select))}
+function card(d,i){const w=d.cssViewport.width,h=d.cssViewport.height,st=d.safeArea?.top||0,sb=d.safeArea?.bottom||0,kb=d.keyboardApproxHeight||0,island=d.screenCutout?.type==='dynamic-island';const el=document.createElement('section');el.className='device-card';el.dataset.index=i;el.innerHTML=`<div class="device-meta"><strong>${d.name}</strong><span>${w}×${h} <button data-select="${i}">select</button></span></div><div class="iphone" style="--w:${Math.round(w*scale)}px;--h:${Math.round(h*scale)}px;--safe-top:${Math.round(st*scale)}px;--safe-bottom:${Math.round(sb*scale)}px;--kb:${Math.round(kb*scale)}px"><div class="screen"><img alt="exact-device proof snapshot"><div class="missing"></div><div class="live-slot"></div><div class="live-badge">LIVE</div><div class="${island?'dynamic-island':'notch'}"></div><div class="safe-top"></div><div class="safe-bottom"></div><div class="keyboard"></div><div class="home-indicator"></div></div></div><div class="labels"><span class="tag capture-state"></span><span class="tag">safe top ${st}</span><span class="tag">safe bottom ${sb}</span><span class="tag">keyboard ≈${kb}</span></div>`;return el}
+function currentScene(){return scenes.find(s=>s.id===sceneSelect.value)||scenes[0]}
+function proofPath(d){const project=document.querySelector('#project').value.trim()||'project',engine=document.querySelector('#engine').value,s=currentScene();return `proof/${project}/${s.id}/${d.id}/${engine}-${s.proofFile}`}
+function renderOne(c,d){const img=c.querySelector('img'),missing=c.querySelector('.missing'),tag=c.querySelector('.capture-state'),path=proofPath(d);c.classList.remove('live');c.querySelector('.live-slot').replaceChildren();img.style.display='none';missing.style.display='grid';missing.innerHTML=`<div><b>Checking exact-device proof…</b><code>${d.cssViewport.width}×${d.cssViewport.height}</code></div>`;tag.textContent='checking';tag.className='tag capture-state';const probe=new Image();probe.onload=()=>{img.src=path;img.style.display='block';missing.style.display='none';tag.textContent='exact capture';tag.className='tag capture-state captured'};probe.onerror=()=>{img.removeAttribute('src');img.style.display='none';missing.style.display='grid';missing.innerHTML=`<div><b>Not captured</b>No ${document.querySelector('#engine').value} proof exists for ${d.cssViewport.width}×${d.cssViewport.height}.<br><code>${path}</code></div>`;tag.textContent='not captured';tag.className='tag capture-state missing-tag'};probe.src=path}
+function renderProof(){document.querySelectorAll('.device-card').forEach((c,i)=>{c.classList.toggle('selected',i===selected);renderOne(c,devices[i])});liveIndex=null;document.querySelector('#status').innerHTML='<b>Proof mode:</b> no evidence is stretched or inferred across device sizes. Exact capture or explicit missing state only. <span class="boundary">Experimental lab — not Ptah runtime authority.</span>'}
+function setSelected(i){selected=Number(i);deviceSelect.value=String(selected);document.querySelectorAll('.device-card').forEach((c,j)=>c.classList.toggle('selected',j===selected));document.querySelector(`[data-index="${selected}"]`)?.scrollIntoView({behavior:'smooth',block:'center'})}
+function openLive(){renderProof();const target=document.querySelector('#target').value.trim();if(!target)return;const c=document.querySelector(`[data-index="${selected}"]`),slot=c.querySelector('.live-slot'),f=document.createElement('iframe');const u=new URL(target);u.searchParams.set('ptahVisualLab',Date.now());f.src=u.toString();f.title=`Live target — ${devices[selected].name}`;slot.appendChild(f);c.querySelector('img').style.display='none';c.querySelector('.missing').style.display='none';c.classList.add('live');liveIndex=selected;document.querySelector('#status').innerHTML=`<b>Live exploratory mode:</b> only ${devices[selected].name} is requesting network access. This is not acceptance proof.`}
+deviceSelect.onchange=e=>setSelected(e.target.value);sceneSelect.onchange=renderProof;document.querySelector('#engine').onchange=renderProof;document.querySelector('#project').onchange=renderProof;document.querySelector('#live').onclick=openLive;document.querySelector('#offline').onclick=renderProof;document.querySelector('#keyboard').onclick=e=>{e.currentTarget.classList.toggle('active');document.querySelectorAll('.keyboard').forEach(k=>k.classList.toggle('on'))};document.querySelector('#safe').onclick=e=>{e.currentTarget.classList.toggle('active');document.querySelectorAll('.iphone').forEach(k=>k.classList.toggle('show-safe'))};loadConfig();
+</script>
+</body>
+</html>

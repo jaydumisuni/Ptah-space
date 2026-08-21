@@ -1,0 +1,3 @@
+TEMPORARY A13 PREREQUISITE CONVERGENCE LANE — DO NOT MERGE.
+This lane exists only to reconcile and prove the exact frozen A09, A10, A11 and A12 product subtrees before A13 construction.
+Canonical A13 must be built only after the convergence tree is proven and re-expressed as an explicit multi-parent convergence commit.

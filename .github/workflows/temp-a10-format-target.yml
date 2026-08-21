@@ -1,0 +1,37 @@
+name: TEMP A10 deterministic format target
+
+on:
+  push:
+    branches:
+      - temp/a10-final-exact-proof-20260822
+
+permissions:
+  contents: write
+
+jobs:
+  format-target:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a10-oci-container-provider
+          fetch-depth: 0
+      - run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+          rustup default 1.97.1
+          cargo fmt --all
+          git diff --name-only | sort > /tmp/actual
+          cat > /tmp/allowed <<'EOF'
+          adapters/container-oci/src/backend.rs
+          adapters/container-oci/src/provider.rs
+          adapters/container-oci/tests/a10_acceptance.rs
+          EOF
+          sort /tmp/allowed -o /tmp/allowed
+          diff -u /tmp/allowed /tmp/actual
+          cargo fmt --all -- --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add adapters/container-oci/src/backend.rs adapters/container-oci/src/provider.rs adapters/container-oci/tests/a10_acceptance.rs
+          git commit -m 'A10: normalize corrected source with Rust 1.97.1'
+          git push origin HEAD:a10-oci-container-provider

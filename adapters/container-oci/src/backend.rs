@@ -118,6 +118,8 @@ impl ContainerdCliBackend {
             .arg("--rm")
             .arg("--runtime")
             .arg("io.containerd.runc.v2")
+            .arg("--runc-binary")
+            .arg(&self.runc_path)
             .arg("--memory-limit")
             .arg(plan.resources.memory_bytes.to_string())
             .arg("--cpu-period")
@@ -235,4 +237,44 @@ fn lock<T>(mutex: &Mutex<T>) -> Result<MutexGuard<'_, T>, OciProviderError> {
     mutex
         .lock()
         .map_err(|_| OciProviderError::Backend("OCI backend state lock poisoned".to_owned()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ResourceLimits;
+
+    #[test]
+    fn launch_command_binds_the_exact_qualified_runc_path() {
+        let backend = ContainerdCliBackend {
+            ctr_path: PathBuf::from("/opt/ptah/containerd/bin/ctr"),
+            runc_path: PathBuf::from("/opt/ptah/containerd/bin/runc"),
+            address: "/run/ptah/containerd.sock".to_owned(),
+            namespace: "ptah-a10".to_owned(),
+            clock: Arc::new(|| "2026-08-21T00:00:00Z".to_owned()),
+            running: Mutex::new(HashMap::new()),
+        };
+        let plan = BackendLaunchPlan {
+            image_reference: "registry.example/tool@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
+            container_alias: "ptah-a10-test".to_owned(),
+            args: Vec::new(),
+            resources: ResourceLimits {
+                memory_bytes: 64 * 1024 * 1024,
+                cpu_period_micros: 100_000,
+                cpu_quota_micros: 50_000,
+            },
+            host_network: false,
+            mounts: Vec::new(),
+            max_output_bytes: 64 * 1024,
+        };
+
+        let command = backend.command(&plan);
+        let args: Vec<_> = command.get_args().collect();
+        let bound_runc = args
+            .iter()
+            .position(|arg| *arg == "--runc-binary")
+            .and_then(|flag| args.get(flag + 1))
+            .copied();
+        assert_eq!(bound_runc, Some(backend.runc_path.as_os_str()));
+    }
 }

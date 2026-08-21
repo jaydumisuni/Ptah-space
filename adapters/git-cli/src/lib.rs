@@ -1,17 +1,14 @@
 #![forbid(unsafe_code)]
-//! Non-claiming Phase 0C boundary for `git-cli`.
+//! A09 hardened Git CLI Provider.
 //!
-//! No runtime capability is implemented or authorized by this crate.
+//! This adapter owns only mechanical Git resolution/materialization. Remote URLs,
+//! filesystem paths and Git object IDs are evidence/aliases, never A07 Object or
+//! Revision identity. A04 remains execution-proof authority and A07 remains the
+//! authority that accepts any repository projection into the Object graph.
 
-/// Records that this package is only a Phase 0C scaffold.
-pub const GIT_CLI_RUNTIME_AUTHORIZED: bool = false;
+mod provider;
+mod types;
+mod util;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scaffold_cannot_claim_runtime_authorization() {
-        assert!(!GIT_CLI_RUNTIME_AUTHORIZED);
-    }
-}
+pub use provider::{GitClock, GitProvider};
+pub use types::*;

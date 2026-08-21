@@ -1,0 +1,244 @@
+name: TEMP A13 prerequisite convergence proof
+
+on:
+  push:
+    branches:
+      - temp/a13-prereq-convergence-20260821
+  pull_request:
+    branches:
+      - a08-resumable-transfer-engine
+      - temp/a13-convergence-proof-base-20260821
+
+permissions:
+  contents: write
+
+jobs:
+  converge-and-prove:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact convergence head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Install exact Ptah Rust toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+          rustc +1.97.1 --version --verbose
+          cargo +1.97.1 --version
+          rustfmt +1.97.1 --version
+
+      - name: Normalize exact prerequisite union
+        id: normalize
+        shell: bash
+        run: |
+          set -euo pipefail
+          A08=d19bcf3e86373b2710fbf731e094a9a3f8e2a469
+          A09=76aed337fd62ee38b303cc435525d31a2b0d3581
+          A10=3f8ac79117d90502c7ba5c7f2a9f2c1a5c9a5465
+          A11=cf02bec49775479ede404f0a80d1aa5cd03742e5
+          A12=2e98ddccd99775e4e7fab61936b4b7f9b319c162
+          BRANCH=temp/a13-prereq-convergence-20260821
+
+          git fetch origin "$A09" "$A10" "$A11" "$A12"
+
+          if test "$(git rev-parse HEAD^)" = "$A08" \
+             && git diff --quiet "$A09" -- adapters/git-cli .github/workflows/a09-git-provider-proof.yml \
+             && git diff --quiet "$A10" -- adapters/container-oci \
+             && git diff --quiet "$A11" -- browser-provider crates/ptah-browser-runtime crates/ptah-provider-api .github/workflows/a11-browser-provider-proof.yml \
+             && git diff --quiet "$A12" -- adapters/decomposition-libarchive crates/ptah-archive-decomposition \
+             && python3 - <<'PY'
+          import tomllib
+          members=tomllib.load(open('Cargo.toml','rb'))['workspace']['members']
+          assert members.count('crates/ptah-browser-runtime') == 1
+          assert members.count('crates/ptah-archive-decomposition') == 1
+          PY
+          then
+            echo 'normalized=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          WORKFLOW="$(mktemp)"
+          cp .github/workflows/temp-a13-prereq-convergence.yml "$WORKFLOW"
+          git reset --hard "$A08"
+
+          git rm -r --ignore-unmatch \
+            adapters/git-cli \
+            adapters/container-oci \
+            adapters/decomposition-libarchive \
+            browser-provider \
+            crates/ptah-browser-runtime \
+            crates/ptah-provider-api \
+            crates/ptah-archive-decomposition \
+            .github/workflows/a09-git-provider-proof.yml \
+            .github/workflows/a11-browser-provider-proof.yml
+
+          git checkout "$A09" -- \
+            adapters/git-cli \
+            .github/workflows/a09-git-provider-proof.yml
+          git checkout "$A10" -- adapters/container-oci
+          git checkout "$A11" -- \
+            browser-provider \
+            crates/ptah-browser-runtime \
+            crates/ptah-provider-api \
+            .github/workflows/a11-browser-provider-proof.yml
+          git checkout "$A12" -- \
+            adapters/decomposition-libarchive \
+            crates/ptah-archive-decomposition
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Cargo.toml')
+          s=p.read_text()
+          anchor='  "crates/ptah-provider-api",\n'
+          assert anchor in s
+          assert 'crates/ptah-browser-runtime' not in s
+          assert 'crates/ptah-archive-decomposition' not in s
+          s=s.replace(anchor, anchor+'  "crates/ptah-browser-runtime",\n  "crates/ptah-archive-decomposition",\n', 1)
+          p.write_text(s)
+          PY
+
+          cargo +1.97.1 generate-lockfile
+          mkdir -p .github/workflows
+          cp "$WORKFLOW" .github/workflows/temp-a13-prereq-convergence.yml
+
+          git add -A Cargo.toml Cargo.lock \
+            adapters/git-cli adapters/container-oci adapters/decomposition-libarchive \
+            browser-provider crates/ptah-browser-runtime crates/ptah-provider-api \
+            crates/ptah-archive-decomposition \
+            .github/workflows/a09-git-provider-proof.yml \
+            .github/workflows/a11-browser-provider-proof.yml \
+            .github/workflows/temp-a13-prereq-convergence.yml
+          git config user.name 'Ptah proof automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git commit -m 'TEMP A13: converge frozen A09 A10 A11 A12 prerequisites'
+          test "$(git rev-parse HEAD^)" = "$A08"
+          git push --force origin "HEAD:$BRANCH"
+          echo 'normalized=true' >> "$GITHUB_OUTPUT"
+
+      - name: Verify exact donor subtrees
+        if: steps.normalize.outputs.normalized == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          A08=d19bcf3e86373b2710fbf731e094a9a3f8e2a469
+          A09=76aed337fd62ee38b303cc435525d31a2b0d3581
+          A10=3f8ac79117d90502c7ba5c7f2a9f2c1a5c9a5465
+          A11=cf02bec49775479ede404f0a80d1aa5cd03742e5
+          A12=2e98ddccd99775e4e7fab61936b4b7f9b319c162
+          git fetch origin "$A09" "$A10" "$A11" "$A12"
+          test "$(git rev-parse HEAD^)" = "$A08"
+          git diff --quiet "$A09" -- adapters/git-cli .github/workflows/a09-git-provider-proof.yml
+          git diff --quiet "$A10" -- adapters/container-oci
+          git diff --quiet "$A11" -- browser-provider crates/ptah-browser-runtime crates/ptah-provider-api .github/workflows/a11-browser-provider-proof.yml
+          git diff --quiet "$A12" -- adapters/decomposition-libarchive crates/ptah-archive-decomposition
+          python3 - <<'PY'
+          import tomllib
+          members=tomllib.load(open('Cargo.toml','rb'))['workspace']['members']
+          assert members.count('crates/ptah-browser-runtime') == 1
+          assert members.count('crates/ptah-archive-decomposition') == 1
+          PY
+
+      - name: Verify convergence scope
+        if: steps.normalize.outputs.normalized == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          A08=d19bcf3e86373b2710fbf731e094a9a3f8e2a469
+          git diff --name-only "$A08" HEAD > /tmp/changed
+          python3 - <<'PY'
+          allowed_prefixes=(
+            'adapters/git-cli/', 'adapters/container-oci/', 'adapters/decomposition-libarchive/',
+            'browser-provider/', 'crates/ptah-browser-runtime/', 'crates/ptah-archive-decomposition/'
+          )
+          allowed_files={
+            'Cargo.toml','Cargo.lock','crates/ptah-provider-api/src/lib.rs',
+            '.github/workflows/a09-git-provider-proof.yml',
+            '.github/workflows/a11-browser-provider-proof.yml',
+            '.github/workflows/temp-a13-prereq-convergence.yml'
+          }
+          changed=[line.strip() for line in open('/tmp/changed') if line.strip()]
+          unexpected=[p for p in changed if p not in allowed_files and not p.startswith(allowed_prefixes)]
+          assert not unexpected, unexpected
+          print('changed_files='+str(len(changed)))
+          PY
+
+      - name: Verify combined dependency universe
+        if: steps.normalize.outputs.normalized == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +1.97.1 metadata --locked --format-version 1 > /tmp/metadata.json
+          python3 - <<'PY'
+          import tomllib
+          packages=tomllib.load(open('Cargo.lock','rb'))['package']
+          registry=sum(str(p.get('source','')).startswith('registry+') for p in packages)
+          git=sum(str(p.get('source','')).startswith('git+') for p in packages)
+          names={p['name'] for p in packages}
+          for required in ('ptah-transfer','git-cli','container-oci','ptah-browser-runtime','ptah-archive-decomposition','decomposition-libarchive'):
+              assert required in names, required
+          assert registry == 97, registry
+          assert git == 0, git
+          print(f'resolved={len(packages)} registry={registry} git={git}')
+          PY
+          sha256sum Cargo.toml Cargo.lock
+
+      - name: Rust formatting and full union regression
+        if: steps.normalize.outputs.normalized == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +1.97.1 fmt --all -- --check
+          cargo +1.97.1 test --workspace --locked
+          COUNT="$(cargo +1.97.1 test --workspace --locked -- --list 2>/dev/null | awk '/: test$/ {n++} END {print n+0}')"
+          echo "WORKSPACE_TESTS=$COUNT" >> "$GITHUB_ENV"
+          echo "workspace_tests=$COUNT"
+
+      - name: Emit convergence proof
+        if: steps.normalize.outputs.normalized == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess,tomllib
+          packages=tomllib.load(open('Cargo.lock','rb'))['package']
+          proof={
+            'record_type':'ptah.phase0c.a13.prerequisite_convergence_proof',
+            'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+            'parent':subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip(),
+            'donors':{
+              'A09':'76aed337fd62ee38b303cc435525d31a2b0d3581',
+              'A10':'3f8ac79117d90502c7ba5c7f2a9f2c1a5c9a5465',
+              'A11':'cf02bec49775479ede404f0a80d1aa5cd03742e5',
+              'A12':'2e98ddccd99775e4e7fab61936b4b7f9b319c162'
+            },
+            'cargo_toml_sha256':hashlib.sha256(open('Cargo.toml','rb').read()).hexdigest(),
+            'cargo_lock_sha256':hashlib.sha256(open('Cargo.lock','rb').read()).hexdigest(),
+            'dependency_resolution':{
+              'resolved':len(packages),
+              'registry':sum(str(p.get('source','')).startswith('registry+') for p in packages),
+              'git':sum(str(p.get('source','')).startswith('git+') for p in packages)
+            },
+            'workspace_tests':int(os.environ['WORKSPACE_TESTS']),
+            'status':'prerequisite_union_proven'
+          }
+          out='/tmp/a13-prereq-convergence-proof.json'
+          open(out,'w').write(json.dumps(proof,indent=2,sort_keys=True)+'\n')
+          digest=hashlib.sha256(open(out,'rb').read()).hexdigest()
+          open('/tmp/a13-prereq-convergence-proof.sha256','w').write(digest+'  a13-prereq-convergence-proof.json\n')
+          print(json.dumps(proof,indent=2,sort_keys=True))
+          print('proof_sha256='+digest)
+          PY
+
+      - name: Upload convergence proof
+        if: steps.normalize.outputs.normalized == 'false'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a13-prereq-convergence-proof
+          path: |
+            /tmp/a13-prereq-convergence-proof.json
+            /tmp/a13-prereq-convergence-proof.sha256
+          if-no-files-found: error
+          retention-days: 7

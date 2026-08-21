@@ -22,3 +22,7 @@ path = "src/lib.rs"
 [[test]]
 name = "a09"
 path = "tests/a09.rs"
+
+[[test]]
+name = "a09_hardening"
+path = "tests/a09_hardening.rs"

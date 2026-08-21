@@ -12,27 +12,37 @@ pub(crate) fn detect_protocol(remote: &str) -> Result<GitProtocol, GitProviderEr
         return Err(GitProviderError::InvalidSpec("remote"));
     }
     if remote.starts_with("https://") {
-        reject_network_secret_surfaces(remote, "https://")?;
+        reject_network_secret_surfaces(remote, "https://", true)?;
         return Ok(GitProtocol::Https);
     }
     if remote.starts_with("ssh://") {
-        reject_network_secret_surfaces(remote, "ssh://")?;
+        reject_network_secret_surfaces(remote, "ssh://", false)?;
         return Ok(GitProtocol::Ssh);
     }
     if remote.starts_with("git://") {
-        reject_network_secret_surfaces(remote, "git://")?;
+        reject_network_secret_surfaces(remote, "git://", true)?;
         return Ok(GitProtocol::Git);
     }
     if remote.starts_with("file://") || Path::new(remote).is_absolute() {
         return Ok(GitProtocol::File);
     }
-    if remote.contains('@') && remote.contains(':') && !remote.contains("://") {
+    if !remote.contains("://")
+        && let Some((userinfo, host_path)) = remote.split_once('@')
+        && host_path.contains(':')
+    {
+        if userinfo.is_empty() || userinfo.contains(':') || remote.contains(['?', '#']) {
+            return Err(GitProviderError::EmbeddedCredential);
+        }
         return Ok(GitProtocol::Ssh);
     }
     Err(GitProviderError::ProtocolDenied)
 }
 
-fn reject_network_secret_surfaces(remote: &str, prefix: &str) -> Result<(), GitProviderError> {
+fn reject_network_secret_surfaces(
+    remote: &str,
+    prefix: &str,
+    reject_any_userinfo: bool,
+) -> Result<(), GitProviderError> {
     let rest = remote
         .strip_prefix(prefix)
         .ok_or(GitProviderError::InvalidSpec("remote"))?;
@@ -40,7 +50,9 @@ fn reject_network_secret_surfaces(remote: &str, prefix: &str) -> Result<(), GitP
         .split('/')
         .next()
         .ok_or(GitProviderError::InvalidSpec("remote"))?;
-    if authority.contains('@') && prefix == "https://" {
+    if let Some((userinfo, _)) = authority.rsplit_once('@')
+        && (reject_any_userinfo || userinfo.contains(':'))
+    {
         return Err(GitProviderError::EmbeddedCredential);
     }
     if rest.contains('?') || rest.contains('#') {
@@ -124,10 +136,11 @@ pub(crate) fn bounded_text(bytes: &[u8]) -> String {
 pub(crate) fn remote_label(remote: &str) -> String {
     let remote = remote.split_once('#').map_or(remote, |(value, _)| value);
     let remote = remote.split_once('?').map_or(remote, |(value, _)| value);
-    if let Some(rest) = remote.strip_prefix("ssh://")
-        && let Some((_, host_path)) = rest.split_once('@')
+    if let Some((scheme, rest)) = remote.split_once("://")
+        && matches!(scheme, "https" | "ssh" | "git")
+        && let Some((_, host_path)) = rest.rsplit_once('@')
     {
-        return format!("ssh://{host_path}");
+        return format!("{scheme}://{host_path}");
     }
     if !remote.contains("://")
         && let Some((_, host_path)) = remote.split_once('@')

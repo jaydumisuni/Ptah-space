@@ -1,5 +1,5 @@
 use crate::util::{
-    bounded_text, canonical_root, detect_protocol, remote_label, safe_new_destination,
+    OUTPUT_LIMIT, bounded_text, canonical_root, detect_protocol, remote_label, safe_new_destination,
     validate_commit_id,
 };
 use crate::{
@@ -12,10 +12,16 @@ use ptah_provider_api::{ProviderContext, ProviderInstance, ProviderRevision};
 use std::{
     collections::BTreeSet,
     fs,
+    io::{self, Read},
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
     sync::Arc,
+    thread::JoinHandle,
+    time::{Duration, Instant},
 };
+
+const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+const GIT_WAIT_POLL: Duration = Duration::from_millis(10);
 
 /// UTC observation clock used by the Git Provider.
 pub type GitClock = Arc<dyn Fn() -> String + Send + Sync>;
@@ -73,9 +79,13 @@ impl GitProvider {
 
     /// Resolve one remote/ref pair to an exact Git commit before materialization.
     ///
+    /// `spec.reference` must be `HEAD` or a fully qualified refname such as
+    /// `refs/heads/main` or `refs/tags/v1`; shorthand branch/tag names are not
+    /// accepted as exact resolution identities.
+    ///
     /// # Errors
-    /// Rejects denied protocols, embedded HTTP credentials, mismatched execution
-    /// context, ambiguous resolution, or Git command failure.
+    /// Rejects denied protocols, embedded network credentials, mismatched execution
+    /// context, ambiguous resolution, option-shaped operands, or Git command failure.
     pub fn resolve_source(
         &self,
         spec: &GitCloneSpec,
@@ -91,6 +101,7 @@ impl GitProvider {
         let args = vec![
             "ls-remote".to_owned(),
             "--exit-code".to_owned(),
+            "--".to_owned(),
             spec.remote.clone(),
             spec.reference.clone(),
             peeled_reference.clone(),
@@ -122,7 +133,7 @@ impl GitProvider {
     ///
     /// # Errors
     /// Rejects path escape, provider drift, denied metadata policy, clone failure,
-    /// or any exact-commit mismatch.
+    /// timeout, or any exact-commit mismatch.
     pub fn materialize_resolved(
         &self,
         spec: &GitCloneSpec,
@@ -154,8 +165,21 @@ impl GitProvider {
             }
             CloneMode::Mirror => clone_args.push("--mirror".to_owned()),
         }
-        clone_args.extend([spec.remote.clone(), target_text]);
-        let clone_output = self.run_git("clone", None, &clone_args, source.protocol)?;
+        clone_args.extend(["--".to_owned(), spec.remote.clone(), target_text]);
+        let clone_output = match self.run_git("clone", None, &clone_args, source.protocol) {
+            Ok(output) => output,
+            Err(GitProviderError::CommandTimeout { stage }) => {
+                return self.materialization_failure(
+                    spec,
+                    source,
+                    execution,
+                    &target,
+                    commands,
+                    GitMaterializationFailureKind::Timeout { stage },
+                );
+            }
+            Err(error) => return Err(error),
+        };
         commands.push(command_observation("clone", &clone_args, &clone_output));
         if !clone_output.status.success() {
             let failure = GitMaterializationFailureKind::Command {
@@ -305,13 +329,22 @@ impl GitProvider {
         commands: &mut Vec<GitCommandObservation>,
     ) -> Result<bool, GitProviderError> {
         let args = vec![
-            "cat-file".to_owned(),
-            "-e".to_owned(),
-            format!("{commit}:{path}"),
+            "ls-tree".to_owned(),
+            "-z".to_owned(),
+            "--name-only".to_owned(),
+            commit.to_owned(),
+            "--".to_owned(),
+            path.to_owned(),
         ];
         let output = self.run_git("inspect_tree_path", Some(repo), &args, protocol)?;
         commands.push(command_observation("inspect_tree_path", &args, &output));
-        Ok(output.status.success())
+        if !output.status.success() {
+            return Err(command_failure("inspect_tree_path", &output));
+        }
+        Ok(output
+            .stdout
+            .split(|byte| *byte == 0)
+            .any(|entry| entry == path.as_bytes()))
     }
 
     fn tree_references_lfs(
@@ -321,45 +354,39 @@ impl GitProvider {
         protocol: GitProtocol,
         commands: &mut Vec<GitCommandObservation>,
     ) -> Result<bool, GitProviderError> {
-        let list_args = vec![
-            "ls-tree".to_owned(),
-            "-r".to_owned(),
-            "--name-only".to_owned(),
+        let args = vec![
+            "grep".to_owned(),
+            "-q".to_owned(),
+            "-E".to_owned(),
+            "filter[[:space:]]*=[[:space:]]*lfs".to_owned(),
             commit.to_owned(),
+            "--".to_owned(),
+            ".gitattributes".to_owned(),
+            ":(glob)**/.gitattributes".to_owned(),
         ];
-        let output = self.run_git("list_tree", Some(repo), &list_args, protocol)?;
-        commands.push(command_observation("list_tree", &list_args, &output));
-        if !output.status.success() {
-            return Err(command_failure("list_tree", &output));
+        let output = self.run_git("inspect_lfs_attributes", Some(repo), &args, protocol)?;
+        commands.push(command_observation("inspect_lfs_attributes", &args, &output));
+        match output.status.code() {
+            Some(0) => Ok(true),
+            Some(1) => Ok(false),
+            _ => Err(command_failure("inspect_lfs_attributes", &output)),
         }
-        let paths: Vec<_> = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter(|path| path.ends_with(".gitattributes"))
-            .take(128)
-            .map(str::to_owned)
-            .collect();
-        for path in paths {
-            let args = vec!["show".to_owned(), format!("{commit}:{path}")];
-            let attributes = self.run_git("inspect_attributes", Some(repo), &args, protocol)?;
-            commands.push(command_observation(
-                "inspect_attributes",
-                &args,
-                &attributes,
-            ));
-            if attributes.status.success()
-                && String::from_utf8_lossy(&attributes.stdout).contains("filter=lfs")
-            {
-                return Ok(true);
-            }
-        }
-        Ok(false)
     }
 
     fn validate_spec(&self, spec: &GitCloneSpec) -> Result<(), GitProviderError> {
+        if spec.remote.trim() != spec.remote
+            || spec.remote.is_empty()
+            || spec.remote.len() > 4096
+            || spec.remote.starts_with('-')
+        {
+            return Err(GitProviderError::InvalidSpec("remote"));
+        }
         if spec.reference.trim().is_empty()
             || spec.reference.len() > 1024
+            || spec.reference.starts_with('-')
             || spec.reference.chars().any(char::is_whitespace)
             || spec.reference.contains(['*', '?', '['])
+            || (spec.reference != "HEAD" && !spec.reference.starts_with("refs/"))
         {
             return Err(GitProviderError::InvalidSpec("reference"));
         }
@@ -424,14 +451,86 @@ impl GitProvider {
         command.arg("-c").arg("filter.lfs.required=false");
         command.arg("-c").arg("submodule.recurse=false");
         command.args(args);
+        command.stdin(Stdio::null());
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
         if let Some(cwd) = cwd {
             command.current_dir(cwd);
         }
-        let output = command.output()?;
-        let _ = stage;
+        let output = run_command_with_timeout(command, GIT_COMMAND_TIMEOUT, stage)?;
         let _ = protocol;
         Ok(output)
     }
+}
+
+fn run_command_with_timeout(
+    mut command: Command,
+    timeout: Duration,
+    stage: &str,
+) -> Result<Output, GitProviderError> {
+    let mut child = command.spawn()?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| io::Error::other("Git stdout pipe unavailable"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| io::Error::other("Git stderr pipe unavailable"))?;
+    let stdout_reader = spawn_bounded_reader(stdout);
+    let stderr_reader = spawn_bounded_reader(stderr);
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = join_reader(stdout_reader, "stdout");
+            let _ = join_reader(stderr_reader, "stderr");
+            return Err(GitProviderError::CommandTimeout {
+                stage: stage.to_owned(),
+            });
+        }
+        std::thread::sleep(GIT_WAIT_POLL);
+    };
+    Ok(Output {
+        status,
+        stdout: join_reader(stdout_reader, "stdout")?,
+        stderr: join_reader(stderr_reader, "stderr")?,
+    })
+}
+
+fn spawn_bounded_reader<R>(mut reader: R) -> JoinHandle<io::Result<Vec<u8>>>
+where
+    R: Read + Send + 'static,
+{
+    std::thread::spawn(move || {
+        let mut retained = Vec::with_capacity(OUTPUT_LIMIT.min(16 * 1024));
+        let mut buffer = [0_u8; 16 * 1024];
+        loop {
+            let read = reader.read(&mut buffer)?;
+            if read == 0 {
+                break;
+            }
+            if retained.len() < OUTPUT_LIMIT {
+                let keep = (OUTPUT_LIMIT - retained.len()).min(read);
+                retained.extend_from_slice(&buffer[..keep]);
+            }
+        }
+        Ok(retained)
+    })
+}
+
+fn join_reader(
+    handle: JoinHandle<io::Result<Vec<u8>>>,
+    stream: &'static str,
+) -> Result<Vec<u8>, GitProviderError> {
+    handle
+        .join()
+        .map_err(|_| io::Error::other(format!("Git {stream} reader thread panicked")))?
+        .map_err(GitProviderError::from)
 }
 
 fn resolve_remote_commit(
@@ -488,6 +587,9 @@ fn expected_materialization_failure(
             exit_code: *exit_code,
             stderr: stderr.clone(),
         }),
+        GitProviderError::CommandTimeout { stage } => Some(GitMaterializationFailureKind::Timeout {
+            stage: stage.clone(),
+        }),
         GitProviderError::CommitMismatch => Some(GitMaterializationFailureKind::CommitMismatch),
         GitProviderError::SubmoduleDenied => Some(GitMaterializationFailureKind::SubmoduleDenied),
         GitProviderError::LfsDenied => Some(GitMaterializationFailureKind::LfsDenied),
@@ -514,8 +616,45 @@ fn command_failure(stage: &str, output: &Output) -> GitProviderError {
 }
 
 fn sanitize_arg(value: &str) -> String {
-    if value.starts_with("https://") {
+    if value.starts_with("https://")
+        || value.starts_with("ssh://")
+        || value.starts_with("git://")
+        || (!value.contains("://") && value.contains('@') && value.contains(':'))
+    {
         return remote_label(value);
     }
     value.to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timeout_helper_kills_a_stalled_process() {
+        let mut command = Command::new("sh");
+        command.arg("-c").arg("sleep 5");
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        let result = run_command_with_timeout(command, Duration::from_millis(25), "timeout-test");
+        assert!(matches!(
+            result,
+            Err(GitProviderError::CommandTimeout { stage }) if stage == "timeout-test"
+        ));
+    }
+
+    #[test]
+    fn network_arguments_are_sanitized_for_retained_evidence() {
+        assert_eq!(
+            sanitize_arg("ssh://user@example.invalid/repo.git"),
+            "ssh://example.invalid/repo.git"
+        );
+        assert_eq!(
+            sanitize_arg("user@example.invalid:repo.git"),
+            "example.invalid:repo.git"
+        );
+        assert_eq!(
+            sanitize_arg("git://example.invalid/repo.git"),
+            "git://example.invalid/repo.git"
+        );
+    }
 }

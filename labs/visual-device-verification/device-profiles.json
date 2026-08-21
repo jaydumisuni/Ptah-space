@@ -1,0 +1,78 @@
+{
+  "schema": "ptah.visual-device-profiles.v0",
+  "status": "experimental",
+  "profiles": [
+    {
+      "id": "iphone-13-mini",
+      "family": "iphone",
+      "name": "iPhone 13 mini",
+      "cssViewport": { "width": 375, "height": 812 },
+      "safeArea": { "top": 50, "bottom": 34 },
+      "screenCutout": { "type": "notch" },
+      "keyboardApproxHeight": 291
+    },
+    {
+      "id": "iphone-13-14",
+      "family": "iphone",
+      "name": "iPhone 13 / 14",
+      "cssViewport": { "width": 390, "height": 844 },
+      "safeArea": { "top": 47, "bottom": 34 },
+      "screenCutout": { "type": "notch" },
+      "keyboardApproxHeight": 291
+    },
+    {
+      "id": "iphone-13-pro-max-14-plus",
+      "family": "iphone",
+      "name": "iPhone 13 Pro Max / 14 Plus",
+      "cssViewport": { "width": 428, "height": 926 },
+      "safeArea": { "top": 47, "bottom": 34 },
+      "screenCutout": { "type": "notch" },
+      "keyboardApproxHeight": 301
+    },
+    {
+      "id": "iphone-14-pro",
+      "family": "iphone",
+      "name": "iPhone 14 Pro",
+      "cssViewport": { "width": 393, "height": 852 },
+      "safeArea": { "top": 59, "bottom": 34 },
+      "screenCutout": { "type": "dynamic-island" },
+      "keyboardApproxHeight": 291
+    },
+    {
+      "id": "iphone-15-pro",
+      "family": "iphone",
+      "name": "iPhone 15 / 15 Pro",
+      "cssViewport": { "width": 393, "height": 852 },
+      "safeArea": { "top": 59, "bottom": 34 },
+      "screenCutout": { "type": "dynamic-island" },
+      "keyboardApproxHeight": 291
+    },
+    {
+      "id": "iphone-15-pro-max",
+      "family": "iphone",
+      "name": "iPhone 15 Plus / Pro Max",
+      "cssViewport": { "width": 430, "height": 932 },
+      "safeArea": { "top": 59, "bottom": 34 },
+      "screenCutout": { "type": "dynamic-island" },
+      "keyboardApproxHeight": 301
+    },
+    {
+      "id": "iphone-16-pro",
+      "family": "iphone",
+      "name": "iPhone 16 Pro",
+      "cssViewport": { "width": 402, "height": 874 },
+      "safeArea": { "top": 62, "bottom": 34 },
+      "screenCutout": { "type": "dynamic-island" },
+      "keyboardApproxHeight": 296
+    },
+    {
+      "id": "iphone-16-pro-max",
+      "family": "iphone",
+      "name": "iPhone 16 Pro Max",
+      "cssViewport": { "width": 440, "height": 956 },
+      "safeArea": { "top": 62, "bottom": 34 },
+      "screenCutout": { "type": "dynamic-island" },
+      "keyboardApproxHeight": 306
+    }
+  ]
+}

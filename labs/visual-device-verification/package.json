@@ -1,0 +1,12 @@
+{
+  "name": "ptah-visual-device-verification-lab",
+  "private": true,
+  "version": "0.1.0-experimental",
+  "type": "module",
+  "scripts": {
+    "capture": "node capture.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.0"
+  }
+}

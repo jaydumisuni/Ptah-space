@@ -59,12 +59,12 @@ jobs:
             browser-provider/src/server.mjs \
             browser-provider/test/playwright-qualification.test.mjs \
             browser-provider/test/provider-core.test.mjs \
-            browser-provider/test/scaffold.test.mjs \
             crates/ptah-browser-runtime/Cargo.toml \
             crates/ptah-browser-runtime/README.md \
             crates/ptah-browser-runtime/src/lib.rs \
             crates/ptah-browser-runtime/tests/a11.rs \
             crates/ptah-provider-api/src/lib.rs
+          rm -f browser-provider/test/scaffold.test.mjs
           rm .github/workflows/temp-a11-convergence.yml
           cargo generate-lockfile
           git add -A
@@ -132,7 +132,8 @@ jobs:
         run: |
           set -euo pipefail
           BASE='${{ github.event.pull_request.base.sha }}'
-          test -z "$(git status --porcelain=v1 --untracked-files=all | grep -v '^M  ' || true)"
+          git diff --cached --name-only "$BASE" | sort > /tmp/a11-pre-freeze
+          diff -u /tmp/a11-expected /tmp/a11-pre-freeze
           tree=$(git write-tree)
           export GIT_AUTHOR_NAME='THETECHGUY DIGITAL SOLUTIONS'
           export GIT_AUTHOR_EMAIL='noreply@thetechguyds.com'
@@ -187,7 +188,7 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/a11-proof
           python - <<'PY'
-          import hashlib,json,subprocess
+          import hashlib,json
           from pathlib import Path
           def h(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
           payload={

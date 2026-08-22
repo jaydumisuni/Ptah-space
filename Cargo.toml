@@ -14,6 +14,7 @@ members = [
   "crates/ptah-provider-api",
   "crates/ptah-browser-runtime",
   "crates/ptah-checkpoint",
+  "crates/ptah-archive-decomposition",
   "services/ptah-node",
   "services/ptah-control",
   "adapters/container-oci",

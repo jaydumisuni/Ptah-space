@@ -109,6 +109,13 @@ dependencies = [
 [[package]]
 name = "decomposition-libarchive"
 version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-archive-decomposition",
+ "ptah-identifiers",
+ "ptah-object-store",
+ "sha2",
+ "thiserror 2.0.17",
+]
 
 [[package]]
 name = "digest"
@@ -424,6 +431,21 @@ dependencies = [
  "ptah-receipts",
  "serde",
  "serde_json",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "ptah-archive-decomposition"
+version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-activity-runtime",
+ "ptah-identifiers",
+ "ptah-ledger",
+ "ptah-object-store",
+ "ptah-receipts",
+ "rusqlite",
+ "serde_json",
+ "sha2",
  "thiserror 2.0.17",
 ]
 

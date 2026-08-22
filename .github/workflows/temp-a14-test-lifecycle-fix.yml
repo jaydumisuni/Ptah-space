@@ -1,0 +1,58 @@
+name: TEMP A14 test lifecycle correction
+
+on:
+  pull_request:
+    branches:
+      - temp/a14-test-lifecycle-fix-base-20260822
+
+permissions:
+  contents: write
+
+jobs:
+  correct:
+    if: github.head_ref == 'a14-human-alpha-control-surface'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out A14 work branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Correct physical HTTP test socket lifecycle
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('services/ptah-control/src/server.rs')
+          text = path.read_text()
+          old = '''        server
+            .handle_connection(&mut server_stream)
+            .expect("single test request must produce a response");
+
+        let mut response = String::new();
+'''
+          new = '''        server
+            .handle_connection(&mut server_stream)
+            .expect("single test request must produce a response");
+        drop(server_stream);
+
+        let mut response = String::new();
+'''
+          assert text.count(old) == 1, 'expected A14 physical HTTP lifecycle site was not unique'
+          path.write_text(text.replace(old, new))
+          PY
+          git diff --check
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          cargo fmt --all -- --check
+          cargo test -p ptah-control physical_http_boundary_rejects_untrusted_host_origin_and_missing_host --locked
+
+      - name: Commit reviewed correction to work branch
+        run: |
+          set -euo pipefail
+          git config user.name 'THETECHGUY DIGITAL SOLUTIONS'
+          git config user.email 'noreply@thetechguyds.com'
+          git add services/ptah-control/src/server.rs
+          git commit -m 'A14 review: close physical HTTP test socket before EOF read'
+          git push origin HEAD:a14-human-alpha-control-surface

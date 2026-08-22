@@ -1,0 +1,52 @@
+name: TEMP A10 convergence lock generation
+
+on:
+  pull_request:
+    paths:
+      - "adapters/container-oci/**"
+      - ".github/workflows/temp-a10-convergence-lock.yml"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  generate-and-prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Install Rust 1.97.1
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+      - name: Generate converged lock
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          python tools/check_rust_dependency_lock.py --output /tmp/dependency-lock-report.json
+          python - <<'PY'
+          import json
+          p=json.load(open('/tmp/dependency-lock-report.json'))
+          assert p['git_dependency_count']==0,p
+          PY
+          cargo fmt --all -- --check
+          cargo clippy -p container-oci --all-targets --all-features --locked -- -D warnings
+          test "$(cargo test -p container-oci --locked -- --list | grep -c ': test$')" -eq 19
+          cargo test -p container-oci --locked
+          cargo test --workspace --locked
+          mkdir -p /tmp/a10-convergence
+          cp Cargo.lock /tmp/a10-convergence/Cargo.lock
+          sha256sum Cargo.lock > /tmp/a10-convergence/Cargo.lock.sha256
+          cp /tmp/dependency-lock-report.json /tmp/a10-convergence/
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a10-converged-lock-${{ github.event.pull_request.head.sha }}
+          path: /tmp/a10-convergence/
+          if-no-files-found: error
+          retention-days: 7

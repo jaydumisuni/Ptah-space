@@ -1,17 +1,17 @@
 #![forbid(unsafe_code)]
-//! Non-claiming Phase 0C boundary for `container-oci`.
+//! A10 OCI container Provider.
 //!
-//! No runtime capability is implemented or authorized by this crate.
+//! This adapter owns bounded mechanical OCI execution policy and evidence. An
+//! image name/tag, container ID, socket path or backend process ID remains an
+//! alias/evidence fact and never becomes canonical Ptah identity. Exact image
+//! digest, Provider/Node generations, A04 Attempt context, isolation grants,
+//! resource bounds, output and independently observed workload completion remain
+//! separate facts.
 
-/// Records that this package is only a Phase 0C scaffold.
-pub const CONTAINER_OCI_RUNTIME_AUTHORIZED: bool = false;
+mod backend;
+mod provider;
+mod types;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scaffold_cannot_claim_runtime_authorization() {
-        assert!(!CONTAINER_OCI_RUNTIME_AUTHORIZED);
-    }
-}
+pub use backend::{ContainerdCliBackend, OciClock};
+pub use provider::OciProvider;
+pub use types::*;

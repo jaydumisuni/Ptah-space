@@ -29,21 +29,27 @@ jobs:
         run: |
           set -euo pipefail
           cargo generate-lockfile
-          python tools/check_rust_dependency_lock.py --output /tmp/dependency-lock-report.json
-          python - <<'PY'
-          import json
-          p=json.load(open('/tmp/dependency-lock-report.json'))
-          assert p['git_dependency_count']==0,p
-          PY
-          cargo fmt --all -- --check
-          cargo clippy -p container-oci --all-targets --all-features --locked -- -D warnings
-          test "$(cargo test -p container-oci --locked -- --list | grep -c ': test$')" -eq 19
-          cargo test -p container-oci --locked
-          cargo test --workspace --locked
           mkdir -p /tmp/a10-convergence
           cp Cargo.lock /tmp/a10-convergence/Cargo.lock
           sha256sum Cargo.lock > /tmp/a10-convergence/Cargo.lock.sha256
-          cp /tmp/dependency-lock-report.json /tmp/a10-convergence/
+          python tools/check_rust_dependency_lock.py --output /tmp/a10-convergence/dependency-lock-report.json
+          python - <<'PY'
+          import json
+          p=json.load(open('/tmp/a10-convergence/dependency-lock-report.json'))
+          assert p['git_dependency_count']==0,p
+          assert p['resolved_package_count']==116,p
+          assert p['registry_package_count']==97,p
+          PY
+          cargo fmt --all -- --check
+          cargo clippy -p container-oci --all-targets --all-features --locked -- -D warnings
+          a10_count=$(cargo test -p container-oci --locked -- --list | grep -c ': test$')
+          test "$a10_count" -eq 18
+          cargo test -p container-oci --locked
+          workspace_count=$(cargo test --workspace --locked -- --list | grep -c ': test$')
+          test "$workspace_count" -gt 0
+          echo "$a10_count" > /tmp/a10-convergence/a10-test-count.txt
+          echo "$workspace_count" > /tmp/a10-convergence/workspace-test-count.txt
+          cargo test --workspace --locked
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: a10-converged-lock-${{ github.event.pull_request.head.sha }}

@@ -1,4 +1,4 @@
-name: TEMP A10 convergence lock generation
+name: TEMP A10 convergence finalize
 
 on:
   pull_request:
@@ -7,52 +7,137 @@ on:
       - ".github/workflows/temp-a10-convergence-lock.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
+  CTR_ARCHIVE_SHA256: 628448bd973610c656c1cbea8e88b32fafd85b23cc1aa4a3372eb7198478c054
+  CTR_BINARY_SHA256: adb91679d414d86b09bfff2b0091b6de0a1ab9af8fba44ceab0f5a1f40f77817
+  RUNC_BINARY_SHA256: ac8a90f9e225bb9322189937b230cdc5478d5753f0e31e1bda98a5cf06bd9539
 
 jobs:
-  generate-and-prove:
+  finalize:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Check out disposable convergence head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
+          fetch-depth: 0
+          persist-credentials: true
+
       - name: Install Rust 1.97.1
         run: |
           rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
           rustup default 1.97.1
-      - name: Generate converged lock
+          rustc -Vv
+          cargo -V
+
+      - name: Generate and prove converged dependency universe
         run: |
           set -euo pipefail
+          test "${{ github.event.pull_request.base.ref }}" = main
+          test "$(git rev-parse '${{ github.event.pull_request.base.sha }}')" = "${{ github.event.pull_request.base.sha }}"
           cargo generate-lockfile
-          mkdir -p /tmp/a10-convergence
-          cp Cargo.lock /tmp/a10-convergence/Cargo.lock
-          sha256sum Cargo.lock > /tmp/a10-convergence/Cargo.lock.sha256
-          python tools/check_rust_dependency_lock.py --output /tmp/a10-convergence/dependency-lock-report.json
+          test "$(sha256sum Cargo.lock | awk '{print $1}')" = b063596c7ba318b795efb2c2e2e46d2275a4924da400e709ad7c90157597a51d
+          python tools/check_rust_dependency_lock.py --output /tmp/dependency-lock-report.json
           python - <<'PY'
           import json
-          p=json.load(open('/tmp/a10-convergence/dependency-lock-report.json'))
+          p=json.load(open('/tmp/dependency-lock-report.json'))
           assert p['git_dependency_count']==0,p
           assert p['resolved_package_count']==116,p
           assert p['registry_package_count']==97,p
           PY
           cargo fmt --all -- --check
           cargo clippy -p container-oci --all-targets --all-features --locked -- -D warnings
-          a10_count=$(cargo test -p container-oci --locked -- --list | grep -c ': test$')
-          test "$a10_count" -eq 18
+          test "$(cargo test -p container-oci --locked -- --list | grep -c ': test$')" -eq 18
           cargo test -p container-oci --locked
-          workspace_count=$(cargo test --workspace --locked -- --list | grep -c ': test$')
-          test "$workspace_count" -gt 0
-          echo "$a10_count" > /tmp/a10-convergence/a10-test-count.txt
-          echo "$workspace_count" > /tmp/a10-convergence/workspace-test-count.txt
+          test "$(cargo test --workspace --locked -- --list | grep -c ': test$')" -eq 205
           cargo test --workspace --locked
+
+      - name: Qualify exact locked runtime artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a10-runtime
+          curl -fLssS https://github.com/containerd/containerd/releases/download/v2.3.1/containerd-2.3.1-linux-amd64.tar.gz -o /tmp/a10-runtime/containerd.tgz
+          test "$(sha256sum /tmp/a10-runtime/containerd.tgz | awk '{print $1}')" = "$CTR_ARCHIVE_SHA256"
+          tar -xzf /tmp/a10-runtime/containerd.tgz -C /tmp/a10-runtime bin/ctr
+          test "$(sha256sum /tmp/a10-runtime/bin/ctr | awk '{print $1}')" = "$CTR_BINARY_SHA256"
+          curl -fLssS https://github.com/opencontainers/runc/releases/download/v1.4.2/runc.amd64 -o /tmp/a10-runtime/runc
+          chmod +x /tmp/a10-runtime/runc
+          test "$(sha256sum /tmp/a10-runtime/runc | awk '{print $1}')" = "$RUNC_BINARY_SHA256"
+          /tmp/a10-runtime/bin/ctr --version | grep -Eq '(^|[[:space:]])v?2\.3\.1([[:space:]]|$)'
+          /tmp/a10-runtime/runc --version | head -1 | grep -Eq '(^|[[:space:]])v?1\.4\.2([[:space:]]|$)'
+          grep -q "$CTR_BINARY_SHA256" adapters/container-oci/src/backend.rs
+          grep -q "$RUNC_BINARY_SHA256" adapters/container-oci/src/types.rs
+
+      - name: Construct clean A10 commit directly on accepted main
+        id: clean
+        run: |
+          set -euo pipefail
+          BASE_SHA='${{ github.event.pull_request.base.sha }}'
+          rm .github/workflows/temp-a10-convergence-lock.yml
+          git add -A
+          printf '%s\n' Cargo.lock adapters/container-oci/Cargo.toml adapters/container-oci/src/backend.rs adapters/container-oci/src/lib.rs adapters/container-oci/src/provider.rs adapters/container-oci/src/types.rs adapters/container-oci/tests/a10_acceptance.rs | sort > /tmp/expected
+          git diff --cached --name-only "$BASE_SHA" | sort > /tmp/actual
+          diff -u /tmp/expected /tmp/actual
+          git diff --cached --check "$BASE_SHA"
+          tree=$(git write-tree)
+          export GIT_AUTHOR_NAME='THETECHGUY DIGITAL SOLUTIONS'
+          export GIT_AUTHOR_EMAIL='noreply@thetechguyds.com'
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+          export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+          commit=$(printf '%s\n' 'A10 — Hardened OCI Container Provider convergence' | git commit-tree "$tree" -p "$BASE_SHA")
+          test "$(git rev-parse "$commit^")" = "$BASE_SHA"
+          git push origin "$commit:refs/heads/a10-oci-container-provider" --force
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+
+      - name: Prove exact pushed A10 head
+        run: |
+          set -euo pipefail
+          commit='${{ steps.clean.outputs.commit }}'
+          tree='${{ steps.clean.outputs.tree }}'
+          BASE_SHA='${{ github.event.pull_request.base.sha }}'
+          git checkout --detach "$commit"
+          test "$(git rev-parse HEAD)" = "$commit"
+          test "$(git rev-parse HEAD^{tree})" = "$tree"
+          test "$(git ls-remote origin refs/heads/a10-oci-container-provider | awk '{print $1}')" = "$commit"
+          printf '%s\n' Cargo.lock adapters/container-oci/Cargo.toml adapters/container-oci/src/backend.rs adapters/container-oci/src/lib.rs adapters/container-oci/src/provider.rs adapters/container-oci/src/types.rs adapters/container-oci/tests/a10_acceptance.rs | sort > /tmp/expected
+          git diff --name-only "$BASE_SHA" "$commit" | sort > /tmp/actual
+          diff -u /tmp/expected /tmp/actual
+          test "$(sha256sum Cargo.lock | awk '{print $1}')" = b063596c7ba318b795efb2c2e2e46d2275a4924da400e709ad7c90157597a51d
+          python tools/check_rust_dependency_lock.py --output /tmp/exact-dependency-lock-report.json
+          cargo fmt --all -- --check
+          cargo clippy -p container-oci --all-targets --all-features --locked -- -D warnings
+          test "$(cargo test -p container-oci --locked -- --list | grep -c ': test$')" -eq 18
+          cargo test -p container-oci --locked
+          test "$(cargo test --workspace --locked -- --list | grep -c ': test$')" -eq 205
+          cargo test --workspace --locked
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Retain clean convergence proof
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a10-proof
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          commit='${{ steps.clean.outputs.commit }}'
+          tree='${{ steps.clean.outputs.tree }}'
+          base='${{ github.event.pull_request.base.sha }}'
+          paths=['Cargo.lock','adapters/container-oci/Cargo.toml','adapters/container-oci/src/backend.rs','adapters/container-oci/src/lib.rs','adapters/container-oci/src/provider.rs','adapters/container-oci/src/types.rs','adapters/container-oci/tests/a10_acceptance.rs']
+          def h(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          payload={'record_type':'ptah.phase0c.a10.accepted_main_convergence','schema_version':'0.1.0','candidate_commit':commit,'candidate_tree':tree,'accepted_main_parent':base,'files':{p:h(p) for p in paths},'cargo_lock_sha256':h('Cargo.lock'),'rust':'1.97.1','dependency_resolution':{'resolved':116,'registry':97,'git':0},'a10_tests':18,'workspace_tests':205,'ctr_archive_sha256':'628448bd973610c656c1cbea8e88b32fafd85b23cc1aa4a3372eb7198478c054','ctr_binary_sha256':'adb91679d414d86b09bfff2b0091b6de0a1ab9af8fba44ceab0f5a1f40f77817','runc_binary_sha256':'ac8a90f9e225bb9322189937b230cdc5478d5753f0e31e1bda98a5cf06bd9539','status':'exact_head_convergence_proven'}
+          Path('/tmp/a10-proof/proof.json').write_text(json.dumps(payload,indent=2,sort_keys=True)+'\n')
+          PY
+          sha256sum /tmp/a10-proof/proof.json > /tmp/a10-proof/proof.sha256
+          cp /tmp/exact-dependency-lock-report.json /tmp/a10-proof/
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: a10-converged-lock-${{ github.event.pull_request.head.sha }}
-          path: /tmp/a10-convergence/
+          name: a10-clean-convergence-${{ steps.clean.outputs.commit }}
+          path: /tmp/a10-proof/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30

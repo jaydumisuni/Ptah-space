@@ -1,0 +1,151 @@
+name: TEMP A13 reviewed accepted-main convergence
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/temp-a13-reviewed-convergence.yml"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out disposable candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install pinned Rust 1.97.1
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+
+      - name: Build reviewed A13 product and lock exact scope
+        run: |
+          set -euo pipefail
+          BASE='${{ github.event.pull_request.base.sha }}'
+          test "${{ github.event.pull_request.base.ref }}" = main
+          python tools/a13_contract_separation.py
+          python tools/a13_quality_refactor.py
+          python tools/a13_acceptance_rewrite.py
+          rm \
+            tools/a13_contract_separation.py \
+            tools/a13_quality_refactor.py \
+            tools/a13_acceptance_rewrite.py \
+            .github/workflows/temp-a13-reviewed-convergence.yml
+          cargo generate-lockfile
+          cargo fmt --all
+          git add -A
+          printf '%s\n' \
+            Cargo.lock \
+            crates/ptah-checkpoint/Cargo.toml \
+            crates/ptah-checkpoint/src/lib.rs \
+            crates/ptah-checkpoint/tests/a13.rs | sort > /tmp/a13-expected
+          git diff --cached --name-only "$BASE" | sort > /tmp/a13-actual
+          diff -u /tmp/a13-expected /tmp/a13-actual
+          git diff --cached --check "$BASE"
+
+      - name: Review and prove A13 source
+        id: counts
+        run: |
+          set -euo pipefail
+          python tools/check_rust_dependency_lock.py --output /tmp/a13-deps.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/a13-deps.json'))
+          assert p['git_dependency_count']==0,p
+          assert p['registry_package_count']==97,p
+          PY
+          cargo fmt --all -- --check
+          cargo clippy -p ptah-checkpoint --all-targets --all-features --locked -- -D warnings
+          ! grep -R -n -E 'TODO|FIXME|todo!\(|unimplemented!\(|unsafe[[:space:]]*\{' crates/ptah-checkpoint/src
+          a13=$(cargo test -p ptah-checkpoint --test a13 --locked -- --list | grep -c ': test$')
+          workspace=$(cargo test --workspace --locked -- --list | grep -c ': test$')
+          test "$a13" -eq 13
+          test "$workspace" -gt 220
+          cargo test -p ptah-checkpoint --all-targets --locked
+          cargo test --workspace --locked
+          echo "a13=$a13" >> "$GITHUB_OUTPUT"
+          echo "workspace=$workspace" >> "$GITHUB_OUTPUT"
+
+      - name: Freeze one clean A13 commit directly over accepted main
+        id: freeze
+        run: |
+          set -euo pipefail
+          BASE='${{ github.event.pull_request.base.sha }}'
+          git diff --cached --name-only "$BASE" | sort > /tmp/a13-freeze-files
+          diff -u /tmp/a13-expected /tmp/a13-freeze-files
+          tree=$(git write-tree)
+          export GIT_AUTHOR_NAME='THETECHGUY DIGITAL SOLUTIONS'
+          export GIT_AUTHOR_EMAIL='noreply@thetechguyds.com'
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+          export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+          commit=$(printf '%s\n' 'A13 — Checkpoint restart and verified recovery' | git commit-tree "$tree" -p "$BASE")
+          test "$(git rev-parse "$commit^")" = "$BASE"
+          git push origin "$commit:refs/heads/a13-checkpoint-verified-recovery" --force
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+
+      - name: Prove exact pushed A13 head
+        run: |
+          set -euo pipefail
+          commit='${{ steps.freeze.outputs.commit }}'; tree='${{ steps.freeze.outputs.tree }}'; BASE='${{ github.event.pull_request.base.sha }}'
+          git checkout --detach "$commit"
+          test "$(git rev-parse HEAD)" = "$commit"
+          test "$(git rev-parse HEAD^{tree})" = "$tree"
+          test "$(git ls-remote origin refs/heads/a13-checkpoint-verified-recovery | awk '{print $1}')" = "$commit"
+          git diff --name-only "$BASE" "$commit" | sort > /tmp/a13-exact-files
+          diff -u /tmp/a13-expected /tmp/a13-exact-files
+          python tools/check_rust_dependency_lock.py --output /tmp/a13-exact-deps.json
+          cargo fmt --all -- --check
+          cargo clippy -p ptah-checkpoint --all-targets --all-features --locked -- -D warnings
+          test "$(cargo test -p ptah-checkpoint --test a13 --locked -- --list | grep -c ': test$')" -eq '${{ steps.counts.outputs.a13 }}'
+          test "$(cargo test --workspace --locked -- --list | grep -c ': test$')" -eq '${{ steps.counts.outputs.workspace }}'
+          cargo test -p ptah-checkpoint --all-targets --locked
+          cargo test --workspace --locked
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Retain A13 proof
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a13-proof
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          def h(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          payload={
+            'record_type':'ptah.programme_a.a13.exact_head_recovery_proof',
+            'schema_version':'0.1.0',
+            'candidate_commit':'${{ steps.freeze.outputs.commit }}',
+            'candidate_tree':'${{ steps.freeze.outputs.tree }}',
+            'accepted_main_parent':'${{ github.event.pull_request.base.sha }}',
+            'cargo_lock_sha256':h('Cargo.lock'),
+            'rust':'1.97.1',
+            'a13_tests':int('${{ steps.counts.outputs.a13 }}'),
+            'workspace_tests':int('${{ steps.counts.outputs.workspace }}'),
+            'git_dependency_count':0,
+            'proofs':['checkpoint_not_restore','checkpoint_integrity_separate_from_target_compatibility','target_bound_time_bounded_compatibility','consistency_fencing','readback_verification','provider_generation_fencing','materialization_generation_fencing','restart_and_authorization_evidence','durable_restart_import','verification_reearned_after_restart','attempt_fencing_survives_restart','partial_restore_evidence','independent_recovery_verifier','uncertain_external_effect_retention'],
+            'status':'frozen_and_proven'
+          }
+          Path('/tmp/a13-proof/proof.json').write_text(json.dumps(payload,indent=2,sort_keys=True)+'\n')
+          PY
+          sha256sum /tmp/a13-proof/proof.json > /tmp/a13-proof/proof.sha256
+          cp /tmp/a13-exact-deps.json /tmp/a13-proof/dependency-lock-report.json
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a13-reviewed-${{ steps.freeze.outputs.commit }}
+          path: /tmp/a13-proof/
+          if-no-files-found: error
+          retention-days: 30

@@ -31,12 +31,19 @@ jobs:
           rustc -V | grep -q '^rustc 1.97.1 '
           cargo -V | grep -q '^cargo 1.97.1 '
 
-      - name: Normalize accepted-main candidate and lock exact scope
+      - name: Build reviewed A13 product and lock exact scope
         run: |
           set -euo pipefail
           BASE='${{ github.event.pull_request.base.sha }}'
           test "${{ github.event.pull_request.base.ref }}" = main
-          rm .github/workflows/temp-a13-reviewed-convergence.yml
+          python tools/a13_contract_separation.py
+          python tools/a13_quality_refactor.py
+          python tools/a13_acceptance_rewrite.py
+          rm \
+            tools/a13_contract_separation.py \
+            tools/a13_quality_refactor.py \
+            tools/a13_acceptance_rewrite.py \
+            .github/workflows/temp-a13-reviewed-convergence.yml
           cargo generate-lockfile
           cargo fmt --all
           git add -A
@@ -128,7 +135,7 @@ jobs:
             'a13_tests':int('${{ steps.counts.outputs.a13 }}'),
             'workspace_tests':int('${{ steps.counts.outputs.workspace }}'),
             'git_dependency_count':0,
-            'proofs':['checkpoint_not_restore','consistency_fencing','readback_verification','compatibility_fencing','provider_generation_fencing','materialization_generation_fencing','restart_evidence','durable_restart_import','verification_reearned_after_restart','attempt_fencing_survives_restart','partial_restore_evidence','independent_recovery_verifier','uncertain_external_effect_retention'],
+            'proofs':['checkpoint_not_restore','checkpoint_integrity_separate_from_target_compatibility','target_bound_time_bounded_compatibility','consistency_fencing','readback_verification','provider_generation_fencing','materialization_generation_fencing','restart_and_authorization_evidence','durable_restart_import','verification_reearned_after_restart','attempt_fencing_survives_restart','partial_restore_evidence','independent_recovery_verifier','uncertain_external_effect_retention'],
             'status':'frozen_and_proven'
           }
           Path('/tmp/a13-proof/proof.json').write_text(json.dumps(payload,indent=2,sort_keys=True)+'\n')

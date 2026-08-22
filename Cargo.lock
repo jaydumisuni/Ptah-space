@@ -467,6 +467,13 @@ dependencies = [
 [[package]]
 name = "ptah-checkpoint"
 version = "0.0.0-phase0c"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
+ "uuid",
+]
 
 [[package]]
 name = "ptah-contracts"

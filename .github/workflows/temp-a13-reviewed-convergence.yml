@@ -38,6 +38,7 @@ jobs:
           test "${{ github.event.pull_request.base.ref }}" = main
           rm .github/workflows/temp-a13-reviewed-convergence.yml
           cargo generate-lockfile
+          cargo fmt --all
           git add -A
           printf '%s\n' \
             Cargo.lock \

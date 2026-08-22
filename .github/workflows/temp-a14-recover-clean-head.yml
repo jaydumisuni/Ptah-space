@@ -1,0 +1,78 @@
+name: TEMP A14 recover clean head
+
+on:
+  pull_request:
+    branches:
+      - temp/a14-test-lifecycle-fix-base-20260822
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    if: github.head_ref == 'a14-human-alpha-control-surface'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out current A14 work tree
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply reviewed lifecycle correction
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('services/ptah-control/src/server.rs')
+          text = path.read_text()
+          old = '''        server
+              .handle_connection(&mut server_stream)
+              .expect("single test request must produce a response");
+  
+          let mut response = String::new();
+  '''
+          if old not in text:
+              old = '''        server
+              .handle_connection(&mut server_stream)
+              .expect("single test request must produce a response");
+
+          let mut response = String::new();
+  '''
+          assert text.count(old) == 1, 'expected physical HTTP lifecycle site was not unique'
+          new = old.replace('''          let mut response = String::new();''', '''        drop(server_stream);\n\n          let mut response = String::new();''')
+          path.write_text(text.replace(old, new))
+          PY
+          rm -f .github/workflows/temp-a14-test-lifecycle-fix.yml
+          rm -f .github/workflows/temp-a14-lifecycle-trigger.yml
+          git diff --check
+
+      - name: Prove corrected test and workspace
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          cargo fmt --all -- --check
+          cargo clippy -p ptah-control --all-targets --all-features --locked -- -D warnings
+          cargo test -p ptah-control physical_http_boundary_rejects_untrusted_host_origin_and_missing_host --locked
+          cargo test -p ptah-control --all-targets --locked
+
+      - name: Re-freeze as one exact commit on main
+        run: |
+          set -euo pipefail
+          MAIN=$(git rev-parse origin/main)
+          git add -A
+          git diff --cached --check
+          tree=$(git write-tree)
+          export GIT_AUTHOR_NAME='THETECHGUY DIGITAL SOLUTIONS'
+          export GIT_AUTHOR_EMAIL='noreply@thetechguyds.com'
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+          export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+          commit=$(printf '%s\n' 'A14 — Human Alpha control surface' | git commit-tree "$tree" -p "$MAIN")
+          test "$(git rev-parse "$commit^")" = "$MAIN"
+          test "$(git rev-list --count "$MAIN..$commit")" -eq 1
+          git push origin "$commit:refs/heads/a14-human-alpha-control-surface" --force

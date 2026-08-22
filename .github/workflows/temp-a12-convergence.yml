@@ -1,0 +1,203 @@
+name: TEMP A12 accepted-main convergence
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/temp-a12-convergence.yml"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  A12_DONOR: 2e98ddccd99775e4e7fab61936b4b7f9b319c162
+  LIBARCHIVE_VERSION: 3.8.7
+  LIBARCHIVE_SOURCE_SHA256: d3a8ba457ae25c27c84fd2830a2efdcc5b1d40bf585d4eb0d35f47e99e5d4774
+
+jobs:
+  converge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out disposable lane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install Rust 1.97.1
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+
+      - name: Reconstruct exact A12 product bytes on accepted main
+        run: |
+          set -euo pipefail
+          BASE='${{ github.event.pull_request.base.sha }}'
+          test "${{ github.event.pull_request.base.ref }}" = main
+          git cat-file -e "$A12_DONOR^{commit}"
+          git checkout "$A12_DONOR" -- \
+            adapters/decomposition-libarchive/Cargo.toml \
+            adapters/decomposition-libarchive/helper/ptah_libarchive_helper.c \
+            adapters/decomposition-libarchive/src/lib.rs \
+            adapters/decomposition-libarchive/tests/adapter.rs \
+            adapters/decomposition-libarchive/tests/physical.rs \
+            crates/ptah-archive-decomposition/Cargo.toml \
+            crates/ptah-archive-decomposition/src/lib.rs \
+            crates/ptah-archive-decomposition/src/model.rs \
+            crates/ptah-archive-decomposition/src/persist.rs \
+            crates/ptah-archive-decomposition/src/policy.rs \
+            crates/ptah-archive-decomposition/tests/a12.rs
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Cargo.toml'); s=p.read_text()
+          member='  "crates/ptah-archive-decomposition",\n'
+          assert member not in s
+          anchor='  "crates/ptah-checkpoint",\n'
+          assert anchor in s
+          p.write_text(s.replace(anchor, anchor+member, 1))
+          PY
+          rm .github/workflows/temp-a12-convergence.yml
+          cargo generate-lockfile
+          git add -A
+          printf '%s\n' Cargo.lock Cargo.toml \
+            adapters/decomposition-libarchive/Cargo.toml \
+            adapters/decomposition-libarchive/helper/ptah_libarchive_helper.c \
+            adapters/decomposition-libarchive/src/lib.rs \
+            adapters/decomposition-libarchive/tests/adapter.rs \
+            adapters/decomposition-libarchive/tests/physical.rs \
+            crates/ptah-archive-decomposition/Cargo.toml \
+            crates/ptah-archive-decomposition/src/lib.rs \
+            crates/ptah-archive-decomposition/src/model.rs \
+            crates/ptah-archive-decomposition/src/persist.rs \
+            crates/ptah-archive-decomposition/src/policy.rs \
+            crates/ptah-archive-decomposition/tests/a12.rs | sort > /tmp/a12-expected
+          git diff --cached --name-only "$BASE" | sort > /tmp/a12-actual
+          diff -u /tmp/a12-expected /tmp/a12-actual
+          git diff --cached --check "$BASE"
+
+      - name: Review and prove integrated Rust candidate
+        id: counts
+        run: |
+          set -euo pipefail
+          python tools/check_rust_dependency_lock.py --output /tmp/a12-deps.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/a12-deps.json'))
+          assert p['git_dependency_count']==0,p
+          assert p['registry_package_count']==97,p
+          PY
+          cargo fmt --all -- --check
+          cargo clippy -p ptah-archive-decomposition -p decomposition-libarchive --all-targets --all-features --locked -- -D warnings
+          ! grep -R -n -E 'TODO|FIXME|todo!\(|unimplemented!\(|panic!\(|unsafe[[:space:]]*\{' crates/ptah-archive-decomposition/src adapters/decomposition-libarchive/src
+          a12=$(cargo test -p ptah-archive-decomposition --test a12 --locked -- --list | grep -c ': test$')
+          workspace=$(cargo test --workspace --locked -- --list | grep -c ': test$')
+          test "$a12" -eq 10
+          test "$workspace" -gt 205
+          cargo test -p ptah-archive-decomposition -p decomposition-libarchive --locked
+          cargo test --workspace --locked
+          echo "a12=$a12" >> "$GITHUB_OUTPUT"
+          echo "workspace=$workspace" >> "$GITHUB_OUTPUT"
+
+      - name: Freeze clean A12 convergence directly on accepted main
+        id: clean
+        run: |
+          set -euo pipefail
+          BASE='${{ github.event.pull_request.base.sha }}'
+          git diff --cached --name-only "$BASE" | sort > /tmp/a12-pre-freeze
+          diff -u /tmp/a12-expected /tmp/a12-pre-freeze
+          tree=$(git write-tree)
+          export GIT_AUTHOR_NAME='THETECHGUY DIGITAL SOLUTIONS'
+          export GIT_AUTHOR_EMAIL='noreply@thetechguyds.com'
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+          export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+          commit=$(printf '%s\n' 'A12 — Archive decomposition Provider accepted-main convergence' | git commit-tree "$tree" -p "$BASE")
+          git push origin "$commit:refs/heads/a12-archive-decomposition-libarchive" --force
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+
+      - name: Prove exact pushed Rust head
+        run: |
+          set -euo pipefail
+          commit='${{ steps.clean.outputs.commit }}'; tree='${{ steps.clean.outputs.tree }}'; BASE='${{ github.event.pull_request.base.sha }}'
+          git checkout --detach "$commit"
+          test "$(git rev-parse HEAD)" = "$commit"
+          test "$(git rev-parse HEAD^{tree})" = "$tree"
+          test "$(git ls-remote origin refs/heads/a12-archive-decomposition-libarchive | awk '{print $1}')" = "$commit"
+          git diff --name-only "$BASE" "$commit" | sort > /tmp/a12-exact
+          diff -u /tmp/a12-expected /tmp/a12-exact
+          python tools/check_rust_dependency_lock.py --output /tmp/a12-exact-deps.json
+          cargo fmt --all -- --check
+          cargo clippy -p ptah-archive-decomposition -p decomposition-libarchive --all-targets --all-features --locked -- -D warnings
+          test "$(cargo test -p ptah-archive-decomposition --test a12 --locked -- --list | grep -c ': test$')" -eq '${{ steps.counts.outputs.a12 }}'
+          test "$(cargo test --workspace --locked -- --list | grep -c ': test$')" -eq '${{ steps.counts.outputs.workspace }}'
+          cargo test -p ptah-archive-decomposition -p decomposition-libarchive --locked
+          cargo test --workspace --locked
+
+      - name: Fetch and build exact libarchive 3.8.7
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a12/src
+          curl --fail --location --retry 5 --retry-all-errors "https://libarchive.org/downloads/libarchive-${LIBARCHIVE_VERSION}.tar.xz" -o "/tmp/a12/libarchive.tar.xz"
+          echo "$LIBARCHIVE_SOURCE_SHA256  /tmp/a12/libarchive.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/a12/libarchive.tar.xz -C /tmp/a12/src
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libbz2-dev liblzma-dev liblz4-dev libzstd-dev zlib1g-dev libssl-dev libxml2-dev
+          SRC="/tmp/a12/src/libarchive-${LIBARCHIVE_VERSION}"; BLD=/tmp/a12/build; INS=/tmp/a12/install
+          cmake -S "$SRC" -B "$BLD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$INS" -DBUILD_SHARED_LIBS=OFF -DENABLE_TAR=OFF -DENABLE_CPIO=OFF -DENABLE_CAT=OFF -DENABLE_UNZIP=OFF -DENABLE_TEST=OFF
+          cmake --build "$BLD" --target archive_static -j2
+          cmake --install "$BLD"
+          CFLAGS=$(PKG_CONFIG_PATH="$INS/lib/pkgconfig" pkg-config --cflags libarchive)
+          LIBS=$(PKG_CONFIG_PATH="$INS/lib/pkgconfig" pkg-config --libs --static libarchive)
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -fstack-protector-strong -D_FORTIFY_SOURCE=2 -DPTAH_LIBARCHIVE_SOURCE_SHA=\"$LIBARCHIVE_SOURCE_SHA256\" $CFLAGS adapters/decomposition-libarchive/helper/ptah_libarchive_helper.c $LIBS -o /tmp/a12/helper
+          /tmp/a12/helper --probe | tee /tmp/a12/probe.txt
+          grep -Fx 'protocol=1' /tmp/a12/probe.txt
+          grep -Fx "libarchive=$LIBARCHIVE_VERSION" /tmp/a12/probe.txt
+          grep -Fx "source_sha256=$LIBARCHIVE_SOURCE_SHA256" /tmp/a12/probe.txt
+          grep -Fx 'filters=in_process' /tmp/a12/probe.txt
+          if ldd /tmp/a12/helper | grep -qi libarchive; then exit 1; fi
+          cc -std=c11 -Wall -Wextra -Wpedantic -Werror -fanalyzer -DPTAH_LIBARCHIVE_SOURCE_SHA=\"$LIBARCHIVE_SOURCE_SHA256\" $CFLAGS -fsyntax-only adapters/decomposition-libarchive/helper/ptah_libarchive_helper.c
+
+      - name: Physically prove exact A12 head
+        run: |
+          set -euo pipefail
+          cat > /tmp/a12/wrong <<EOF2
+          #!/bin/sh
+          if [ "\$1" = "--probe" ]; then
+            printf '%s\n' 'protocol=1' 'libarchive=3.7.4' "source_sha256=$LIBARCHIVE_SOURCE_SHA256" 'filters=in_process'
+            exit 0
+          fi
+          exit 64
+          EOF2
+          chmod +x /tmp/a12/wrong
+          export PTAH_A12_LIBARCHIVE_HELPER=/tmp/a12/helper
+          export PTAH_A12_WRONG_LIBARCHIVE_HELPER=/tmp/a12/wrong
+          physical=$(cargo test -p decomposition-libarchive --test physical --locked -- --ignored --list | grep -c ': test$')
+          test "$physical" -eq 6
+          cargo test -p decomposition-libarchive --test physical --locked -- --ignored --nocapture
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Retain A12 accepted-main proof
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a12-proof
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          def h(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          payload={'record_type':'ptah.phase0c.a12.accepted_main_convergence','schema_version':'0.1.0','candidate_commit':'${{ steps.clean.outputs.commit }}','candidate_tree':'${{ steps.clean.outputs.tree }}','accepted_main_parent':'${{ github.event.pull_request.base.sha }}','donor_commit':'2e98ddccd99775e4e7fab61936b4b7f9b319c162','cargo_lock_sha256':h('Cargo.lock'),'rust':'1.97.1','a12_tests':int('${{ steps.counts.outputs.a12 }}'),'workspace_tests':int('${{ steps.counts.outputs.workspace }}'),'physical_tests':6,'libarchive_version':'3.8.7','libarchive_source_sha256':'d3a8ba457ae25c27c84fd2830a2efdcc5b1d40bf585d4eb0d35f47e99e5d4774','git_dependency_count':0,'status':'exact_head_physical_archive_convergence_proven'}
+          Path('/tmp/a12-proof/proof.json').write_text(json.dumps(payload,indent=2,sort_keys=True)+'\n')
+          PY
+          sha256sum /tmp/a12-proof/proof.json > /tmp/a12-proof/proof.sha256
+          cp /tmp/a12-exact-deps.json /tmp/a12-proof/dependency-lock-report.json
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a12-main-convergence-${{ steps.clean.outputs.commit }}
+          path: /tmp/a12-proof/
+          if-no-files-found: error
+          retention-days: 30

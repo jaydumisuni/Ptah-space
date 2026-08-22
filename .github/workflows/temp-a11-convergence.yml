@@ -1,0 +1,221 @@
+name: TEMP A11 accepted-main convergence
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/temp-a11-convergence.yml"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  A11_DONOR: cf02bec49775479ede404f0a80d1aa5cd03742e5
+
+jobs:
+  converge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out disposable convergence lane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install pinned Rust and Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: browser-provider/package-lock.json
+
+      - name: Install Rust 1.97.1
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          test "$(node -v)" = v24.18.0
+
+      - name: Reconstruct exact A11 product bytes on accepted main
+        run: |
+          set -euo pipefail
+          BASE='${{ github.event.pull_request.base.sha }}'
+          test "${{ github.event.pull_request.base.ref }}" = main
+          git cat-file -e "$A11_DONOR^{commit}"
+          git checkout "$A11_DONOR" -- \
+            .github/workflows/a11-browser-provider-proof.yml \
+            Cargo.toml \
+            browser-provider/README.md \
+            browser-provider/package.json \
+            browser-provider/src/core.mjs \
+            browser-provider/src/errors.mjs \
+            browser-provider/src/index.mjs \
+            browser-provider/src/locks.mjs \
+            browser-provider/src/playwright_backend.mjs \
+            browser-provider/src/server.mjs \
+            browser-provider/test/playwright-qualification.test.mjs \
+            browser-provider/test/provider-core.test.mjs \
+            browser-provider/test/scaffold.test.mjs \
+            crates/ptah-browser-runtime/Cargo.toml \
+            crates/ptah-browser-runtime/README.md \
+            crates/ptah-browser-runtime/src/lib.rs \
+            crates/ptah-browser-runtime/tests/a11.rs \
+            crates/ptah-provider-api/src/lib.rs
+          rm .github/workflows/temp-a11-convergence.yml
+          cargo generate-lockfile
+          git add -A
+          printf '%s\n' \
+            .github/workflows/a11-browser-provider-proof.yml \
+            Cargo.lock Cargo.toml \
+            browser-provider/README.md browser-provider/package.json \
+            browser-provider/src/core.mjs browser-provider/src/errors.mjs browser-provider/src/index.mjs \
+            browser-provider/src/locks.mjs browser-provider/src/playwright_backend.mjs browser-provider/src/server.mjs \
+            browser-provider/test/playwright-qualification.test.mjs browser-provider/test/provider-core.test.mjs browser-provider/test/scaffold.test.mjs \
+            crates/ptah-browser-runtime/Cargo.toml crates/ptah-browser-runtime/README.md crates/ptah-browser-runtime/src/lib.rs crates/ptah-browser-runtime/tests/a11.rs \
+            crates/ptah-provider-api/src/lib.rs | sort > /tmp/a11-expected
+          git diff --cached --name-only "$BASE" | sort > /tmp/a11-actual
+          diff -u /tmp/a11-expected /tmp/a11-actual
+          git diff --cached --check "$BASE"
+
+      - name: Review and prove integrated A11 candidate
+        id: counts
+        run: |
+          set -euo pipefail
+          python tools/check_rust_dependency_lock.py --output /tmp/a11-deps.json
+          python - <<'PY'
+          import json
+          p=json.load(open('/tmp/a11-deps.json'))
+          assert p['git_dependency_count']==0,p
+          assert p['registry_package_count']==97,p
+          PY
+          cargo fmt --all -- --check
+          cargo clippy -p ptah-provider-api -p ptah-browser-runtime --all-targets --all-features --locked -- -D warnings
+          ! grep -R -n -E 'TODO|FIXME|todo!\(|unimplemented!\(|panic!\(|unsafe[[:space:]]*\{' crates/ptah-browser-runtime/src crates/ptah-provider-api/src
+          a11=$(cargo test -p ptah-browser-runtime --test a11 --locked -- --list | grep -c ': test$')
+          provider=$(cargo test -p ptah-provider-api --locked -- --list | grep -c ': test$')
+          workspace=$(cargo test --workspace --locked -- --list | grep -c ': test$')
+          test "$a11" -eq 11
+          test "$provider" -ge 4
+          test "$workspace" -gt 205
+          cargo test -p ptah-provider-api -p ptah-browser-runtime --locked
+          cargo test --workspace --locked
+          echo "a11=$a11" >> "$GITHUB_OUTPUT"
+          echo "provider=$provider" >> "$GITHUB_OUTPUT"
+          echo "workspace=$workspace" >> "$GITHUB_OUTPUT"
+
+      - name: Prove browser mechanics and physical Chromium
+        working-directory: browser-provider
+        env:
+          PTAH_PLAYWRIGHT_PHYSICAL: "1"
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts
+          npm run check
+          test "$(node -p "require('./node_modules/playwright/package.json').version")" = 1.60.0
+          test "$(node -p "require('./node_modules/playwright-core/package.json').version")" = 1.60.0
+          node --test --test-reporter=tap test/provider-core.test.mjs | tee /tmp/a11-mechanical.tap
+          grep -q '^# tests 15$' /tmp/a11-mechanical.tap
+          grep -q '^# pass 15$' /tmp/a11-mechanical.tap
+          npx playwright install --with-deps chromium
+          node --test --test-reporter=tap test/playwright-qualification.test.mjs | tee /tmp/a11-physical.tap
+          grep -q '^# tests 1$' /tmp/a11-physical.tap
+          grep -q '^# pass 1$' /tmp/a11-physical.tap
+          grep -q '^# fail 0$' /tmp/a11-physical.tap
+          rm -rf node_modules
+
+      - name: Freeze clean A11 convergence directly on accepted main
+        id: clean
+        run: |
+          set -euo pipefail
+          BASE='${{ github.event.pull_request.base.sha }}'
+          test -z "$(git status --porcelain=v1 --untracked-files=all | grep -v '^M  ' || true)"
+          tree=$(git write-tree)
+          export GIT_AUTHOR_NAME='THETECHGUY DIGITAL SOLUTIONS'
+          export GIT_AUTHOR_EMAIL='noreply@thetechguyds.com'
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+          export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+          commit=$(printf '%s\n' 'A11 — Browser Provider accepted-main convergence' | git commit-tree "$tree" -p "$BASE")
+          test "$(git rev-parse "$commit^")" = "$BASE"
+          git push origin "$commit:refs/heads/a11-browser-provider" --force
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+
+      - name: Prove exact pushed A11 head
+        run: |
+          set -euo pipefail
+          commit='${{ steps.clean.outputs.commit }}'
+          tree='${{ steps.clean.outputs.tree }}'
+          BASE='${{ github.event.pull_request.base.sha }}'
+          git checkout --detach "$commit"
+          test "$(git rev-parse HEAD)" = "$commit"
+          test "$(git rev-parse HEAD^{tree})" = "$tree"
+          test "$(git ls-remote origin refs/heads/a11-browser-provider | awk '{print $1}')" = "$commit"
+          git diff --name-only "$BASE" "$commit" | sort > /tmp/a11-exact
+          diff -u /tmp/a11-expected /tmp/a11-exact
+          python tools/check_rust_dependency_lock.py --output /tmp/a11-exact-deps.json
+          cargo fmt --all -- --check
+          cargo clippy -p ptah-provider-api -p ptah-browser-runtime --all-targets --all-features --locked -- -D warnings
+          test "$(cargo test -p ptah-browser-runtime --test a11 --locked -- --list | grep -c ': test$')" -eq '${{ steps.counts.outputs.a11 }}'
+          test "$(cargo test -p ptah-provider-api --locked -- --list | grep -c ': test$')" -eq '${{ steps.counts.outputs.provider }}'
+          test "$(cargo test --workspace --locked -- --list | grep -c ': test$')" -eq '${{ steps.counts.outputs.workspace }}'
+          cargo test -p ptah-provider-api -p ptah-browser-runtime --locked
+          cargo test --workspace --locked
+
+      - name: Re-prove exact-head Browser runtime
+        working-directory: browser-provider
+        env:
+          PTAH_PLAYWRIGHT_PHYSICAL: "1"
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts
+          npm run check
+          node --test --test-reporter=tap test/provider-core.test.mjs | tee /tmp/a11-exact-mechanical.tap
+          grep -q '^# tests 15$' /tmp/a11-exact-mechanical.tap
+          grep -q '^# pass 15$' /tmp/a11-exact-mechanical.tap
+          npx playwright install --with-deps chromium
+          node --test --test-reporter=tap test/playwright-qualification.test.mjs | tee /tmp/a11-exact-physical.tap
+          grep -q '^# tests 1$' /tmp/a11-exact-physical.tap
+          grep -q '^# pass 1$' /tmp/a11-exact-physical.tap
+          rm -rf node_modules
+
+      - name: Retain A11 accepted-main proof
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a11-proof
+          python - <<'PY'
+          import hashlib,json,subprocess
+          from pathlib import Path
+          def h(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          payload={
+            'record_type':'ptah.phase0c.a11.accepted_main_convergence',
+            'schema_version':'0.1.0',
+            'candidate_commit':'${{ steps.clean.outputs.commit }}',
+            'candidate_tree':'${{ steps.clean.outputs.tree }}',
+            'accepted_main_parent':'${{ github.event.pull_request.base.sha }}',
+            'donor_commit':'cf02bec49775479ede404f0a80d1aa5cd03742e5',
+            'cargo_lock_sha256':h('Cargo.lock'),
+            'rust':'1.97.1','node':'24.18.0','playwright':'1.60.0',
+            'a11_tests':int('${{ steps.counts.outputs.a11 }}'),
+            'provider_api_tests':int('${{ steps.counts.outputs.provider }}'),
+            'workspace_tests':int('${{ steps.counts.outputs.workspace }}'),
+            'browser_mechanical_tests':15,'browser_physical_tests':1,
+            'git_dependency_count':0,
+            'status':'exact_head_physical_browser_convergence_proven'
+          }
+          Path('/tmp/a11-proof/proof.json').write_text(json.dumps(payload,indent=2,sort_keys=True)+'\n')
+          PY
+          sha256sum /tmp/a11-proof/proof.json > /tmp/a11-proof/proof.sha256
+          cp /tmp/a11-exact-deps.json /tmp/a11-proof/dependency-lock-report.json
+          git status --porcelain=v1 --untracked-files=all > /tmp/a11-proof/git-status.txt
+          test ! -s /tmp/a11-proof/git-status.txt
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a11-main-convergence-${{ steps.clean.outputs.commit }}
+          path: /tmp/a11-proof/
+          if-no-files-found: error
+          retention-days: 30

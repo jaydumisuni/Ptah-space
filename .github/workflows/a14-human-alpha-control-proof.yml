@@ -1,0 +1,410 @@
+name: A14 Human Alpha control exact-head proof
+
+on:
+  pull_request:
+    paths:
+      - "services/ptah-control/**"
+      - "Cargo.lock"
+      - ".github/workflows/a14-human-alpha-control-proof.yml"
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha }}
+  PTAH_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  PTAH_A13_SHA: 264612c426d01e1c246f0beea451e735a259dccb
+  CARGO_TERM_COLOR: always
+
+jobs:
+  a14-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out exact A14 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Lock exact A13 predecessor and A14 scope
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test "$PTAH_BASE_SHA" = "$PTAH_A13_SHA"
+          test "$(git rev-list --count "$PTAH_A13_SHA..$PTAH_EXACT_SHA")" -eq 1
+          test "$(git rev-parse "$PTAH_EXACT_SHA^")" = "$PTAH_A13_SHA"
+          python - <<'PY'
+          import os, subprocess
+          base=os.environ['PTAH_A13_SHA']; head=os.environ['PTAH_EXACT_SHA']
+          files=subprocess.check_output(['git','diff','--name-only',base,head], text=True).splitlines()
+          allowed=lambda p: (
+              p == 'Cargo.lock'
+              or p == '.github/workflows/a14-human-alpha-control-proof.yml'
+              or p.startswith('services/ptah-control/')
+          )
+          bad=[p for p in files if not allowed(p)]
+          assert not bad, f'A14 scope drift: {bad}'
+          required=[
+              'services/ptah-control/src/lib.rs',
+              'services/ptah-control/src/server.rs',
+              'services/ptah-control/src/main.rs',
+              'services/ptah-control/web/index.html',
+              'services/ptah-control/web/preflight.js',
+              'services/ptah-control/web/app.js',
+              'services/ptah-control/web/styles.css',
+              'services/ptah-control/tests/a14_acceptance.rs',
+              'services/ptah-control/tests/fixtures/a14_snapshot.json',
+          ]
+          for path in required:
+              assert path in files, f'missing A14 product/proof surface: {path}'
+          PY
+          git diff --check "$PTAH_A13_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Prove Cargo lock delta is bounded
+        run: |
+          set -euo pipefail
+          git diff "$PTAH_A13_SHA" "$PTAH_EXACT_SHA" -- Cargo.lock | tee /tmp/a14-cargo-lock.diff
+          python - <<'PY'
+          import subprocess, os
+          diff=subprocess.check_output(['git','diff',os.environ['PTAH_A13_SHA'],os.environ['PTAH_EXACT_SHA'],'--','Cargo.lock'], text=True)
+          added=[line[1:] for line in diff.splitlines() if line.startswith('+') and not line.startswith('+++')]
+          removed=[line[1:] for line in diff.splitlines() if line.startswith('-') and not line.startswith('---')]
+          assert removed == [], removed
+          assert added == ['dependencies = [',' "serde",',' "serde_json",',']'], added
+          PY
+
+      - name: Install pinned Rust 1.97.1
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          rustc -Vv | tee /tmp/a14-rustc-version.txt
+          cargo -V | tee /tmp/a14-cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+
+      - name: Prove locked dependency universe
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a14-proof
+          cp Cargo.lock /tmp/a14-proof/Cargo.lock.repository
+          cargo metadata --locked --format-version 1 > /tmp/a14-proof/cargo-metadata.json
+          cmp -s Cargo.lock /tmp/a14-proof/Cargo.lock.repository
+          python tools/check_rust_dependency_lock.py --output /tmp/a14-proof/dependency-lock-report.json
+          python - <<'PY'
+          import json
+          p=json.load(open('/tmp/a14-proof/dependency-lock-report.json'))
+          assert p['git_dependency_count'] == 0, p
+          PY
+
+      - name: Format, lint and source review gates
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo clippy -p ptah-control --all-targets --locked -- -D clippy::all -D clippy::pedantic
+          ! grep -R -n -E 'TODO|FIXME|todo!\(|unimplemented!\(|unsafe[[:space:]]*\{' services/ptah-control/src services/ptah-control/tests
+
+      - name: Prove A14 acceptance and inherited workspace
+        run: |
+          set -euo pipefail
+          a14_count=$(cargo test -p ptah-control --locked -- --list | grep -c ': test$')
+          test "$a14_count" -ge 13
+          printf '%s\n' "$a14_count" > /tmp/a14-proof/a14-test-count.txt
+          cargo test -p ptah-control --locked
+          workspace_count=$(cargo test --workspace --locked -- --list | grep -c ': test$')
+          printf '%s\n' "$workspace_count" > /tmp/a14-proof/workspace-test-count.txt
+          cargo test --workspace --locked
+
+      - name: Prove loopback-only control boundary
+        run: |
+          set -euo pipefail
+          cp services/ptah-control/tests/fixtures/a14_snapshot.json /tmp/a14-snapshot.json
+          : > /tmp/a14-submissions.ndjson
+          cargo build -p ptah-control --locked
+          set +e
+          timeout 3s target/debug/ptah-control serve \
+            --snapshot /tmp/a14-snapshot.json \
+            --submissions /tmp/a14-remote-submissions.ndjson \
+            --listen 0.0.0.0:17801 > /tmp/a14-remote-bind.log 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          test "$rc" -ne 124
+          grep -q 'listen address must be loopback' /tmp/a14-remote-bind.log
+
+      - name: Start exact A14 human control service
+        run: |
+          set -euo pipefail
+          target/debug/ptah-control serve \
+            --snapshot /tmp/a14-snapshot.json \
+            --submissions /tmp/a14-submissions.ndjson \
+            --listen 127.0.0.1:17800 > /tmp/a14-server.log 2>&1 &
+          echo $! > /tmp/a14-server.pid
+          for i in $(seq 1 50); do
+            if curl --fail --silent --show-error http://127.0.0.1:17800/api/state > /tmp/a14-state-initial.json; then
+              exit 0
+            fi
+            sleep 0.2
+          done
+          cat /tmp/a14-server.log
+          exit 1
+
+      - name: Install exact Node 24.18.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: browser-provider/package-lock.json
+
+      - name: Install locked Playwright Chromium
+        working-directory: browser-provider
+        run: |
+          set -euo pipefail
+          node -v | tee /tmp/a14-proof/node-version.txt
+          test "$(node -v)" = "v24.18.0"
+          npm ci --ignore-scripts
+          test "$(node -p "require('./node_modules/playwright/package.json').version")" = "1.60.0"
+          npx playwright install --with-deps chromium
+
+      - name: Physically prove desktop tablet mobile and reopen/control fencing
+        working-directory: browser-provider
+        env:
+          PTAH_A14_SNAPSHOT: /tmp/a14-snapshot.json
+          PTAH_A14_SUBMISSIONS: /tmp/a14-submissions.ndjson
+          PTAH_A14_URL: http://127.0.0.1:17800
+        run: |
+          set -euo pipefail
+          cat > /tmp/a14-ui-proof.mjs <<'JS'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          import { createRequire } from 'node:module';
+          const require=createRequire(`${process.cwd()}/package.json`);
+          const { chromium }=require('playwright');
+          const url=process.env.PTAH_A14_URL;
+          const snapshotPath=process.env.PTAH_A14_SNAPSHOT;
+          const submissionsPath=process.env.PTAH_A14_SUBMISSIONS;
+          const browser=await chromium.launch({headless:true});
+          const viewports=[
+            {name:'desktop',width:1280,height:900},
+            {name:'tablet',width:820,height:1180},
+            {name:'mobile',width:390,height:844},
+          ];
+          const critical=[
+            'checkpoint_request',
+            'workspace_reconnect',
+            'submit_upgrade_activity',
+            'accept_worker_result',
+          ];
+          for (const viewport of viewports) {
+            const context=await browser.newContext({viewport});
+            const page=await context.newPage();
+            await page.goto(url,{waitUntil:'networkidle'});
+            await page.locator('#authority').waitFor();
+            for (const id of ['home','activities','objects','terminals','transfers','browser','health','diagnostics','workers','recovery','evidence']) {
+              assert.equal(await page.locator(`#${id}`).count(),1,`${viewport.name}: missing ${id}`);
+            }
+            for (const kind of critical) {
+              const button=page.locator(`button[data-control="${kind}"]`).first();
+              assert.equal(await button.isVisible(),true,`${viewport.name}: hidden critical ${kind}`);
+            }
+            assert.equal(await page.locator('.facts').first().isVisible(),true,`${viewport.name}: observed facts hidden`);
+            assert.equal(await page.locator('.suggestions').first().isVisible(),true,`${viewport.name}: suggestions hidden`);
+            const workerText=await page.locator('[data-view="workers"]').innerText();
+            assert.match(workerText,/worker complete/);
+            assert.match(workerText,/Caller\/reviewer acceptance: pending/);
+            await context.close();
+          }
+
+          assert.equal(fs.readFileSync(submissionsPath,'utf8').trim(),'','rendering alone must not authorize work');
+
+          const context=await browser.newContext({viewport:{width:1280,height:900}});
+          let page=await context.newPage();
+          await page.goto(url,{waitUntil:'networkidle'});
+          const initial=await page.evaluate(async()=>await (await fetch('/api/state',{cache:'no-store'})).json());
+          await page.evaluate(()=>localStorage.setItem('ptah.presentation',JSON.stringify({workspace:'workspace-stale',session:'session-stale',panel:'terminals'})));
+          await page.close();
+
+          const changed=JSON.parse(fs.readFileSync(snapshotPath,'utf8'));
+          changed.authority.workspace_revision=13;
+          changed.authority.session_revision=6;
+          changed.authority.fence='fence-23';
+          fs.writeFileSync(snapshotPath,JSON.stringify(changed,null,2)+'\n');
+
+          page=await context.newPage();
+          await page.goto(url,{waitUntil:'networkidle'});
+          await page.locator('#authority').waitFor();
+          assert.match(await page.locator('#authority').innerText(),/workspace-alpha@13/);
+          const reopened=await page.evaluate(()=>JSON.parse(localStorage.getItem('ptah.presentation')));
+          assert.equal(reopened.workspace,'workspace-alpha');
+          assert.equal(reopened.session,'session-human');
+          assert.equal(reopened.panel,'home');
+
+          await page.evaluate(()=>localStorage.setItem('ptah.presentation','{corrupt'));
+          await page.reload({waitUntil:'networkidle'});
+          const recovered=await page.evaluate(()=>JSON.parse(localStorage.getItem('ptah.presentation')));
+          assert.equal(recovered.workspace,'workspace-alpha');
+
+          const staleStatus=await page.evaluate(async(initial)=>{
+            const response=await fetch('/api/control',{
+              method:'POST',headers:{'content-type':'application/json'},
+              body:JSON.stringify({request_id:'stale-request',kind:'checkpoint_request',target_id:'workspace-alpha',expected:initial.authority,provider_id:null,expected_provider_generation:null,approval_id:null,payload:{}}),
+            });
+            return response.status;
+          },initial);
+          assert.equal(staleStatus,409,'stale UI projection must be fenced');
+
+          const malformedStatus=await page.evaluate(async()=>{
+            const response=await fetch('/api/control',{method:'POST',headers:{'content-type':'application/json'},body:'{'});
+            return response.status;
+          });
+          assert.equal(malformedStatus,400,'malformed control JSON must receive structured rejection');
+
+          const missingApprovalStatus=await page.evaluate(async()=>{
+            const current=await (await fetch('/api/state',{cache:'no-store'})).json();
+            const response=await fetch('/api/control',{
+              method:'POST',headers:{'content-type':'application/json'},
+              body:JSON.stringify({request_id:'upgrade-without-approval',kind:'submit_upgrade_activity',target_id:'advisory-1',expected:current.authority,provider_id:null,expected_provider_generation:null,approval_id:null,payload:{}}),
+            });
+            return response.status;
+          });
+          assert.equal(missingApprovalStatus,409,'advisory must not approve its own upgrade');
+
+          page.on('dialog',async dialog=>{
+            const message=dialog.message();
+            if (message.includes('Explicit caller approval')) await dialog.accept('caller-approval-ui');
+            else if (message.includes('Terminal input')) await dialog.accept('echo a14');
+            else if (message.includes('Navigate to URL')) await dialog.accept('https://example.invalid/next');
+            else if (message.includes('Chosen alternative')) await dialog.accept('manual alternative');
+            else await dialog.dismiss();
+          });
+
+          async function clickControl(selector) {
+            const responsePromise=page.waitForResponse(response=>response.url().endsWith('/api/control'));
+            await page.locator(selector).first().click();
+            const response=await responsePromise;
+            assert.equal(response.status(),202,`${selector} was not authorized by explicit human control`);
+            const body=await response.json();
+            assert.equal(body.state,'authorized_for_dispatch');
+            return body;
+          }
+
+          await clickControl('button[data-control="checkpoint_request"]');
+          await clickControl('button[data-control="submit_upgrade_activity"]');
+          await clickControl('button[data-control="accept_worker_result"]');
+          await clickControl('button[data-control="terminal_input"]');
+          await clickControl('button[data-control="transfer_pause"]');
+          await clickControl('button[data-control="browser_navigate"]');
+
+          const forgedProviderStatus=await page.evaluate(async()=>{
+            const current=await (await fetch('/api/state',{cache:'no-store'})).json();
+            const response=await fetch('/api/control',{
+              method:'POST',headers:{'content-type':'application/json'},
+              body:JSON.stringify({request_id:'forged-provider',kind:'terminal_input',target_id:'terminal-1',expected:current.authority,provider_id:'browser-provider',expected_provider_generation:8,approval_id:null,payload:{input:'x'}}),
+            });
+            return response.status;
+          });
+          assert.equal(forgedProviderStatus,409,'provider identity must bind to the actual target');
+
+          const fresh=await page.evaluate(async()=>await (await fetch('/api/state',{cache:'no-store'})).json());
+          assert.equal(fresh.activities[0].worker_completion,true);
+          assert.equal(fresh.activities[0].acceptance,'pending');
+          assert.equal(fresh.workers[0].completed,true);
+          assert.equal(fresh.workers[0].acceptance,'pending');
+
+          const lines=fs.readFileSync(submissionsPath,'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+          assert.equal(lines.length,6,'only explicit successful human submissions should be retained');
+          assert(lines.every(item=>item.state==='authorized_for_dispatch'));
+          assert(lines.every(item=>!Object.values(item).includes('succeeded')));
+
+          const replay={...lines[0]};
+          replay.expected=replay.authority;
+          delete replay.authority;
+          replay.provider_id=null;
+          replay.expected_provider_generation=null;
+          const replayStatus=await page.evaluate(async(replay)=>{
+            const response=await fetch('/api/control',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(replay)});
+            return response.status;
+          },replay);
+          assert.equal(replayStatus,409,'request replay must fail closed');
+
+          await context.close();
+          await browser.close();
+          console.log(JSON.stringify({viewports:viewports.map(v=>v.name),submissions:lines.length,reopen:true,stale_fenced:true,malformed_rejected:true,advisory_self_auth_blocked:true,provider_spoof_blocked:true,replay_blocked:true}));
+          JS
+          node /tmp/a14-ui-proof.mjs | tee /tmp/a14-proof/ui-physical-proof.json
+
+      - name: Stop A14 service and retain boundary evidence
+        if: always()
+        run: |
+          set +e
+          if test -f /tmp/a14-server.pid; then kill "$(cat /tmp/a14-server.pid)" 2>/dev/null; fi
+          wait "$(cat /tmp/a14-server.pid 2>/dev/null)" 2>/dev/null
+          set -e
+          cp /tmp/a14-server.log /tmp/a14-proof/server.log 2>/dev/null || true
+          cp /tmp/a14-remote-bind.log /tmp/a14-proof/remote-bind.log 2>/dev/null || true
+          cp /tmp/a14-state-initial.json /tmp/a14-proof/state-initial.json 2>/dev/null || true
+          cp /tmp/a14-snapshot.json /tmp/a14-proof/state-final.json 2>/dev/null || true
+          cp /tmp/a14-submissions.ndjson /tmp/a14-proof/submissions.ndjson 2>/dev/null || true
+
+      - name: Write exact-head A14 proof record
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path('/tmp/a14-proof')
+          ui=json.loads((root/'ui-physical-proof.json').read_text().strip().splitlines()[-1])
+          payload={
+            'record_type':'ptah.phase0c.a14.human_alpha_exact_head_proof',
+            'schema_version':'0.1.0',
+            'created_at':datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            'implementation_commit':os.environ['PTAH_EXACT_SHA'],
+            'implementation_tree':subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip(),
+            'base_commit':os.environ['PTAH_A13_SHA'],
+            'exact_head_match':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==os.environ['PTAH_EXACT_SHA'],
+            'one_commit_over_a13':int(subprocess.check_output(['git','rev-list','--count',f"{os.environ['PTAH_A13_SHA']}..{os.environ['PTAH_EXACT_SHA']}"],text=True).strip())==1,
+            'cargo_lock_sha256':hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
+            'a14_test_count':int((root/'a14-test-count.txt').read_text()),
+            'workspace_test_count':int((root/'workspace-test-count.txt').read_text()),
+            'physical_viewports':ui['viewports'],
+            'authorized_submission_count':ui['submissions'],
+            'proofs':[
+              'exact_a13_predecessor_and_scope',
+              'bounded_cargo_lock_delta',
+              'locked_dependency_policy',
+              'cargo_fmt',
+              'strict_clippy_categories',
+              'a14_acceptance_corpus',
+              'full_workspace_regression',
+              'loopback_only_control_boundary',
+              'desktop_tablet_mobile_physical_projection',
+              'fresh_reopen_reconciliation',
+              'corrupt_presentation_cache_recovery',
+              'stale_projection_fencing',
+              'structured_malformed_request_rejection',
+              'advisory_self_authorization_blocked',
+              'provider_target_binding',
+              'request_replay_fencing',
+              'worker_completion_acceptance_separation',
+              'authorized_submission_not_operation_completion'
+            ],
+            'status':'exact_head_human_alpha_proof_passed',
+          }
+          assert payload['exact_head_match'] and payload['one_commit_over_a13']
+          (root/'a14-proof.json').write_text(json.dumps(payload,indent=2)+'\n')
+          PY
+          sha256sum /tmp/a14-proof/a14-proof.json | tee /tmp/a14-proof/a14-proof.sha256
+          sha256sum Cargo.lock services/ptah-control/Cargo.toml services/ptah-control/src/lib.rs services/ptah-control/src/server.rs > /tmp/a14-proof/repository-hashes.sha256
+          git status --porcelain=v1 > /tmp/a14-proof/git-status.txt
+          test ! -s /tmp/a14-proof/git-status.txt
+
+      - name: Upload retained A14 proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a14-human-alpha-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/a14-proof/
+          if-no-files-found: error
+          retention-days: 30

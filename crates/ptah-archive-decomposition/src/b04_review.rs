@@ -2,8 +2,7 @@ use crate::{b02::TypeAssessment, b04};
 use ptah_object_store::{OriginClass, ViewSpec};
 use std::ops::{Deref, DerefMut};
 
-const COMPLETE_DURATION_FRAME_SENTINEL: &str =
-    "ptah.b04.provider_frame_beyond_complete_duration";
+const COMPLETE_DURATION_FRAME_SENTINEL: &str = "ptah.b04.provider_frame_beyond_complete_duration";
 
 struct DurationCheckedAdapter<'a> {
     inner: &'a dyn b04::MediaAdapter,
@@ -127,9 +126,7 @@ pub fn inspect_media(
         &guarded_refs,
     ) {
         Ok(report) => Ok(MediaReport { inner: report }),
-        Err(b04::B04Error::Adapter(message))
-            if message == COMPLETE_DURATION_FRAME_SENTINEL =>
-        {
+        Err(b04::B04Error::Adapter(message)) if message == COMPLETE_DURATION_FRAME_SENTINEL => {
             Err(b04::B04Error::RequestOutputMismatch)
         }
         Err(error) => Err(error),

@@ -1,0 +1,141 @@
+{
+  "authority": {
+    "workspace_id": "workspace-alpha",
+    "workspace_revision": 12,
+    "session_id": "session-human",
+    "session_revision": 5,
+    "node_id": "node-alpha",
+    "node_generation": 21,
+    "provider_generations": {
+      "browser-provider": 8,
+      "terminal-provider": 4
+    },
+    "fence": "fence-22"
+  },
+  "workspaces": ["workspace-alpha", "workspace-secondary"],
+  "activities": [
+    {
+      "id": "activity-1",
+      "title": "Human vertical slice",
+      "runtime_state": "completed",
+      "worker_completion": true,
+      "acceptance": "pending",
+      "evidence": ["receipt:activity-1"],
+      "limitation": null
+    }
+  ],
+  "objects": [
+    {
+      "id": "object-1",
+      "revision": "revision-1",
+      "label": "input.bin",
+      "artifact": false,
+      "materialization_state": "materialized_copy",
+      "evidence": ["receipt:object-1"]
+    },
+    {
+      "id": "artifact-1",
+      "revision": "revision-2",
+      "label": "candidate.bin",
+      "artifact": true,
+      "materialization_state": "generated_artifact",
+      "evidence": ["receipt:artifact-1"]
+    }
+  ],
+  "terminals": [
+    {
+      "id": "terminal-1",
+      "activity_id": "activity-1",
+      "attached": true,
+      "provider_id": "terminal-provider",
+      "provider_generation": 4,
+      "limitation": "stream truncation remains explicitly reported by the owning provider"
+    }
+  ],
+  "transfers": [
+    {
+      "id": "transfer-1",
+      "state": "paused",
+      "progress_percent": 67,
+      "partial_retained": true,
+      "evidence": ["receipt:transfer-1"]
+    }
+  ],
+  "browsers": [
+    {
+      "page_id": "page-1",
+      "profile_id": "profile-1",
+      "url": "https://example.invalid",
+      "provider_id": "browser-provider",
+      "provider_generation": 8,
+      "attached": true,
+      "limitation": "qualification fixture; no external navigation is required for A14 proof"
+    }
+  ],
+  "nodes": [
+    {
+      "node_id": "node-alpha",
+      "generation": 21,
+      "health": "healthy",
+      "ready": true,
+      "reachable": true,
+      "pressure": "normal",
+      "evidence": ["receipt:node-alpha"]
+    }
+  ],
+  "providers": [
+    {
+      "provider_id": "terminal-provider",
+      "generation": 4,
+      "health": "healthy",
+      "limitations": ["fixture projects the A05 provider without claiming new A14 execution semantics"],
+      "evidence": ["receipt:terminal-provider"]
+    },
+    {
+      "provider_id": "browser-provider",
+      "generation": 8,
+      "health": "healthy",
+      "limitations": ["fixture projects the A11 provider without claiming new A14 execution semantics"],
+      "evidence": ["receipt:browser-provider"]
+    }
+  ],
+  "advisories": [
+    {
+      "id": "advisory-1",
+      "observed_facts": ["optional capability is absent"],
+      "evidence": ["receipt:capability-scan"],
+      "suggestions": ["submit an upgrade Activity if the caller wants that capability"],
+      "uncertainty": "the capability may not be needed for the caller's work",
+      "state": "open"
+    }
+  ],
+  "workers": [
+    {
+      "formation_id": "formation-1",
+      "worker_id": "worker-1",
+      "role": "primary",
+      "checkpoint": "worker-checkpoint-1",
+      "partial_result": "artifact:partial-1",
+      "conflict": "verifier disagrees on one claim",
+      "completed": true,
+      "acceptance": "pending"
+    }
+  ],
+  "recovery": {
+    "checkpoint_id": "checkpoint-1",
+    "checkpoint_integrity": "verified",
+    "restore_compatibility": "compatible",
+    "recovery_verification": "verified",
+    "limitations": ["external effects remain separately evidenced"]
+  },
+  "evidence_links": [
+    {
+      "label": "vertical slice receipt",
+      "reference": "receipt:activity-1"
+    },
+    {
+      "label": "recovery receipt",
+      "reference": "receipt:recovery-1"
+    }
+  ]
+}

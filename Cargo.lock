@@ -482,6 +482,10 @@ version = "0.0.0-phase0c"
 [[package]]
 name = "ptah-control"
 version = "0.0.0-phase0c"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "ptah-events"

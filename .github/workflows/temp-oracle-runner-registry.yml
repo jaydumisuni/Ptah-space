@@ -1,4 +1,4 @@
-name: Temporary ATHENA Oracle Wrapper Diagnostic
+name: Temporary ATHENA Oracle Live Runtime Repair
 
 on:
   pull_request:
@@ -10,48 +10,75 @@ permissions:
   contents: read
 
 jobs:
-  diagnose-athena-wrapper:
+  repair-athena-oracle-live:
     runs-on: [self-hosted, athena, ptah]
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
-      - name: Execute exact installed Oracle wrapper
+      - name: Restore canonical browser RPC runtime and prove Live health
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
-          $root=Join-Path $env:LOCALAPPDATA 'OracleNode'
-          $wrapper=Join-Path $root 'start-oracle-node.cmd'
-          if(-not(Test-Path $wrapper)){throw 'ORACLE_WRAPPER_MISSING'}
+          $stateRoot=Join-Path $env:LOCALAPPDATA 'OracleNode'
+          $runtimeScripts=Join-Path $stateRoot 'runtime\scripts'
+          $nodeTask='Oracle Live Node (Session Fallback)'
+          $watchdogTask='Oracle Node Watchdog (Session Fallback)'
+          if(-not(Test-Path $runtimeScripts)){throw 'ORACLE_RUNTIME_SCRIPTS_MISSING'}
+          if(-not(Get-ScheduledTask -TaskName $nodeTask -ErrorAction SilentlyContinue)){throw 'ORACLE_SESSION_NODE_TASK_MISSING'}
+          if(-not(Get-ScheduledTask -TaskName $watchdogTask -ErrorAction SilentlyContinue)){throw 'ORACLE_SESSION_WATCHDOG_TASK_MISSING'}
 
-          foreach($name in @('Oracle Always-On Node','Oracle Node Watchdog','Oracle Live Node (Session Fallback)','Oracle Node Watchdog (Session Fallback)')){
+          $required=@(
+            @{Name='oracle-browser-rpc-local.mjs'; Blob='2a06fe3f9de3152630ad4dbf32143f9a8ec52e27'; Size=15032},
+            @{Name='oracle-extension-browser-rpc.mjs'; Blob='85d823f7afc513d75010e8e2febe55fc6eba2e0a'; Size=16852}
+          )
+          foreach($item in $required){
+            $json=& gh api ('repos/jaydumisuni/Oracle-/contents/scripts/'+$item.Name+'?ref=main') 2>&1
+            if($LASTEXITCODE -ne 0){throw ('ORACLE_SOURCE_FETCH_FAILED '+$item.Name+' '+($json -join "`n"))}
+            $meta=(($json -join "`n")|ConvertFrom-Json)
+            if([string]$meta.sha -ne [string]$item.Blob){throw ('ORACLE_SOURCE_BLOB_MISMATCH '+$item.Name+' got='+$meta.sha)}
+            if([int64]$meta.size -ne [int64]$item.Size){throw ('ORACLE_SOURCE_SIZE_MISMATCH '+$item.Name+' got='+$meta.size)}
+            $bytes=[Convert]::FromBase64String(([string]$meta.content -replace '\s',''))
+            if($bytes.Length -ne [int]$item.Size){throw ('ORACLE_DECODED_SIZE_MISMATCH '+$item.Name+' got='+$bytes.Length)}
+            $dest=Join-Path $runtimeScripts $item.Name
+            $tmp=$dest+'.tmp-'+[guid]::NewGuid().ToString('N')
+            [IO.File]::WriteAllBytes($tmp,$bytes)
+            Move-Item -LiteralPath $tmp -Destination $dest -Force
+            Write-Output ('RESTORED '+$item.Name+' BLOB='+$item.Blob+' SHA256='+((Get-FileHash -Algorithm SHA256 -LiteralPath $dest).Hash.ToLowerInvariant()))
+          }
+
+          foreach($name in @('Oracle Always-On Node','Oracle Node Watchdog')){
             $t=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
             if($t){Disable-ScheduledTask -InputObject $t -ErrorAction SilentlyContinue|Out-Null; if([string]$t.State -in @('Running','Queued')){Stop-ScheduledTask -InputObject $t -ErrorAction SilentlyContinue|Out-Null}}
           }
           Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'oracle-live-node\.mjs|oracle-node-watchdog-windows\.mjs' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-          Start-Sleep -Seconds 1
+          Start-Sleep -Milliseconds 700
 
-          Write-Output '--- wrapper ---'
-          Get-Content -Raw $wrapper
-          Write-Output '--- session task definition ---'
-          $t=Get-ScheduledTask -TaskName 'Oracle Live Node (Session Fallback)' -ErrorAction SilentlyContinue
-          if($t){
-            [ordered]@{State=[string]$t.State;Actions=$t.Actions;Principal=$t.Principal;Triggers=$t.Triggers} | ConvertTo-Json -Depth 8
-          }
+          Enable-ScheduledTask -TaskName $nodeTask | Out-Null
+          Start-ScheduledTask -TaskName $nodeTask
+          $health=$null
+          $ready=$null
+          $deadline=(Get-Date).AddSeconds(45)
+          do{
+            try{$health=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/health' -TimeoutSec 2 -ErrorAction Stop}catch{$health=$null}
+            try{$ready=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/ready' -TimeoutSec 2 -ErrorAction Stop}catch{$ready=$null}
+            if($health -and $health.ok -eq $true -and $ready -and $ready.ok -eq $true -and $ready.connected -eq $true){break}
+            Start-Sleep -Milliseconds 500
+          }while((Get-Date)-lt $deadline)
+          if(-not $health -or $health.ok -ne $true){throw 'ORACLE_HEALTH_NOT_READY'}
+          if(-not $ready -or $ready.ok -ne $true -or $ready.connected -ne $true){throw ('ORACLE_READY_NOT_CONNECTED '+($ready|ConvertTo-Json -Compress -Depth 6))}
 
-          $job=Start-Job -ScriptBlock { param($w) & $w } -ArgumentList $wrapper
-          try{
-            Start-Sleep -Seconds 6
-            Write-Output ('JOB_STATE='+$job.State)
-            Write-Output '--- 5059 TCP ---'
-            Get-NetTCPConnection -LocalPort 5059 -ErrorAction SilentlyContinue | Select-Object LocalAddress,LocalPort,State,OwningProcess | Format-Table -AutoSize
-            foreach($u in @('http://127.0.0.1:5059/health','http://127.0.0.1:5059/ready')){
-              try{$r=Invoke-WebRequest -UseBasicParsing -Uri $u -TimeoutSec 3; Write-Output ($u+' STATUS='+$r.StatusCode+' BODY='+$r.Content)}catch{Write-Output ($u+' ERROR '+$_.Exception.Message)}
-            }
-            Write-Output '--- wrapper output ---'
-            Receive-Job -Job $job -Keep -ErrorAction Continue
-            Write-Output '--- matching process ---'
-            Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'oracle-live-node\.mjs' } | Select-Object ProcessId,Name,CommandLine | Format-List
-          } finally {
-            Stop-Job -Job $job -ErrorAction SilentlyContinue
-            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-            Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'oracle-live-node\.mjs' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-          }
+          Enable-ScheduledTask -TaskName $watchdogTask | Out-Null
+          Start-ScheduledTask -TaskName $watchdogTask
+          Start-Sleep -Seconds 2
+          $listener=Get-NetTCPConnection -LocalPort 5059 -State Listen -ErrorAction Stop | Select-Object -First 1
+          $proc=Get-CimInstance Win32_Process -Filter ('ProcessId='+$listener.OwningProcess) -ErrorAction Stop
+          if($proc.CommandLine -notmatch 'oracle-live-node\.mjs'){throw ('ORACLE_LISTENER_OWNER_INVALID '+$proc.CommandLine)}
+          $node=Get-ScheduledTask -TaskName $nodeTask
+          $watch=Get-ScheduledTask -TaskName $watchdogTask
+          [ordered]@{
+            ok=$true
+            host=$env:COMPUTERNAME
+            health=$health
+            ready=$ready
+            listener=[ordered]@{address=$listener.LocalAddress;port=$listener.LocalPort;pid=$listener.OwningProcess;commandLine=$proc.CommandLine}
+            tasks=[ordered]@{node=[string]$node.State;watchdog=[string]$watch.State}
+          } | ConvertTo-Json -Depth 8

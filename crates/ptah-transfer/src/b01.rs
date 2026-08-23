@@ -1090,16 +1090,31 @@ pub enum B01Error {
     DuplicateQueueId(String),
     /// Resume cursor is beyond source size.
     #[error("resume offset {offset} exceeds source size {size}")]
-    ResumeOffsetOutOfRange { offset: u64, size: u64 },
+    ResumeOffsetOutOfRange {
+        /// Retained resume offset.
+        offset: u64,
+        /// Current source size.
+        size: u64,
+    },
     /// Provider offset does not match the retained caller cursor.
     #[error("resume sink mismatch: cursor={cursor}, sink={sink}")]
-    ResumeSinkMismatch { cursor: u64, sink: u64 },
+    ResumeSinkMismatch {
+        /// Retained caller cursor offset.
+        cursor: u64,
+        /// Provider-reported accepted offset.
+        sink: u64,
+    },
     /// Source size or digest changed after the retained upload cursor was created.
     #[error("upload resume source identity changed")]
     ResumeSourceIdentityMismatch,
     /// Bytes read for upload changed relative to the retained source prefix.
     #[error("upload source changed while streaming: expected {expected}, observed {observed}")]
-    SourceChangedDuringUpload { expected: String, observed: String },
+    SourceChangedDuringUpload {
+        /// Digest of the retained source prefix after streaming.
+        expected: String,
+        /// Digest of the exact prefix bytes streamed to the provider.
+        observed: String,
+    },
     /// A retained download range no longer matches its verified digest.
     #[error(
         "download resume range digest mismatch at {start}: expected {expected}, observed {observed}"
@@ -1114,7 +1129,12 @@ pub enum B01Error {
     },
     /// A retained cursor range is outside the current expected geometry.
     #[error("invalid retained download cursor range at {start} with length {len}")]
-    InvalidDownloadCursorRange { start: u64, len: u64 },
+    InvalidDownloadCursorRange {
+        /// Invalid retained range start offset.
+        start: u64,
+        /// Invalid retained range length.
+        len: u64,
+    },
     /// Source ended before its declared size.
     #[error("source ended before declared size")]
     UnexpectedSourceEof,
@@ -1123,10 +1143,20 @@ pub enum B01Error {
     NoRangeSource,
     /// Every source failed for one exact range.
     #[error("no source could provide segment at {start} with length {len}")]
-    SegmentUnavailable { start: u64, len: usize },
+    SegmentUnavailable {
+        /// Start offset of the unavailable segment.
+        start: u64,
+        /// Requested unavailable segment length.
+        len: usize,
+    },
     /// Whole-content digest mismatch.
     #[error("digest mismatch: expected {expected}, observed {observed}")]
-    DigestMismatch { expected: String, observed: String },
+    DigestMismatch {
+        /// Expected whole-content SHA-256.
+        expected: String,
+        /// Observed whole-content SHA-256.
+        observed: String,
+    },
     /// Conflict resolution was requested when no conflict exists.
     #[error("no explicit sync conflict exists")]
     NoSyncConflict,

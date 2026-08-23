@@ -1,3 +1,5 @@
+//! B01 transfer and storage acceptance regressions.
+
 use ptah_transfer::{
     B01Error, BackupPolicy, BackupRepository, ConflictResolution, DedupIndex, DownloadCursor,
     ExportAdapter, ExportReceipt, ExportTargetKind, QueuePolicy, RangeSource, ResumableUploadSink,

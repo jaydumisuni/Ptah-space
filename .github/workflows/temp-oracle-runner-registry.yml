@@ -12,10 +12,56 @@ permissions:
 jobs:
   probe:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
       - name: Read Oracle repository self-hosted runners
         shell: bash
         run: |
           set -euo pipefail
           gh api repos/jaydumisuni/Oracle-/actions/runners --jq '{total_count, runners: [.runners[] | {id,name,os,status,busy,version,labels:[.labels[].name]}]}'
+
+      - name: Probe ATHENA LAN recovery surfaces
+        shell: bash
+        run: |
+          set +e
+          echo '--- hostname resolution ---'
+          getent hosts ATHENA || true
+          getent hosts athena || true
+          ping -c 1 -W 2 ATHENA 2>&1 || true
+          echo '--- neighbor table ---'
+          ip neigh show 2>/dev/null | head -n 80 || true
+          echo '--- candidate management ports ---'
+          python3 - <<'PY'
+          import socket, json
+          hosts=['ATHENA','athena','ATHENA.local','athena.local']
+          ports=[22,135,139,445,3389,5985,5986,5056,5059]
+          out=[]
+          seen=set()
+          for host in hosts:
+              try:
+                  infos=socket.getaddrinfo(host,None,type=socket.SOCK_STREAM)
+                  ips=[]
+                  for info in infos:
+                      ip=info[4][0]
+                      if ip not in ips: ips.append(ip)
+              except Exception as exc:
+                  out.append({'host':host,'resolve_error':str(exc)})
+                  continue
+              for ip in ips:
+                  key=(host,ip)
+                  if key in seen: continue
+                  seen.add(key)
+                  item={'host':host,'ip':ip,'ports':{}}
+                  for port in ports:
+                      s=socket.socket(socket.AF_INET6 if ':' in ip else socket.AF_INET,socket.SOCK_STREAM)
+                      s.settimeout(1.0)
+                      try:
+                          s.connect((ip,port))
+                          item['ports'][str(port)]='open'
+                      except Exception as exc:
+                          item['ports'][str(port)]=type(exc).__name__
+                      finally:
+                          s.close()
+                  out.append(item)
+          print(json.dumps(out,indent=2,sort_keys=True))
+          PY

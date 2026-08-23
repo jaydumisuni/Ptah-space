@@ -101,12 +101,17 @@ impl TransferQueue {
         let target = policy.max_active.min(self.pending.len());
         let mut selected = Vec::with_capacity(target);
         while selected.len() < target && !self.pending.is_empty() {
-            let local_pending = self.pending.iter().any(|item| item.lane == TransferLane::Local);
+            let local_pending = self
+                .pending
+                .iter()
+                .any(|item| item.lane == TransferLane::Local);
             let remote_selected = selected
                 .iter()
                 .filter(|item: &&QueuedTransfer| item.lane == TransferLane::Remote)
                 .count();
-            let remote_limit = policy.max_active.saturating_sub(policy.reserved_local_slots);
+            let remote_limit = policy
+                .max_active
+                .saturating_sub(policy.reserved_local_slots);
             let require_local = local_pending && remote_selected >= remote_limit;
 
             let index = self
@@ -360,8 +365,9 @@ pub fn segmented_download(
         let len = usize::try_from(len_u64).expect("segment length fits usize");
         let mut segment_bytes = None;
         let source_count = sources.len();
-        let preferred = usize::try_from(segment_index % u64::try_from(source_count).expect("usize fits u64"))
-            .expect("modulo result fits usize");
+        let preferred =
+            usize::try_from(segment_index % u64::try_from(source_count).expect("usize fits u64"))
+                .expect("modulo result fits usize");
         for attempt in 0..source_count {
             let source_index = (preferred + attempt) % source_count;
             let source = &mut sources[source_index];
@@ -377,7 +383,10 @@ pub fn segmented_download(
                 Ok(bytes) => failures.push(SourceFailure {
                     source_id: source.source_id().to_owned(),
                     start,
-                    error: format!("short range: expected {len} bytes, observed {}", bytes.len()),
+                    error: format!(
+                        "short range: expected {len} bytes, observed {}",
+                        bytes.len()
+                    ),
                 }),
                 Err(error) => failures.push(SourceFailure {
                     source_id: source.source_id().to_owned(),
@@ -518,10 +527,13 @@ impl DedupIndex {
     /// Admit bytes and return a stable content-addressed key.
     pub fn admit(&mut self, bytes: &[u8]) -> DedupAdmission {
         let sha256 = sha256_bytes(bytes);
-        let entry = self.entries.entry(sha256.clone()).or_insert_with(|| DedupEntry {
-            object_key: format!("sha256/{}/{}", &sha256[..2], sha256),
-            reference_count: 0,
-        });
+        let entry = self
+            .entries
+            .entry(sha256.clone())
+            .or_insert_with(|| DedupEntry {
+                object_key: format!("sha256/{}/{}", &sha256[..2], sha256),
+                reference_count: 0,
+            });
         let deduplicated = entry.reference_count > 0;
         entry.reference_count = entry.reference_count.saturating_add(1);
         DedupAdmission {

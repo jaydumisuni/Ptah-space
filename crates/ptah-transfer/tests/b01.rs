@@ -1,9 +1,9 @@
 use ptah_transfer::{
-    BackupPolicy, BackupRepository, B01Error, ConflictResolution, DedupIndex, DownloadCursor,
+    B01Error, BackupPolicy, BackupRepository, ConflictResolution, DedupIndex, DownloadCursor,
     ExportAdapter, ExportReceipt, ExportTargetKind, QueuePolicy, RangeSource, ResumableUploadSink,
-    RetentionCandidate, RetentionPolicy, SyncRelationship, SyncState, TransferLane, TransferPriority,
-    TransferQueue, UploadCursor, VerifiedRange, export_with_optional_remote, plan_retention,
-    resumable_upload_file, segmented_download,
+    RetentionCandidate, RetentionPolicy, SyncRelationship, SyncState, TransferLane,
+    TransferPriority, TransferQueue, UploadCursor, VerifiedRange, export_with_optional_remote,
+    plan_retention, resumable_upload_file, segmented_download,
 };
 use sha2::{Digest, Sha256};
 use std::{
@@ -21,10 +21,7 @@ struct TempRoot {
 impl TempRoot {
     fn new() -> Self {
         let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "ptah-b01-{}-{sequence}",
-            std::process::id()
-        ));
+        let path = std::env::temp_dir().join(format!("ptah-b01-{}-{sequence}", std::process::id()));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).expect("create temp root");
         Self { path }
@@ -248,7 +245,10 @@ fn segmented_multi_source_download_resumes_and_falls_back_without_erasing_failur
     .expect("resume download");
     assert!(second.complete);
     assert_eq!(second.resumed_ranges, 3);
-    assert_eq!(second.destination_sha256.as_deref(), Some(expected.as_str()));
+    assert_eq!(
+        second.destination_sha256.as_deref(),
+        Some(expected.as_str())
+    );
     assert_eq!(fs::read(destination).expect("read destination"), bytes);
     assert!(second.successful_sources.len() >= 1);
 }
@@ -266,13 +266,21 @@ fn verified_download_ranges_are_exact_not_filename_or_progress_claims() {
 fn priority_queue_preserves_local_capacity_while_local_work_is_pending() {
     let mut queue = TransferQueue::default();
     queue
-        .enqueue("remote-critical", TransferPriority::Critical, TransferLane::Remote)
+        .enqueue(
+            "remote-critical",
+            TransferPriority::Critical,
+            TransferLane::Remote,
+        )
         .expect("enqueue");
     queue
         .enqueue("remote-high", TransferPriority::High, TransferLane::Remote)
         .expect("enqueue");
     queue
-        .enqueue("local-normal", TransferPriority::Normal, TransferLane::Local)
+        .enqueue(
+            "local-normal",
+            TransferPriority::Normal,
+            TransferLane::Local,
+        )
         .expect("enqueue");
     queue
         .enqueue("local-low", TransferPriority::Low, TransferLane::Local)
@@ -302,7 +310,12 @@ fn optional_drive_failure_does_not_block_primary_object_store_work() {
     assert_eq!(outcome.primary.target, ExportTargetKind::ObjectStore);
     assert_eq!(object_store.bytes, bytes);
     assert!(outcome.remote.is_none());
-    assert!(outcome.remote_failure.as_deref().is_some_and(|value| value.contains("Drive")));
+    assert!(
+        outcome
+            .remote_failure
+            .as_deref()
+            .is_some_and(|value| value.contains("Drive"))
+    );
 }
 
 #[test]
@@ -314,8 +327,8 @@ fn node_object_store_and_drive_share_one_bounded_export_contract() {
         ExportTargetKind::Drive,
     ] {
         let mut adapter = MemoryExport::new(kind, "destination");
-        let outcome = export_with_optional_remote(bytes, &mut adapter, None)
-            .expect("adapter export");
+        let outcome =
+            export_with_optional_remote(bytes, &mut adapter, None).expect("adapter export");
         assert_eq!(outcome.primary.target, kind);
         assert_eq!(outcome.primary.byte_count, bytes.len() as u64);
         assert_eq!(outcome.primary.sha256, sha256(bytes));
@@ -422,8 +435,12 @@ fn backup_requires_verification_and_restored_bytes_never_claim_workspace_recover
         backups.restore("snapshot-1"),
         Err(B01Error::SnapshotUnverified(_))
     ));
-    backups.verify_snapshot("snapshot-1").expect("verify snapshot");
-    let restored = backups.restore("snapshot-1").expect("restore verified bytes");
+    backups
+        .verify_snapshot("snapshot-1")
+        .expect("verify snapshot");
+    let restored = backups
+        .restore("snapshot-1")
+        .expect("restore verified bytes");
     assert_eq!(restored.snapshot_id, "snapshot-1");
     assert!(!restored.workspace_recovery_claim);
     assert_eq!(restored.files.len(), 2);

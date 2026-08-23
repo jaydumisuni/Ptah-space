@@ -28,3 +28,11 @@ ptah-receipts = { path = "../ptah-receipts", version = "=0.0.0-phase0c" }
 [[test]]
 name = "a08"
 path = "tests/a08.rs"
+
+[[test]]
+name = "b01"
+path = "tests/b01.rs"
+
+[[test]]
+name = "b01_source_mutation"
+path = "tests/b01_source_mutation.rs"

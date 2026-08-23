@@ -16,365 +16,150 @@ jobs:
         with:
           ref: b01-transfer-storage-expansion
           fetch-depth: 0
-      - name: Apply review corrections
+      - name: Apply byte-identity review corrections
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
+          import re
           from pathlib import Path
+
+          def sub1(text: str, pattern: str, replacement: str, label: str, flags: int = 0) -> str:
+              result, count = re.subn(pattern, replacement, text, count=1, flags=flags)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              return result
 
           source_path = Path('crates/ptah-transfer/src/b01.rs')
           source = source_path.read_text(encoding='utf-8')
 
-          def replace_once(text: str, old: str, new: str, label: str) -> str:
-              if text.count(old) != 1:
-                  raise SystemExit(f'{label}: expected one match, found {text.count(old)}')
-              return text.replace(old, new, 1)
+          source = sub1(
+              source,
+              r'''/// Resume cursor for a provider upload\.\n#\[derive\(Debug, Clone, Copy, PartialEq, Eq, Default\)\]\npub struct UploadCursor \{\n    /// Exact source offset already durably accepted by the provider sink\.\n    pub accepted_offset: u64,\n\}''',
+              '''/// Resume cursor for a provider upload.\n#[derive(Debug, Clone, PartialEq, Eq, Default)]\npub struct UploadCursor {\n    /// Exact source offset already durably accepted by the provider sink.\n    pub accepted_offset: u64,\n    /// Source size observed by the first accepted pass.\n    pub source_size: Option<u64>,\n    /// Whole-source SHA-256 observed by the first accepted pass.\n    pub source_sha256: Option<String>,\n}''',
+              'upload cursor',
+          )
+          source = sub1(
+              source,
+              r'''pub struct ResumableUploadReport \{\n    /// Offset from which this pass started\.''',
+              '''pub struct ResumableUploadReport {\n    /// Resume cursor bound to the exact source identity and accepted provider offset.\n    pub cursor: UploadCursor,\n    /// Offset from which this pass started.''',
+              'upload report cursor',
+          )
+          source = sub1(
+              source,
+              r'''    let source_size = fs::metadata\(source\)\?\.len\(\);\n    if cursor\.accepted_offset > source_size \{''',
+              '''    let source_size = fs::metadata(source)?.len();\n    let source_sha256 = sha256_file(source)?;\n    if cursor.source_size.is_some_and(|expected| expected != source_size)\n        || cursor\n            .source_sha256\n            .as_deref()\n            .is_some_and(|expected| expected != source_sha256.as_str())\n    {\n        return Err(B01Error::ResumeSourceIdentityMismatch);\n    }\n    if cursor.accepted_offset > source_size {''',
+              'upload source identity fence',
+          )
+          source = sub1(
+              source,
+              r'''\n    let source_sha256 = sha256_file\(source\)\?;\n    let starting_offset = cursor\.accepted_offset;''',
+              '''\n    let starting_offset = cursor.accepted_offset;''',
+              'remove duplicate source hash',
+          )
+          source = sub1(
+              source,
+              r'''    Ok\(ResumableUploadReport \{\n        starting_offset,''',
+              '''    Ok(ResumableUploadReport {\n        cursor: UploadCursor {\n            accepted_offset,\n            source_size: Some(source_size),\n            source_sha256: Some(source_sha256.clone()),\n        },\n        starting_offset,''',
+              'upload report construction',
+          )
 
-          source = replace_once(source, '''/// Resume cursor for a provider upload.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct UploadCursor {
-    /// Exact source offset already durably accepted by the provider sink.
-    pub accepted_offset: u64,
-}
-''', '''/// Resume cursor for a provider upload.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct UploadCursor {
-    /// Exact source offset already durably accepted by the provider sink.
-    pub accepted_offset: u64,
-    /// Source size observed by the first accepted pass.
-    pub source_size: Option<u64>,
-    /// Whole-source SHA-256 observed by the first accepted pass.
-    pub source_sha256: Option<String>,
-}
-''', 'upload cursor')
-
-          source = replace_once(source, '''pub struct ResumableUploadReport {
-    /// Offset from which this pass started.
-    pub starting_offset: u64,
-''', '''pub struct ResumableUploadReport {
-    /// Resume cursor bound to the exact source identity and accepted provider offset.
-    pub cursor: UploadCursor,
-    /// Offset from which this pass started.
-    pub starting_offset: u64,
-''', 'upload report cursor')
-
-          source = replace_once(source, '''    let source_size = fs::metadata(source)?.len();
-    if cursor.accepted_offset > source_size {
-''', '''    let source_size = fs::metadata(source)?.len();
-    let source_sha256 = sha256_file(source)?;
-    if cursor.source_size.is_some_and(|expected| expected != source_size)
-        || cursor
-            .source_sha256
-            .as_deref()
-            .is_some_and(|expected| expected != source_sha256.as_str())
-    {
-        return Err(B01Error::ResumeSourceIdentityMismatch);
-    }
-    if cursor.accepted_offset > source_size {
-''', 'upload source fence')
-
-          source = replace_once(source, '''
-    let source_sha256 = sha256_file(source)?;
-    let starting_offset = cursor.accepted_offset;
-''', '''
-    let starting_offset = cursor.accepted_offset;
-''', 'duplicate source digest')
-
-          source = replace_once(source, '''    Ok(ResumableUploadReport {
-        starting_offset,
-''', '''    Ok(ResumableUploadReport {
-        cursor: UploadCursor {
-            accepted_offset,
-            source_size: Some(source_size),
-            source_sha256: Some(source_sha256.clone()),
-        },
-        starting_offset,
-''', 'upload report construction')
-
-          source = replace_once(source, '''/// One exact verified download range.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VerifiedRange {
-    /// Start offset.
-    pub start: u64,
-    /// Number of verified bytes.
-    pub len: u64,
-}
-
-/// Durable range cursor for segmented download resume.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct DownloadCursor {
-    verified: BTreeMap<u64, u64>,
-}
-
-impl DownloadCursor {
-    /// Mark one exact range as verified.
-    pub fn mark_verified(&mut self, range: VerifiedRange) {
-        self.verified.insert(range.start, range.len);
-    }
-
-    /// Whether an exact range has already been verified.
-    #[must_use]
-    pub fn contains(&self, range: VerifiedRange) -> bool {
-        self.verified.get(&range.start) == Some(&range.len)
-    }
-''', '''/// One exact verified download range.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VerifiedRange {
-    /// Start offset.
-    pub start: u64,
-    /// Number of verified bytes.
-    pub len: u64,
-    /// SHA-256 of the exact retained range bytes.
-    pub sha256: String,
-}
-
-/// Durable digest-bound range cursor for segmented download resume.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct DownloadCursor {
-    verified: BTreeMap<u64, VerifiedRange>,
-}
-
-impl DownloadCursor {
-    /// Mark one exact range as verified.
-    pub fn mark_verified(&mut self, range: VerifiedRange) {
-        self.verified.insert(range.start, range);
-    }
-
-    /// Whether the exact range identity, geometry and digest are retained.
-    #[must_use]
-    pub fn contains(&self, range: &VerifiedRange) -> bool {
-        self.verified.get(&range.start) == Some(range)
-    }
-
-    fn get(&self, start: u64, len: u64) -> Option<&VerifiedRange> {
-        self.verified.get(&start).filter(|range| range.len == len)
-    }
-''', 'verified range digest')
-
-          source = replace_once(source, '''        let range = VerifiedRange {
-            start,
-            len: len_u64,
-        };
-        if cursor.contains(range) {
-            resumed_ranges += 1;
-            continue;
-        }
-''', '''        if let Some(verified) = cursor.get(start, len_u64) {
-            let len = usize::try_from(len_u64).expect("segment length fits usize");
-            let mut retained = vec![0_u8; len];
-            output.seek(SeekFrom::Start(start))?;
-            output.read_exact(&mut retained)?;
-            let observed = sha256_bytes(&retained);
-            if observed != verified.sha256 {
-                return Err(B01Error::ResumeRangeDigestMismatch {
-                    start,
-                    expected: verified.sha256.clone(),
-                    observed,
-                });
-            }
-            resumed_ranges += 1;
-            continue;
-        }
-''', 'resume range verification')
-
-          source = replace_once(source, '''        output.write_all(&bytes)?;
-        output.flush()?;
-        cursor.mark_verified(range);
-        downloaded_ranges += 1;
-''', '''        output.write_all(&bytes)?;
-        output.flush()?;
-        cursor.mark_verified(VerifiedRange {
-            start,
-            len: len_u64,
-            sha256: sha256_bytes(&bytes),
-        });
-        downloaded_ranges += 1;
-''', 'range digest admission')
-
-          source = replace_once(source, '''    /// Provider offset does not match the retained caller cursor.
-    #[error("resume sink mismatch: cursor={cursor}, sink={sink}")]
-    ResumeSinkMismatch { cursor: u64, sink: u64 },
-''', '''    /// Provider offset does not match the retained caller cursor.
-    #[error("resume sink mismatch: cursor={cursor}, sink={sink}")]
-    ResumeSinkMismatch { cursor: u64, sink: u64 },
-    /// Source size or digest changed after the retained upload cursor was created.
-    #[error("upload resume source identity changed")]
-    ResumeSourceIdentityMismatch,
-    /// A retained download range no longer matches its verified digest.
-    #[error("download resume range digest mismatch at {start}: expected {expected}, observed {observed}")]
-    ResumeRangeDigestMismatch {
-        /// Start offset of the stale/corrupt retained range.
-        start: u64,
-        /// Retained verified SHA-256.
-        expected: String,
-        /// Re-read SHA-256.
-        observed: String,
-    },
-''', 'resume errors')
-
+          source = sub1(
+              source,
+              r'''/// One exact verified download range\..*?/// Source capable of serving exact byte ranges\.''',
+              '''/// One exact verified download range.\n#[derive(Debug, Clone, PartialEq, Eq)]\npub struct VerifiedRange {\n    /// Start offset.\n    pub start: u64,\n    /// Number of verified bytes.\n    pub len: u64,\n    /// SHA-256 of the exact retained range bytes.\n    pub sha256: String,\n}\n\n/// Durable digest-bound range cursor for segmented download resume.\n#[derive(Debug, Clone, PartialEq, Eq, Default)]\npub struct DownloadCursor {\n    verified: BTreeMap<u64, VerifiedRange>,\n}\n\nimpl DownloadCursor {\n    /// Mark one exact range as verified.\n    pub fn mark_verified(&mut self, range: VerifiedRange) {\n        self.verified.insert(range.start, range);\n    }\n\n    /// Whether the exact range identity, geometry and digest are retained.\n    #[must_use]\n    pub fn contains(&self, range: &VerifiedRange) -> bool {\n        self.verified.get(&range.start) == Some(range)\n    }\n\n    fn get(&self, start: u64, len: u64) -> Option<&VerifiedRange> {\n        self.verified.get(&start).filter(|range| range.len == len)\n    }\n\n    /// Number of verified ranges.\n    #[must_use]\n    pub fn len(&self) -> usize {\n        self.verified.len()\n    }\n\n    /// Whether no verified ranges are retained.\n    #[must_use]\n    pub fn is_empty(&self) -> bool {\n        self.verified.is_empty()\n    }\n}\n\n/// Source capable of serving exact byte ranges.''',
+              'download cursor identity',
+              re.S,
+          )
+          source = sub1(
+              source,
+              r'''        let range = VerifiedRange \{\n            start,\n            len: len_u64,\n        \};\n        if cursor\.contains\(range\) \{\n            resumed_ranges \+= 1;\n            continue;\n        \}''',
+              '''        if let Some(verified) = cursor.get(start, len_u64) {\n            let len = usize::try_from(len_u64).expect("segment length fits usize");\n            let mut retained = vec![0_u8; len];\n            output.seek(SeekFrom::Start(start))?;\n            output.read_exact(&mut retained)?;\n            let observed = sha256_bytes(&retained);\n            if observed != verified.sha256 {\n                return Err(B01Error::ResumeRangeDigestMismatch {\n                    start,\n                    expected: verified.sha256.clone(),\n                    observed,\n                });\n            }\n            resumed_ranges += 1;\n            continue;\n        }''',
+              'download resume verification',
+          )
+          source = sub1(
+              source,
+              r'''        output\.write_all\(&bytes\)\?;\n        output\.flush\(\)\?;\n        cursor\.mark_verified\(range\);\n        downloaded_ranges \+= 1;''',
+              '''        output.write_all(&bytes)?;\n        output.flush()?;\n        cursor.mark_verified(VerifiedRange {\n            start,\n            len: len_u64,\n            sha256: sha256_bytes(&bytes),\n        });\n        downloaded_ranges += 1;''',
+              'download range admission',
+          )
+          source = sub1(
+              source,
+              r'''    /// Provider offset does not match the retained caller cursor\.\n    #\[error\("resume sink mismatch: cursor=\{cursor\}, sink=\{sink\}"\)\]\n    ResumeSinkMismatch \{ cursor: u64, sink: u64 \},''',
+              '''    /// Provider offset does not match the retained caller cursor.\n    #[error("resume sink mismatch: cursor={cursor}, sink={sink}")]\n    ResumeSinkMismatch { cursor: u64, sink: u64 },\n    /// Source size or digest changed after the retained upload cursor was created.\n    #[error("upload resume source identity changed")]\n    ResumeSourceIdentityMismatch,\n    /// A retained download range no longer matches its verified digest.\n    #[error("download resume range digest mismatch at {start}: expected {expected}, observed {observed}")]\n    ResumeRangeDigestMismatch {\n        /// Start offset of the stale/corrupt retained range.\n        start: u64,\n        /// Retained verified SHA-256.\n        expected: String,\n        /// Re-read SHA-256.\n        observed: String,\n    },''',
+              'resume errors',
+          )
           source_path.write_text(source, encoding='utf-8')
 
           tests_path = Path('crates/ptah-transfer/tests/b01.rs')
           tests = tests_path.read_text(encoding='utf-8')
-          tests = replace_once(tests, '''use std::{
-    fs,
-    path::{Path, PathBuf},
-''', '''use std::{
-    fs,
-    io::{Seek, SeekFrom, Write},
-    path::{Path, PathBuf},
-''', 'test io imports')
-
-          tests = replace_once(tests, '''        UploadCursor {
-            accepted_offset: first.accepted_offset,
-        },
-''', '''        first.cursor.clone(),
-''', 'resume uses bound cursor')
-
-          tests = replace_once(tests, '''            UploadCursor { accepted_offset: 4 },
-''', '''            UploadCursor {
-                accepted_offset: 4,
-                ..UploadCursor::default()
-            },
-''', 'mismatch default cursor')
-
-          marker = '''#[test]
-fn segmented_multi_source_download_resumes_and_falls_back_without_erasing_failure() {
-'''
-          insertion = '''#[test]
-fn upload_resume_rejects_changed_source_identity() {
-    let temp = TempRoot::new();
-    let source = temp.path().join("identity-fenced-upload.bin");
-    fs::write(&source, b"abcdefghij").expect("write source");
-    let mut sink = MemoryUploadSink::default();
-    let first = resumable_upload_file(
-        &source,
-        &mut sink,
-        UploadCursor::default(),
-        4,
-        Some(5),
-    )
-    .expect("first pass");
-    fs::write(&source, b"abcdeXXXXX").expect("mutate source");
-    assert!(matches!(
-        resumable_upload_file(&source, &mut sink, first.cursor, 4, None),
-        Err(B01Error::ResumeSourceIdentityMismatch)
-    ));
-    assert_eq!(sink.bytes, b"abcde");
-    assert!(!sink.finalized);
-}
-
-#[test]
-fn segmented_multi_source_download_resumes_and_falls_back_without_erasing_failure() {
-'''
-          tests = replace_once(tests, marker, insertion, 'upload identity regression')
-
-          old_range_test = '''#[test]
-fn verified_download_ranges_are_exact_not_filename_or_progress_claims() {
-    let mut cursor = DownloadCursor::default();
-    cursor.mark_verified(VerifiedRange { start: 0, len: 128 });
-    assert!(cursor.contains(VerifiedRange { start: 0, len: 128 }));
-    assert!(!cursor.contains(VerifiedRange { start: 0, len: 127 }));
-    assert!(!cursor.contains(VerifiedRange { start: 1, len: 128 }));
-}
-'''
-          new_range_test = '''#[test]
-fn verified_download_ranges_are_digest_bound_not_filename_or_progress_claims() {
-    let mut cursor = DownloadCursor::default();
-    let exact = VerifiedRange {
-        start: 0,
-        len: 128,
-        sha256: "a".repeat(64),
-    };
-    cursor.mark_verified(exact.clone());
-    assert!(cursor.contains(&exact));
-    assert!(!cursor.contains(&VerifiedRange {
-        start: 0,
-        len: 127,
-        sha256: exact.sha256.clone(),
-    }));
-    assert!(!cursor.contains(&VerifiedRange {
-        start: 0,
-        len: 128,
-        sha256: "b".repeat(64),
-    }));
-}
-
-#[test]
-fn segmented_resume_rejects_corrupted_retained_range() {
-    let temp = TempRoot::new();
-    let destination = temp.path().join("corrupt-resume.bin");
-    let bytes: Vec<u8> = (0..400_000)
-        .map(|index| u8::try_from(index % 241).expect("modulo fits u8"))
-        .collect();
-    let expected = sha256(&bytes);
-    let mut first_source = ByteRangeSource::new("primary", &bytes);
-    let mut second_source = ByteRangeSource::new("secondary", &bytes);
-    let mut sources: [&mut dyn RangeSource; 2] = [&mut first_source, &mut second_source];
-    let first = segmented_download(
-        &mut sources,
-        &destination,
-        bytes.len() as u64,
-        64 * 1024,
-        DownloadCursor::default(),
-        Some(2),
-        Some(&expected),
-    )
-    .expect("first pass");
-    let mut partial = fs::OpenOptions::new()
-        .write(true)
-        .open(&destination)
-        .expect("open retained partial");
-    partial.seek(SeekFrom::Start(0)).expect("seek");
-    partial.write_all(b"X").expect("corrupt retained range");
-    partial.flush().expect("flush corruption");
-    assert!(matches!(
-        segmented_download(
-            &mut sources,
-            &destination,
-            bytes.len() as u64,
-            64 * 1024,
-            first.cursor,
-            None,
-            Some(&expected),
-        ),
-        Err(B01Error::ResumeRangeDigestMismatch { start: 0, .. })
-    ));
-}
-'''
-          tests = replace_once(tests, old_range_test, new_range_test, 'digest-bound range tests')
+          tests = sub1(
+              tests,
+              r'''use std::\{\n    fs,\n    path::\{Path, PathBuf\},''',
+              '''use std::{\n    fs,\n    io::{Seek, SeekFrom, Write},\n    path::{Path, PathBuf},''',
+              'test io imports',
+          )
+          tests = sub1(
+              tests,
+              r'''        UploadCursor \{\n            accepted_offset: first\.accepted_offset,\n        \},''',
+              '''        first.cursor.clone(),''',
+              'bound upload resume cursor',
+          )
+          tests = sub1(
+              tests,
+              r'''            UploadCursor \{ accepted_offset: 4 \},''',
+              '''            UploadCursor {\n                accepted_offset: 4,\n                ..UploadCursor::default()\n            },''',
+              'cursor mismatch fixture',
+          )
+          tests = sub1(
+              tests,
+              r'''#\[test\]\nfn segmented_multi_source_download_resumes_and_falls_back_without_erasing_failure\(\) \{''',
+              '''#[test]\nfn upload_resume_rejects_changed_source_identity() {\n    let temp = TempRoot::new();\n    let source = temp.path().join("identity-fenced-upload.bin");\n    fs::write(&source, b"abcdefghij").expect("write source");\n    let mut sink = MemoryUploadSink::default();\n    let first = resumable_upload_file(\n        &source,\n        &mut sink,\n        UploadCursor::default(),\n        4,\n        Some(5),\n    )\n    .expect("first pass");\n    fs::write(&source, b"abcdeXXXXX").expect("mutate source");\n    assert!(matches!(\n        resumable_upload_file(&source, &mut sink, first.cursor, 4, None),\n        Err(B01Error::ResumeSourceIdentityMismatch)\n    ));\n    assert_eq!(sink.bytes, b"abcde");\n    assert!(!sink.finalized);\n}\n\n#[test]\nfn segmented_multi_source_download_resumes_and_falls_back_without_erasing_failure() {''',
+              'upload identity regression',
+          )
+          tests = sub1(
+              tests,
+              r'''#\[test\]\nfn verified_download_ranges_are_exact_not_filename_or_progress_claims\(\) \{.*?\n\}\n\n#\[test\]\nfn priority_queue_preserves_local_capacity_while_local_work_is_pending''',
+              '''#[test]\nfn verified_download_ranges_are_digest_bound_not_filename_or_progress_claims() {\n    let mut cursor = DownloadCursor::default();\n    let exact = VerifiedRange {\n        start: 0,\n        len: 128,\n        sha256: "a".repeat(64),\n    };\n    cursor.mark_verified(exact.clone());\n    assert!(cursor.contains(&exact));\n    assert!(!cursor.contains(&VerifiedRange {\n        start: 0,\n        len: 127,\n        sha256: exact.sha256.clone(),\n    }));\n    assert!(!cursor.contains(&VerifiedRange {\n        start: 0,\n        len: 128,\n        sha256: "b".repeat(64),\n    }));\n}\n\n#[test]\nfn segmented_resume_rejects_corrupted_retained_range() {\n    let temp = TempRoot::new();\n    let destination = temp.path().join("corrupt-resume.bin");\n    let bytes: Vec<u8> = (0..400_000)\n        .map(|index| u8::try_from(index % 241).expect("modulo fits u8"))\n        .collect();\n    let expected = sha256(&bytes);\n    let mut first_source = ByteRangeSource::new("primary", &bytes);\n    let mut second_source = ByteRangeSource::new("secondary", &bytes);\n    let mut sources: [&mut dyn RangeSource; 2] = [&mut first_source, &mut second_source];\n    let first = segmented_download(\n        &mut sources,\n        &destination,\n        bytes.len() as u64,\n        64 * 1024,\n        DownloadCursor::default(),\n        Some(2),\n        Some(&expected),\n    )\n    .expect("first pass");\n    let mut partial = fs::OpenOptions::new()\n        .write(true)\n        .open(&destination)\n        .expect("open retained partial");\n    partial.seek(SeekFrom::Start(0)).expect("seek");\n    partial.write_all(b"X").expect("corrupt retained range");\n    partial.flush().expect("flush corruption");\n    assert!(matches!(\n        segmented_download(\n            &mut sources,\n            &destination,\n            bytes.len() as u64,\n            64 * 1024,\n            first.cursor,\n            None,\n            Some(&expected),\n        ),\n        Err(B01Error::ResumeRangeDigestMismatch { start: 0, .. })\n    ));\n}\n\n#[test]\nfn priority_queue_preserves_local_capacity_while_local_work_is_pending''',
+              'download digest regressions',
+              re.S,
+          )
           tests_path.write_text(tests, encoding='utf-8')
 
           workflow_path = Path('.github/workflows/b01-transfer-storage-expansion.yml')
           workflow = workflow_path.read_text(encoding='utf-8')
-          workflow = workflow.replace('13 passed; 0 failed;', '15 passed; 0 failed;')
-          workflow = workflow.replace("'b01_acceptance_test_count': 13", "'b01_acceptance_test_count': 15")
+          if '13 passed; 0 failed;' not in workflow or "'b01_acceptance_test_count': 13" not in workflow:
+              raise SystemExit('B01 workflow count anchors changed unexpectedly')
+          workflow = workflow.replace('13 passed; 0 failed;', '15 passed; 0 failed;', 1)
+          workflow = workflow.replace("'b01_acceptance_test_count': 13", "'b01_acceptance_test_count': 15", 1)
           workflow_path.write_text(workflow, encoding='utf-8')
 
           doc_path = Path('B01_TRANSFER_STORAGE_EXPANSION.md')
           doc = doc_path.read_text(encoding='utf-8')
           doc = doc.replace(
-              '1. resumable upload from an exact provider-accepted offset, including fail-closed cursor/provider disagreement;',
-              '1. resumable upload from an exact provider-accepted offset, with source size/digest fencing and fail-closed cursor/provider disagreement;'
+              'resumable upload from an exact provider-accepted offset, including fail-closed cursor/provider disagreement;',
+              'resumable upload from an exact provider-accepted offset, with source size/digest fencing and fail-closed cursor/provider disagreement;',
+              1,
           )
           doc = doc.replace(
-              '2. segmented download with exact verified-range cursor, multi-source selection, source fallback and retained source failures;',
-              '2. segmented download with digest-bound verified-range cursor, multi-source selection, source fallback and retained source failures;'
+              'segmented download with exact verified-range cursor, multi-source selection, source fallback and retained source failures;',
+              'segmented download with digest-bound verified-range cursor, multi-source selection, source fallback and retained source failures;',
+              1,
           )
           doc_path.write_text(doc, encoding='utf-8')
           PY
           rustup toolchain install 1.97.1 --profile minimal --component rustfmt
           rustup default 1.97.1
           cargo fmt --all
-      - name: Commit review corrections
+          rm .github/workflows/b01-review-hardening.yml
+      - name: Commit corrected six-file candidate
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add crates/ptah-transfer/src/b01.rs crates/ptah-transfer/tests/b01.rs \
-            .github/workflows/b01-transfer-storage-expansion.yml B01_TRANSFER_STORAGE_EXPANSION.md
+          git add -A
           git diff --cached --check
+          test "$(git diff --cached --name-only | grep -v '^.github/workflows/b01-review-hardening.yml$' | wc -l)" -ge 4
           git commit -m "B01 review: bind resumable state to exact bytes"
           git push origin HEAD:b01-transfer-storage-expansion

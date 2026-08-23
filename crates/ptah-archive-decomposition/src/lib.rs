@@ -1,15 +1,21 @@
 #![forbid(unsafe_code)]
-//! A12 deterministic archive decomposition policy and canonical persistence.
+//! A12 deterministic archive decomposition plus B02 generic progressive decomposition.
 //!
-//! Parser backends are untrusted mechanical facilities. This crate owns path
-//! canonicalization, duplicate/link policy, recursive resource budgets,
-//! provenance, coverage truth and canonical registration through the A07/A03
-//! boundaries.
+//! Parser backends and type detectors are untrusted mechanical facilities. This crate owns path
+//! canonicalization, duplicate/link policy, recursive resource budgets, provenance, coverage truth,
+//! detector disagreement, progressive decomposition truth and canonical registration through the
+//! A07/A03 boundaries.
 
+mod b02;
 mod model;
 mod persist;
 mod policy;
 
+pub use b02::{
+    B02Error, ChildRelationship, DetectorEvidence, DetectorOutcome, ProgressiveLevel,
+    ProgressiveReport, ProgressiveSpec, SearchMetadata, TypeAgreement, TypeAssessment, TypeDetector,
+    TypeSignal, progressive_decompose,
+};
 pub use model::{
     ArchiveBackend, BackendIdentity, DecompositionBudget, DecompositionClock, DecompositionOutcome,
     DecompositionPlan, DecompositionSpec, InventoryEntry, MemberKind, ParseReport, ParseTerminal,

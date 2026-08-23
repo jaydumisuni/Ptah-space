@@ -25,9 +25,9 @@ pub use b03::{
     SafeHtmlAdapter, SafePreview, SafeTextAdapter, SourceAnchor, inspect_document,
 };
 pub use b04::{
-    AdapterDerivedMedia, AdapterMedia, AdapterMediaFrame, AdapterMediaView, B04Error,
-    DerivedMedia, DerivedMediaKind, ImageTransformOperation, ImageTransformRequest, MediaAdapter,
-    MediaClass, MediaContext, MediaCoverage, MediaDuration, MediaFrameView, MediaIsolation,
+    AdapterDerivedMedia, AdapterMedia, AdapterMediaFrame, AdapterMediaView, B04Error, DerivedMedia,
+    DerivedMediaKind, ImageTransformOperation, ImageTransformRequest, MediaAdapter, MediaClass,
+    MediaContext, MediaCoverage, MediaDuration, MediaFrameView, MediaIsolation,
     MediaIsolationPolicy, MediaLimits, MediaMetadata, MediaReport, MediaRequest, MediaView,
     PixelDimensions, TranscodeRequest, inspect_media,
 };

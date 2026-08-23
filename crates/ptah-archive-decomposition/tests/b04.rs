@@ -66,7 +66,13 @@ impl MediaAdapter for FullAdapter {
         _limits: MediaLimits,
     ) -> Result<AdapterMedia, String> {
         let (dimensions, duration) = match media_type {
-            "image/png" => (Some(PixelDimensions { width: 640, height: 480 }), None),
+            "image/png" => (
+                Some(PixelDimensions {
+                    width: 640,
+                    height: 480,
+                }),
+                None,
+            ),
             "audio/wav" => (
                 None,
                 Some(MediaDuration {
@@ -236,9 +242,13 @@ fn image_transform_is_new_converted_revision_and_requires_explicit_artifact_prom
     assert_eq!(registration.expected_sha256, Some(derived.sha256.clone()));
 
     let promotion_production = production();
-    let promotion = derived.artifact_promotion_spec(&different_context, promotion_production.clone());
+    let promotion =
+        derived.artifact_promotion_spec(&different_context, promotion_production.clone());
     assert_eq!(promotion.artifact_type, "media.image_transform");
-    assert_eq!(promotion.production.activity_ref, promotion_production.activity_ref);
+    assert_eq!(
+        promotion.production.activity_ref,
+        promotion_production.activity_ref
+    );
     assert_eq!(
         promotion.subject_refs,
         vec![source_context.source_revision_ref]
@@ -370,16 +380,20 @@ fn partial_source_probe_cannot_claim_full_duration_or_coverage() {
     assert!(!report.coverage.complete_claim);
     assert_eq!(report.coverage.observed_source_bytes, 5);
     assert!(!report.duration.expect("duration").complete);
-    assert!(report
-        .coverage
-        .unknown_gaps
-        .iter()
-        .any(|gap| gap.contains("only part")));
-    assert!(report
-        .coverage
-        .unknown_gaps
-        .iter()
-        .any(|gap| gap.contains("duration")));
+    assert!(
+        report
+            .coverage
+            .unknown_gaps
+            .iter()
+            .any(|gap| gap.contains("only part"))
+    );
+    assert!(
+        report
+            .coverage
+            .unknown_gaps
+            .iter()
+            .any(|gap| gap.contains("duration"))
+    );
 }
 
 #[test]
@@ -406,11 +420,13 @@ fn cached_view_budget_drops_late_view_and_records_partial_truth() {
     assert!(report.preview.is_none());
     assert_eq!(report.coverage.cached_view_bytes, 5);
     assert!(!report.coverage.complete_claim);
-    assert!(report
-        .coverage
-        .unknown_gaps
-        .iter()
-        .any(|gap| gap.contains("cached-View")));
+    assert!(
+        report
+            .coverage
+            .unknown_gaps
+            .iter()
+            .any(|gap| gap.contains("cached-View"))
+    );
 }
 
 #[test]
@@ -436,11 +452,13 @@ fn oversized_derivative_is_not_retained_or_promoted_by_claim() {
 
     assert!(report.derivatives.is_empty());
     assert!(!report.coverage.complete_claim);
-    assert!(report
-        .coverage
-        .unknown_gaps
-        .iter()
-        .any(|gap| gap.contains("max_derived_bytes")));
+    assert!(
+        report
+            .coverage
+            .unknown_gaps
+            .iter()
+            .any(|gap| gap.contains("max_derived_bytes"))
+    );
 }
 
 struct CountingAdapter<'a>(&'a AtomicUsize);
@@ -864,10 +882,15 @@ fn blocked_heavy_transcode_does_not_serialize_unrelated_media_inspection() {
         assert_eq!(quick.media_class, Some(MediaClass::Image));
         release.wait();
 
-        let heavy = heavy.join().expect("heavy thread joins").expect("heavy result");
-        assert!(heavy
-            .derivatives
-            .iter()
-            .any(|item| item.kind == DerivedMediaKind::Transcode));
+        let heavy = heavy
+            .join()
+            .expect("heavy thread joins")
+            .expect("heavy result");
+        assert!(
+            heavy
+                .derivatives
+                .iter()
+                .any(|item| item.kind == DerivedMediaKind::Transcode)
+        );
     });
 }

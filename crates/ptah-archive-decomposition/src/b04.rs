@@ -1,7 +1,8 @@
 use crate::{TypeAgreement, TypeAssessment};
 use ptah_identifiers::EntityRef;
 use ptah_object_store::{
-    ArtifactPromotionSpec, OriginClass, ProductionEvidence, RegisterObjectSpec, RevisionRole, ViewSpec,
+    ArtifactPromotionSpec, OriginClass, ProductionEvidence, RegisterObjectSpec, RevisionRole,
+    ViewSpec,
 };
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -96,14 +97,9 @@ impl MediaIsolation {
     }
 
     const fn is_safe(self) -> bool {
-        matches!(
-            self.active_content_execution,
-            MediaIsolationPolicy::Denied
-        ) && matches!(self.network_access, MediaIsolationPolicy::Denied)
-            && matches!(
-                self.external_resource_loading,
-                MediaIsolationPolicy::Denied
-            )
+        matches!(self.active_content_execution, MediaIsolationPolicy::Denied)
+            && matches!(self.network_access, MediaIsolationPolicy::Denied)
+            && matches!(self.external_resource_loading, MediaIsolationPolicy::Denied)
     }
 }
 
@@ -531,7 +527,9 @@ pub enum B04Error {
     #[error("ambiguous B04 media adapters for media type {0}")]
     AmbiguousAdapter(String),
     /// Adapter isolation declaration is not passive.
-    #[error("B04 media adapter does not deny active content, network and external resource loading: {0}")]
+    #[error(
+        "B04 media adapter does not deny active content, network and external resource loading: {0}"
+    )]
     UnsafeAdapterIsolation(String),
     /// Provider failed mechanically.
     #[error("B04 media adapter failed: {0}")]
@@ -598,14 +596,17 @@ pub fn inspect_media(
     );
 
     let Some(media_type) = agreed_media_type else {
-        report.coverage.unknown_gaps.push(match &type_assessment.agreement {
-            TypeAgreement::Unknown => "B02 did not establish an agreed media type".to_owned(),
-            TypeAgreement::Disputed(values) => format!(
-                "B02 detector disagreement prevents media adapter selection: {}",
-                values.join(", ")
-            ),
-            TypeAgreement::Agreed(_) => unreachable!("agreed media type was extracted above"),
-        });
+        report
+            .coverage
+            .unknown_gaps
+            .push(match &type_assessment.agreement {
+                TypeAgreement::Unknown => "B02 did not establish an agreed media type".to_owned(),
+                TypeAgreement::Disputed(values) => format!(
+                    "B02 detector disagreement prevents media adapter selection: {}",
+                    values.join(", ")
+                ),
+                TypeAgreement::Agreed(_) => unreachable!("agreed media type was extracted above"),
+            });
         return Ok(report);
     };
 
@@ -910,7 +911,11 @@ fn validate_adapter_output(
     if output.observed_source_bytes > source_len {
         return Err(B04Error::InvalidObservedSourceBytes);
     }
-    if output.metadata.iter().any(|field| field.key.trim().is_empty()) {
+    if output
+        .metadata
+        .iter()
+        .any(|field| field.key.trim().is_empty())
+    {
         return Err(B04Error::EmptyMetadataKey);
     }
     if output
@@ -1129,10 +1134,7 @@ fn retain_frames(
         });
     }
     if produced > max_frames {
-        mark_gap(
-            report,
-            "sampled frames exceeded B04 max_frames".to_owned(),
-        );
+        mark_gap(report, "sampled frames exceeded B04 max_frames".to_owned());
     }
     report.coverage.retained_frames = report.frames.len();
     Ok(())

@@ -163,3 +163,55 @@ fn self_closing_embed_does_not_discard_following_benign_text() {
     assert!(preview.contains("after"));
     assert!(!preview.contains("evil.bin"));
 }
+
+#[test]
+fn truncated_text_clears_exact_byte_anchor() {
+    let report = inspect_document(
+        b"abcdefgh",
+        &agreed("text/plain"),
+        &context(),
+        DocumentLimits {
+            max_text_bytes: 4,
+            ..DocumentLimits::default()
+        },
+        &[&SafeTextAdapter],
+    )
+    .expect("bounded text");
+
+    assert_eq!(report.text[0].text, "abcd");
+    assert_eq!(report.text[0].anchor.byte_start, None);
+    assert_eq!(report.text[0].anchor.byte_end_exclusive, None);
+    assert!(
+        report
+            .coverage
+            .unknown_gaps
+            .iter()
+            .any(|gap| gap.contains("max_text_bytes"))
+    );
+}
+
+#[test]
+fn nested_active_regions_are_removed_as_complete_outer_region() {
+    let source = br#"<html><body><script>evil1<script>evil2</script>evil3</script><p>safe</p></body></html>"#;
+    let report = inspect_document(
+        source,
+        &agreed("text/html"),
+        &context(),
+        DocumentLimits::default(),
+        &[&SafeHtmlAdapter],
+    )
+    .expect("nested active HTML");
+
+    assert!(report.active_content_observed);
+    let preview = String::from_utf8(report.preview.expect("preview").bytes).expect("UTF-8");
+    assert!(preview.contains("safe"));
+    assert!(!preview.contains("evil1"));
+    assert!(!preview.contains("evil2"));
+    assert!(!preview.contains("evil3"));
+    let conversion =
+        String::from_utf8(report.conversion.expect("conversion").bytes).expect("UTF-8 conversion");
+    assert!(conversion.contains("safe"));
+    assert!(!conversion.contains("evil1"));
+    assert!(!conversion.contains("evil2"));
+    assert!(!conversion.contains("evil3"));
+}

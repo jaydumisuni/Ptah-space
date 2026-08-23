@@ -30,7 +30,9 @@ B03 adds the following to `ptah-archive-decomposition`:
 12. A07 converted-object registration specification using `RevisionRole::Converted` and the conversion's frozen exact source Revision;
 13. resource limits for retained text, pages, page-render bytes, preview bytes and converted bytes;
 14. generic HTML event-handler observation plus passive removal of executable attributes from preview text;
-15. safe handling of void embedded elements without discarding following benign document text.
+15. safe handling of void embedded elements without discarding following benign document text;
+16. conservative citation behavior that clears byte-range claims when generic adapter text is truncated and exact shortened mapping is not provable;
+17. nesting-aware removal of active HTML/XHTML regions, including fail-safe handling of malformed unclosed regions and self-closing active tags.
 
 ## Acceptance proofs
 
@@ -46,12 +48,14 @@ The exact-head B03 workflow must prove:
 - resource limits downgrade coverage and expose truncation/omission instead of overclaiming completeness;
 - reaching an exact page-count boundary does not invent truncation when no page was omitted;
 - preview truncation independently downgrades coverage and records the exact limiting policy;
+- truncated text does not retain a full-span exact byte range when the shortened mapping is not provable;
 - converted output registration creates a new converted Revision plan whose source is the exact original Revision;
 - a later mismatched caller context cannot rebind converted-output provenance;
 - declared-type mismatch cannot override the B02-agreed observed type;
 - canonical View specifications remain bound to the report's exact source Revision even if a later caller context names another Revision;
 - generic event-handler attributes are observed without execution;
 - self-closing embedded active elements do not erase benign content that follows them;
+- nested active elements are consumed as a complete outer active region and do not leak script/embedded content into preview or conversion;
 - inherited B02 and A12 acceptance suites still pass;
 - the complete inherited Rust workspace still passes at the exact B03 head.
 

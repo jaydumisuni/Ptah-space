@@ -93,7 +93,7 @@ impl ArchiveBackend for FixtureArchiveBackend {
                         bytes: NESTED.to_vec(),
                     },
                     ParsedMember {
-                        path: "readme.txt".to_owned(),
+                        path: "folder/readme.txt".to_owned(),
                         kind: MemberKind::Regular,
                         bytes: README.to_vec(),
                     },
@@ -106,7 +106,7 @@ impl ArchiveBackend for FixtureArchiveBackend {
             ParseReport {
                 format: Some("ptah-fixture".to_owned()),
                 members: vec![ParsedMember {
-                    path: "deep.arc".to_owned(),
+                    path: "folder/deep.arc".to_owned(),
                     kind: MemberKind::Regular,
                     bytes: DEEP.to_vec(),
                 }],
@@ -353,17 +353,17 @@ fn level_two_produces_root_inventory_without_recursive_children() {
             .iter()
             .any(|child| child.child_path == "nested.arc")
     );
+    let root_slash_member = report
+        .children
+        .iter()
+        .find(|child| child.child_path == "folder/readme.txt")
+        .expect("root member with slash retained");
+    assert!(root_slash_member.parent_path.is_none());
     assert!(
         report
             .children
             .iter()
-            .any(|child| child.child_path == "readme.txt")
-    );
-    assert!(
-        report
-            .children
-            .iter()
-            .all(|child| !child.child_path.contains('/'))
+            .all(|child| { child.parent_path.as_deref() != Some("folder") })
     );
     assert!(report.searchable_metadata.iter().any(|item| {
         item.path.as_deref() == Some("nested.arc")
@@ -391,7 +391,7 @@ fn level_three_builds_child_graph_and_marks_recursion_boundary_explicitly() {
     let nested = report
         .children
         .iter()
-        .find(|child| child.child_path == "nested.arc/deep.arc")
+        .find(|child| child.child_path == "nested.arc/folder/deep.arc")
         .expect("nested child retained");
     assert_eq!(nested.parent_path.as_deref(), Some("nested.arc"));
     assert_eq!(nested.depth, 1);
@@ -400,10 +400,10 @@ fn level_three_builds_child_graph_and_marks_recursion_boundary_explicitly() {
             .unsupported_regions
             .iter()
             .any(|item| item.contains("recursion limit 1 reached")
-                && item.contains("nested.arc/deep.arc"))
+                && item.contains("nested.arc/folder/deep.arc"))
     );
     assert!(report.searchable_metadata.iter().any(|item| {
-        item.path.as_deref() == Some("nested.arc/deep.arc") && item.key == "sha256"
+        item.path.as_deref() == Some("nested.arc/folder/deep.arc") && item.key == "sha256"
     }));
 }
 
@@ -422,8 +422,8 @@ fn deeper_level_three_reaches_leaf_when_resource_policy_allows_it() {
 
     assert_eq!(report.achieved_level, ProgressiveLevel::L3);
     assert!(report.children.iter().any(|child| {
-        child.child_path == "nested.arc/deep.arc/leaf.txt"
-            && child.parent_path.as_deref() == Some("nested.arc/deep.arc")
+        child.child_path == "nested.arc/folder/deep.arc/leaf.txt"
+            && child.parent_path.as_deref() == Some("nested.arc/folder/deep.arc")
     }));
     assert!(
         !report

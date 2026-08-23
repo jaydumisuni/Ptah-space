@@ -395,8 +395,22 @@ fn apply_archive_plan(
         .iter()
         .map(|member| (member.inventory_index, member))
         .collect();
+    let container_paths: HashMap<&str, String> = plan
+        .recovered_members
+        .iter()
+        .map(|member| (member.member_sha256.as_str(), member.logical_path.clone()))
+        .collect();
     for (index, entry) in plan.inventory.iter().enumerate() {
-        let parent_path = logical_parent(&entry.logical_path);
+        let parent_path = recovered
+            .get(&index)
+            .and_then(|member| member.parent_inventory_index)
+            .and_then(|parent_index| plan.inventory.get(parent_index))
+            .map(|parent| parent.logical_path.clone())
+            .or_else(|| {
+                container_paths
+                    .get(entry.container_sha256.as_str())
+                    .cloned()
+            });
         let type_assessment = recovered
             .get(&index)
             .map(|member| assess_type(&member.bytes, None, detectors));
@@ -570,10 +584,6 @@ fn append_child_metadata(metadata: &mut Vec<SearchMetadata>, child: &ChildRelati
             TypeAgreement::Unknown => {}
         }
     }
-}
-
-fn logical_parent(path: &str) -> Option<String> {
-    path.rsplit_once('/').map(|(parent, _)| parent.to_owned())
 }
 
 fn normalize_type(value: &str) -> String {

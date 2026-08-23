@@ -87,7 +87,7 @@ jobs:
           cargo fmt --all -- --check
           cargo test -p ptah-transfer --test b01 --locked -- --nocapture \
             2>&1 | tee /tmp/b01/b01-tests.txt
-          grep -Eq 'test result: ok\. 13 passed; 0 failed;' /tmp/b01/b01-tests.txt
+          grep -Eq 'test result: ok\. 19 passed; 0 failed;' /tmp/b01/b01-tests.txt
 
       - name: Prove B01 transfer surface with strict Clippy
         shell: bash
@@ -156,7 +156,7 @@ jobs:
               'accepted_base_commit': os.environ['PTAH_B01_BASE_SHA'],
               'workflow_run_id': int(os.environ['RUN_ID']),
               'workflow_run_attempt': int(os.environ['RUN_ATTEMPT']),
-              'b01_acceptance_test_count': 13,
+              'b01_acceptance_test_count': 19,
               'resumable_upload_proven': True,
               'segmented_multi_source_download_proven': True,
               'queue_priority_proven': True,

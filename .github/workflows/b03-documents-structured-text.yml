@@ -1,6 +1,11 @@
 name: B03 one-use review correction
 
 on:
+  push:
+    branches:
+      - b03-documents-structured-text
+    paths:
+      - ".github/workflows/b03-documents-structured-text.yml"
   pull_request:
     branches: [main]
     paths:
@@ -12,7 +17,7 @@ permissions:
 
 jobs:
   correct:
-    if: github.event.pull_request.head.ref == 'b03-documents-structured-text' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.ref == 'refs/heads/b03-documents-structured-text' || (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'b03-documents-structured-text' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     steps:
       - name: Check out writable B03 branch

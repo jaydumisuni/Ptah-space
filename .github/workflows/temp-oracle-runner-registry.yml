@@ -12,7 +12,7 @@ permissions:
 jobs:
   probe:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
       - name: Read Oracle repository self-hosted runners
         shell: bash
@@ -20,38 +20,41 @@ jobs:
           set -euo pipefail
           gh api repos/jaydumisuni/Oracle-/actions/runners --jq '{total_count, runners: [.runners[] | {id,name,os,status,busy,version,labels:[.labels[].name]}]}'
 
-      - name: Identify ATHENA LAN neighbor and management surfaces
+      - name: Discover reachable hosts on KRATOS owner LAN
         shell: bash
         run: |
           set +e
-          echo '--- local network ---'
-          ip -brief address || true
-          ip route || true
-          ip neigh show || true
-          echo '--- candidate 192.168.37.229 ---'
-          ping -c 2 -W 2 192.168.37.229 2>&1 || true
           python3 - <<'PY'
-          import socket, json, time
-          ip='192.168.37.229'
-          ports=[22,80,135,139,443,445,3389,5985,5986,5056,5059,7070]
-          item={'ip':ip,'reverse_dns':None,'ports':{}}
-          try: item['reverse_dns']=socket.gethostbyaddr(ip)[0]
-          except Exception as exc: item['reverse_dns_error']=str(exc)
-          for port in ports:
-              s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-              s.settimeout(1.5)
-              started=time.time()
-              try:
-                  s.connect((ip,port))
-                  item['ports'][str(port)]={'state':'open','ms':round((time.time()-started)*1000,1)}
-              except ConnectionRefusedError:
-                  item['ports'][str(port)]={'state':'refused','ms':round((time.time()-started)*1000,1)}
-              except Exception as exc:
-                  item['ports'][str(port)]={'state':type(exc).__name__,'ms':round((time.time()-started)*1000,1)}
-              finally: s.close()
-          print(json.dumps(item,indent=2,sort_keys=True))
+          import concurrent.futures, subprocess, ipaddress, socket, json, time
+          network=ipaddress.ip_network('192.168.37.0/24')
+          local='192.168.37.149'
+          gateway='192.168.37.229'
+          def alive(ip):
+              if str(ip)==local: return None
+              r=subprocess.run(['ping','-c','1','-W','1',str(ip)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+              return str(ip) if r.returncode==0 else None
+          with concurrent.futures.ThreadPoolExecutor(max_workers=64) as ex:
+              hosts=[x for x in ex.map(alive, network.hosts()) if x]
+          print('LIVE_HOSTS='+json.dumps(hosts))
+          ports=[22,135,139,445,3389,5985,5986,5056,5059]
+          results=[]
+          for ip in hosts:
+              if ip==gateway:
+                  kind='gateway'
+              else:
+                  kind='candidate'
+              item={'ip':ip,'kind':kind,'ports':{},'reverse_dns':None}
+              try: item['reverse_dns']=socket.gethostbyaddr(ip)[0]
+              except Exception: pass
+              for port in ports:
+                  s=socket.socket(socket.AF_INET,socket.SOCK_STREAM); s.settimeout(0.6)
+                  try:
+                      s.connect((ip,port)); item['ports'][str(port)]='open'
+                  except ConnectionRefusedError: item['ports'][str(port)]='refused'
+                  except Exception: item['ports'][str(port)]='filtered'
+                  finally: s.close()
+              results.append(item)
+          print(json.dumps(results,indent=2,sort_keys=True))
           PY
-          echo '--- optional discovery tools ---'
-          command -v nmblookup && nmblookup -A 192.168.37.229 || true
-          command -v smbclient && smbclient -L //192.168.37.229 -N -m SMB3 2>&1 | head -n 40 || true
-          command -v avahi-resolve-address && avahi-resolve-address 192.168.37.229 || true
+          echo '--- neighbor table after sweep ---'
+          ip neigh show || true

@@ -369,7 +369,7 @@ fn partial_source_probe_cannot_claim_full_duration_or_coverage() {
 
     assert!(!report.coverage.complete_claim);
     assert_eq!(report.coverage.observed_source_bytes, 5);
-    assert_eq!(report.duration.expect("duration").complete, false);
+    assert!(!report.duration.expect("duration").complete);
     assert!(report
         .coverage
         .unknown_gaps

@@ -1,4 +1,4 @@
-name: Temporary ATHENA Oracle Live Foreground Diagnostic
+name: Temporary ATHENA Oracle Wrapper Diagnostic
 
 on:
   pull_request:
@@ -10,23 +10,17 @@ permissions:
   contents: read
 
 jobs:
-  diagnose-athena-live:
+  diagnose-athena-wrapper:
     runs-on: [self-hosted, athena, ptah]
-    timeout-minutes: 6
+    timeout-minutes: 5
     steps:
-      - name: Diagnose exact installed runtime in foreground
+      - name: Execute exact installed Oracle wrapper
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
           $root=Join-Path $env:LOCALAPPDATA 'OracleNode'
-          $runtime=Join-Path $root 'runtime'
-          $nodeScript=Join-Path $runtime 'scripts\oracle-live-node.mjs'
-          $token=Join-Path $root 'live-token'
-          $identity=Join-Path $root 'node-id'
-          $status=Join-Path $root 'oracle-live-node-status.json'
-          $stdout=Join-Path $env:TEMP 'oracle-live-foreground.stdout.log'
-          $stderr=Join-Path $env:TEMP 'oracle-live-foreground.stderr.log'
-          foreach($f in @($stdout,$stderr)){Remove-Item $f -Force -ErrorAction SilentlyContinue}
+          $wrapper=Join-Path $root 'start-oracle-node.cmd'
+          if(-not(Test-Path $wrapper)){throw 'ORACLE_WRAPPER_MISSING'}
 
           foreach($name in @('Oracle Always-On Node','Oracle Node Watchdog','Oracle Live Node (Session Fallback)','Oracle Node Watchdog (Session Fallback)')){
             $t=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
@@ -35,40 +29,29 @@ jobs:
           Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'oracle-live-node\.mjs|oracle-node-watchdog-windows\.mjs' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
           Start-Sleep -Seconds 1
 
-          if(-not(Test-Path $nodeScript)){throw 'INSTALLED_NODE_SCRIPT_MISSING'}
-          if(-not(Test-Path $token)){throw 'LIVE_TOKEN_MISSING'}
-          if(-not(Test-Path $identity)){throw 'NODE_ID_MISSING'}
-          $ws=Get-Content -Raw (Join-Path $runtime 'node_modules\ws\package.json') | ConvertFrom-Json
-          Write-Output ('WS_VERSION='+$ws.version)
+          Write-Output '--- wrapper ---'
+          Get-Content -Raw $wrapper
+          Write-Output '--- session task definition ---'
+          $t=Get-ScheduledTask -TaskName 'Oracle Live Node (Session Fallback)' -ErrorAction SilentlyContinue
+          if($t){
+            [ordered]@{State=[string]$t.State;Actions=$t.Actions;Principal=$t.Principal;Triggers=$t.Triggers} | ConvertTo-Json -Depth 8
+          }
 
-          $env:ORACLE_LIVE_URL='https://oracle.thetechguyds.com'
-          $env:ORACLE_LIVE_TOKEN_FILE=$token
-          $env:ORACLE_NODE_ID_FILE=$identity
-          $env:ORACLE_LIVE_NODE_STATUS_FILE=$status
-          $env:ORACLE_WORKSTATION_ROOTS=((Resolve-Path $env:USERPROFILE).Path)
-          $env:ORACLE_NODE_HEALTH_HOST='127.0.0.1'
-          $env:ORACLE_NODE_HEALTH_PORT='5059'
-
-          $node=(Get-Command node.exe -ErrorAction Stop).Source
-          $p=Start-Process -FilePath $node -ArgumentList @($nodeScript) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
+          $job=Start-Job -ScriptBlock { param($w) & $w } -ArgumentList $wrapper
           try{
-            Start-Sleep -Seconds 5
-            $p.Refresh()
-            $exitText=''
-            if($p.HasExited){$exitText=' EXITCODE='+$p.ExitCode}
-            Write-Output ('PID='+$p.Id+' EXITED='+$p.HasExited+$exitText)
+            Start-Sleep -Seconds 6
+            Write-Output ('JOB_STATE='+$job.State)
             Write-Output '--- 5059 TCP ---'
             Get-NetTCPConnection -LocalPort 5059 -ErrorAction SilentlyContinue | Select-Object LocalAddress,LocalPort,State,OwningProcess | Format-Table -AutoSize
-            Write-Output '--- health via Invoke-WebRequest ---'
             foreach($u in @('http://127.0.0.1:5059/health','http://127.0.0.1:5059/ready')){
               try{$r=Invoke-WebRequest -UseBasicParsing -Uri $u -TimeoutSec 3; Write-Output ($u+' STATUS='+$r.StatusCode+' BODY='+$r.Content)}catch{Write-Output ($u+' ERROR '+$_.Exception.Message)}
             }
-            Write-Output '--- stdout ---'
-            if(Test-Path $stdout){Get-Content -Raw $stdout}
-            Write-Output '--- stderr ---'
-            if(Test-Path $stderr){Get-Content -Raw $stderr}
-            Write-Output '--- status file ---'
-            if(Test-Path $status){Get-Content -Raw $status}
+            Write-Output '--- wrapper output ---'
+            Receive-Job -Job $job -Keep -ErrorAction Continue
+            Write-Output '--- matching process ---'
+            Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'oracle-live-node\.mjs' } | Select-Object ProcessId,Name,CommandLine | Format-List
           } finally {
-            if(-not $p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}
+            Stop-Job -Job $job -ErrorAction SilentlyContinue
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+            Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'oracle-live-node\.mjs' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
           }

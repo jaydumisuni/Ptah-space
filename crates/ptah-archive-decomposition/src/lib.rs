@@ -13,8 +13,8 @@ mod policy;
 
 pub use b02::{
     B02Error, ChildRelationship, DetectorEvidence, DetectorOutcome, ProgressiveLevel,
-    ProgressiveReport, ProgressiveSpec, SearchMetadata, TypeAgreement, TypeAssessment, TypeDetector,
-    TypeSignal, progressive_decompose,
+    ProgressiveReport, ProgressiveSpec, SearchMetadata, TypeAgreement, TypeAssessment,
+    TypeDetector, TypeSignal, progressive_decompose,
 };
 pub use model::{
     ArchiveBackend, BackendIdentity, DecompositionBudget, DecompositionClock, DecompositionOutcome,

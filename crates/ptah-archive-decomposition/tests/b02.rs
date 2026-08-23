@@ -258,10 +258,7 @@ fn detector_disagreement_is_preserved_and_blocks_decomposer_selection() {
 
     assert_eq!(
         report.type_assessment.agreement,
-        TypeAgreement::Disputed(vec![
-            "application/pdf".to_owned(),
-            ARCHIVE_TYPE.to_owned()
-        ])
+        TypeAgreement::Disputed(vec!["application/pdf".to_owned(), ARCHIVE_TYPE.to_owned()])
     );
     assert_eq!(report.achieved_level, ProgressiveLevel::L1);
     assert_eq!(backend.calls(), 0);
@@ -272,9 +269,12 @@ fn detector_disagreement_is_preserved_and_blocks_decomposer_selection() {
             .iter()
             .any(|item| item.contains("detector disagreement"))
     );
-    assert!(report.searchable_metadata.iter().any(|item| {
-        item.key == "disputed_types" && item.value.contains("application/pdf")
-    }));
+    assert!(
+        report
+            .searchable_metadata
+            .iter()
+            .any(|item| { item.key == "disputed_types" && item.value.contains("application/pdf") })
+    );
 }
 
 #[test]
@@ -297,9 +297,12 @@ fn declared_type_mismatch_is_explicit_without_rewriting_observed_type() {
         report.type_assessment.declared_matches_agreed_type,
         Some(false)
     );
-    assert!(report.searchable_metadata.iter().any(|item| {
-        item.key == "declared_matches_agreed_type" && item.value == "false"
-    }));
+    assert!(
+        report
+            .searchable_metadata
+            .iter()
+            .any(|item| { item.key == "declared_matches_agreed_type" && item.value == "false" })
+    );
 }
 
 #[test]
@@ -344,8 +347,18 @@ fn level_two_produces_root_inventory_without_recursive_children() {
     assert_eq!(report.achieved_level, ProgressiveLevel::L2);
     assert_eq!(backend.calls(), 1);
     assert_eq!(report.children.len(), 2);
-    assert!(report.children.iter().any(|child| child.child_path == "nested.arc"));
-    assert!(report.children.iter().any(|child| child.child_path == "readme.txt"));
+    assert!(
+        report
+            .children
+            .iter()
+            .any(|child| child.child_path == "nested.arc")
+    );
+    assert!(
+        report
+            .children
+            .iter()
+            .any(|child| child.child_path == "readme.txt")
+    );
     assert!(
         report
             .children

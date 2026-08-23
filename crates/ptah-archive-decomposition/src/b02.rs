@@ -290,7 +290,13 @@ pub fn progressive_decompose(
         archive_spec.requested_level = "L3_decomposed".to_owned();
     }
     let plan = decompose(source_bytes, &archive_spec, backend)?;
-    apply_archive_plan(&mut report, &plan, detectors, &archive_types, spec.requested_level);
+    apply_archive_plan(
+        &mut report,
+        &plan,
+        detectors,
+        &archive_types,
+        spec.requested_level,
+    );
     debug_assert_eq!(report.source_sha256, sha256_bytes(source_bytes));
     Ok(report)
 }
@@ -391,9 +397,9 @@ fn apply_archive_plan(
         .collect();
     for (index, entry) in plan.inventory.iter().enumerate() {
         let parent_path = logical_parent(&entry.logical_path);
-        let type_assessment = recovered.get(&index).map(|member| {
-            assess_type(&member.bytes, None, detectors)
-        });
+        let type_assessment = recovered
+            .get(&index)
+            .map(|member| assess_type(&member.bytes, None, detectors));
         let child = ChildRelationship {
             parent_path,
             child_path: entry.logical_path.clone(),

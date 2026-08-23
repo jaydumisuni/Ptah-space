@@ -1,0 +1,38 @@
+name: B01 one-use final Clippy correction
+
+on:
+  pull_request:
+    paths:
+      - "tools/b01_len_zero_patch.py"
+      - ".github/workflows/b01-len-zero-patch-pr.yml"
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out writable PR head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Apply final Clippy correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/b01_len_zero_patch.py
+          rm tools/b01_len_zero_patch.py
+      - name: Commit corrected product candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/ptah-transfer/tests/b01.rs tools/b01_len_zero_patch.py
+          git diff --cached --check
+          git commit -m "B01 review: satisfy final strict Clippy lint"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

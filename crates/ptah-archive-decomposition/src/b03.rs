@@ -235,8 +235,9 @@ pub struct ConvertedDocument {
 impl ConvertedDocument {
     /// Build the A07 registration request for these converted bytes.
     ///
-    /// The resulting Object is a new converted Revision whose source reference is the exact source
-    /// Revision; this method never updates or replaces the source Object.
+    /// The resulting Object is a new converted Revision whose source reference comes from the
+    /// frozen conversion result itself. A caller cannot rebind converted provenance by supplying a
+    /// different `DocumentContext::source_revision_ref` later.
     #[must_use]
     pub fn registration_spec(&self, context: &DocumentContext) -> RegisterObjectSpec {
         RegisterObjectSpec {
@@ -244,7 +245,7 @@ impl ConvertedDocument {
             authority_ref: context.authority_ref.clone(),
             object_class: "document.converted".to_owned(),
             declared_name: None,
-            source_refs: vec![context.source_revision_ref.clone()],
+            source_refs: vec![self.source_revision_ref.clone()],
             revision_role: RevisionRole::Converted,
             origin_class: OriginClass::Generated,
             created_reason: format!("B03 passive document conversion by {}", self.adapter_id),
@@ -300,12 +301,16 @@ pub struct DocumentReport {
 
 impl DocumentReport {
     /// Create canonical A07 View specifications for retained B03 interpretations.
+    ///
+    /// Source identity is taken from the frozen report, not from the supplied context, so a report
+    /// cannot be rebound to a different Revision after inspection.
     #[must_use]
     pub fn view_specs(&self, context: &DocumentContext) -> Vec<ViewSpec> {
         let mut views = Vec::new();
         if !self.metadata.is_empty() {
             views.push(document_view_spec(
                 context,
+                &self.source_revision_ref,
                 "document.metadata",
                 "urn:ptah:schema:document:metadata-view:0.1.0",
             ));
@@ -313,6 +318,7 @@ impl DocumentReport {
         if !self.text.is_empty() {
             views.push(document_view_spec(
                 context,
+                &self.source_revision_ref,
                 "document.text",
                 "urn:ptah:schema:document:text-view:0.1.0",
             ));
@@ -320,6 +326,7 @@ impl DocumentReport {
         for _page in &self.pages {
             views.push(document_view_spec(
                 context,
+                &self.source_revision_ref,
                 "document.page_render",
                 "urn:ptah:schema:document:page-render-view:0.1.0",
             ));
@@ -327,6 +334,7 @@ impl DocumentReport {
         if self.preview.is_some() {
             views.push(document_view_spec(
                 context,
+                &self.source_revision_ref,
                 "document.safe_preview",
                 "urn:ptah:schema:document:safe-preview-view:0.1.0",
             ));
@@ -363,7 +371,7 @@ pub enum B03Error {
     #[error("B03 adapter emitted an invalid source byte range")]
     InvalidSourceRange,
     /// Adapter emitted an invalid page number.
-    #[error("B03 adapter emitted page zero")]
+    #[error("B03 adapter emitted page zero or duplicate page identity")]
     InvalidPage,
     /// Adapter emitted an empty media type.
     #[error("B03 adapter emitted an empty media type")]
@@ -371,6 +379,9 @@ pub enum B03Error {
     /// Adapter metadata key is empty.
     #[error("B03 adapter emitted an empty metadata key")]
     EmptyMetadataKey,
+    /// Retained byte accounting exceeded representable bounds.
+    #[error("B03 retained byte accounting overflow")]
+    AccountingOverflow,
 }
 
 /// Inspect one document under B02 type truth and B03 passive isolation policy.
@@ -380,7 +391,7 @@ pub enum B03Error {
 ///
 /// # Errors
 /// Fails for invalid source identity/limits/adapter configuration, unsafe isolation declarations,
-/// invalid adapter output, or a mechanical adapter failure.
+/// invalid adapter output, accounting overflow or a mechanical adapter failure.
 pub fn inspect_document(
     source_bytes: &[u8],
     type_assessment: &TypeAssessment,
@@ -394,8 +405,7 @@ pub fn inspect_document(
     let source_sha256 = sha256_bytes(source_bytes);
     let agreed_media_type = match &type_assessment.agreement {
         TypeAgreement::Agreed(value) => Some(normalize_media_type(value)),
-        TypeAgreement::Unknown => None,
-        TypeAgreement::Disputed(_) => None,
+        TypeAgreement::Unknown | TypeAgreement::Disputed(_) => None,
     };
     let mut report = empty_report(
         source_sha256.clone(),
@@ -404,7 +414,6 @@ pub fn inspect_document(
     );
 
     let Some(media_type) = agreed_media_type else {
-        report.coverage.complete_claim = false;
         report.coverage.unknown_gaps.push(match &type_assessment.agreement {
             TypeAgreement::Unknown => "B02 did not establish an agreed document type".to_owned(),
             TypeAgreement::Disputed(values) => format!(
@@ -425,7 +434,6 @@ pub fn inspect_document(
         return Err(B03Error::AmbiguousAdapter(media_type));
     }
     let Some(adapter) = matching.first().copied() else {
-        report.coverage.complete_claim = false;
         report.coverage.unknown_gaps.push(format!(
             "no B03 document adapter is registered for agreed type {media_type}"
         ));
@@ -452,7 +460,7 @@ pub fn inspect_document(
         output.text,
         context,
         limits.max_text_bytes,
-    );
+    )?;
     retain_pages(
         &mut report,
         output.pages,
@@ -460,7 +468,14 @@ pub fn inspect_document(
         limits.max_pages,
         limits.max_page_render_bytes,
     );
-    report.preview = build_preview(&report, context, limits.max_preview_bytes);
+    let (preview, preview_truncated) = build_preview(&report, context, limits.max_preview_bytes);
+    report.preview = preview;
+    if preview_truncated {
+        mark_gap(
+            &mut report,
+            "safe preview truncated by B03 max_preview_bytes".to_owned(),
+        );
+    }
     report.conversion = retain_conversion(
         output.conversion,
         context,
@@ -506,6 +521,8 @@ impl DocumentAdapter for SafeTextAdapter {
         let valid_utf8 = std::str::from_utf8(bytes).is_ok();
         let text = String::from_utf8_lossy(bytes).into_owned();
         let line_count = text.lines().count().max(usize::from(!text.is_empty()));
+        let source_len = u64::try_from(bytes.len())
+            .map_err(|_| "structured-text source length exceeds u64".to_owned())?;
         let mut limitations = Vec::new();
         if !valid_utf8 {
             limitations.push(
@@ -529,14 +546,14 @@ impl DocumentAdapter for SafeTextAdapter {
             ],
             text: vec![AdapterTextSpan {
                 text: text.clone(),
-                source_byte_range: valid_utf8.then_some((0, bytes.len() as u64)),
+                source_byte_range: valid_utf8.then_some((0, source_len)),
                 page: None,
             }],
             pages: vec![AdapterPage {
                 page: 1,
                 media_type: "text/plain".to_owned(),
                 bytes: text.into_bytes(),
-                source_byte_range: valid_utf8.then_some((0, bytes.len() as u64)),
+                source_byte_range: valid_utf8.then_some((0, source_len)),
             }],
             conversion: None,
             active_content_observed: false,
@@ -591,6 +608,9 @@ impl DocumentAdapter for SafeHtmlAdapter {
             "HTML layout/CSS fidelity is not claimed by the passive text adapter".to_owned(),
             "external resources are not loaded".to_owned(),
         ];
+        if !std::str::from_utf8(bytes).is_ok() {
+            limitations.push("invalid UTF-8 sequences were replaced during HTML decoding".to_owned());
+        }
         if active_content_observed {
             limitations.push("active/embedded HTML regions were removed before extraction".to_owned());
         }
@@ -675,10 +695,10 @@ fn validate_adapter_output(output: &AdapterDocument, source_len: usize) -> Resul
         }
         validate_range(page.source_byte_range, source_len)?;
     }
-    if let Some(conversion) = &output.conversion {
-        if normalize_media_type(&conversion.media_type).is_empty() {
-            return Err(B03Error::EmptyMediaType);
-        }
+    if let Some(conversion) = &output.conversion
+        && normalize_media_type(&conversion.media_type).is_empty()
+    {
+        return Err(B03Error::EmptyMediaType);
     }
     Ok(())
 }
@@ -725,23 +745,24 @@ fn retain_text(
     spans: Vec<AdapterTextSpan>,
     context: &DocumentContext,
     max_text_bytes: usize,
-) {
+) -> Result<(), B03Error> {
     let mut remaining = max_text_bytes;
     for span in spans {
         if remaining == 0 {
-            report.coverage.complete_claim = false;
-            report
-                .coverage
-                .unknown_gaps
-                .push("text extraction truncated by B03 max_text_bytes".to_owned());
+            mark_gap(
+                report,
+                "text extraction truncated by B03 max_text_bytes".to_owned(),
+            );
             break;
         }
         let (text, truncated) = truncate_utf8(&span.text, remaining);
         remaining = remaining.saturating_sub(text.len());
+        let retained = u64::try_from(text.len()).map_err(|_| B03Error::AccountingOverflow)?;
         report.coverage.retained_text_bytes = report
             .coverage
             .retained_text_bytes
-            .saturating_add(text.len() as u64);
+            .checked_add(retained)
+            .ok_or(B03Error::AccountingOverflow)?;
         let (byte_start, byte_end_exclusive) = span
             .source_byte_range
             .map_or((None, None), |(start, end)| (Some(start), Some(end)));
@@ -755,14 +776,14 @@ fn retain_text(
             },
         });
         if truncated {
-            report.coverage.complete_claim = false;
-            report
-                .coverage
-                .unknown_gaps
-                .push("text extraction truncated by B03 max_text_bytes".to_owned());
+            mark_gap(
+                report,
+                "text extraction truncated by B03 max_text_bytes".to_owned(),
+            );
             break;
         }
     }
+    Ok(())
 }
 
 fn retain_pages(
@@ -772,13 +793,16 @@ fn retain_pages(
     max_pages: usize,
     max_page_render_bytes: usize,
 ) {
+    let produced_page_count = pages.len();
     for page in pages.into_iter().take(max_pages) {
         if page.bytes.len() > max_page_render_bytes {
-            report.coverage.complete_claim = false;
-            report.coverage.unknown_gaps.push(format!(
-                "page {} render exceeds B03 max_page_render_bytes",
-                page.page
-            ));
+            mark_gap(
+                report,
+                format!(
+                    "page {} render exceeds B03 max_page_render_bytes",
+                    page.page
+                ),
+            );
             continue;
         }
         let (byte_start, byte_end_exclusive) = page
@@ -796,12 +820,11 @@ fn retain_pages(
             },
         });
     }
-    if report.pages.len() == max_pages {
-        report.coverage.complete_claim = false;
-        report
-            .coverage
-            .unknown_gaps
-            .push("page/render coverage reached B03 max_pages boundary".to_owned());
+    if produced_page_count > max_pages {
+        mark_gap(
+            report,
+            "page/render coverage exceeded B03 max_pages".to_owned(),
+        );
     }
     report.coverage.retained_pages = report.pages.len();
 }
@@ -810,7 +833,7 @@ fn build_preview(
     report: &DocumentReport,
     context: &DocumentContext,
     max_preview_bytes: usize,
-) -> Option<SafePreview> {
+) -> (Option<SafePreview>, bool) {
     let mut joined = String::new();
     for span in &report.text {
         if !joined.is_empty() {
@@ -819,15 +842,18 @@ fn build_preview(
         joined.push_str(&span.text);
     }
     if joined.is_empty() {
-        return None;
+        return (None, false);
     }
-    let (text, _truncated) = truncate_utf8(&joined, max_preview_bytes);
-    Some(SafePreview {
-        media_type: "text/plain".to_owned(),
-        bytes: text.into_bytes(),
-        sanitized: true,
-        source_revision_ref: context.source_revision_ref.clone(),
-    })
+    let (text, truncated) = truncate_utf8(&joined, max_preview_bytes);
+    (
+        Some(SafePreview {
+            media_type: "text/plain".to_owned(),
+            bytes: text.into_bytes(),
+            sanitized: true,
+            source_revision_ref: context.source_revision_ref.clone(),
+        }),
+        truncated,
+    )
 }
 
 fn retain_conversion(
@@ -859,17 +885,27 @@ fn retain_conversion(
     })
 }
 
-fn document_view_spec(context: &DocumentContext, view_kind: &str, schema_id: &str) -> ViewSpec {
+fn document_view_spec(
+    context: &DocumentContext,
+    source_revision_ref: &EntityRef,
+    view_kind: &str,
+    schema_id: &str,
+) -> ViewSpec {
     ViewSpec {
         workspace_ref: context.workspace_ref.clone(),
         authority_ref: context.authority_ref.clone(),
         view_kind: view_kind.to_owned(),
         view_schema_id: schema_id.to_owned(),
         view_schema_version: "0.1.0".to_owned(),
-        source_revision_refs: vec![context.source_revision_ref.clone()],
+        source_revision_refs: vec![source_revision_ref.clone()],
         origin_class: OriginClass::DecodedResource,
         production: context.production.clone(),
     }
+}
+
+fn mark_gap(report: &mut DocumentReport, reason: String) {
+    report.coverage.complete_claim = false;
+    report.coverage.unknown_gaps.push(reason);
 }
 
 fn normalize_media_type(value: &str) -> String {
@@ -895,12 +931,40 @@ fn html_contains_active_content(value: &str) -> bool {
         "<object",
         "<embed",
         "javascript:",
-        "onload=",
-        "onclick=",
-        "onerror=",
     ]
     .iter()
     .any(|needle| lower.contains(needle))
+        || contains_event_handler_attribute(&lower)
+}
+
+fn contains_event_handler_attribute(lower: &str) -> bool {
+    let bytes = lower.as_bytes();
+    let mut index = 0usize;
+    while index + 3 < bytes.len() {
+        if (bytes[index].is_ascii_whitespace() || bytes[index] == b'<')
+            && bytes.get(index + 1) == Some(&b'o')
+            && bytes.get(index + 2) == Some(&b'n')
+        {
+            let mut cursor = index + 3;
+            let start = cursor;
+            while cursor < bytes.len()
+                && (bytes[cursor].is_ascii_alphanumeric()
+                    || matches!(bytes[cursor], b'_' | b'-' | b':'))
+            {
+                cursor += 1;
+            }
+            if cursor > start {
+                while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+                    cursor += 1;
+                }
+                if bytes.get(cursor) == Some(&b'=') {
+                    return true;
+                }
+            }
+        }
+        index += 1;
+    }
+    false
 }
 
 fn remove_html_active_regions(value: &str) -> String {
@@ -908,7 +972,7 @@ fn remove_html_active_regions(value: &str) -> String {
     let without_styles = remove_html_element(&without_scripts, "style");
     let without_iframes = remove_html_element(&without_styles, "iframe");
     let without_objects = remove_html_element(&without_iframes, "object");
-    remove_html_element(&without_objects, "embed")
+    remove_html_void_tag(&without_objects, "embed")
 }
 
 fn remove_html_element(value: &str, tag: &str) -> String {
@@ -916,7 +980,7 @@ fn remove_html_element(value: &str, tag: &str) -> String {
     let open = format!("<{tag}");
     let close = format!("</{tag}");
     let mut out = String::with_capacity(value.len());
-    let mut cursor = 0;
+    let mut cursor = 0usize;
     while let Some(relative_start) = lower[cursor..].find(&open) {
         let start = cursor + relative_start;
         out.push_str(&value[cursor..start]);
@@ -935,6 +999,26 @@ fn remove_html_element(value: &str, tag: &str) -> String {
             break;
         };
         cursor = close_start + close_end_relative + 1;
+    }
+    if cursor < value.len() {
+        out.push_str(&value[cursor..]);
+    }
+    out
+}
+
+fn remove_html_void_tag(value: &str, tag: &str) -> String {
+    let lower = value.to_ascii_lowercase();
+    let open = format!("<{tag}");
+    let mut out = String::with_capacity(value.len());
+    let mut cursor = 0usize;
+    while let Some(relative_start) = lower[cursor..].find(&open) {
+        let start = cursor + relative_start;
+        out.push_str(&value[cursor..start]);
+        let Some(end_relative) = lower[start..].find('>') else {
+            cursor = value.len();
+            break;
+        };
+        cursor = start + end_relative + 1;
     }
     if cursor < value.len() {
         out.push_str(&value[cursor..]);

@@ -1,0 +1,60 @@
+name: B02 one-use strict-clippy correction
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/b02-clippy-patch-pr.yml"
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out writable PR head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Apply exact Clippy correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('crates/ptah-archive-decomposition/tests/b02.rs')
+          text = path.read_text(encoding='utf-8')
+          old = '''    let mut budget = DecompositionBudget::default();
+    budget.max_depth = max_depth;
+    budget.max_members = 64;
+    budget.max_expanded_bytes = 1024 * 1024;
+    budget.max_member_bytes = 256 * 1024;
+'''
+          new = '''    let budget = DecompositionBudget {
+        max_depth,
+        max_members: 64,
+        max_expanded_bytes: 1024 * 1024,
+        max_member_bytes: 256 * 1024,
+        ..DecompositionBudget::default()
+    };
+'''
+          if text.count(old) != 1:
+              raise SystemExit('expected B02 budget fixture block exactly once')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+          rustup default 1.97.1
+          cargo fmt --all
+      - name: Commit corrected B02 test fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/ptah-archive-decomposition/tests/b02.rs
+          git diff --cached --check
+          git commit -m "B02 review: satisfy strict Clippy fixture construction"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

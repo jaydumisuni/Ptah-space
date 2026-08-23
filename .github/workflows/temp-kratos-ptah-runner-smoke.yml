@@ -1,0 +1,24 @@
+name: TEMP KRATOS Ptah Runner Smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/temp-kratos-ptah-runner-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, kratos, ptah]
+    timeout-minutes: 3
+    steps:
+      - name: Prove KRATOS Ptah runner identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "host=$(hostname)"
+          echo "user=$(id -un)"
+          echo "arch=$(uname -m)"
+          test "$(hostname)" = "kratos-hp-290-g4-microtower-pc"

@@ -54,7 +54,9 @@ jobs:
           try{
             Start-Sleep -Seconds 5
             $p.Refresh()
-            Write-Output ('PID='+$p.Id+' EXITED='+$p.HasExited+(if($p.HasExited){' EXITCODE='+$p.ExitCode}else{''}))
+            $exitText=''
+            if($p.HasExited){$exitText=' EXITCODE='+$p.ExitCode}
+            Write-Output ('PID='+$p.Id+' EXITED='+$p.HasExited+$exitText)
             Write-Output '--- 5059 TCP ---'
             Get-NetTCPConnection -LocalPort 5059 -ErrorAction SilentlyContinue | Select-Object LocalAddress,LocalPort,State,OwningProcess | Format-Table -AutoSize
             Write-Output '--- health via Invoke-WebRequest ---'

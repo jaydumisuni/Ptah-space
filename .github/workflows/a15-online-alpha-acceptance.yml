@@ -105,8 +105,8 @@ jobs:
           import json
           from pathlib import Path
 
-          path = Path("dependencies/backend-artifact-lock.json")
-          lock = json.loads(path.read_text(encoding="utf-8"))
+          lock_path = Path("dependencies/backend-artifact-lock.json")
+          lock = json.loads(lock_path.read_text(encoding="utf-8"))
           if lock.get("runtime_implementation_authorized") is not False:
               raise SystemExit("backend lock cannot authorize runtime implementation")
           artifacts = lock.get("artifacts")
@@ -115,15 +115,56 @@ jobs:
               raise SystemExit("backend artifact lock is empty")
           if not isinstance(browser, dict):
               raise SystemExit("browser artifact lock is missing")
+
+          retained_path = Path(
+              "evidence/phase0c/bc12885ce41844b05481628543219c3a8d3574ba/durable-evidence-records.json"
+          )
+          retained = json.loads(retained_path.read_text(encoding="utf-8"))
+          if retained.get("runtime_implementation_authorized") is not False:
+              raise SystemExit("retained Phase 0C evidence cannot authorize runtime implementation")
+          if retained.get("implementation_commit") != "bc12885ce41844b05481628543219c3a8d3574ba":
+              raise SystemExit("retained Phase 0C evidence identity mismatch")
+          records = retained.get("records")
+          if not isinstance(records, list):
+              raise SystemExit("retained Phase 0C evidence records missing")
+          record_values = [item.get("record", {}) for item in records if isinstance(item, dict)]
+          static = next(
+              item for item in record_values
+              if item.get("record_type") == "ptah.phase0c.static_backend_artifact_evidence"
+              and item.get("exact_head_match") is True
+              and item.get("report_present") is True
+          )
+          browser_record = next(
+              item for item in record_values
+              if item.get("record_type") == "ptah.phase0c.playwright_browser_evidence"
+              and item.get("exact_head_match") is True
+          )
+          signatures = next(
+              item for item in record_values
+              if item.get("record_type") == "ptah.phase0c.backend_signature_evidence"
+              and item.get("exact_head_match") is True
+              and item.get("report_present") is True
+              and item.get("verified_signature_count") == 4
+          )
+          if static.get("verified_artifact_count") != 9:
+              raise SystemExit("retained static backend artifact count changed")
+          if browser_record.get("installed_file_count") != 599:
+              raise SystemExit("retained browser artifact tree count changed")
+
           report = {
-              "schema_version": "0.1.0",
+              "schema_version": "0.2.0",
               "record_type": "ptah.a15.backend_lock_identity",
-              "backend_lock_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+              "backend_lock_sha256": hashlib.sha256(lock_path.read_bytes()).hexdigest(),
               "artifact_count": len(artifacts),
               "components": sorted(str(item.get("component")) for item in artifacts),
               "browser_revision": str(browser.get("revision")),
               "browser_version": browser.get("browser_version"),
               "browser_tree_sha256": browser.get("installed_tree_sha256"),
+              "retained_phase0c_evidence_sha256": hashlib.sha256(retained_path.read_bytes()).hexdigest(),
+              "retained_static_verified_artifact_count": static.get("verified_artifact_count"),
+              "retained_browser_tree_sha256": browser_record.get("installed_tree_sha256"),
+              "retained_browser_file_count": browser_record.get("installed_file_count"),
+              "retained_verified_signature_count": signatures.get("verified_signature_count"),
               "runtime_implementation_authorized": False,
           }
           Path("/tmp/a15/backend-lock-report.json").write_text(
@@ -156,6 +197,7 @@ jobs:
           set -euo pipefail
           PYTHONPATH=tools python3 tools/test_check_workspace_operations_donor_v2.py -v \
             2>&1 | tee /tmp/a15/deep-workspace-regressions.txt
+          grep -q 'Ran 26 tests' /tmp/a15/deep-workspace-regressions.txt
           python3 tools/check_workspace_operations_donor_v2.py \
             --repo-root . \
             --output /tmp/a15/deep-workspace-validation.json
@@ -165,6 +207,7 @@ jobs:
           assert report['status'] == 'pass', report
           assert report['mechanical_capability_count'] == 22, report
           assert report['fixture_count'] == 20, report
+          assert report['gap_mapping_count'] == 28, report
           assert report['new_core_entity_required'] is False, report
           assert report['frozen_contract_change_required'] is False, report
           assert report['runtime_implementation_authorized'] is False, report
@@ -176,6 +219,7 @@ jobs:
           set -euo pipefail
           PYTHONPATH=tools python3 -m unittest -v tools/test_check_a15_online_alpha_acceptance.py \
             2>&1 | tee /tmp/a15/a15-regressions.txt
+          grep -q 'Ran 18 tests' /tmp/a15/a15-regressions.txt
           python3 tools/check_a15_online_alpha_acceptance.py \
             --repo-root . \
             --output /tmp/a15/a15-validation.json
@@ -219,7 +263,7 @@ jobs:
               "record_type": "ptah.a15.limitations",
               "limitations": [
                   "GitHub-hosted Ubuntu proof is accepted CI-host evidence, not a claim about a separately pinned physical machine.",
-                  "Backend artifact identity remains governed by the immutable backend lock and previously retained Phase 0C artifact evidence.",
+                  "Backend artifact identity remains governed by the immutable backend lock, retained Phase 0C artifact evidence and exact-head backend workflows.",
                   "Authorized-for-dispatch is not external-effect success.",
                   "Worker completion is not caller or reviewer acceptance.",
                   "Diagnostic advice cannot approve or execute its own recommendation.",

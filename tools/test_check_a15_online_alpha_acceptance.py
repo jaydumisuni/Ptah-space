@@ -107,6 +107,40 @@ class A15AcceptanceTests(unittest.TestCase):
         self.assertNotEqual(advisory["state"], "upgrade_submitted")
         self.assertIs(validate_repository(ROOT)["ptah_autonomous_upgrade_authority"], False)
 
+    def test_degraded_provider_advisory_remains_advice_not_an_upgrade_decision(self) -> None:
+        snapshot = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        provider = copy.deepcopy(snapshot["providers"][0])
+        advisory = copy.deepcopy(snapshot["advisories"][0])
+        provider["health"] = "degraded"
+        provider["limitations"] = ["qualification degradation is explicit"]
+        provider["evidence"] = ["receipt:terminal-provider-degraded"]
+        advisory["observed_facts"] = ["terminal-provider reports degraded health"]
+        advisory["evidence"] = ["receipt:terminal-provider-degraded"]
+        advisory["suggestions"] = ["caller may choose a repair or upgrade Activity"]
+        advisory["state"] = "open"
+        self.assertEqual(provider["health"], "degraded")
+        self.assertTrue(provider["evidence"])
+        self.assertEqual(advisory["state"], "open")
+        self.assertIs(validate_repository(ROOT)["ptah_autonomous_upgrade_authority"], False)
+
+    def test_stale_advisory_evidence_is_visible_but_cannot_be_current_authority(self) -> None:
+        snapshot = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        current_generation = snapshot["authority"]["provider_generations"]["terminal-provider"]
+        stale_generation = current_generation - 1
+        advisory = copy.deepcopy(snapshot["advisories"][0])
+        advisory["observed_facts"] = [f"terminal-provider generation {stale_generation} was degraded"]
+        advisory["evidence"] = [f"receipt:terminal-provider-generation-{stale_generation}"]
+        self.assertEqual(advisory["state"], "open")
+        case = {
+            "rule": "current_generation",
+            "payload": {
+                "expected_generation": current_generation,
+                "observed_generation": stale_generation,
+            },
+        }
+        self.assertEqual(evaluate_wp14_case(case), "STALE_PROVIDER_GENERATION")
+        self.assertIs(validate_repository(ROOT)["ptah_autonomous_upgrade_authority"], False)
+
     def test_ten_for_two_formation_is_bounded_distinct_recoverable_and_unaccepted(self) -> None:
         snapshot = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
         profile = json.loads(DEEP_PROFILE.read_text(encoding="utf-8"))

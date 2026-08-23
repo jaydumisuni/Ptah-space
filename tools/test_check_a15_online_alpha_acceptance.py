@@ -2,6 +2,7 @@
 """Regression tests for the A15 Online Ptah Alpha acceptance validator."""
 from __future__ import annotations
 
+import copy
 import json
 import tempfile
 import unittest
@@ -19,6 +20,8 @@ from check_a15_online_alpha_acceptance import (
 
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / "conformance/a15/wp14-golden-negative-freeze-cases.v0.1.0.json"
+SNAPSHOT = ROOT / "services/ptah-control/tests/fixtures/a14_snapshot.json"
+DEEP_PROFILE = ROOT / "design/candidates/workspace-operations-profile-v2.json"
 
 
 class A15AcceptanceTests(unittest.TestCase):
@@ -82,6 +85,56 @@ class A15AcceptanceTests(unittest.TestCase):
             },
         }
         self.assertEqual(evaluate_wp14_case(case), "REPRODUCTION_NOT_INDEPENDENT")
+
+    def test_missing_capability_advisory_is_evidenced_but_unresolved(self) -> None:
+        snapshot = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        advisory = snapshot["advisories"][0]
+        self.assertTrue(advisory["observed_facts"])
+        self.assertTrue(advisory["evidence"])
+        self.assertTrue(advisory["suggestions"])
+        self.assertTrue(advisory["uncertainty"])
+        self.assertEqual(advisory["state"], "open")
+        report = validate_repository(ROOT)
+        self.assertIs(report["ptah_autonomous_upgrade_authority"], False)
+
+    def test_false_positive_advisory_does_not_gain_authority(self) -> None:
+        snapshot = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        advisory = copy.deepcopy(snapshot["advisories"][0])
+        advisory["observed_facts"] = ["deliberately incorrect qualification observation"]
+        advisory["evidence"] = ["receipt:contradicted-observation"]
+        advisory["uncertainty"] = "independent evidence contradicts this observation"
+        self.assertEqual(advisory["state"], "open")
+        self.assertNotEqual(advisory["state"], "upgrade_submitted")
+        self.assertIs(validate_repository(ROOT)["ptah_autonomous_upgrade_authority"], False)
+
+    def test_ten_for_two_formation_is_bounded_distinct_recoverable_and_unaccepted(self) -> None:
+        snapshot = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        profile = json.loads(DEEP_PROFILE.read_text(encoding="utf-8"))
+        method = profile["study_method"]
+        self.assertEqual((method["primary_lanes"], method["independent_verifier_lanes"]), (10, 10))
+        template = snapshot["workers"][0]
+        workers = []
+        for index in range(20):
+            worker = copy.deepcopy(template)
+            worker["formation_id"] = "formation-ten-for-two"
+            worker["worker_id"] = f"worker-{index:02d}"
+            worker["role"] = f"{'primary' if index < 10 else 'verifier'}-lane-{index:02d}"
+            worker["checkpoint"] = f"checkpoint-{index:02d}"
+            worker["partial_result"] = f"artifact:evidence-{index:02d}"
+            worker["conflict"] = "verifier conflict remains visible" if index == 19 else None
+            worker["completed"] = True
+            worker["acceptance"] = "pending"
+            workers.append(worker)
+        self.assertEqual(len(workers), 20)
+        self.assertEqual(len({item["worker_id"] for item in workers}), 20)
+        self.assertEqual(len({item["role"] for item in workers}), 20)
+        self.assertEqual(len({item["checkpoint"] for item in workers}), 20)
+        self.assertEqual(len({item["partial_result"] for item in workers}), 20)
+        self.assertTrue(any(item["conflict"] for item in workers))
+        self.assertTrue(all(item["acceptance"] == "pending" for item in workers))
+        self.assertEqual(snapshot["recovery"]["checkpoint_integrity"], "verified")
+        self.assertEqual(snapshot["recovery"]["restore_compatibility"], "compatible")
+        self.assertEqual(snapshot["recovery"]["recovery_verification"], "verified")
 
     def test_green_without_immutable_reports_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

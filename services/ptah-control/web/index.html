@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ptah Human Alpha</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div><strong>Ptah</strong><span class="muted">Human Alpha</span></div>
+    <div id="authority" class="authority" aria-live="polite">Loading authority…</div>
+  </header>
+  <nav class="nav" aria-label="Workspace controls">
+    <label>Workspace <select id="workspace-selector"></select></label>
+    <button data-control="workspace_reconnect" data-target="workspace">Reconnect</button>
+    <button data-control="checkpoint_request" data-target="workspace">Checkpoint</button>
+    <button id="refresh">Refresh truth</button>
+  </nav>
+  <main class="shell">
+    <section class="panel span-2" id="home"><h2>Current state</h2><div id="home-content"></div></section>
+    <section class="panel" id="activities"><h2>Activity Centre</h2><div class="rows" data-view="activities"></div></section>
+    <section class="panel" id="objects"><h2>Objects & Artifacts</h2><div class="rows" data-view="objects"></div></section>
+    <section class="panel span-2" id="terminals"><h2>Terminals</h2><div class="rows" data-view="terminals"></div></section>
+    <section class="panel" id="transfers"><h2>Transfers</h2><div class="rows" data-view="transfers"></div></section>
+    <section class="panel" id="browser"><h2>Browser</h2><div class="rows" data-view="browsers"></div></section>
+    <section class="panel" id="health"><h2>Node / Provider health</h2><div class="rows" data-view="health"></div></section>
+    <section class="panel" id="diagnostics"><h2>Diagnostics</h2><p class="boundary">Observed facts and suggestions are separate. Advice cannot authorize itself.</p><div class="rows" data-view="advisories"></div></section>
+    <section class="panel" id="workers"><h2>Workers & acceptance</h2><p class="boundary">Worker completion is not caller/reviewer acceptance.</p><div class="rows" data-view="workers"></div></section>
+    <section class="panel" id="recovery"><h2>Checkpoint / recovery</h2><div class="rows" data-view="recovery"></div></section>
+    <section class="panel span-2" id="evidence"><h2>Evidence & limitations</h2><div class="rows" data-view="evidence"></div></section>
+  </main>
+  <footer id="status" aria-live="polite">Projection only — runtime truth remains authoritative.</footer>
+  <script src="/preflight.js"></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

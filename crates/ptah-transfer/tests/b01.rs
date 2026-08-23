@@ -265,7 +265,7 @@ fn segmented_multi_source_download_resumes_and_falls_back_without_erasing_failur
         Some(expected.as_str())
     );
     assert_eq!(fs::read(destination).expect("read destination"), bytes);
-    assert!(second.successful_sources.len() >= 1);
+    assert!(!second.successful_sources.is_empty());
 }
 
 #[test]

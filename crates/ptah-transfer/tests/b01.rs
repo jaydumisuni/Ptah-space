@@ -8,6 +8,7 @@ use ptah_transfer::{
 use sha2::{Digest, Sha256};
 use std::{
     fs,
+    io::{Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -164,16 +165,8 @@ fn interrupted_large_upload_resumes_from_exact_provider_offset() {
     assert_eq!(first.accepted_offset, 430_000);
     assert!(!sink.finalized);
 
-    let second = resumable_upload_file(
-        &source,
-        &mut sink,
-        UploadCursor {
-            accepted_offset: first.accepted_offset,
-        },
-        91 * 1024,
-        None,
-    )
-    .expect("resume upload");
+    let second = resumable_upload_file(&source, &mut sink, first.cursor.clone(), 91 * 1024, None)
+        .expect("resume upload");
     assert!(second.complete);
     assert_eq!(second.starting_offset, 430_000);
     assert_eq!(second.accepted_offset, bytes.len() as u64);
@@ -195,12 +188,32 @@ fn upload_resume_rejects_cursor_provider_disagreement() {
         resumable_upload_file(
             &source,
             &mut sink,
-            UploadCursor { accepted_offset: 4 },
+            UploadCursor {
+                accepted_offset: 4,
+                ..UploadCursor::default()
+            },
             4,
             None,
         ),
         Err(B01Error::ResumeSinkMismatch { cursor: 4, sink: 5 })
     ));
+}
+
+#[test]
+fn upload_resume_rejects_changed_source_identity() {
+    let temp = TempRoot::new();
+    let source = temp.path().join("identity-fenced-upload.bin");
+    fs::write(&source, b"abcdefghij").expect("write source");
+    let mut sink = MemoryUploadSink::default();
+    let first = resumable_upload_file(&source, &mut sink, UploadCursor::default(), 4, Some(5))
+        .expect("first pass");
+    fs::write(&source, b"abcdeXXXXX").expect("mutate source");
+    assert!(matches!(
+        resumable_upload_file(&source, &mut sink, first.cursor, 4, None),
+        Err(B01Error::ResumeSourceIdentityMismatch)
+    ));
+    assert_eq!(sink.bytes, b"abcde");
+    assert!(!sink.finalized);
 }
 
 #[test]
@@ -254,12 +267,124 @@ fn segmented_multi_source_download_resumes_and_falls_back_without_erasing_failur
 }
 
 #[test]
-fn verified_download_ranges_are_exact_not_filename_or_progress_claims() {
+fn verified_download_ranges_are_digest_bound_not_filename_or_progress_claims() {
     let mut cursor = DownloadCursor::default();
-    cursor.mark_verified(VerifiedRange { start: 0, len: 128 });
-    assert!(cursor.contains(VerifiedRange { start: 0, len: 128 }));
-    assert!(!cursor.contains(VerifiedRange { start: 0, len: 127 }));
-    assert!(!cursor.contains(VerifiedRange { start: 1, len: 128 }));
+    let exact = VerifiedRange {
+        start: 0,
+        len: 128,
+        sha256: "a".repeat(64),
+    };
+    cursor.mark_verified(exact.clone());
+    assert!(cursor.contains(&exact));
+    assert!(!cursor.contains(&VerifiedRange {
+        start: 0,
+        len: 127,
+        sha256: exact.sha256.clone(),
+    }));
+    assert!(!cursor.contains(&VerifiedRange {
+        start: 0,
+        len: 128,
+        sha256: "b".repeat(64),
+    }));
+}
+
+#[test]
+fn segmented_resume_rejects_corrupted_retained_range() {
+    let temp = TempRoot::new();
+    let destination = temp.path().join("corrupt-resume.bin");
+    let bytes: Vec<u8> = (0..400_000)
+        .map(|index| u8::try_from(index % 241).expect("modulo fits u8"))
+        .collect();
+    let expected = sha256(&bytes);
+    let mut first_source = ByteRangeSource::new("primary", &bytes);
+    let mut second_source = ByteRangeSource::new("secondary", &bytes);
+    let mut sources: [&mut dyn RangeSource; 2] = [&mut first_source, &mut second_source];
+    let first = segmented_download(
+        &mut sources,
+        &destination,
+        bytes.len() as u64,
+        64 * 1024,
+        DownloadCursor::default(),
+        Some(2),
+        Some(&expected),
+    )
+    .expect("first pass");
+    let mut partial = fs::OpenOptions::new()
+        .write(true)
+        .open(&destination)
+        .expect("open retained partial");
+    partial.seek(SeekFrom::Start(0)).expect("seek");
+    partial.write_all(b"X").expect("corrupt retained range");
+    partial.flush().expect("flush corruption");
+    assert!(matches!(
+        segmented_download(
+            &mut sources,
+            &destination,
+            bytes.len() as u64,
+            64 * 1024,
+            first.cursor,
+            None,
+            Some(&expected),
+        ),
+        Err(B01Error::ResumeRangeDigestMismatch { start: 0, .. })
+    ));
+}
+
+#[test]
+fn segmented_download_preserves_progress_when_all_sources_fail_later_segment() {
+    let temp = TempRoot::new();
+    let destination = temp.path().join("blocked-segment.bin");
+    let bytes = vec![7_u8; 300_000];
+    let mut first_source = ByteRangeSource::new("primary", &bytes);
+    let mut second_source = ByteRangeSource::new("secondary", &bytes);
+    first_source.fail_starts.push((64 * 1024) as u64);
+    second_source.fail_starts.push((64 * 1024) as u64);
+    let mut sources: [&mut dyn RangeSource; 2] = [&mut first_source, &mut second_source];
+    let report = segmented_download(
+        &mut sources,
+        &destination,
+        bytes.len() as u64,
+        64 * 1024,
+        DownloadCursor::default(),
+        None,
+        None,
+    )
+    .expect("partial progress is a retained report");
+    assert!(!report.complete);
+    assert_eq!(report.downloaded_ranges, 1);
+    assert_eq!(report.cursor.len(), 1);
+    assert_eq!(report.failures.len(), 2);
+    assert_eq!(
+        report.blocked_segment.as_ref().map(|value| value.start),
+        Some((64 * 1024) as u64)
+    );
+}
+
+#[test]
+fn segmented_download_rejects_cursor_ranges_outside_required_geometry() {
+    let temp = TempRoot::new();
+    let destination = temp.path().join("stale-cursor.bin");
+    let bytes = vec![9_u8; 128 * 1024];
+    let mut cursor = DownloadCursor::default();
+    cursor.mark_verified(VerifiedRange {
+        start: 1,
+        len: 64 * 1024,
+        sha256: "a".repeat(64),
+    });
+    let mut source = ByteRangeSource::new("primary", &bytes);
+    let mut sources: [&mut dyn RangeSource; 1] = [&mut source];
+    assert!(matches!(
+        segmented_download(
+            &mut sources,
+            &destination,
+            bytes.len() as u64,
+            64 * 1024,
+            cursor,
+            None,
+            None,
+        ),
+        Err(B01Error::InvalidDownloadCursorRange { start: 1, .. })
+    ));
 }
 
 #[test]
@@ -409,9 +534,29 @@ fn synchronization_conflict_is_explicit_and_ptah_does_not_choose_the_winner() {
 }
 
 #[test]
-fn one_sided_sync_change_is_pending_not_conflict_or_automatic_merge() {
+fn one_sided_sync_change_is_pending_until_explicit_reconciliation() {
     let mut relationship = SyncRelationship::new("sync-2", "l1", "r1");
     assert_eq!(relationship.observe("l2", "r1"), SyncState::Pending);
+    assert!(relationship.conflict.is_none());
+    assert!(matches!(
+        relationship.resolve(ConflictResolution::KeepLocal),
+        Err(B01Error::NoSyncConflict)
+    ));
+    let cursor = relationship
+        .reconcile_pending()
+        .expect("commit non-conflicting sync result");
+    assert_eq!(relationship.state, SyncState::InSync);
+    assert_eq!(cursor.local_revision, "l2");
+    assert_eq!(cursor.remote_revision, "r1");
+    assert_eq!(cursor.sequence, 1);
+}
+
+#[test]
+fn returning_in_sync_clears_stale_conflict_and_blocks_old_resolution() {
+    let mut relationship = SyncRelationship::new("sync-3", "l1", "r1");
+    assert_eq!(relationship.observe("l2", "r2"), SyncState::Conflict);
+    assert!(relationship.conflict.is_some());
+    assert_eq!(relationship.observe("l1", "r1"), SyncState::InSync);
     assert!(relationship.conflict.is_none());
     assert!(matches!(
         relationship.resolve(ConflictResolution::KeepLocal),

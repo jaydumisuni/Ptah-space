@@ -16,14 +16,14 @@ B01 extends transfer/storage mechanics. It does not reopen A07, A08 or A13 autho
 
 B01 adds the following to `ptah-transfer`:
 
-1. resumable upload from an exact provider-accepted offset, including fail-closed cursor/provider disagreement;
-2. segmented download with exact verified-range cursor, multi-source selection, source fallback and retained source failures;
+1. resumable upload from an exact provider-accepted offset, with source size/digest fencing, streamed-prefix verification and fail-closed cursor/provider disagreement;
+2. segmented download with digest-bound verified-range cursor, crash-durable range admission, multi-source fallback and retained source failures;
 3. deterministic transfer priority/queue policy with local-capacity reservation while local work is pending;
 4. one bounded export adapter contract usable by Node-to-Node, object-store and Drive-style providers;
 5. local-first export orchestration where optional remote failure remains explicit and does not erase completed primary work;
 6. SHA-256 content deduplication policy that reuses storage keys without collapsing logical reference count;
 7. conservative retention planning that never automatically prunes pinned or unverified state;
-8. explicit Sync Relationship, Cursor, Conflict and caller-selected Resolution state;
+8. explicit Sync Relationship, Cursor, Conflict, non-conflict reconciliation and caller-selected Resolution state;
 9. independent Backup Policy, Snapshot, Verification, Prune and Restore state;
 10. restore results that explicitly cannot claim Workspace recovery.
 

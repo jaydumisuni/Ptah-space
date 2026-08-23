@@ -129,15 +129,21 @@ impl TransferQueue {
 }
 
 /// Resume cursor for a provider upload.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct UploadCursor {
     /// Exact source offset already durably accepted by the provider sink.
     pub accepted_offset: u64,
+    /// Exact source size bound to this provider upload identity.
+    pub source_size: Option<u64>,
+    /// Whole-source SHA-256 bound to this provider upload identity.
+    pub source_sha256: Option<String>,
 }
 
 /// Result of one bounded resumable upload pass.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResumableUploadReport {
+    /// Resume cursor bound to the exact source identity and accepted provider offset.
+    pub cursor: UploadCursor,
     /// Offset from which this pass started.
     pub starting_offset: u64,
     /// Offset durably accepted after this pass.
@@ -175,6 +181,17 @@ pub fn resumable_upload_file(
         return Err(B01Error::InvalidChunkSize);
     }
     let source_size = fs::metadata(source)?.len();
+    let source_sha256 = sha256_file(source)?;
+    if cursor
+        .source_size
+        .is_some_and(|expected| expected != source_size)
+        || cursor
+            .source_sha256
+            .as_deref()
+            .is_some_and(|expected| expected != source_sha256.as_str())
+    {
+        return Err(B01Error::ResumeSourceIdentityMismatch);
+    }
     if cursor.accepted_offset > source_size {
         return Err(B01Error::ResumeOffsetOutOfRange {
             offset: cursor.accepted_offset,
@@ -189,11 +206,25 @@ pub fn resumable_upload_file(
         });
     }
 
-    let source_sha256 = sha256_file(source)?;
     let starting_offset = cursor.accepted_offset;
     let mut accepted_offset = starting_offset;
     let mut remaining_budget = byte_budget.unwrap_or(u64::MAX);
     let mut file = File::open(source)?;
+    let mut sent_prefix_hasher = Sha256::new();
+    let mut prefix_remaining = starting_offset;
+    let mut prefix_buffer = [0_u8; 64 * 1024];
+    while prefix_remaining > 0 {
+        let request = usize::try_from(
+            prefix_remaining.min(u64::try_from(prefix_buffer.len()).expect("usize fits u64")),
+        )
+        .expect("prefix request fits usize");
+        let read = file.read(&mut prefix_buffer[..request])?;
+        if read == 0 {
+            return Err(B01Error::UnexpectedSourceEof);
+        }
+        sent_prefix_hasher.update(&prefix_buffer[..read]);
+        prefix_remaining -= u64::try_from(read).expect("usize fits u64");
+    }
     file.seek(SeekFrom::Start(starting_offset))?;
     let mut buffer = vec![0_u8; chunk_size];
 
@@ -209,6 +240,7 @@ pub fn resumable_upload_file(
         if read == 0 {
             return Err(B01Error::UnexpectedSourceEof);
         }
+        sent_prefix_hasher.update(&buffer[..read]);
         sink.write_at(accepted_offset, &buffer[..read])
             .map_err(B01Error::Adapter)?;
         let read_u64 = u64::try_from(read).expect("usize fits u64");
@@ -216,11 +248,30 @@ pub fn resumable_upload_file(
         remaining_budget = remaining_budget.saturating_sub(read_u64);
     }
 
+    let sent_prefix_sha256 = format!("{:x}", sent_prefix_hasher.finalize());
+    let retained_prefix_sha256 = sha256_prefix(source, accepted_offset)?;
+    if sent_prefix_sha256 != retained_prefix_sha256 {
+        return Err(B01Error::SourceChangedDuringUpload {
+            expected: retained_prefix_sha256,
+            observed: sent_prefix_sha256,
+        });
+    }
+    let post_source_size = fs::metadata(source)?.len();
+    let post_source_sha256 = sha256_file(source)?;
+    if post_source_size != source_size || post_source_sha256 != source_sha256 {
+        return Err(B01Error::ResumeSourceIdentityMismatch);
+    }
+
     let complete = accepted_offset == source_size;
     if complete {
         sink.finalize().map_err(B01Error::Adapter)?;
     }
     Ok(ResumableUploadReport {
+        cursor: UploadCursor {
+            accepted_offset,
+            source_size: Some(source_size),
+            source_sha256: Some(source_sha256.clone()),
+        },
         starting_offset,
         accepted_offset,
         source_size,
@@ -230,30 +281,56 @@ pub fn resumable_upload_file(
 }
 
 /// One exact verified download range.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedRange {
     /// Start offset.
     pub start: u64,
     /// Number of verified bytes.
     pub len: u64,
+    /// SHA-256 of the exact retained range bytes.
+    pub sha256: String,
 }
 
-/// Durable range cursor for segmented download resume.
+/// Durable digest-bound range cursor for segmented download resume.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DownloadCursor {
-    verified: BTreeMap<u64, u64>,
+    verified: BTreeMap<u64, VerifiedRange>,
 }
 
 impl DownloadCursor {
     /// Mark one exact range as verified.
     pub fn mark_verified(&mut self, range: VerifiedRange) {
-        self.verified.insert(range.start, range.len);
+        self.verified.insert(range.start, range);
     }
 
-    /// Whether an exact range has already been verified.
+    /// Whether the exact range identity, geometry and digest are retained.
     #[must_use]
-    pub fn contains(&self, range: VerifiedRange) -> bool {
-        self.verified.get(&range.start) == Some(&range.len)
+    pub fn contains(&self, range: &VerifiedRange) -> bool {
+        self.verified.get(&range.start) == Some(range)
+    }
+
+    fn get(&self, start: u64, len: u64) -> Option<&VerifiedRange> {
+        self.verified.get(&start).filter(|range| range.len == len)
+    }
+
+    fn validate_for(&self, expected_size: u64, segment_size: u64) -> Result<(), B01Error> {
+        for range in self.verified.values() {
+            let valid_geometry = range.start < expected_size
+                && range.start % segment_size == 0
+                && range.len == (expected_size - range.start).min(segment_size);
+            let valid_digest = range.sha256.len() == 64
+                && range.sha256.chars().all(|value| value.is_ascii_hexdigit());
+            if !valid_geometry || !valid_digest {
+                return Err(B01Error::InvalidDownloadCursorRange {
+                    start: range.start,
+                    len: range.len,
+                });
+            }
+        }
+        if expected_size == 0 && !self.verified.is_empty() {
+            return Err(B01Error::InvalidDownloadCursorRange { start: 0, len: 0 });
+        }
+        Ok(())
     }
 
     /// Number of verified ranges.
@@ -288,6 +365,15 @@ pub struct SourceFailure {
     pub error: String,
 }
 
+/// Exact segment that could not be obtained from any configured source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockedSegment {
+    /// Segment start offset.
+    pub start: u64,
+    /// Segment length.
+    pub len: usize,
+}
+
 /// Result of one segmented/multi-source download pass.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SegmentedDownloadReport {
@@ -301,6 +387,8 @@ pub struct SegmentedDownloadReport {
     pub successful_sources: Vec<String>,
     /// Failed source attempts retained instead of erased.
     pub failures: Vec<SourceFailure>,
+    /// Segment that blocked this pass after every source failed, if any.
+    pub blocked_segment: Option<BlockedSegment>,
     /// Whether every required segment is verified.
     pub complete: bool,
     /// Whole-file SHA-256 when complete.
@@ -341,6 +429,7 @@ pub fn segmented_download(
     let mut successful_sources = Vec::new();
     let mut successful_source_set = HashSet::new();
     let segment_size_u64 = u64::try_from(segment_size).expect("usize fits u64");
+    cursor.validate_for(expected_size, segment_size_u64)?;
     let segment_count = if expected_size == 0 {
         0
     } else {
@@ -350,11 +439,19 @@ pub fn segmented_download(
     for segment_index in 0..segment_count {
         let start = segment_index * segment_size_u64;
         let len_u64 = (expected_size - start).min(segment_size_u64);
-        let range = VerifiedRange {
-            start,
-            len: len_u64,
-        };
-        if cursor.contains(range) {
+        if let Some(verified) = cursor.get(start, len_u64) {
+            let len = usize::try_from(len_u64).expect("segment length fits usize");
+            let mut retained = vec![0_u8; len];
+            output.seek(SeekFrom::Start(start))?;
+            output.read_exact(&mut retained)?;
+            let observed = sha256_bytes(&retained);
+            if observed != verified.sha256 {
+                return Err(B01Error::ResumeRangeDigestMismatch {
+                    start,
+                    expected: verified.sha256.clone(),
+                    observed,
+                });
+            }
             resumed_ranges += 1;
             continue;
         }
@@ -395,15 +492,35 @@ pub fn segmented_download(
                 }),
             }
         }
-        let bytes = segment_bytes.ok_or(B01Error::SegmentUnavailable { start, len })?;
+        let Some(bytes) = segment_bytes else {
+            return Ok(SegmentedDownloadReport {
+                cursor,
+                resumed_ranges,
+                downloaded_ranges,
+                successful_sources,
+                failures,
+                blocked_segment: Some(BlockedSegment { start, len }),
+                complete: false,
+                destination_sha256: None,
+            });
+        };
         output.seek(SeekFrom::Start(start))?;
         output.write_all(&bytes)?;
         output.flush()?;
-        cursor.mark_verified(range);
+        output.sync_data()?;
+        cursor.mark_verified(VerifiedRange {
+            start,
+            len: len_u64,
+            sha256: sha256_bytes(&bytes),
+        });
         downloaded_ranges += 1;
     }
 
-    let complete = usize::try_from(segment_count).is_ok_and(|count| cursor.len() == count);
+    let complete = (0..segment_count).all(|segment_index| {
+        let start = segment_index * segment_size_u64;
+        let len = (expected_size - start).min(segment_size_u64);
+        cursor.get(start, len).is_some()
+    });
     let destination_sha256 = if complete {
         let digest = sha256_file(destination)?;
         if let Some(expected) = expected_sha256 {
@@ -425,6 +542,7 @@ pub fn segmented_download(
         downloaded_ranges,
         successful_sources,
         failures,
+        blocked_segment: None,
         complete,
         destination_sha256,
     })
@@ -675,6 +793,7 @@ pub struct SyncRelationship {
     pub state: SyncState,
     /// Current explicit conflict, if any.
     pub conflict: Option<SyncConflict>,
+    pending_observation: Option<SyncCursor>,
 }
 
 impl SyncRelationship {
@@ -694,6 +813,7 @@ impl SyncRelationship {
             },
             state: SyncState::InSync,
             conflict: None,
+            pending_observation: None,
         }
     }
 
@@ -708,8 +828,13 @@ impl SyncRelationship {
         let local_changed = local_revision != self.cursor.local_revision;
         let remote_changed = remote_revision != self.cursor.remote_revision;
         self.state = match (local_changed, remote_changed) {
-            (false, false) => SyncState::InSync,
+            (false, false) => {
+                self.conflict = None;
+                self.pending_observation = None;
+                SyncState::InSync
+            }
             (true, true) if local_revision != remote_revision => {
+                self.pending_observation = None;
                 self.conflict = Some(SyncConflict {
                     local_revision,
                     remote_revision,
@@ -719,10 +844,30 @@ impl SyncRelationship {
             }
             _ => {
                 self.conflict = None;
+                self.pending_observation = Some(SyncCursor {
+                    local_revision,
+                    remote_revision,
+                    sequence: self.cursor.sequence.saturating_add(1),
+                });
                 SyncState::Pending
             }
         };
         self.state
+    }
+
+    /// Commit a previously observed non-conflicting synchronization result.
+    pub fn reconcile_pending(&mut self) -> Result<SyncCursor, B01Error> {
+        if self.state != SyncState::Pending {
+            return Err(B01Error::NoPendingSync);
+        }
+        let cursor = self
+            .pending_observation
+            .take()
+            .ok_or(B01Error::NoPendingSync)?;
+        self.cursor = cursor.clone();
+        self.state = SyncState::InSync;
+        self.conflict = None;
+        Ok(cursor)
     }
 
     /// Resolve only an explicit conflict using a caller-selected policy.
@@ -730,6 +875,9 @@ impl SyncRelationship {
         &mut self,
         resolution: ConflictResolution,
     ) -> Result<SyncResolutionRecord, B01Error> {
+        if self.state != SyncState::Conflict {
+            return Err(B01Error::NoSyncConflict);
+        }
         let conflict = self.conflict.clone().ok_or(B01Error::NoSyncConflict)?;
         let (local_revision, remote_revision) = match &resolution {
             ConflictResolution::KeepLocal => (
@@ -753,6 +901,7 @@ impl SyncRelationship {
         };
         self.state = SyncState::InSync;
         self.conflict = None;
+        self.pending_observation = None;
         Ok(SyncResolutionRecord {
             conflict,
             resolution,
@@ -945,6 +1094,27 @@ pub enum B01Error {
     /// Provider offset does not match the retained caller cursor.
     #[error("resume sink mismatch: cursor={cursor}, sink={sink}")]
     ResumeSinkMismatch { cursor: u64, sink: u64 },
+    /// Source size or digest changed after the retained upload cursor was created.
+    #[error("upload resume source identity changed")]
+    ResumeSourceIdentityMismatch,
+    /// Bytes read for upload changed relative to the retained source prefix.
+    #[error("upload source changed while streaming: expected {expected}, observed {observed}")]
+    SourceChangedDuringUpload { expected: String, observed: String },
+    /// A retained download range no longer matches its verified digest.
+    #[error(
+        "download resume range digest mismatch at {start}: expected {expected}, observed {observed}"
+    )]
+    ResumeRangeDigestMismatch {
+        /// Start offset of the stale/corrupt retained range.
+        start: u64,
+        /// Retained verified SHA-256.
+        expected: String,
+        /// Re-read SHA-256.
+        observed: String,
+    },
+    /// A retained cursor range is outside the current expected geometry.
+    #[error("invalid retained download cursor range at {start} with length {len}")]
+    InvalidDownloadCursorRange { start: u64, len: u64 },
     /// Source ended before its declared size.
     #[error("source ended before declared size")]
     UnexpectedSourceEof,
@@ -960,6 +1130,9 @@ pub enum B01Error {
     /// Conflict resolution was requested when no conflict exists.
     #[error("no explicit sync conflict exists")]
     NoSyncConflict,
+    /// Non-conflicting reconciliation was requested with no pending observation.
+    #[error("no pending synchronization observation exists")]
+    NoPendingSync,
     /// Duplicate backup snapshot identity.
     #[error("duplicate backup snapshot id: {0}")]
     DuplicateSnapshotId(String),
@@ -972,6 +1145,28 @@ pub enum B01Error {
     /// Restore requires independent snapshot verification.
     #[error("backup snapshot is not verified: {0}")]
     SnapshotUnverified(String),
+}
+
+fn sha256_prefix(path: &Path, len: u64) -> Result<String, std::io::Error> {
+    let mut file = File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut remaining = len;
+    let mut buffer = [0_u8; 64 * 1024];
+    while remaining > 0 {
+        let request =
+            usize::try_from(remaining.min(u64::try_from(buffer.len()).expect("usize fits u64")))
+                .expect("prefix request fits usize");
+        let read = file.read(&mut buffer[..request])?;
+        if read == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "source ended while hashing accepted prefix",
+            ));
+        }
+        hasher.update(&buffer[..read]);
+        remaining -= u64::try_from(read).expect("usize fits u64");
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn sha256_file(path: &Path) -> Result<String, std::io::Error> {

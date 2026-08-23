@@ -1,0 +1,112 @@
+name: A15 durable evidence capture
+
+on:
+  push:
+    branches:
+      - a15-durable-evidence
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out durable-evidence branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: a15-durable-evidence
+          fetch-depth: 0
+
+      - name: Download and verify exact A15 proof artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: "9490517779"
+          ARTIFACT_SHA256: "e746017c269dccaf8b398d873cb00caf88e8b7fbc3f968a4f7912426998f7de5"
+          CANDIDATE_SHA: "7730ff205c93f570ddac63a2e25b73c41bb93123"
+          MERGE_SHA: "6f096697fb65fe023e7cdf31abf9a7996486326f"
+          PROOF_RUN_ID: "32629044123"
+        run: |
+          set -euo pipefail
+          TARGET="evidence/phase0c/${CANDIDATE_SHA}/a15-online-alpha"
+          rm -rf "$TARGET"
+          mkdir -p "$TARGET"
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/jaydumisuni/Ptah-space/actions/artifacts/${ARTIFACT_ID}/zip" \
+            -o /tmp/a15-proof.zip
+          printf '%s  %s\n' "$ARTIFACT_SHA256" /tmp/a15-proof.zip | sha256sum -c -
+          unzip -q /tmp/a15-proof.zip -d "$TARGET"
+          cp /tmp/a15-proof.zip "$TARGET/a15-online-alpha-proof.zip"
+          (
+            cd "$TARGET"
+            sha256sum -c report-bundle.sha256
+          )
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          candidate = os.environ['CANDIDATE_SHA']
+          merge_sha = os.environ['MERGE_SHA']
+          run_id = os.environ['PROOF_RUN_ID']
+          artifact_id = os.environ['ARTIFACT_ID']
+          artifact_sha = os.environ['ARTIFACT_SHA256']
+          target = Path('evidence/phase0c') / candidate / 'a15-online-alpha'
+          bundle_path = target / 'report-bundle.json'
+          bundle = json.loads(bundle_path.read_text(encoding='utf-8'))
+          if bundle.get('status') != 'pass':
+              raise SystemExit('A15 report bundle did not pass')
+          if bundle.get('implementation_commit') != candidate:
+              raise SystemExit('A15 report bundle candidate mismatch')
+          if str(bundle.get('workflow_run_id')) != run_id:
+              raise SystemExit('A15 report bundle run mismatch')
+          archive = target / 'a15-online-alpha-proof.zip'
+          actual_archive_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual_archive_sha != artifact_sha:
+              raise SystemExit('retained artifact digest mismatch')
+          files = sorted(
+              {
+                  'path': str(path.relative_to(target)),
+                  'size_bytes': path.stat().st_size,
+                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+              }
+              for path in target.iterdir()
+              if path.is_file()
+          , key=lambda item: item['path'])
+          record = {
+              'schema_version': '0.1.0',
+              'record_type': 'ptah.a15.durable_exact_head_evidence',
+              'candidate_commit': candidate,
+              'merge_commit': merge_sha,
+              'workflow_run_id': int(run_id),
+              'artifact_id': int(artifact_id),
+              'artifact_name': f'a15-online-alpha-{candidate}',
+              'artifact_zip_sha256': artifact_sha,
+              'report_bundle_sha256': hashlib.sha256(bundle_path.read_bytes()).hexdigest(),
+              'runtime_implementation_authorized': False,
+              'files': files,
+          }
+          (target / 'durable-evidence-record.json').write_text(
+              json.dumps(record, indent=2, sort_keys=True) + '\n', encoding='utf-8'
+          )
+          readme = f'''# A15 durable exact-head evidence\n\nThis directory retains the exact A15 Online Ptah Alpha proof artifact for candidate `{candidate}` promoted by merge `{merge_sha}`.\n\n- Workflow run: `{run_id}`\n- GitHub artifact: `{artifact_id}`\n- Exact artifact ZIP SHA-256: `{artifact_sha}`\n- The original ZIP is retained as `a15-online-alpha-proof.zip`.\n- The extracted report set is retained beside it.\n- `report-bundle.sha256` verifies the exact bundle bytes.\n- `durable-evidence-record.json` binds every retained file by SHA-256.\n\nThis is evidence retention only. It does not grant Ptah runtime, caller, review, acceptance or upgrade authority.\n'''
+          (target / 'README.md').write_text(readme, encoding='utf-8')
+          PY
+
+      - name: Commit retained evidence to the branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "evidence/phase0c/7730ff205c93f570ddac63a2e25b73c41bb93123/a15-online-alpha"
+          git diff --cached --check
+          git commit -m "A15: retain exact-head proof bundle"
+          git push origin HEAD:a15-durable-evidence

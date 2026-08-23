@@ -5,12 +5,19 @@
 //! A08 never promotes provider acknowledgement into Content/Object/Location
 //! truth. A04 remains execution-proof authority and A07 remains object/storage
 //! acceptance authority.
+//!
+//! B01 extends this runtime with resumable upload, segmented/multi-source
+//! download, queue/priority policy, bounded export adapters, dedup/retention,
+//! explicit synchronization conflict state and byte-backup verification. B01
+//! does not redefine A08 verification or A13 Workspace recovery authority.
 
+mod b01;
 mod engine;
 mod model;
 mod records;
 mod util;
 
+pub use b01::*;
 pub use engine::{TransferClock, TransferEngine, UploadSink};
 pub use model::*;
 

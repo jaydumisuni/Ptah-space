@@ -414,14 +414,19 @@ pub fn inspect_document(
     );
 
     let Some(media_type) = agreed_media_type else {
-        report.coverage.unknown_gaps.push(match &type_assessment.agreement {
-            TypeAgreement::Unknown => "B02 did not establish an agreed document type".to_owned(),
-            TypeAgreement::Disputed(values) => format!(
-                "B02 detector disagreement prevents document adapter selection: {}",
-                values.join(", ")
-            ),
-            TypeAgreement::Agreed(_) => unreachable!("agreed media type was extracted above"),
-        });
+        report
+            .coverage
+            .unknown_gaps
+            .push(match &type_assessment.agreement {
+                TypeAgreement::Unknown => {
+                    "B02 did not establish an agreed document type".to_owned()
+                }
+                TypeAgreement::Disputed(values) => format!(
+                    "B02 detector disagreement prevents document adapter selection: {}",
+                    values.join(", ")
+                ),
+                TypeAgreement::Agreed(_) => unreachable!("agreed media type was extracted above"),
+            });
         return Ok(report);
     };
 
@@ -455,12 +460,7 @@ pub fn inspect_document(
     report.limitations = output.limitations;
     report.coverage.complete_claim = output.complete_claim;
 
-    retain_text(
-        &mut report,
-        output.text,
-        context,
-        limits.max_text_bytes,
-    )?;
+    retain_text(&mut report, output.text, context, limits.max_text_bytes)?;
     retain_pages(
         &mut report,
         output.pages,
@@ -609,10 +609,12 @@ impl DocumentAdapter for SafeHtmlAdapter {
             "external resources are not loaded".to_owned(),
         ];
         if !std::str::from_utf8(bytes).is_ok() {
-            limitations.push("invalid UTF-8 sequences were replaced during HTML decoding".to_owned());
+            limitations
+                .push("invalid UTF-8 sequences were replaced during HTML decoding".to_owned());
         }
         if active_content_observed {
-            limitations.push("active/embedded HTML regions were removed before extraction".to_owned());
+            limitations
+                .push("active/embedded HTML regions were removed before extraction".to_owned());
         }
         let converted = text.as_bytes().to_vec();
         Ok(AdapterDocument {
@@ -925,15 +927,9 @@ fn truncate_utf8(value: &str, max_bytes: usize) -> (String, bool) {
 
 fn html_contains_active_content(value: &str) -> bool {
     let lower = value.to_ascii_lowercase();
-    [
-        "<script",
-        "<iframe",
-        "<object",
-        "<embed",
-        "javascript:",
-    ]
-    .iter()
-    .any(|needle| lower.contains(needle))
+    ["<script", "<iframe", "<object", "<embed", "javascript:"]
+        .iter()
+        .any(|needle| lower.contains(needle))
         || contains_event_handler_attribute(&lower)
 }
 

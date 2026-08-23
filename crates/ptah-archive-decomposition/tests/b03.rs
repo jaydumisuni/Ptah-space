@@ -45,7 +45,11 @@ struct FixtureAdapter {
 }
 
 impl FixtureAdapter {
-    fn passive(id: &'static str, media_types: &'static [&'static str], output: AdapterDocument) -> Self {
+    fn passive(
+        id: &'static str,
+        media_types: &'static [&'static str],
+        output: AdapterDocument,
+    ) -> Self {
         Self {
             id,
             media_types,
@@ -122,9 +126,15 @@ fn structured_text_extracts_exact_byte_and_revision_anchor() {
     assert_eq!(report.adapter_id.as_deref(), Some("b03.safe-text"));
     assert_eq!(report.text.len(), 1);
     assert_eq!(report.text[0].text, "first line\nsecond line\n");
-    assert_eq!(report.text[0].anchor.source_revision_ref, context.source_revision_ref);
+    assert_eq!(
+        report.text[0].anchor.source_revision_ref,
+        context.source_revision_ref
+    );
     assert_eq!(report.text[0].anchor.byte_start, Some(0));
-    assert_eq!(report.text[0].anchor.byte_end_exclusive, Some(source.len() as u64));
+    assert_eq!(
+        report.text[0].anchor.byte_end_exclusive,
+        Some(source.len() as u64)
+    );
     assert!(report.coverage.complete_claim);
     assert_eq!(report.coverage.unknown_gaps, Vec::<String>::new());
 }
@@ -147,7 +157,12 @@ fn malicious_html_is_stripped_to_passive_preview_without_mutating_source() {
     assert_eq!(source, original.as_slice());
     assert!(report.active_content_observed);
     assert!(!report.coverage.complete_claim);
-    assert!(report.limitations.iter().any(|item| item.contains("external resources")));
+    assert!(
+        report
+            .limitations
+            .iter()
+            .any(|item| item.contains("external resources"))
+    );
     let preview = report.preview.expect("passive preview");
     let preview_text = String::from_utf8(preview.bytes).expect("UTF-8 preview");
     assert_eq!(preview.media_type, "text/plain");
@@ -222,11 +237,8 @@ fn unsupported_agreed_document_type_is_explicit_without_false_extraction() {
 
 #[test]
 fn unsafe_adapter_is_rejected_before_document_bytes_are_inspected() {
-    let mut adapter = FixtureAdapter::passive(
-        "unsafe-pdf",
-        &["application/pdf"],
-        fixture_output("pdf"),
-    );
+    let mut adapter =
+        FixtureAdapter::passive("unsafe-pdf", &["application/pdf"], fixture_output("pdf"));
     adapter.isolation.network_access = IsolationPolicy::Allowed;
     let result = inspect_document(
         b"%PDF-fixture",
@@ -242,16 +254,8 @@ fn unsafe_adapter_is_rejected_before_document_bytes_are_inspected() {
 
 #[test]
 fn ambiguous_document_adapters_fail_closed_without_choosing_a_winner() {
-    let first = FixtureAdapter::passive(
-        "pdf-a",
-        &["application/pdf"],
-        fixture_output("pdf-a"),
-    );
-    let second = FixtureAdapter::passive(
-        "pdf-b",
-        &["application/pdf"],
-        fixture_output("pdf-b"),
-    );
+    let first = FixtureAdapter::passive("pdf-a", &["application/pdf"], fixture_output("pdf-a"));
+    let second = FixtureAdapter::passive("pdf-b", &["application/pdf"], fixture_output("pdf-b"));
     let result = inspect_document(
         b"%PDF-fixture",
         &agreed("application/pdf"),
@@ -260,18 +264,16 @@ fn ambiguous_document_adapters_fail_closed_without_choosing_a_winner() {
         &[&first, &second],
     );
 
-    assert!(matches!(result, Err(B03Error::AmbiguousAdapter(ref value)) if value == "application/pdf"));
+    assert!(
+        matches!(result, Err(B03Error::AmbiguousAdapter(ref value)) if value == "application/pdf")
+    );
     assert_eq!(first.calls(), 0);
     assert_eq!(second.calls(), 0);
 }
 
 #[test]
 fn pdf_and_office_adapter_boundaries_preserve_render_limitations_and_revision_anchors() {
-    let pdf = FixtureAdapter::passive(
-        "lawful-pdf",
-        &["application/pdf"],
-        fixture_output("pdf"),
-    );
+    let pdf = FixtureAdapter::passive("lawful-pdf", &["application/pdf"], fixture_output("pdf"));
     let office = FixtureAdapter::passive(
         "lawful-office",
         &["application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
@@ -289,8 +291,16 @@ fn pdf_and_office_adapter_boundaries_preserve_render_limitations_and_revision_an
     )
     .expect("PDF adapter report");
     assert_eq!(pdf.calls(), 1);
-    assert_eq!(pdf_report.pages[0].anchor.source_revision_ref, context.source_revision_ref);
-    assert!(pdf_report.limitations.iter().any(|item| item.contains("layout fidelity")));
+    assert_eq!(
+        pdf_report.pages[0].anchor.source_revision_ref,
+        context.source_revision_ref
+    );
+    assert!(
+        pdf_report
+            .limitations
+            .iter()
+            .any(|item| item.contains("layout fidelity"))
+    );
     assert!(!pdf_report.coverage.complete_claim);
 
     let office_report = inspect_document(
@@ -302,8 +312,16 @@ fn pdf_and_office_adapter_boundaries_preserve_render_limitations_and_revision_an
     )
     .expect("office adapter report");
     assert_eq!(office.calls(), 1);
-    assert_eq!(office_report.pages[0].anchor.source_revision_ref, context.source_revision_ref);
-    assert!(office_report.limitations.iter().any(|item| item.contains("layout fidelity")));
+    assert_eq!(
+        office_report.pages[0].anchor.source_revision_ref,
+        context.source_revision_ref
+    );
+    assert!(
+        office_report
+            .limitations
+            .iter()
+            .any(|item| item.contains("layout fidelity"))
+    );
 }
 
 #[test]
@@ -359,9 +377,27 @@ fn resource_limits_downgrade_coverage_and_never_overclaim_truncated_output() {
     assert_eq!(report.pages.len(), 1);
     assert!(report.conversion.is_none());
     assert!(!report.coverage.complete_claim);
-    assert!(report.coverage.unknown_gaps.iter().any(|item| item.contains("max_text_bytes")));
-    assert!(report.coverage.unknown_gaps.iter().any(|item| item.contains("max_pages")));
-    assert!(report.coverage.unknown_gaps.iter().any(|item| item.contains("max_conversion_bytes")));
+    assert!(
+        report
+            .coverage
+            .unknown_gaps
+            .iter()
+            .any(|item| item.contains("max_text_bytes"))
+    );
+    assert!(
+        report
+            .coverage
+            .unknown_gaps
+            .iter()
+            .any(|item| item.contains("max_pages"))
+    );
+    assert!(
+        report
+            .coverage
+            .unknown_gaps
+            .iter()
+            .any(|item| item.contains("max_conversion_bytes"))
+    );
     assert_eq!(report.preview.expect("preview").bytes, b"abcd");
 }
 
@@ -383,7 +419,10 @@ fn converted_output_registration_is_a_new_converted_revision_bound_to_exact_sour
     assert_eq!(spec.source_refs, vec![context.source_revision_ref.clone()]);
     assert_eq!(spec.revision_role, RevisionRole::Converted);
     assert_eq!(spec.object_class, "document.converted");
-    assert_eq!(spec.expected_sha256.as_deref(), Some(conversion.sha256.as_str()));
+    assert_eq!(
+        spec.expected_sha256.as_deref(),
+        Some(conversion.sha256.as_str())
+    );
     assert_eq!(conversion.source_revision_ref, context.source_revision_ref);
     assert_ne!(conversion.source_sha256, conversion.sha256);
 }

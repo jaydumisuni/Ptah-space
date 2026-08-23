@@ -1,0 +1,114 @@
+name: Temporary ATHENA Ptah Runner Finalization
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/temp-athena-ptah-runner-final.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  finalize-athena:
+    runs-on: [self-hosted, kratos, ptah]
+    timeout-minutes: 10
+    steps:
+      - name: Install and prove ATHENA-PTAH through Oracle Live
+        shell: bash
+        env:
+          ORACLE_URL: https://oracle.thetechguyds.com
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const cp = require('child_process');
+          const crypto = require('crypto');
+          const repo = 'jaydumisuni/Ptah-space';
+          const ghJson = (args) => JSON.parse(cp.execFileSync('gh', args, {encoding:'utf8'}));
+          const downloads = ghJson(['api', `repos/${repo}/actions/runners/downloads`]);
+          const pkg = downloads.find((x) => x.os === 'win' && x.architecture === 'x64');
+          if (!pkg) throw new Error('WIN_X64_RUNNER_PACKAGE_NOT_FOUND');
+          const reg = ghJson(['api','-X','POST',`repos/${repo}/actions/runners/registration-token`]).token;
+          const rem = ghJson(['api','-X','POST',`repos/${repo}/actions/runners/remove-token`]).token;
+          const expected = String(pkg.sha256_checksum || '').toLowerCase().replace(/^sha256:/,'');
+          if (!reg || !rem || !expected) throw new Error('RUNNER_METADATA_INCOMPLETE');
+          const psq = (v) => String(v).replaceAll("'", "''");
+          const ps = String.raw`$ErrorActionPreference='Stop'
+          $url='https://github.com/jaydumisuni/Ptah-space'
+          $root=Join-Path $env:LOCALAPPDATA 'GitHubActionsRunner\Ptah-space'
+          $taskName='GitHub Actions Ptah Runner - ATHENA'
+          $reg='${psq(reg)}'
+          $rem='${psq(rem)}'
+          $downloadUrl='${psq(pkg.download_url)}'
+          $expected='${psq(expected)}'
+          $filename='${psq(pkg.filename)}'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Stop-ScheduledTask -ErrorAction SilentlyContinue
+          Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
+          if(Test-Path (Join-Path $root '.runner')) { try { & (Join-Path $root 'config.cmd') remove --unattended --token $rem *> $null } catch {} }
+          $markerPath=Join-Path $root '.ptah-runner-package.json'
+          $marker=$null
+          if(Test-Path $markerPath){ try { $marker=Get-Content -Raw $markerPath | ConvertFrom-Json } catch {} }
+          $need= -not(Test-Path (Join-Path $root 'config.cmd')) -or -not $marker -or $marker.filename -ne $filename -or ([string]$marker.sha256_checksum).ToLowerInvariant().Replace('sha256:','') -ne $expected
+          if($need){
+            Get-ChildItem -Force $root | Where-Object {$_.Name -ne '_work'} | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+            $zip=Join-Path $env:TEMP ('ptah-athena-'+[guid]::NewGuid().ToString('N')+'-'+$filename)
+            try {
+              Invoke-WebRequest -UseBasicParsing -Uri $downloadUrl -OutFile $zip
+              $actual=(Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+              if($actual -ne $expected){ throw ('RUNNER_CHECKSUM_MISMATCH '+$actual+' '+$expected) }
+              Expand-Archive -Path $zip -DestinationPath $root -Force
+            } finally { Remove-Item $zip -Force -ErrorAction SilentlyContinue }
+            @{filename=$filename;sha256_checksum=$expected} | ConvertTo-Json | Set-Content -Encoding UTF8 $markerPath
+          }
+          Push-Location $root
+          try {
+            & .\config.cmd --unattended --url $url --token $reg --name 'ATHENA-PTAH' --labels 'athena,windows,x64,physical,ptah' --work '_work' --replace
+            if($LASTEXITCODE -ne 0){ throw 'RUNNER_CONFIG_FAILED' }
+          } finally { Pop-Location }
+          $admin=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          $mode='scheduled-task'
+          if($admin -and (Test-Path (Join-Path $root 'svc.cmd'))){
+            Push-Location $root
+            try { & .\svc.cmd install; if($LASTEXITCODE -eq 0){ & .\svc.cmd start; if($LASTEXITCODE -eq 0){$mode='service'} } } finally { Pop-Location }
+          }
+          if($mode -eq 'scheduled-task'){
+            $watch=Join-Path $root 'start-ptah-runner.ps1'
+            @('$ErrorActionPreference = ''Continue''','Set-Location -LiteralPath $PSScriptRoot','while ($true) {','  & (Join-Path $PSScriptRoot ''run.cmd'')','  Start-Sleep -Seconds 5','}') | Set-Content -Encoding UTF8 $watch
+            $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "'+$watch+'"')
+            $trigger=New-ScheduledTaskTrigger -AtLogOn -User ([Environment]::UserName)
+            $principal=New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
+            $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero)
+            Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+            Start-ScheduledTask -TaskName $taskName
+          }
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+          [ordered]@{ok=$true;host=$env:COMPUTERNAME;root=$root;persistence=$mode;taskState=if($task){[string]$task.State}else{$null}} | ConvertTo-Json -Compress`;
+
+          async function oidc() {
+            const u = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
+            u.searchParams.set('audience','oracle-live-control');
+            const r = await fetch(u,{headers:{authorization:`Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}`,accept:'application/json'},signal:AbortSignal.timeout(15000)});
+            if(!r.ok) throw new Error(`OIDC_TOKEN_HTTP_${r.status}`);
+            return (await r.json()).value;
+          }
+          (async()=>{
+            const token = await oidc();
+            const id = `ptah-athena-final-${process.env.GITHUB_RUN_ID}`;
+            const payload = {schemaVersion:'oracle.control.v1',id,action:'terminal_exec',issuedAt:new Date().toISOString(),targetNode:'ATHENA',args:{command:'powershell.exe',args:['-NoProfile','-ExecutionPolicy','Bypass','-Command',ps],cwd:'C:\\Users\\ATHENA 2.0',timeoutSeconds:360,resourceKey:'ptah:runner:athena'}};
+            const r = await fetch(`${process.env.ORACLE_URL}/live/oidc/control`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json',accept:'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(390000)});
+            const text = await r.text(); let body; try {body=JSON.parse(text)} catch {body={text:text.slice(0,4000)}}
+            console.log(JSON.stringify({httpStatus:r.status,body},null,2));
+            if(!r.ok || body?.ok !== true || body?.result?.exitCode !== 0) throw new Error(`ORACLE_LIVE_EXEC_FAILED_HTTP_${r.status}`);
+            let found;
+            for(let i=0;i<30;i++){
+              const data=ghJson(['api',`repos/${repo}/actions/runners`]);
+              found=data.runners.find(x=>x.name==='ATHENA-PTAH');
+              if(found?.status==='online') break;
+              await new Promise(resolve=>setTimeout(resolve,2000));
+            }
+            if(found?.status!=='online') throw new Error(`ATHENA_RUNNER_NOT_ONLINE ${JSON.stringify(found)}`);
+            console.log(JSON.stringify({ok:true,runner:found},null,2));
+          })().catch((e)=>{console.error(e.stack||String(e));process.exit(1)});
+          NODE

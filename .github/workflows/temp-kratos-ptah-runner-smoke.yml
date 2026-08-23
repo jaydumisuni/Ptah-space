@@ -14,14 +14,13 @@ jobs:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 3
     steps:
-      - name: Cancel duplicate Prime bootstrap and inspect runners
+      - name: Inspect Oracle ATHENA bootstrap history and runner registry
         shell: bash
         run: |
           set -euo pipefail
-          gh api -X POST repos/jaydumisuni/Prime-OS/actions/runs/32635464906/cancel >/dev/null 2>&1 || true
+          echo '--- ORACLE ATHENA WORKFLOW RUNS ---'
+          gh run list -R jaydumisuni/Oracle- --workflow ptah-athena-runner-bootstrap-selfhosted.yml --limit 10 --json databaseId,status,conclusion,headSha,event,createdAt,displayTitle || true
           echo '--- PTAH RUNNERS ---'
           gh api repos/jaydumisuni/Ptah-space/actions/runners --jq '.runners[] | {name,status,busy,os,labels:[.labels[].name]}'
           echo '--- ORACLE RUNNERS ---'
           gh api repos/jaydumisuni/Oracle-/actions/runners --jq '.runners[] | {name,status,busy,os,labels:[.labels[].name]}'
-          echo '--- KRATOS IDENTITY ---'
-          printf 'host=%s\nuser=%s\narch=%s\n' "$(hostname)" "$(id -un)" "$(uname -m)"

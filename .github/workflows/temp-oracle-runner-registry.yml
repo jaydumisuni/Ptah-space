@@ -1,4 +1,4 @@
-name: Temporary ATHENA Oracle Live Repair
+name: Temporary ATHENA Oracle Live Foreground Diagnostic
 
 on:
   pull_request:
@@ -10,76 +10,63 @@ permissions:
   contents: read
 
 jobs:
-  repair-athena-live:
+  diagnose-athena-live:
     runs-on: [self-hosted, athena, ptah]
-    timeout-minutes: 12
+    timeout-minutes: 6
     steps:
-      - name: Recover exact PR197 source
+      - name: Diagnose exact installed runtime in foreground
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
-          $expected='77f560d0d9cc8153c4437a69c40c598e867cb7d5'
-          $src=Join-Path $env:TEMP 'oracle-pr197-athena-repair'
-          if(Test-Path $src){Remove-Item -Recurse -Force $src}
-          gh repo clone jaydumisuni/Oracle- $src -- --branch fix/windows-live-persistence-closeout-20260822 --single-branch --depth 1
-          $actual=(git -C $src rev-parse HEAD).Trim()
-          if($actual -ne $expected){throw "PR197_HEAD_MISMATCH expected=$expected actual=$actual"}
-          "ORACLE_PR197_SOURCE=$src" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "ORACLE_PR197_HEAD=$actual" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $root=Join-Path $env:LOCALAPPDATA 'OracleNode'
+          $runtime=Join-Path $root 'runtime'
+          $nodeScript=Join-Path $runtime 'scripts\oracle-live-node.mjs'
+          $token=Join-Path $root 'live-token'
+          $identity=Join-Path $root 'node-id'
+          $status=Join-Path $root 'oracle-live-node-status.json'
+          $stdout=Join-Path $env:TEMP 'oracle-live-foreground.stdout.log'
+          $stderr=Join-Path $env:TEMP 'oracle-live-foreground.stderr.log'
+          foreach($f in @($stdout,$stderr)){Remove-Item $f -Force -ErrorAction SilentlyContinue}
 
-      - name: Inspect pre-repair runtime
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Continue'
-          Write-Output '--- current 5059 listeners ---'
-          Get-NetTCPConnection -LocalPort 5059 -ErrorAction SilentlyContinue | Select-Object LocalAddress,LocalPort,State,OwningProcess | Format-Table -AutoSize
-          Write-Output '--- matching processes ---'
-          Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'oracle-live-node|oracle-node-watchdog' } | Select-Object ProcessId,Name,CommandLine | Format-List
-          Write-Output '--- Oracle scheduled tasks ---'
-          Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {$_.TaskName -match '^Oracle (Always-On Node|Node Watchdog|Live Node|Recovery Relay)'} | ForEach-Object {
-            $i=Get-ScheduledTaskInfo -TaskName $_.TaskName -ErrorAction SilentlyContinue
-            [pscustomobject]@{Name=$_.TaskName;State=[string]$_.State;LastRun=$i.LastRunTime;LastResult=$i.LastTaskResult}
-          } | Format-Table -AutoSize
-          Write-Output '--- endpoint state ---'
-          foreach($u in @('http://127.0.0.1:5059/health','http://127.0.0.1:5059/ready')){
-            try{$r=Invoke-RestMethod -Uri $u -TimeoutSec 2; Write-Output ($u+' '+($r|ConvertTo-Json -Compress -Depth 6))}catch{Write-Output ($u+' ERROR '+$_.Exception.Message)}
+          foreach($name in @('Oracle Always-On Node','Oracle Node Watchdog','Oracle Live Node (Session Fallback)','Oracle Node Watchdog (Session Fallback)')){
+            $t=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            if($t){Disable-ScheduledTask -InputObject $t -ErrorAction SilentlyContinue|Out-Null; if([string]$t.State -in @('Running','Queued')){Stop-ScheduledTask -InputObject $t -ErrorAction SilentlyContinue|Out-Null}}
           }
+          Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'oracle-live-node\.mjs|oracle-node-watchdog-windows\.mjs' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+          Start-Sleep -Seconds 1
 
-      - name: Restore Session persistence from exact PR197
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Stop'
-          $src=$env:ORACLE_PR197_SOURCE
-          if(-not (Test-Path (Join-Path $env:LOCALAPPDATA 'OracleNode\live-token'))){throw 'ORACLE_LIVE_TOKEN_FILE_MISSING'}
-          $proof=& (Join-Path $src 'scripts\install-oracle-node-windows.ps1') -SourceRoot $src -NodeId 'ATHENA' -PersistenceMode Session
-          $proof
+          if(-not(Test-Path $nodeScript)){throw 'INSTALLED_NODE_SCRIPT_MISSING'}
+          if(-not(Test-Path $token)){throw 'LIVE_TOKEN_MISSING'}
+          if(-not(Test-Path $identity)){throw 'NODE_ID_MISSING'}
+          $ws=Get-Content -Raw (Join-Path $runtime 'node_modules\ws\package.json') | ConvertFrom-Json
+          Write-Output ('WS_VERSION='+$ws.version)
 
-      - name: Prove local health readiness and runtime identity
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Stop'
-          $health=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/health' -TimeoutSec 3
-          $ready=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/ready' -TimeoutSec 3
-          if(-not $health.ok -or $health.nodeId -ne 'ATHENA'){throw 'HEALTH_CONTRACT_FAILED'}
-          if(-not $ready.ok -or -not $ready.connected -or $ready.nodeId -ne 'ATHENA' -or [string]::IsNullOrWhiteSpace([string]$ready.connectionId)){throw 'READY_CONTRACT_FAILED'}
-          $ws=Get-Content -Raw (Join-Path $env:LOCALAPPDATA 'OracleNode\runtime\node_modules\ws\package.json') | ConvertFrom-Json
-          if([string]$ws.version -ne '8.21.0'){throw ('WS_VERSION_MISMATCH '+$ws.version)}
-          $tasks=@('Oracle Live Node (Session Fallback)','Oracle Node Watchdog (Session Fallback)') | ForEach-Object {
-            $t=Get-ScheduledTask -TaskName $_ -ErrorAction Stop
-            $i=Get-ScheduledTaskInfo -TaskName $_ -ErrorAction Stop
-            [pscustomobject]@{name=$_;state=[string]$t.State;lastResult=$i.LastTaskResult;lastRun=$i.LastRunTime}
+          $env:ORACLE_LIVE_URL='https://oracle.thetechguyds.com'
+          $env:ORACLE_LIVE_TOKEN_FILE=$token
+          $env:ORACLE_NODE_ID_FILE=$identity
+          $env:ORACLE_LIVE_NODE_STATUS_FILE=$status
+          $env:ORACLE_WORKSTATION_ROOTS=((Resolve-Path $env:USERPROFILE).Path)
+          $env:ORACLE_NODE_HEALTH_HOST='127.0.0.1'
+          $env:ORACLE_NODE_HEALTH_PORT='5059'
+
+          $node=(Get-Command node.exe -ErrorAction Stop).Source
+          $p=Start-Process -FilePath $node -ArgumentList @($nodeScript) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
+          try{
+            Start-Sleep -Seconds 5
+            $p.Refresh()
+            Write-Output ('PID='+$p.Id+' EXITED='+$p.HasExited+(if($p.HasExited){' EXITCODE='+$p.ExitCode}else{''}))
+            Write-Output '--- 5059 TCP ---'
+            Get-NetTCPConnection -LocalPort 5059 -ErrorAction SilentlyContinue | Select-Object LocalAddress,LocalPort,State,OwningProcess | Format-Table -AutoSize
+            Write-Output '--- health via Invoke-WebRequest ---'
+            foreach($u in @('http://127.0.0.1:5059/health','http://127.0.0.1:5059/ready')){
+              try{$r=Invoke-WebRequest -UseBasicParsing -Uri $u -TimeoutSec 3; Write-Output ($u+' STATUS='+$r.StatusCode+' BODY='+$r.Content)}catch{Write-Output ($u+' ERROR '+$_.Exception.Message)}
+            }
+            Write-Output '--- stdout ---'
+            if(Test-Path $stdout){Get-Content -Raw $stdout}
+            Write-Output '--- stderr ---'
+            if(Test-Path $stderr){Get-Content -Raw $stderr}
+            Write-Output '--- status file ---'
+            if(Test-Path $status){Get-Content -Raw $status}
+          } finally {
+            if(-not $p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}
           }
-          if($tasks.Where({$_.state -ne 'Running'}).Count -gt 0){throw 'SESSION_TASK_NOT_RUNNING'}
-          [ordered]@{ok=$true;host=$env:COMPUTERNAME;pr197Head=$env:ORACLE_PR197_HEAD;health=$health;ready=$ready;wsVersion=$ws.version;tasks=$tasks} | ConvertTo-Json -Depth 8
-
-  prove-kratos-registry:
-    needs: repair-athena-live
-    runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 3
-    steps:
-      - name: Independently prove both Ptah runners online
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh api repos/jaydumisuni/Ptah-space/actions/runners --jq '{runners:[.runners[]|select(.name=="ATHENA-PTAH" or .name=="KRATOS-PTAH")|{id,name,os,status,busy,version,labels:[.labels[].name]}]}'
-          test "$(gh api repos/jaydumisuni/Ptah-space/actions/runners --jq '[.runners[]|select((.name=="ATHENA-PTAH" or .name=="KRATOS-PTAH") and .status=="online")]|length')" = "2"

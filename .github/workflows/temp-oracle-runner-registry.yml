@@ -1,0 +1,21 @@
+name: Temporary Oracle Runner Registry Probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/temp-oracle-runner-registry.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: [self-hosted, kratos, ptah]
+    timeout-minutes: 2
+    steps:
+      - name: Read Oracle repository self-hosted runners
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/jaydumisuni/Oracle-/actions/runners --jq '{total_count, runners: [.runners[] | {id,name,os,status,busy,version,labels:[.labels[].name]}]}'

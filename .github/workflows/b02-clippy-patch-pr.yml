@@ -1,3 +1,4 @@
+# retriggered after workflow became visible on the PR branch
 name: B02 one-use strict-clippy correction
 
 on:

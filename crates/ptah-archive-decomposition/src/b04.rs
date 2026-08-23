@@ -695,14 +695,7 @@ fn apply_adapter_output(
 
     apply_source_coverage(report, source_len, complete_claim)?;
     retain_requested_views(
-        report,
-        thumbnail,
-        preview,
-        frames,
-        waveform,
-        context,
-        request,
-        limits,
+        report, thumbnail, preview, frames, waveform, context, request, limits,
     )?;
     retain_requested_derivatives(
         report,
@@ -783,7 +776,10 @@ fn retain_requested_views(
         &mut report.limitations,
     )?;
     if request.preview && report.preview.is_none() {
-        mark_gap(report, "requested media preview was not retained".to_owned());
+        mark_gap(
+            report,
+            "requested media preview was not retained".to_owned(),
+        );
     }
 
     retain_frames(

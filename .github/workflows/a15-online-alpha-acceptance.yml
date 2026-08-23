@@ -1,0 +1,314 @@
+name: A15 Online Ptah Alpha exact-head acceptance
+
+on:
+  pull_request:
+    paths:
+      - "A15_ONLINE_ALPHA_ACCEPTANCE.md"
+      - "conformance/a15/**"
+      - "tools/check_a15_online_alpha_acceptance.py"
+      - "tools/test_check_a15_online_alpha_acceptance.py"
+      - ".github/workflows/a15-online-alpha-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PTAH_PR_BASE: ${{ github.event.pull_request.base.sha }}
+  PTAH_A14_SHA: db74eccbd988fc1e30349412aa08b4464ca8d3c1
+  PTAH_WP14_SHA: fef387c4f074af7fcf86f2d99f7f9b7637e91f88
+  CARGO_TERM_COLOR: always
+
+jobs:
+  a15-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact A15 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Lock exact accepted A14 base and A15 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+          if [ -n "${PTAH_PR_BASE:-}" ]; then
+            test "$PTAH_PR_BASE" = "$PTAH_A14_SHA"
+          fi
+          test "$(git merge-base "$PTAH_A14_SHA" "$PTAH_EXACT_SHA")" = "$PTAH_A14_SHA"
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["PTAH_A14_SHA"]
+          head = os.environ["PTAH_EXACT_SHA"]
+          files = subprocess.check_output(
+              ["git", "diff", "--name-only", base, head], text=True
+          ).splitlines()
+          allowed = lambda path: (
+              path == "A15_ONLINE_ALPHA_ACCEPTANCE.md"
+              or path == ".github/workflows/a15-online-alpha-acceptance.yml"
+              or path.startswith("conformance/a15/")
+              or path == "tools/check_a15_online_alpha_acceptance.py"
+              or path == "tools/test_check_a15_online_alpha_acceptance.py"
+          )
+          bad = [path for path in files if not allowed(path)]
+          assert not bad, f"A15 scope drift: {bad}"
+          required = {
+              "A15_ONLINE_ALPHA_ACCEPTANCE.md",
+              ".github/workflows/a15-online-alpha-acceptance.yml",
+              "conformance/a15/wp14-golden-negative-freeze-cases.v0.1.0.json",
+              "tools/check_a15_online_alpha_acceptance.py",
+              "tools/test_check_a15_online_alpha_acceptance.py",
+          }
+          missing = sorted(required.difference(files))
+          assert not missing, f"A15 acceptance surface missing: {missing}"
+          PY
+          git diff --check "$PTAH_A14_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a15
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+          rustup default 1.97.1
+          rustc -Vv | tee /tmp/a15/rustc-version.txt
+          cargo -V | tee /tmp/a15/cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$PTAH_EXACT_SHA" > /tmp/a15/exact-head.txt
+          cat /etc/os-release > /tmp/a15/host-os-release.txt
+          uname -a > /tmp/a15/host-uname.txt
+
+      - name: Prove exact dependency and backend lock identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp Cargo.lock /tmp/a15/Cargo.lock.repository
+          cargo metadata --locked --format-version 1 > /tmp/a15/cargo-metadata.json
+          cmp -s Cargo.lock /tmp/a15/Cargo.lock.repository
+          python3 tools/check_rust_dependency_lock.py --output /tmp/a15/dependency-lock-report.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          path = Path("dependencies/backend-artifact-lock.json")
+          lock = json.loads(path.read_text(encoding="utf-8"))
+          if lock.get("runtime_implementation_authorized") is not False:
+              raise SystemExit("backend lock cannot authorize runtime implementation")
+          artifacts = lock.get("artifacts")
+          browser = lock.get("browser_binary")
+          if not isinstance(artifacts, list) or not artifacts:
+              raise SystemExit("backend artifact lock is empty")
+          if not isinstance(browser, dict):
+              raise SystemExit("browser artifact lock is missing")
+          report = {
+              "schema_version": "0.1.0",
+              "record_type": "ptah.a15.backend_lock_identity",
+              "backend_lock_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+              "artifact_count": len(artifacts),
+              "components": sorted(str(item.get("component")) for item in artifacts),
+              "browser_revision": str(browser.get("revision")),
+              "browser_version": browser.get("browser_version"),
+              "browser_tree_sha256": browser.get("installed_tree_sha256"),
+              "runtime_implementation_authorized": False,
+          }
+          Path("/tmp/a15/backend-lock-report.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Prove WP13 semantic and Hunter handoff boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=tools python3 tools/test_check_ai_project_workspace_candidate.py -v \
+            2>&1 | tee /tmp/a15/wp13-regressions.txt
+          python3 tools/check_ai_project_workspace_candidate.py \
+            --repo-root . \
+            --output /tmp/a15/wp13-validation.json
+          python3 - <<'PY'
+          import json
+          report = json.load(open('/tmp/a15/wp13-validation.json', encoding='utf-8'))
+          assert report['status'] == 'candidate_valid_non_operative', report
+          assert report['ptah_decision_authority'] is False, report
+          assert report['ptah_context_selection_authority'] is False, report
+          assert report['ptah_review_authority'] is False, report
+          assert report['runtime_implementation_authorized'] is False, report
+          PY
+
+      - name: Prove deep Workspace ten-for-two conformance
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=tools python3 tools/test_check_workspace_operations_donor_v2.py -v \
+            2>&1 | tee /tmp/a15/deep-workspace-regressions.txt
+          python3 tools/check_workspace_operations_donor_v2.py \
+            --repo-root . \
+            --output /tmp/a15/deep-workspace-validation.json
+          python3 - <<'PY'
+          import json
+          report = json.load(open('/tmp/a15/deep-workspace-validation.json', encoding='utf-8'))
+          assert report['status'] == 'pass', report
+          assert report['mechanical_capability_count'] == 22, report
+          assert report['fixture_count'] == 20, report
+          assert report['new_core_entity_required'] is False, report
+          assert report['frozen_contract_change_required'] is False, report
+          assert report['runtime_implementation_authorized'] is False, report
+          PY
+
+      - name: Run A15 frozen corpus and bundle regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=tools python3 -m unittest -v tools/test_check_a15_online_alpha_acceptance.py \
+            2>&1 | tee /tmp/a15/a15-regressions.txt
+          python3 tools/check_a15_online_alpha_acceptance.py \
+            --repo-root . \
+            --output /tmp/a15/a15-validation.json
+
+      - name: Prove frozen contracts online and with Cargo forced offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ptah-contracts --locked -- --nocapture \
+            2>&1 | tee /tmp/a15/contract-online-tests.txt
+          cargo fetch --locked
+          CARGO_NET_OFFLINE=true cargo test -p ptah-contracts --offline --locked -- --nocapture \
+            2>&1 | tee /tmp/a15/contract-offline-tests.txt
+
+      - name: Re-prove inherited A14 human control acceptance unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-control --test a14_acceptance --locked -- --nocapture \
+            2>&1 | tee /tmp/a15/a14-human-acceptance.txt
+
+      - name: Re-prove inherited workspace at exact A15 head
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture \
+            2>&1 | tee /tmp/a15/workspace-tests.txt
+
+      - name: Write explicit limitations and release procedure evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp A15_ONLINE_ALPHA_ACCEPTANCE.md /tmp/a15/release-instructions.txt
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          limitations = {
+              "schema_version": "0.1.0",
+              "record_type": "ptah.a15.limitations",
+              "limitations": [
+                  "GitHub-hosted Ubuntu proof is accepted CI-host evidence, not a claim about a separately pinned physical machine.",
+                  "Backend artifact identity remains governed by the immutable backend lock and previously retained Phase 0C artifact evidence.",
+                  "Authorized-for-dispatch is not external-effect success.",
+                  "Worker completion is not caller or reviewer acceptance.",
+                  "Diagnostic advice cannot approve or execute its own recommendation.",
+              ],
+          }
+          Path('/tmp/a15/limitations.json').write_text(
+              json.dumps(limitations, indent=2, sort_keys=True) + '\n', encoding='utf-8'
+          )
+          PY
+
+      - name: Bind immutable exact-head report bundle and reject green-without-reports
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=tools python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from check_a15_online_alpha_acceptance import require_report_files
+
+          root = Path('/tmp/a15')
+          required = [
+              'exact-head.txt',
+              'host-os-release.txt',
+              'host-uname.txt',
+              'rustc-version.txt',
+              'cargo-version.txt',
+              'cargo-metadata.json',
+              'dependency-lock-report.json',
+              'backend-lock-report.json',
+              'wp13-regressions.txt',
+              'wp13-validation.json',
+              'deep-workspace-regressions.txt',
+              'deep-workspace-validation.json',
+              'a15-regressions.txt',
+              'a15-validation.json',
+              'contract-online-tests.txt',
+              'contract-offline-tests.txt',
+              'a14-human-acceptance.txt',
+              'workspace-tests.txt',
+              'limitations.json',
+              'release-instructions.txt',
+          ]
+          files = require_report_files(root, required)
+          head = (root / 'exact-head.txt').read_text(encoding='utf-8').strip()
+          if head != os.environ['PTAH_EXACT_SHA']:
+              raise SystemExit('report bundle head does not match exact candidate')
+          validation = json.loads((root / 'a15-validation.json').read_text(encoding='utf-8'))
+          if validation.get('status') != 'pass':
+              raise SystemExit('A15 validator did not pass')
+          bundle = {
+              'schema_version': '0.1.0',
+              'record_type': 'ptah.a15.online_alpha_exact_head_report_bundle',
+              'status': 'pass',
+              'implementation_commit': head,
+              'a14_base_sha': os.environ['PTAH_A14_SHA'],
+              'wp14_merge_sha': os.environ['PTAH_WP14_SHA'],
+              'workflow_run_id': os.environ['RUN_ID'],
+              'workflow_run_attempt': os.environ['RUN_ATTEMPT'],
+              'files': files,
+              'ptah_caller_work_selection_authority': False,
+              'ptah_review_authority': False,
+              'ptah_result_acceptance_authority': False,
+              'ptah_autonomous_upgrade_authority': False,
+          }
+          rendered = json.dumps(bundle, indent=2, sort_keys=True) + '\n'
+          (root / 'report-bundle.json').write_text(rendered, encoding='utf-8')
+          digest = hashlib.sha256(rendered.encode()).hexdigest()
+          (root / 'report-bundle.sha256').write_text(f'{digest}  report-bundle.json\n', encoding='utf-8')
+          print(json.dumps(bundle, indent=2, sort_keys=True))
+          PY
+          cd /tmp/a15
+          sha256sum -c report-bundle.sha256
+
+      - name: Confirm repository remains exact and clean
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Retain exact-head A15 acceptance bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a15-online-alpha-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/a15/
+          if-no-files-found: error
+          retention-days: 90

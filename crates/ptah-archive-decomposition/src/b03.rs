@@ -502,7 +502,7 @@ pub fn inspect_document(
 pub struct SafeTextAdapter;
 
 impl DocumentAdapter for SafeTextAdapter {
-    fn adapter_id(&self) -> &str {
+    fn adapter_id(&self) -> &'static str {
         "b03.safe-text"
     }
 
@@ -570,7 +570,7 @@ impl DocumentAdapter for SafeTextAdapter {
 pub struct SafeHtmlAdapter;
 
 impl DocumentAdapter for SafeHtmlAdapter {
-    fn adapter_id(&self) -> &str {
+    fn adapter_id(&self) -> &'static str {
         "b03.safe-html"
     }
 
@@ -608,7 +608,7 @@ impl DocumentAdapter for SafeHtmlAdapter {
             "HTML layout/CSS fidelity is not claimed by the passive text adapter".to_owned(),
             "external resources are not loaded".to_owned(),
         ];
-        if !std::str::from_utf8(bytes).is_ok() {
+        if std::str::from_utf8(bytes).is_err() {
             limitations
                 .push("invalid UTF-8 sequences were replaced during HTML decoding".to_owned());
         }

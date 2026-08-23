@@ -1044,9 +1044,10 @@ fn find_html_tag_start(lower: &str, from: usize, tag: &str, closing: bool) -> Op
     while let Some(relative) = lower[cursor..].find(&needle) {
         let start = cursor + relative;
         let boundary = start + needle.len();
-        let accepted = lower.as_bytes().get(boundary).is_none_or(|byte| {
-            byte.is_ascii_whitespace() || matches!(*byte, b'>' | b'/')
-        });
+        let accepted = lower
+            .as_bytes()
+            .get(boundary)
+            .is_none_or(|byte| byte.is_ascii_whitespace() || matches!(*byte, b'>' | b'/'));
         if accepted {
             return Some(start);
         }

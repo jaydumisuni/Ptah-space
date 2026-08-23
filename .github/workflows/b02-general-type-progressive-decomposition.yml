@@ -1,60 +1,195 @@
-name: B02 one-use recognized Clippy correction
+name: B02 general type progressive decomposition exact-head proof
 
 on:
   pull_request:
     paths:
+      - "B02_GENERAL_TYPE_PROGRESSIVE_DECOMPOSITION.md"
+      - "crates/ptah-archive-decomposition/Cargo.toml"
+      - "crates/ptah-archive-decomposition/src/lib.rs"
+      - "crates/ptah-archive-decomposition/src/b02.rs"
+      - "crates/ptah-archive-decomposition/tests/b02.rs"
       - ".github/workflows/b02-general-type-progressive-decomposition.yml"
+  workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: read
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PTAH_PR_BASE: ${{ github.event.pull_request.base.sha }}
+  PTAH_B02_BASE_SHA: 7adbc64d45687dddee3627303a2ec9e3022c4158
+  CARGO_TERM_COLOR: always
 
 jobs:
-  patch:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+  b02-proof:
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
-      - name: Check out writable PR head
+      - name: Check out exact B02 candidate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ env.PTAH_EXACT_SHA }}
           fetch-depth: 0
-      - name: Apply exact B02 fixture correction
+          persist-credentials: false
+
+      - name: Lock accepted B01 base and B02 scope
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+          if [ -n "${PTAH_PR_BASE:-}" ]; then
+            test "$PTAH_PR_BASE" = "$PTAH_B02_BASE_SHA"
+          fi
+          test "$(git merge-base "$PTAH_B02_BASE_SHA" "$PTAH_EXACT_SHA")" = "$PTAH_B02_BASE_SHA"
           python3 - <<'PY'
-          from pathlib import Path
-          path = Path('crates/ptah-archive-decomposition/tests/b02.rs')
-          text = path.read_text(encoding='utf-8')
-          old = '''    let mut budget = DecompositionBudget::default();
-    budget.max_depth = max_depth;
-    budget.max_members = 64;
-    budget.max_expanded_bytes = 1024 * 1024;
-    budget.max_member_bytes = 256 * 1024;
-'''
-          new = '''    let budget = DecompositionBudget {
-        max_depth,
-        max_members: 64,
-        max_expanded_bytes: 1024 * 1024,
-        max_member_bytes: 256 * 1024,
-        ..DecompositionBudget::default()
-    };
-'''
-          if text.count(old) != 1:
-              raise SystemExit('expected B02 budget fixture block exactly once')
-          path.write_text(text.replace(old, new), encoding='utf-8')
+          import os
+          import subprocess
+
+          base = os.environ["PTAH_B02_BASE_SHA"]
+          head = os.environ["PTAH_EXACT_SHA"]
+          files = subprocess.check_output(
+              ["git", "diff", "--name-only", base, head], text=True
+          ).splitlines()
+          allowed = {
+              "B02_GENERAL_TYPE_PROGRESSIVE_DECOMPOSITION.md",
+              "crates/ptah-archive-decomposition/Cargo.toml",
+              "crates/ptah-archive-decomposition/src/lib.rs",
+              "crates/ptah-archive-decomposition/src/b02.rs",
+              "crates/ptah-archive-decomposition/tests/b02.rs",
+              ".github/workflows/b02-general-type-progressive-decomposition.yml",
+          }
+          unexpected = sorted(set(files).difference(allowed))
+          missing = sorted(allowed.difference(files))
+          assert not unexpected, f"B02 scope drift: {unexpected}"
+          assert not missing, f"B02 required surface missing: {missing}"
           PY
-          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
-          rustup default 1.97.1
-          cargo fmt --all
-      - name: Commit corrected B02 fixture
+          git diff --check "$PTAH_B02_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Install pinned Rust 1.97.1
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add crates/ptah-archive-decomposition/tests/b02.rs
-          git diff --cached --check
-          git commit -m "B02 review: satisfy strict Clippy fixture construction"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          mkdir -p /tmp/b02
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          rustc -Vv | tee /tmp/b02/rustc-version.txt
+          cargo -V | tee /tmp/b02/cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$PTAH_EXACT_SHA" > /tmp/b02/exact-head.txt
+          cat /etc/os-release > /tmp/b02/host-os-release.txt
+
+      - name: Prove formatting and B02 acceptance suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ptah-archive-decomposition --test b02 --locked -- --nocapture \
+            2>&1 | tee /tmp/b02/b02-tests.txt
+          grep -Eq 'test result: ok\. 9 passed; 0 failed;' /tmp/b02/b02-tests.txt
+
+      - name: Prove B02 surface with strict Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ptah-archive-decomposition --lib --test b02 --locked -- -D warnings \
+            2>&1 | tee /tmp/b02/b02-clippy.txt
+
+      - name: Re-prove inherited A12 decomposition semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test a12 --locked -- --nocapture \
+            2>&1 | tee /tmp/b02/a12-tests.txt
+
+      - name: Re-prove inherited workspace at exact B02 head
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture \
+            2>&1 | tee /tmp/b02/workspace-tests.txt
+
+      - name: Write exact-head proof manifest
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cp B02_GENERAL_TYPE_PROGRESSIVE_DECOMPOSITION.md /tmp/b02/acceptance-contract.md
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('/tmp/b02')
+          required = [
+              'exact-head.txt',
+              'host-os-release.txt',
+              'rustc-version.txt',
+              'cargo-version.txt',
+              'b02-tests.txt',
+              'b02-clippy.txt',
+              'a12-tests.txt',
+              'workspace-tests.txt',
+              'acceptance-contract.md',
+          ]
+          files = {}
+          for name in required:
+              path = root / name
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f'missing B02 proof report: {name}')
+              files[name] = {
+                  'size_bytes': path.stat().st_size,
+                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+              }
+          head = (root / 'exact-head.txt').read_text(encoding='utf-8').strip()
+          if head != os.environ['PTAH_EXACT_SHA']:
+              raise SystemExit('B02 proof head mismatch')
+          manifest = {
+              'schema_version': '0.1.0',
+              'record_type': 'ptah.b02.general_type_progressive_decomposition_exact_head_proof',
+              'status': 'pass',
+              'implementation_commit': head,
+              'accepted_base_commit': os.environ['PTAH_B02_BASE_SHA'],
+              'workflow_run_id': int(os.environ['RUN_ID']),
+              'workflow_run_attempt': int(os.environ['RUN_ATTEMPT']),
+              'b02_acceptance_test_count': 9,
+              'detector_disagreement_preserved': True,
+              'declared_true_type_comparison_proven': True,
+              'progressive_levels_0_through_3_proven': True,
+              'unsupported_regions_explicit': True,
+              'recursion_limits_explicit_and_safe': True,
+              'child_relationship_graph_proven': True,
+              'searchable_metadata_proven': True,
+              'original_content_immutable': True,
+              'inherited_a12_reproven': True,
+              'files': files,
+          }
+          rendered = json.dumps(manifest, indent=2, sort_keys=True) + '\n'
+          (root / 'proof-manifest.json').write_text(rendered, encoding='utf-8')
+          digest = hashlib.sha256(rendered.encode()).hexdigest()
+          (root / 'proof-manifest.sha256').write_text(
+              f'{digest}  proof-manifest.json\n', encoding='utf-8'
+          )
+          print(rendered, end='')
+          PY
+          cd /tmp/b02
+          sha256sum -c proof-manifest.sha256
+
+      - name: Confirm exact clean candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Retain B02 proof bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: b02-general-type-progressive-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/b02/
+          if-no-files-found: error
+          retention-days: 90

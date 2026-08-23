@@ -1,24 +1,21 @@
-# retriggered after workflow became visible on the PR branch
 name: B02 one-use strict-clippy correction
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/b02-clippy-patch-pr.yml"
+  push:
+    branches:
+      - "b02-general-type-progressive-decomposition"
 
 permissions:
   contents: write
-  pull-requests: read
 
 jobs:
   patch:
-    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     steps:
-      - name: Check out writable PR head
+      - name: Check out writable B02 branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: b02-general-type-progressive-decomposition
           fetch-depth: 0
       - name: Apply exact Clippy correction
         shell: bash
@@ -49,7 +46,7 @@ jobs:
           rustup toolchain install 1.97.1 --profile minimal --component rustfmt
           rustup default 1.97.1
           cargo fmt --all
-      - name: Commit corrected B02 test fixture
+      - name: Commit corrected B02 fixture
         shell: bash
         run: |
           set -euo pipefail
@@ -58,4 +55,4 @@ jobs:
           git add crates/ptah-archive-decomposition/tests/b02.rs
           git diff --cached --check
           git commit -m "B02 review: satisfy strict Clippy fixture construction"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          git push origin HEAD:b02-general-type-progressive-decomposition

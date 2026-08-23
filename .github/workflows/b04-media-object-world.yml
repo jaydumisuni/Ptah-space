@@ -1,125 +1,238 @@
-name: B04 one-use semantic review correction
+name: B04 media object world exact-head proof
 
 on:
-  push:
-    branches: [b04-media-object-world]
+  pull_request:
+    paths:
+      - "B04_MEDIA_OBJECT_WORLD.md"
+      - "crates/ptah-archive-decomposition/Cargo.toml"
+      - "crates/ptah-archive-decomposition/src/lib.rs"
+      - "crates/ptah-archive-decomposition/src/b04.rs"
+      - "crates/ptah-archive-decomposition/src/b04_review.rs"
+      - "crates/ptah-archive-decomposition/tests/b04.rs"
+      - "crates/ptah-archive-decomposition/tests/b04_entry.rs"
+      - "crates/ptah-archive-decomposition/tests/b04_review_entry.rs"
+      - ".github/workflows/b04-media-object-world.yml"
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PTAH_PR_BASE: ${{ github.event.pull_request.base.sha }}
+  PTAH_B04_BASE_SHA: a4b844b1f1267ee045e3905b314a65970fd9c2bf
+  CARGO_TERM_COLOR: always
 
 jobs:
-  format:
-    if: github.actor != 'github-actions[bot]'
+  b04-proof:
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
-      - name: Check out writable B04 branch
+      - name: Check out exact B04 candidate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: b04-media-object-world
+          ref: ${{ env.PTAH_EXACT_SHA }}
           fetch-depth: 0
-      - name: Apply B04 semantic Review corrections
+          persist-credentials: false
+
+      - name: Lock accepted B03 base and B04 scope
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+          if [ -n "${PTAH_PR_BASE:-}" ]; then
+            test "$PTAH_PR_BASE" = "$PTAH_B04_BASE_SHA"
+          fi
+          test "$(git merge-base "$PTAH_B04_BASE_SHA" "$PTAH_EXACT_SHA")" = "$PTAH_B04_BASE_SHA"
           python3 - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["PTAH_B04_BASE_SHA"]
+          head = os.environ["PTAH_EXACT_SHA"]
+          files = subprocess.check_output(
+              ["git", "diff", "--name-only", base, head], text=True
+          ).splitlines()
+          allowed = {
+              "B04_MEDIA_OBJECT_WORLD.md",
+              "crates/ptah-archive-decomposition/Cargo.toml",
+              "crates/ptah-archive-decomposition/src/lib.rs",
+              "crates/ptah-archive-decomposition/src/b04.rs",
+              "crates/ptah-archive-decomposition/src/b04_review.rs",
+              "crates/ptah-archive-decomposition/tests/b04.rs",
+              "crates/ptah-archive-decomposition/tests/b04_entry.rs",
+              "crates/ptah-archive-decomposition/tests/b04_review_entry.rs",
+              ".github/workflows/b04-media-object-world.yml",
+          }
+          unexpected = sorted(set(files).difference(allowed))
+          missing = sorted(allowed.difference(files))
+          assert not unexpected, f"B04 scope drift: {unexpected}"
+          assert not missing, f"B04 required surface missing: {missing}"
+          PY
+          git diff --check "$PTAH_B04_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/b04
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          rustc -Vv | tee /tmp/b04/rustc-version.txt
+          cargo -V | tee /tmp/b04/cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$PTAH_EXACT_SHA" > /tmp/b04/exact-head.txt
+          cat /etc/os-release > /tmp/b04/host-os-release.txt
+
+      - name: Prove formatting and B04 acceptance suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ptah-archive-decomposition --test b04 --locked -- --nocapture \
+            2>&1 | tee /tmp/b04/b04-tests.txt
+          grep -Eq 'test result: ok\. 14 passed; 0 failed;' /tmp/b04/b04-tests.txt
+          cargo test -p ptah-archive-decomposition --test b04_review --locked -- --nocapture \
+            2>&1 | tee /tmp/b04/b04-review-tests.txt
+          grep -Eq 'test result: ok\. 2 passed; 0 failed;' /tmp/b04/b04-review-tests.txt
+
+      - name: Prove B04 surface with strict Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ptah-archive-decomposition --lib --test b04 --test b04_review --locked -- -D warnings \
+            2>&1 | tee /tmp/b04/b04-clippy.txt
+
+      - name: Re-prove inherited B03 document semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b03 --locked -- --nocapture \
+            2>&1 | tee /tmp/b04/b03-tests.txt
+          grep -Eq 'test result: ok\. 10 passed; 0 failed;' /tmp/b04/b03-tests.txt
+          cargo test -p ptah-archive-decomposition --test b03_review --locked -- --nocapture \
+            2>&1 | tee /tmp/b04/b03-review-tests.txt
+          grep -Eq 'test result: ok\. 8 passed; 0 failed;' /tmp/b04/b03-review-tests.txt
+
+      - name: Re-prove inherited B02 general decomposition semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b02 --locked -- --nocapture \
+            2>&1 | tee /tmp/b04/b02-tests.txt
+
+      - name: Re-prove inherited A12 decomposition semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test a12 --locked -- --nocapture \
+            2>&1 | tee /tmp/b04/a12-tests.txt
+
+      - name: Re-prove inherited workspace at exact B04 head
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture \
+            2>&1 | tee /tmp/b04/workspace-tests.txt
+
+      - name: Write exact-head proof manifest
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cp B04_MEDIA_OBJECT_WORLD.md /tmp/b04/acceptance-contract.md
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
           from pathlib import Path
 
-          source = Path('crates/ptah-archive-decomposition/src/b04.rs')
-          text = source.read_text(encoding='utf-8')
-          old = '''        if self.adapter_id.is_some() {\n            views.push(media_view_spec(\n                context,\n                &self.source_revision_ref,\n                "media.coverage",\n                "urn:ptah:schema:media:coverage-view:0.1.0",\n            ));\n        }\n'''
-          new = '''        views.push(media_view_spec(\n            context,\n            &self.source_revision_ref,\n            "media.coverage",\n            "urn:ptah:schema:media:coverage-view:0.1.0",\n        ));\n'''
-          if text.count(old) != 1:
-              raise SystemExit('expected adapter-gated coverage view once')
-          text = text.replace(old, new, 1)
-
-          frame_check = '''        if !requested_frames.contains(&frame.timestamp_ms) {\n            return Err(B04Error::UnrequestedOutput("frame"));\n        }\n        if !returned_frames.insert(frame.timestamp_ms) {\n'''
-          frame_new = '''        if !requested_frames.contains(&frame.timestamp_ms) {\n            return Err(B04Error::UnrequestedOutput("frame"));\n        }\n        if output\n            .duration\n            .is_some_and(|duration| duration.complete && frame.timestamp_ms > duration.milliseconds)\n        {\n            return Err(B04Error::RequestOutputMismatch);\n        }\n        if !returned_frames.insert(frame.timestamp_ms) {\n'''
-          if text.count(frame_check) != 1:
-              raise SystemExit('expected frame validation block once')
-          text = text.replace(frame_check, frame_new, 1)
-          source.write_text(text, encoding='utf-8')
-
-          tests = Path('crates/ptah-archive-decomposition/tests/b04.rs')
-          test_text = tests.read_text(encoding='utf-8')
-          appendix = r'''
-
-#[test]
-fn partial_reports_always_emit_a_coverage_view_plan() {
-    let disputed = TypeAssessment {
-        declared_type: Some("image/png".to_owned()),
-        detector_evidence: Vec::new(),
-        agreement: TypeAgreement::Disputed(vec!["image/png".to_owned(), "image/jpeg".to_owned()]),
-        declared_matches_agreed_type: None,
-    };
-    let report = inspect_media(
-        b"ambiguous-media",
-        &disputed,
-        &context(),
-        &MediaRequest::default(),
-        MediaLimits::default(),
-        &[],
-    )
-    .expect("disputed media remains a truthful partial report");
-    assert!(report.adapter_id.is_none());
-    assert!(!report.coverage.unknown_gaps.is_empty());
-    assert!(
-        report
-            .view_specs(&context())
-            .iter()
-            .any(|spec| spec.view_kind == "media.coverage")
-    );
-
-    let no_adapter = inspect_media(
-        b"known-media",
-        &agreed("image/png"),
-        &context(),
-        &MediaRequest::default(),
-        MediaLimits::default(),
-        &[],
-    )
-    .expect("missing adapter remains a truthful partial report");
-    assert!(no_adapter.adapter_id.is_none());
-    assert!(
-        no_adapter
-            .view_specs(&context())
-            .iter()
-            .any(|spec| spec.view_kind == "media.coverage")
-    );
-}
-
-#[test]
-fn complete_duration_rejects_frames_beyond_media_extent() {
-    let request = MediaRequest {
-        frame_timestamps_ms: vec![3_001],
-        ..MediaRequest::default()
-    };
-    let error = inspect_media(
-        b"video",
-        &agreed("video/mp4"),
-        &context(),
-        &request,
-        MediaLimits::default(),
-        &[&FullAdapter],
-    )
-    .expect_err("a frame beyond a complete duration is inconsistent provider output");
-    assert!(matches!(error, B04Error::RequestOutputMismatch));
-}
-'''
-          if 'fn partial_reports_always_emit_a_coverage_view_plan()' in test_text:
-              raise SystemExit('B04 semantic review regressions already present')
-          tests.write_text(test_text.rstrip() + appendix + '\n', encoding='utf-8')
+          root = Path('/tmp/b04')
+          required = [
+              'exact-head.txt',
+              'host-os-release.txt',
+              'rustc-version.txt',
+              'cargo-version.txt',
+              'b04-tests.txt',
+              'b04-review-tests.txt',
+              'b04-clippy.txt',
+              'b03-tests.txt',
+              'b03-review-tests.txt',
+              'b02-tests.txt',
+              'a12-tests.txt',
+              'workspace-tests.txt',
+              'acceptance-contract.md',
+          ]
+          files = {}
+          for name in required:
+              path = root / name
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f'missing B04 proof report: {name}')
+              files[name] = {
+                  'size_bytes': path.stat().st_size,
+                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+              }
+          head = (root / 'exact-head.txt').read_text(encoding='utf-8').strip()
+          if head != os.environ['PTAH_EXACT_SHA']:
+              raise SystemExit('B04 proof head mismatch')
+          manifest = {
+              'schema_version': '0.1.0',
+              'record_type': 'ptah.b04.media_object_world_exact_head_proof',
+              'status': 'pass',
+              'implementation_commit': head,
+              'accepted_base_commit': os.environ['PTAH_B04_BASE_SHA'],
+              'workflow_run_id': int(os.environ['RUN_ID']),
+              'workflow_run_attempt': int(os.environ['RUN_ATTEMPT']),
+              'b04_core_acceptance_test_count': 14,
+              'b04_review_regression_test_count': 2,
+              'b04_total_acceptance_test_count': 16,
+              'media_detection_bound_to_b02': True,
+              'passive_provider_isolation_proven': True,
+              'technical_metadata_views_proven': True,
+              'thumbnail_preview_views_proven': True,
+              'frame_waveform_views_proven': True,
+              'image_transform_revision_plan_proven': True,
+              'controlled_transcode_revision_plan_proven': True,
+              'explicit_artifact_promotion_boundary_proven': True,
+              'source_content_immutable': True,
+              'partial_duration_coverage_truth_proven': True,
+              'partial_reports_emit_coverage_view_plan': True,
+              'complete_duration_frame_extent_enforced': True,
+              'large_media_cache_policy_proven': True,
+              'unrequested_output_rejected': True,
+              'source_extent_overclaim_rejected': True,
+              'heavy_transcode_nonblocking_independence_proven': True,
+              'inherited_b03_reproven': True,
+              'inherited_b02_reproven': True,
+              'inherited_a12_reproven': True,
+              'files': files,
+          }
+          rendered = json.dumps(manifest, indent=2, sort_keys=True) + '\n'
+          (root / 'proof-manifest.json').write_text(rendered, encoding='utf-8')
+          digest = hashlib.sha256(rendered.encode()).hexdigest()
+          (root / 'proof-manifest.sha256').write_text(
+              f'{digest}  proof-manifest.json\n', encoding='utf-8'
+          )
+          print(rendered, end='')
           PY
-          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
-          rustup default 1.97.1
-          cargo fmt --all
-          git diff --check
-      - name: Commit reviewed semantic correction
+          cd /tmp/b04
+          sha256sum -c proof-manifest.sha256
+
+      - name: Confirm exact clean candidate
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add crates/ptah-archive-decomposition/src/b04.rs crates/ptah-archive-decomposition/tests/b04.rs
-          git diff --cached --check
-          git commit -m "B04 review: preserve partial coverage and frame-duration truth"
-          git push origin HEAD:b04-media-object-world
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Retain B04 proof bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: b04-media-object-world-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/b04/
+          if-no-files-found: error
+          retention-days: 90

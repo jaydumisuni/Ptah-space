@@ -8,32 +8,38 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   finalize-athena:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 10
     steps:
-      - name: Install and prove ATHENA-PTAH through Oracle Live
+      - name: Install and prove ATHENA-PTAH through KRATOS Oracle Live
         shell: bash
         env:
-          ORACLE_URL: https://oracle.thetechguyds.com
+          ORACLE_LIVE_URL: https://oracle.thetechguyds.com
+          ORACLE_LIVE_TOKEN_FILE: /home/kratos/.oracle/live-token
+          ORACLE_WS_MODULE: /home/kratos/Oracle/node_modules/ws
         run: |
           set -euo pipefail
           node <<'NODE'
           const cp = require('child_process');
           const crypto = require('crypto');
+          const fs = require('fs');
+          const WebSocket = require(process.env.ORACLE_WS_MODULE);
+
           const repo = 'jaydumisuni/Ptah-space';
-          const ghJson = (args) => JSON.parse(cp.execFileSync('gh', args, {encoding:'utf8'}));
+          const ghJson = (args) => JSON.parse(cp.execFileSync('gh', args, { encoding: 'utf8' }));
           const downloads = ghJson(['api', `repos/${repo}/actions/runners/downloads`]);
           const pkg = downloads.find((x) => x.os === 'win' && x.architecture === 'x64');
           if (!pkg) throw new Error('WIN_X64_RUNNER_PACKAGE_NOT_FOUND');
-          const reg = ghJson(['api','-X','POST',`repos/${repo}/actions/runners/registration-token`]).token;
-          const rem = ghJson(['api','-X','POST',`repos/${repo}/actions/runners/remove-token`]).token;
-          const expected = String(pkg.sha256_checksum || '').toLowerCase().replace(/^sha256:/,'');
+
+          const reg = ghJson(['api', '-X', 'POST', `repos/${repo}/actions/runners/registration-token`]).token;
+          const rem = ghJson(['api', '-X', 'POST', `repos/${repo}/actions/runners/remove-token`]).token;
+          const expected = String(pkg.sha256_checksum || '').toLowerCase().replace(/^sha256:/, '');
           if (!reg || !rem || !expected) throw new Error('RUNNER_METADATA_INCOMPLETE');
-          const psq = (v) => String(v).replaceAll("'", "''");
+
+          const psq = (value) => String(value).replaceAll("'", "''");
           const ps = String.raw`$ErrorActionPreference='Stop'
           $url='https://github.com/jaydumisuni/Ptah-space'
           $root=Join-Path $env:LOCALAPPDATA 'GitHubActionsRunner\Ptah-space'
@@ -43,14 +49,24 @@ jobs:
           $downloadUrl='${psq(pkg.download_url)}'
           $expected='${psq(expected)}'
           $filename='${psq(pkg.filename)}'
+
           New-Item -ItemType Directory -Force -Path $root | Out-Null
           Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Stop-ScheduledTask -ErrorAction SilentlyContinue
           Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
-          if(Test-Path (Join-Path $root '.runner')) { try { & (Join-Path $root 'config.cmd') remove --unattended --token $rem *> $null } catch {} }
+
+          Get-Process -ErrorAction SilentlyContinue | Where-Object {
+            try { $_.Path -and $_.Path.StartsWith($root,[System.StringComparison]::OrdinalIgnoreCase) } catch { $false }
+          } | Stop-Process -Force -ErrorAction SilentlyContinue
+
+          if(Test-Path (Join-Path $root '.runner')) {
+            try { & (Join-Path $root 'config.cmd') remove --unattended --token $rem *> $null } catch {}
+          }
+
           $markerPath=Join-Path $root '.ptah-runner-package.json'
           $marker=$null
           if(Test-Path $markerPath){ try { $marker=Get-Content -Raw $markerPath | ConvertFrom-Json } catch {} }
           $need= -not(Test-Path (Join-Path $root 'config.cmd')) -or -not $marker -or $marker.filename -ne $filename -or ([string]$marker.sha256_checksum).ToLowerInvariant().Replace('sha256:','') -ne $expected
+
           if($need){
             Get-ChildItem -Force $root | Where-Object {$_.Name -ne '_work'} | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
             $zip=Join-Path $env:TEMP ('ptah-athena-'+[guid]::NewGuid().ToString('N')+'-'+$filename)
@@ -59,23 +75,41 @@ jobs:
               $actual=(Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
               if($actual -ne $expected){ throw ('RUNNER_CHECKSUM_MISMATCH '+$actual+' '+$expected) }
               Expand-Archive -Path $zip -DestinationPath $root -Force
-            } finally { Remove-Item $zip -Force -ErrorAction SilentlyContinue }
+            } finally {
+              Remove-Item $zip -Force -ErrorAction SilentlyContinue
+            }
             @{filename=$filename;sha256_checksum=$expected} | ConvertTo-Json | Set-Content -Encoding UTF8 $markerPath
           }
+
           Push-Location $root
           try {
             & .\config.cmd --unattended --url $url --token $reg --name 'ATHENA-PTAH' --labels 'athena,windows,x64,physical,ptah' --work '_work' --replace
             if($LASTEXITCODE -ne 0){ throw 'RUNNER_CONFIG_FAILED' }
           } finally { Pop-Location }
+
           $admin=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
           $mode='scheduled-task'
           if($admin -and (Test-Path (Join-Path $root 'svc.cmd'))){
             Push-Location $root
-            try { & .\svc.cmd install; if($LASTEXITCODE -eq 0){ & .\svc.cmd start; if($LASTEXITCODE -eq 0){$mode='service'} } } finally { Pop-Location }
+            try {
+              & .\svc.cmd install
+              if($LASTEXITCODE -eq 0){
+                & .\svc.cmd start
+                if($LASTEXITCODE -eq 0){$mode='service'}
+              }
+            } finally { Pop-Location }
           }
+
           if($mode -eq 'scheduled-task'){
             $watch=Join-Path $root 'start-ptah-runner.ps1'
-            @('$ErrorActionPreference = ''Continue''','Set-Location -LiteralPath $PSScriptRoot','while ($true) {','  & (Join-Path $PSScriptRoot ''run.cmd'')','  Start-Sleep -Seconds 5','}') | Set-Content -Encoding UTF8 $watch
+            @(
+              '$ErrorActionPreference = ''Continue''',
+              'Set-Location -LiteralPath $PSScriptRoot',
+              'while ($true) {',
+              '  & (Join-Path $PSScriptRoot ''run.cmd'')',
+              '  Start-Sleep -Seconds 5',
+              '}'
+            ) | Set-Content -Encoding UTF8 $watch
             $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "'+$watch+'"')
             $trigger=New-ScheduledTaskTrigger -AtLogOn -User ([Environment]::UserName)
             $principal=New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
@@ -83,32 +117,149 @@ jobs:
             Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
             Start-ScheduledTask -TaskName $taskName
           }
-          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-          [ordered]@{ok=$true;host=$env:COMPUTERNAME;root=$root;persistence=$mode;taskState=if($task){[string]$task.State}else{$null}} | ConvertTo-Json -Compress`;
 
-          async function oidc() {
-            const u = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
-            u.searchParams.set('audience','oracle-live-control');
-            const r = await fetch(u,{headers:{authorization:`Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}`,accept:'application/json'},signal:AbortSignal.timeout(15000)});
-            if(!r.ok) throw new Error(`OIDC_TOKEN_HTTP_${r.status}`);
-            return (await r.json()).value;
-          }
-          (async()=>{
-            const token = await oidc();
-            const id = `ptah-athena-final-${process.env.GITHUB_RUN_ID}`;
-            const payload = {schemaVersion:'oracle.control.v1',id,action:'terminal_exec',issuedAt:new Date().toISOString(),targetNode:'ATHENA',args:{command:'powershell.exe',args:['-NoProfile','-ExecutionPolicy','Bypass','-Command',ps],cwd:'C:\\Users\\ATHENA 2.0',timeoutSeconds:360,resourceKey:'ptah:runner:athena'}};
-            const r = await fetch(`${process.env.ORACLE_URL}/live/oidc/control`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json',accept:'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(390000)});
-            const text = await r.text(); let body; try {body=JSON.parse(text)} catch {body={text:text.slice(0,4000)}}
-            console.log(JSON.stringify({httpStatus:r.status,body},null,2));
-            if(!r.ok || body?.ok !== true || body?.result?.exitCode !== 0) throw new Error(`ORACLE_LIVE_EXEC_FAILED_HTTP_${r.status}`);
-            let found;
-            for(let i=0;i<30;i++){
-              const data=ghJson(['api',`repos/${repo}/actions/runners`]);
-              found=data.runners.find(x=>x.name==='ATHENA-PTAH');
-              if(found?.status==='online') break;
-              await new Promise(resolve=>setTimeout(resolve,2000));
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+          [ordered]@{
+            ok=$true
+            host=$env:COMPUTERNAME
+            root=$root
+            persistence=$mode
+            taskState=if($task){[string]$task.State}else{$null}
+            package=$filename
+            packageSha256=$expected
+          } | ConvertTo-Json -Compress`;
+
+          function compareUtf16(left, right) {
+            const length = Math.min(left.length, right.length);
+            for (let i = 0; i < length; i += 1) {
+              const difference = left.charCodeAt(i) - right.charCodeAt(i);
+              if (difference !== 0) return difference;
             }
-            if(found?.status!=='online') throw new Error(`ATHENA_RUNNER_NOT_ONLINE ${JSON.stringify(found)}`);
-            console.log(JSON.stringify({ok:true,runner:found},null,2));
-          })().catch((e)=>{console.error(e.stack||String(e));process.exit(1)});
+            return left.length - right.length;
+          }
+
+          function canonicalJson(value) {
+            if (value === null) return 'null';
+            if (typeof value === 'string') return JSON.stringify(value);
+            if (typeof value === 'boolean') return value ? 'true' : 'false';
+            if (typeof value === 'number') return JSON.stringify(value);
+            if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+            const keys = Object.keys(value).sort(compareUtf16);
+            return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+          }
+
+          const frame = (kind, values = {}) => ({
+            schemaVersion: 'oracle.live.v1',
+            frameId: crypto.randomUUID(),
+            sentAt: new Date().toISOString(),
+            kind,
+            ...values,
+          });
+
+          const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+          async function executeOnAthena(script) {
+            const secret = fs.readFileSync(process.env.ORACLE_LIVE_TOKEN_FILE, 'utf8').trim();
+            if (!secret) throw new Error('ORACLE_LIVE_TOKEN_EMPTY');
+            const peerId = `ptah-athena-installer-${crypto.randomUUID()}`;
+            const url = new URL(process.env.ORACLE_LIVE_URL);
+            url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+            url.pathname = '/live/ws';
+            url.search = new URLSearchParams({ role: 'client', peerId, nodeId: 'ATHENA' }).toString();
+
+            const socket = new WebSocket(url, { headers: { authorization: `Bearer ${secret}` } });
+            const queue = [];
+            const waiters = [];
+            const dispatch = (value) => {
+              const index = waiters.findIndex((w) => w.predicate(value));
+              if (index >= 0) waiters.splice(index, 1)[0].resolve(value);
+              else queue.push(value);
+            };
+            const next = (predicate, timeoutMs) => {
+              const index = queue.findIndex(predicate);
+              if (index >= 0) return Promise.resolve(queue.splice(index, 1)[0]);
+              return new Promise((resolve, reject) => {
+                const waiter = { predicate, resolve: (value) => { clearTimeout(timer); resolve(value); } };
+                const timer = setTimeout(() => {
+                  const at = waiters.indexOf(waiter);
+                  if (at >= 0) waiters.splice(at, 1);
+                  reject(new Error('ORACLE_LIVE_RESPONSE_TIMEOUT'));
+                }, timeoutMs);
+                waiters.push(waiter);
+              });
+            };
+
+            socket.on('message', (data, isBinary) => {
+              if (isBinary) return;
+              const text = data.toString();
+              const value = JSON.parse(text);
+              dispatch(value);
+            });
+
+            await new Promise((resolve, reject) => {
+              const timer = setTimeout(() => reject(new Error('ORACLE_LIVE_OPEN_TIMEOUT')), 15000);
+              socket.once('open', () => { clearTimeout(timer); resolve(); });
+              socket.once('error', (error) => { clearTimeout(timer); reject(error); });
+            });
+
+            socket.send(canonicalJson(frame('hello', {
+              role: 'client',
+              peerId,
+              supportedVersions: ['oracle.live.v1'],
+              capabilities: ['terminal.exec'],
+            })));
+            const welcome = await next((value) => value.kind === 'welcome', 15000);
+            const heartbeatMs = Math.max(5000, Math.min(10000, Number(welcome.heartbeatIntervalMs || 10000)));
+            const heartbeat = setInterval(() => {
+              try {
+                socket.send(canonicalJson(frame('heartbeat', {
+                  nonce: crypto.randomUUID(), activeRequests: 1, openStreams: 0,
+                })));
+              } catch {}
+            }, heartbeatMs);
+
+            try {
+              const requestId = crypto.randomUUID();
+              const sessionId = `ptah-athena-${crypto.randomUUID()}`;
+              socket.send(canonicalJson(frame('request', {
+                sessionId,
+                requestId,
+                method: 'terminal.exec',
+                params: {
+                  command: 'powershell.exe',
+                  args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+                  cwd: 'C:\\Users\\ATHENA 2.0',
+                  timeoutSeconds: 360,
+                },
+              })));
+              const response = await next((value) => value.kind === 'response' && value.requestId === requestId, 390000);
+              if (!response.ok) throw new Error(`ATHENA_TERMINAL_FAILED ${response.error?.code || ''} ${response.error?.message || ''}`);
+              return response.result;
+            } finally {
+              clearInterval(heartbeat);
+              try { socket.close(1000, 'ptah runner install complete'); } catch {}
+            }
+          }
+
+          (async () => {
+            const terminal = await executeOnAthena(ps);
+            console.log(JSON.stringify({ oracleLive: true, terminal }, null, 2));
+
+            let found;
+            for (let i = 0; i < 45; i += 1) {
+              const data = ghJson(['api', `repos/${repo}/actions/runners`]);
+              found = data.runners.find((x) => x.name === 'ATHENA-PTAH');
+              if (found?.status === 'online') break;
+              await wait(2000);
+            }
+            if (found?.status !== 'online') throw new Error(`ATHENA_RUNNER_NOT_ONLINE ${JSON.stringify(found)}`);
+            const labels = new Set((found.labels || []).map((x) => String(x.name).toLowerCase()));
+            for (const required of ['athena', 'windows', 'x64', 'physical', 'ptah']) {
+              if (!labels.has(required)) throw new Error(`ATHENA_RUNNER_LABEL_MISSING_${required}`);
+            }
+            console.log(JSON.stringify({ ok: true, runner: found }, null, 2));
+          })().catch((error) => {
+            console.error(error.stack || String(error));
+            process.exit(1);
+          });
           NODE

@@ -11,24 +11,14 @@ permissions:
 
 jobs:
   correct-pr197:
-    runs-on: [self-hosted, athena, ptah]
+    runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 18
     steps:
       - name: Fetch audited correction payload and execute it
-        shell: powershell
+        shell: bash
         run: |
-          $ErrorActionPreference='Stop'
-          $raw=& gh api 'repos/jaydumisuni/Oracle-/contents/oracle_control/pr197-source-correction-20260824.mjs?ref=main' 2>&1
-          if($LASTEXITCODE -ne 0){throw ('PAYLOAD_FETCH_FAILED '+($raw -join "`n"))}
-          $meta=(($raw -join "`n")|ConvertFrom-Json)
-          $bytes=[Convert]::FromBase64String(([string]$meta.content -replace '\s',''))
-          $payload=Join-Path $env:TEMP ('pr197-correction-'+[guid]::NewGuid().ToString('N')+'.mjs')
-          try {
-            [IO.File]::WriteAllBytes($payload,$bytes)
-            & node.exe $payload
-            if($LASTEXITCODE -ne 0){throw 'PR197_CORRECTION_PAYLOAD_FAILED'}
-          } finally {
-            Remove-Item $payload -Force -ErrorAction SilentlyContinue
-          }
-
-# user-trigger 20260824-0152z
+          set -euo pipefail
+          payload="$(mktemp --suffix=.mjs)"
+          trap 'rm -f "$payload"' EXIT
+          gh api 'repos/jaydumisuni/Oracle-/contents/oracle_control/pr197-source-correction-20260824.mjs?ref=main' --jq .content | tr -d '\n' | base64 -d > "$payload"
+          node "$payload"

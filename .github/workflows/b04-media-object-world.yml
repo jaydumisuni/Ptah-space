@@ -1,4 +1,4 @@
-name: B04 one-use semantic review correction v2
+name: B04 one-use pinned rustfmt correction
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  correct:
+  format:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out writable B04 branch
@@ -18,7 +18,7 @@ jobs:
         with:
           ref: b04-media-object-world
           fetch-depth: 0
-      - name: Apply exact review corrections and regressions
+      - name: Apply B04 semantic Review corrections
         shell: bash
         run: |
           set -euo pipefail
@@ -114,7 +114,7 @@ fn complete_duration_rejects_frames_beyond_media_extent() {
           rustup default 1.97.1
           cargo fmt --all
           git diff --check
-      - name: Commit semantic review corrections
+      - name: Commit reviewed semantic correction
         shell: bash
         run: |
           set -euo pipefail

@@ -1,18 +1,16 @@
 name: B04 one-use review correction
 
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches: [b04-media-object-world]
     paths:
       - ".github/workflows/b04-media-object-world.yml"
 
 permissions:
   contents: write
-  pull-requests: read
 
 jobs:
   correct:
-    if: github.event.pull_request.head.ref == 'b04-media-object-world' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     steps:
       - name: Check out writable B04 branch
@@ -124,17 +122,14 @@ jobs:
 }
 
 fn record_unresolved_type_gap(report: &mut MediaReport, type_assessment: &TypeAssessment) {
-    report
-        .coverage
-        .unknown_gaps
-        .push(match &type_assessment.agreement {
-            TypeAgreement::Unknown => "B02 did not establish an agreed media type".to_owned(),
-            TypeAgreement::Disputed(values) => format!(
-                "B02 detector disagreement prevents media adapter selection: {}",
-                values.join(", ")
-            ),
-            TypeAgreement::Agreed(_) => unreachable!("agreed media type was extracted above"),
-        });
+    report.coverage.unknown_gaps.push(match &type_assessment.agreement {
+        TypeAgreement::Unknown => "B02 did not establish an agreed media type".to_owned(),
+        TypeAgreement::Disputed(values) => format!(
+            "B02 detector disagreement prevents media adapter selection: {}",
+            values.join(", ")
+        ),
+        TypeAgreement::Agreed(_) => unreachable!("agreed media type was extracted above"),
+    });
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -248,10 +243,7 @@ fn retain_requested_views(
         &mut report.limitations,
     )?;
     if request.thumbnail && report.thumbnail.is_none() {
-        mark_gap(
-            report,
-            "requested media thumbnail was not retained".to_owned(),
-        );
+        mark_gap(report, "requested media thumbnail was not retained".to_owned());
     }
 
     report.preview = retain_view(
@@ -298,10 +290,7 @@ fn retain_requested_views(
         &mut report.limitations,
     )?;
     if request.waveform && report.waveform.is_none() {
-        mark_gap(
-            report,
-            "requested media waveform was not retained".to_owned(),
-        );
+        mark_gap(report, "requested media waveform was not retained".to_owned());
     }
     Ok(())
 }
@@ -340,10 +329,7 @@ fn retain_requested_derivatives(
             .iter()
             .any(|derived| derived.kind == DerivedMediaKind::Transcode)
     {
-        mark_gap(
-            report,
-            "requested media transcode was not retained".to_owned(),
-        );
+        mark_gap(report, "requested media transcode was not retained".to_owned());
     }
 }
 '''
@@ -355,8 +341,8 @@ fn retain_requested_derivatives(
               1,
           )
           text = text.replace(
-              'fn validate_optional_view(view: &Option<AdapterMediaView>) -> Result<(), B04Error> {\n    if let Some(view) = view {\n',
-              'fn validate_optional_view(view: Option<&AdapterMediaView>) -> Result<(), B04Error> {\n    if let Some(view) = view {\n',
+              'fn validate_optional_view(view: &Option<AdapterMediaView>) -> Result<(), B04Error> {\n',
+              'fn validate_optional_view(view: Option<&AdapterMediaView>) -> Result<(), B04Error> {\n',
               1,
           )
 

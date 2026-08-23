@@ -30,3 +30,5 @@ jobs:
           } finally {
             Remove-Item $payload -Force -ErrorAction SilentlyContinue
           }
+
+# user-trigger 20260824-0152z

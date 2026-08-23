@@ -20,48 +20,38 @@ jobs:
           set -euo pipefail
           gh api repos/jaydumisuni/Oracle-/actions/runners --jq '{total_count, runners: [.runners[] | {id,name,os,status,busy,version,labels:[.labels[].name]}]}'
 
-      - name: Probe ATHENA LAN recovery surfaces
+      - name: Identify ATHENA LAN neighbor and management surfaces
         shell: bash
         run: |
           set +e
-          echo '--- hostname resolution ---'
-          getent hosts ATHENA || true
-          getent hosts athena || true
-          ping -c 1 -W 2 ATHENA 2>&1 || true
-          echo '--- neighbor table ---'
-          ip neigh show 2>/dev/null | head -n 80 || true
-          echo '--- candidate management ports ---'
+          echo '--- local network ---'
+          ip -brief address || true
+          ip route || true
+          ip neigh show || true
+          echo '--- candidate 192.168.37.229 ---'
+          ping -c 2 -W 2 192.168.37.229 2>&1 || true
           python3 - <<'PY'
-          import socket, json
-          hosts=['ATHENA','athena','ATHENA.local','athena.local']
-          ports=[22,135,139,445,3389,5985,5986,5056,5059]
-          out=[]
-          seen=set()
-          for host in hosts:
+          import socket, json, time
+          ip='192.168.37.229'
+          ports=[22,80,135,139,443,445,3389,5985,5986,5056,5059,7070]
+          item={'ip':ip,'reverse_dns':None,'ports':{}}
+          try: item['reverse_dns']=socket.gethostbyaddr(ip)[0]
+          except Exception as exc: item['reverse_dns_error']=str(exc)
+          for port in ports:
+              s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+              s.settimeout(1.5)
+              started=time.time()
               try:
-                  infos=socket.getaddrinfo(host,None,type=socket.SOCK_STREAM)
-                  ips=[]
-                  for info in infos:
-                      ip=info[4][0]
-                      if ip not in ips: ips.append(ip)
+                  s.connect((ip,port))
+                  item['ports'][str(port)]={'state':'open','ms':round((time.time()-started)*1000,1)}
+              except ConnectionRefusedError:
+                  item['ports'][str(port)]={'state':'refused','ms':round((time.time()-started)*1000,1)}
               except Exception as exc:
-                  out.append({'host':host,'resolve_error':str(exc)})
-                  continue
-              for ip in ips:
-                  key=(host,ip)
-                  if key in seen: continue
-                  seen.add(key)
-                  item={'host':host,'ip':ip,'ports':{}}
-                  for port in ports:
-                      s=socket.socket(socket.AF_INET6 if ':' in ip else socket.AF_INET,socket.SOCK_STREAM)
-                      s.settimeout(1.0)
-                      try:
-                          s.connect((ip,port))
-                          item['ports'][str(port)]='open'
-                      except Exception as exc:
-                          item['ports'][str(port)]=type(exc).__name__
-                      finally:
-                          s.close()
-                  out.append(item)
-          print(json.dumps(out,indent=2,sort_keys=True))
+                  item['ports'][str(port)]={'state':type(exc).__name__,'ms':round((time.time()-started)*1000,1)}
+              finally: s.close()
+          print(json.dumps(item,indent=2,sort_keys=True))
           PY
+          echo '--- optional discovery tools ---'
+          command -v nmblookup && nmblookup -A 192.168.37.229 || true
+          command -v smbclient && smbclient -L //192.168.37.229 -N -m SMB3 2>&1 | head -n 40 || true
+          command -v avahi-resolve-address && avahi-resolve-address 192.168.37.229 || true

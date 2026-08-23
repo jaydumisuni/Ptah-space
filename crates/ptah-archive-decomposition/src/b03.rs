@@ -765,9 +765,12 @@ fn retain_text(
             .retained_text_bytes
             .checked_add(retained)
             .ok_or(B03Error::AccountingOverflow)?;
-        let (byte_start, byte_end_exclusive) = span
-            .source_byte_range
-            .map_or((None, None), |(start, end)| (Some(start), Some(end)));
+        let (byte_start, byte_end_exclusive) = if truncated {
+            (None, None)
+        } else {
+            span.source_byte_range
+                .map_or((None, None), |(start, end)| (Some(start), Some(end)))
+        };
         report.text.push(AnchoredText {
             text,
             anchor: SourceAnchor {
@@ -973,33 +976,89 @@ fn remove_html_active_regions(value: &str) -> String {
 
 fn remove_html_element(value: &str, tag: &str) -> String {
     let lower = value.to_ascii_lowercase();
-    let open = format!("<{tag}");
-    let close = format!("</{tag}");
     let mut out = String::with_capacity(value.len());
     let mut cursor = 0usize;
-    while let Some(relative_start) = lower[cursor..].find(&open) {
-        let start = cursor + relative_start;
+    while let Some(start) = find_html_tag_start(&lower, cursor, tag, false) {
         out.push_str(&value[cursor..start]);
         let Some(open_end_relative) = lower[start..].find('>') else {
             cursor = value.len();
             break;
         };
-        let content_start = start + open_end_relative + 1;
-        let Some(close_relative) = lower[content_start..].find(&close) else {
+        let open_end = start + open_end_relative;
+        if tag_is_self_closing(&lower[start..=open_end]) {
+            cursor = open_end + 1;
+            continue;
+        }
+
+        let mut depth = 1usize;
+        let mut scan = open_end + 1;
+        let mut closed = false;
+        while depth > 0 {
+            let next_open = find_html_tag_start(&lower, scan, tag, false);
+            let next_close = find_html_tag_start(&lower, scan, tag, true);
+            let (next_start, is_close) = match (next_open, next_close) {
+                (Some(open_start), Some(close_start)) if open_start < close_start => {
+                    (open_start, false)
+                }
+                (_, Some(close_start)) => (close_start, true),
+                (Some(open_start), None) => (open_start, false),
+                (None, None) => {
+                    scan = value.len();
+                    break;
+                }
+            };
+            let Some(end_relative) = lower[next_start..].find('>') else {
+                scan = value.len();
+                break;
+            };
+            let end = next_start + end_relative;
+            if is_close {
+                depth -= 1;
+                if depth == 0 {
+                    closed = true;
+                }
+            } else if !tag_is_self_closing(&lower[next_start..=end]) {
+                depth += 1;
+            }
+            scan = end + 1;
+        }
+        if !closed {
             cursor = value.len();
             break;
-        };
-        let close_start = content_start + close_relative;
-        let Some(close_end_relative) = lower[close_start..].find('>') else {
-            cursor = value.len();
-            break;
-        };
-        cursor = close_start + close_end_relative + 1;
+        }
+        cursor = scan;
     }
     if cursor < value.len() {
         out.push_str(&value[cursor..]);
     }
     out
+}
+
+fn find_html_tag_start(lower: &str, from: usize, tag: &str, closing: bool) -> Option<usize> {
+    let needle = if closing {
+        format!("</{tag}")
+    } else {
+        format!("<{tag}")
+    };
+    let mut cursor = from;
+    while let Some(relative) = lower[cursor..].find(&needle) {
+        let start = cursor + relative;
+        let boundary = start + needle.len();
+        let accepted = lower.as_bytes().get(boundary).is_none_or(|byte| {
+            byte.is_ascii_whitespace() || matches!(*byte, b'>' | b'/')
+        });
+        if accepted {
+            return Some(start);
+        }
+        cursor = boundary;
+    }
+    None
+}
+
+fn tag_is_self_closing(tag_source: &str) -> bool {
+    tag_source
+        .strip_suffix('>')
+        .is_some_and(|prefix| prefix.trim_end().ends_with('/'))
 }
 
 fn remove_html_void_tag(value: &str, tag: &str) -> String {

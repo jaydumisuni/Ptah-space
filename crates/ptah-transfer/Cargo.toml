@@ -32,3 +32,7 @@ path = "tests/a08.rs"
 [[test]]
 name = "b01"
 path = "tests/b01.rs"
+
+[[test]]
+name = "b01_source_mutation"
+path = "tests/b01_source_mutation.rs"

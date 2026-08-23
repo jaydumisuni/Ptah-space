@@ -284,10 +284,10 @@ pub fn progressive_decompose(
 
     let mut archive_spec = spec.archive_spec.clone();
     if spec.requested_level == ProgressiveLevel::L2 {
-        archive_spec.requested_level = "L2_inventoried".to_owned();
+        "L2_inventoried".clone_into(&mut archive_spec.requested_level);
         archive_spec.budget.max_depth = 0;
     } else {
-        archive_spec.requested_level = "L3_decomposed".to_owned();
+        "L3_decomposed".clone_into(&mut archive_spec.requested_level);
     }
     let plan = decompose(source_bytes, &archive_spec, backend)?;
     apply_archive_plan(
@@ -418,9 +418,7 @@ fn apply_archive_plan(
     }
     report.achieved_level = if plan.inventory.is_empty() {
         ProgressiveLevel::L1
-    } else if requested_level == ProgressiveLevel::L2 {
-        ProgressiveLevel::L2
-    } else if plan.recovered_members.is_empty() {
+    } else if requested_level == ProgressiveLevel::L2 || plan.recovered_members.is_empty() {
         ProgressiveLevel::L2
     } else {
         ProgressiveLevel::L3

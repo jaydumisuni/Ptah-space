@@ -11,22 +11,12 @@ use thiserror::Error;
 /// B04 media family selected from B02 agreed type truth.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MediaClass {
-    /// Image media such as PNG, JPEG, WebP or other image Provider formats.
+    /// Image media such as PNG, JPEG, `WebP` or other image Provider formats.
     Image,
     /// Audio media.
     Audio,
     /// Video media.
     Video,
-}
-
-impl MediaClass {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Image => "image",
-            Self::Audio => "audio",
-            Self::Video => "video",
-        }
-    }
 }
 
 /// Resource and cache bounds applied by the B04 Core boundary after Provider work returns.
@@ -596,20 +586,9 @@ pub fn inspect_media(
     );
 
     let Some(media_type) = agreed_media_type else {
-        report
-            .coverage
-            .unknown_gaps
-            .push(match &type_assessment.agreement {
-                TypeAgreement::Unknown => "B02 did not establish an agreed media type".to_owned(),
-                TypeAgreement::Disputed(values) => format!(
-                    "B02 detector disagreement prevents media adapter selection: {}",
-                    values.join(", ")
-                ),
-                TypeAgreement::Agreed(_) => unreachable!("agreed media type was extracted above"),
-            });
+        record_unresolved_type_gap(&mut report, type_assessment);
         return Ok(report);
     };
-
     let Some(media_class) = media_class_for_type(&media_type) else {
         report.coverage.unknown_gaps.push(format!(
             "B02 agreed type {media_type} is outside the B04 image/audio/video domain"
@@ -642,46 +621,144 @@ pub fn inspect_media(
         .inspect(source_bytes, &media_type, request, limits)
         .map_err(B04Error::Adapter)?;
     validate_adapter_output(&output, source_bytes.len(), media_class, request)?;
+    apply_adapter_output(
+        &mut report,
+        output,
+        source_bytes.len(),
+        context,
+        request,
+        limits,
+        &source_sha256,
+        &adapter_id,
+    )?;
 
-    report.adapter_id = Some(adapter_id.clone());
-    report.metadata = retain_metadata(
-        output.metadata,
-        limits.max_metadata_fields,
-        &mut report.coverage,
+    if !report.coverage.unknown_gaps.is_empty() {
+        report.coverage.complete_claim = false;
+    }
+    dedup_strings(&mut report.coverage.unknown_gaps);
+    dedup_strings(&mut report.warnings);
+    dedup_strings(&mut report.limitations);
+    debug_assert_eq!(source_sha256, sha256_bytes(source_bytes));
+    Ok(report)
+}
+
+fn record_unresolved_type_gap(report: &mut MediaReport, type_assessment: &TypeAssessment) {
+    report
+        .coverage
+        .unknown_gaps
+        .push(match &type_assessment.agreement {
+            TypeAgreement::Unknown => "B02 did not establish an agreed media type".to_owned(),
+            TypeAgreement::Disputed(values) => format!(
+                "B02 detector disagreement prevents media adapter selection: {}",
+                values.join(", ")
+            ),
+            TypeAgreement::Agreed(_) => unreachable!("agreed media type was extracted above"),
+        });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_adapter_output(
+    report: &mut MediaReport,
+    output: AdapterMedia,
+    source_len: usize,
+    context: &MediaContext,
+    request: &MediaRequest,
+    limits: MediaLimits,
+    source_sha256: &str,
+    adapter_id: &str,
+) -> Result<(), B04Error> {
+    let AdapterMedia {
+        metadata,
+        dimensions,
+        duration,
+        observed_source_bytes,
+        thumbnail,
+        preview,
+        frames,
+        waveform,
+        derivatives,
+        complete_claim,
+        unknown_gaps,
+        warnings,
+        limitations,
+    } = output;
+
+    report.adapter_id = Some(adapter_id.to_owned());
+    report.coverage.complete_claim = complete_claim;
+    report.coverage.observed_source_bytes = observed_source_bytes;
+    report.coverage.unknown_gaps.extend(unknown_gaps);
+    report.warnings = warnings;
+    report.limitations = limitations;
+    report.metadata = retain_metadata(metadata, limits.max_metadata_fields, &mut report.coverage);
+    report.dimensions = dimensions;
+    report.duration = duration;
+
+    apply_source_coverage(report, source_len, complete_claim)?;
+    retain_requested_views(
+        report,
+        thumbnail,
+        preview,
+        frames,
+        waveform,
+        context,
+        request,
+        limits,
+    )?;
+    retain_requested_derivatives(
+        report,
+        derivatives,
+        context,
+        request,
+        limits.max_derived_bytes,
+        source_sha256,
+        adapter_id,
     );
-    report.dimensions = output.dimensions;
-    report.duration = output.duration;
-    report.coverage.observed_source_bytes = output.observed_source_bytes;
-    report.coverage.complete_claim = output.complete_claim;
-    report.coverage.unknown_gaps.extend(output.unknown_gaps);
-    report.warnings = output.warnings;
-    report.limitations = output.limitations;
+    Ok(())
+}
 
-    let source_len = u64::try_from(source_bytes.len()).map_err(|_| B04Error::AccountingOverflow)?;
+fn apply_source_coverage(
+    report: &mut MediaReport,
+    source_len: usize,
+    provider_complete_claim: bool,
+) -> Result<(), B04Error> {
+    let source_len = u64::try_from(source_len).map_err(|_| B04Error::AccountingOverflow)?;
     if report.coverage.observed_source_bytes < source_len {
         mark_gap(
-            &mut report,
+            report,
             "media Provider inspected only part of the immutable source bytes".to_owned(),
         );
         if let Some(duration) = &mut report.duration {
             duration.complete = false;
         }
     }
-    if !output.complete_claim && report.coverage.unknown_gaps.is_empty() {
+    if !provider_complete_claim && report.coverage.unknown_gaps.is_empty() {
         mark_gap(
-            &mut report,
+            report,
             "media Provider reported partial supported coverage".to_owned(),
         );
     }
     if report.duration.is_some_and(|duration| !duration.complete) {
         mark_gap(
-            &mut report,
+            report,
             "full media duration was not mechanically established".to_owned(),
         );
     }
+    Ok(())
+}
 
+#[allow(clippy::too_many_arguments)]
+fn retain_requested_views(
+    report: &mut MediaReport,
+    thumbnail: Option<AdapterMediaView>,
+    preview: Option<AdapterMediaView>,
+    frames: Vec<AdapterMediaFrame>,
+    waveform: Option<AdapterMediaView>,
+    context: &MediaContext,
+    request: &MediaRequest,
+    limits: MediaLimits,
+) -> Result<(), B04Error> {
     report.thumbnail = retain_view(
-        output.thumbnail,
+        thumbnail,
         context,
         "thumbnail",
         limits.max_thumbnail_bytes,
@@ -691,13 +768,13 @@ pub fn inspect_media(
     )?;
     if request.thumbnail && report.thumbnail.is_none() {
         mark_gap(
-            &mut report,
+            report,
             "requested media thumbnail was not retained".to_owned(),
         );
     }
 
     report.preview = retain_view(
-        output.preview,
+        preview,
         context,
         "preview",
         limits.max_preview_bytes,
@@ -706,15 +783,12 @@ pub fn inspect_media(
         &mut report.limitations,
     )?;
     if request.preview && report.preview.is_none() {
-        mark_gap(
-            &mut report,
-            "requested media preview was not retained".to_owned(),
-        );
+        mark_gap(report, "requested media preview was not retained".to_owned());
     }
 
     retain_frames(
-        &mut report,
-        output.frames,
+        report,
+        frames,
         context,
         limits.max_frames,
         limits.max_frame_bytes,
@@ -727,14 +801,14 @@ pub fn inspect_media(
             .any(|frame| frame.timestamp_ms == *timestamp)
         {
             mark_gap(
-                &mut report,
+                report,
                 format!("requested frame at {timestamp} ms was not retained"),
             );
         }
     }
 
     report.waveform = retain_view(
-        output.waveform,
+        waveform,
         context,
         "waveform",
         limits.max_waveform_bytes,
@@ -744,19 +818,29 @@ pub fn inspect_media(
     )?;
     if request.waveform && report.waveform.is_none() {
         mark_gap(
-            &mut report,
+            report,
             "requested media waveform was not retained".to_owned(),
         );
     }
+    Ok(())
+}
 
+fn retain_requested_derivatives(
+    report: &mut MediaReport,
+    derivatives: Vec<AdapterDerivedMedia>,
+    context: &MediaContext,
+    request: &MediaRequest,
+    max_derived_bytes: usize,
+    source_sha256: &str,
+    adapter_id: &str,
+) {
     retain_derivatives(
-        &mut report,
-        output.derivatives,
+        report,
+        derivatives,
         context,
-        request,
-        limits.max_derived_bytes,
-        &source_sha256,
-        &adapter_id,
+        max_derived_bytes,
+        source_sha256,
+        adapter_id,
     );
     if request.image_transform.is_some()
         && !report
@@ -765,7 +849,7 @@ pub fn inspect_media(
             .any(|derived| derived.kind == DerivedMediaKind::ImageTransform)
     {
         mark_gap(
-            &mut report,
+            report,
             "requested image transformation was not retained".to_owned(),
         );
     }
@@ -776,19 +860,10 @@ pub fn inspect_media(
             .any(|derived| derived.kind == DerivedMediaKind::Transcode)
     {
         mark_gap(
-            &mut report,
+            report,
             "requested media transcode was not retained".to_owned(),
         );
     }
-
-    if !report.coverage.unknown_gaps.is_empty() {
-        report.coverage.complete_claim = false;
-    }
-    dedup_strings(&mut report.coverage.unknown_gaps);
-    dedup_strings(&mut report.warnings);
-    dedup_strings(&mut report.limitations);
-    debug_assert_eq!(source_sha256, sha256_bytes(source_bytes));
-    Ok(report)
 }
 
 fn validate_context(context: &MediaContext) -> Result<(), B04Error> {
@@ -924,9 +999,9 @@ fn validate_adapter_output(
     {
         return Err(B04Error::InvalidDimensions);
     }
-    validate_optional_view(&output.thumbnail)?;
-    validate_optional_view(&output.preview)?;
-    validate_optional_view(&output.waveform)?;
+    validate_optional_view(output.thumbnail.as_ref())?;
+    validate_optional_view(output.preview.as_ref())?;
+    validate_optional_view(output.waveform.as_ref())?;
     if output.thumbnail.is_some() && !request.thumbnail {
         return Err(B04Error::UnrequestedOutput("thumbnail"));
     }
@@ -983,7 +1058,7 @@ fn validate_adapter_output(
     Ok(())
 }
 
-fn validate_optional_view(view: &Option<AdapterMediaView>) -> Result<(), B04Error> {
+fn validate_optional_view(view: Option<&AdapterMediaView>) -> Result<(), B04Error> {
     if let Some(view) = view {
         validate_payload(&view.media_type, &view.bytes)?;
     }
@@ -1161,7 +1236,6 @@ fn retain_derivatives(
     report: &mut MediaReport,
     derivatives: Vec<AdapterDerivedMedia>,
     context: &MediaContext,
-    _request: &MediaRequest,
     max_derived_bytes: usize,
     source_sha256: &str,
     adapter_id: &str,

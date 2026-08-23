@@ -8,6 +8,7 @@ on:
       - "crates/ptah-archive-decomposition/src/lib.rs"
       - "crates/ptah-archive-decomposition/src/b03.rs"
       - "crates/ptah-archive-decomposition/tests/b03.rs"
+      - "crates/ptah-archive-decomposition/tests/b03_review.rs"
       - ".github/workflows/b03-documents-structured-text.yml"
   workflow_dispatch:
 
@@ -57,6 +58,7 @@ jobs:
               "crates/ptah-archive-decomposition/src/lib.rs",
               "crates/ptah-archive-decomposition/src/b03.rs",
               "crates/ptah-archive-decomposition/tests/b03.rs",
+              "crates/ptah-archive-decomposition/tests/b03_review.rs",
               ".github/workflows/b03-documents-structured-text.yml",
           }
           unexpected = sorted(set(files).difference(allowed))
@@ -80,7 +82,7 @@ jobs:
           printf '%s\n' "$PTAH_EXACT_SHA" > /tmp/b03/exact-head.txt
           cat /etc/os-release > /tmp/b03/host-os-release.txt
 
-      - name: Prove formatting and B03 acceptance suite
+      - name: Prove formatting and B03 acceptance suites
         shell: bash
         run: |
           set -euo pipefail
@@ -88,12 +90,15 @@ jobs:
           cargo test -p ptah-archive-decomposition --test b03 --locked -- --nocapture \
             2>&1 | tee /tmp/b03/b03-tests.txt
           grep -Eq 'test result: ok\. 10 passed; 0 failed;' /tmp/b03/b03-tests.txt
+          cargo test -p ptah-archive-decomposition --test b03_review --locked -- --nocapture \
+            2>&1 | tee /tmp/b03/b03-review-tests.txt
+          grep -Eq 'test result: ok\. 6 passed; 0 failed;' /tmp/b03/b03-review-tests.txt
 
       - name: Prove B03 surface with strict Clippy
         shell: bash
         run: |
           set -euo pipefail
-          cargo clippy -p ptah-archive-decomposition --lib --test b03 --locked -- -D warnings \
+          cargo clippy -p ptah-archive-decomposition --lib --test b03 --test b03_review --locked -- -D warnings \
             2>&1 | tee /tmp/b03/b03-clippy.txt
 
       - name: Re-prove inherited B02 general decomposition semantics
@@ -138,6 +143,7 @@ jobs:
               'rustc-version.txt',
               'cargo-version.txt',
               'b03-tests.txt',
+              'b03-review-tests.txt',
               'b03-clippy.txt',
               'b02-tests.txt',
               'a12-tests.txt',
@@ -164,7 +170,7 @@ jobs:
               'accepted_base_commit': os.environ['PTAH_B03_BASE_SHA'],
               'workflow_run_id': int(os.environ['RUN_ID']),
               'workflow_run_attempt': int(os.environ['RUN_ATTEMPT']),
-              'b03_acceptance_test_count': 10,
+              'b03_acceptance_test_count': 16,
               'document_detection_bound_to_b02': True,
               'metadata_text_extraction_proven': True,
               'page_render_views_proven': True,
@@ -173,6 +179,10 @@ jobs:
               'safe_preview_conversion_proven': True,
               'limitations_recorded': True,
               'malicious_active_content_isolated': True,
+              'preview_truncation_explicit': True,
+              'exact_page_boundary_truth_proven': True,
+              'view_source_rebinding_blocked': True,
+              'conversion_source_rebinding_blocked': True,
               'conversion_exact_source_revision_bound': True,
               'source_content_immutable': True,
               'inherited_b02_reproven': True,

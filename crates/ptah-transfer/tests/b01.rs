@@ -158,7 +158,7 @@ fn interrupted_large_upload_resumes_from_exact_provider_offset() {
     let first = resumable_upload_file(
         &source,
         &mut sink,
-        UploadCursor::default(),
+        &UploadCursor::default(),
         64 * 1024,
         Some(430_000),
     )
@@ -167,7 +167,7 @@ fn interrupted_large_upload_resumes_from_exact_provider_offset() {
     assert_eq!(first.accepted_offset, 430_000);
     assert!(!sink.finalized);
 
-    let second = resumable_upload_file(&source, &mut sink, first.cursor.clone(), 91 * 1024, None)
+    let second = resumable_upload_file(&source, &mut sink, &first.cursor, 91 * 1024, None)
         .expect("resume upload");
     assert!(second.complete);
     assert_eq!(second.starting_offset, 430_000);
@@ -190,7 +190,7 @@ fn upload_resume_rejects_cursor_provider_disagreement() {
         resumable_upload_file(
             &source,
             &mut sink,
-            UploadCursor {
+            &UploadCursor {
                 accepted_offset: 4,
                 ..UploadCursor::default()
             },
@@ -207,11 +207,11 @@ fn upload_resume_rejects_changed_source_identity() {
     let source = temp.path().join("identity-fenced-upload.bin");
     fs::write(&source, b"abcdefghij").expect("write source");
     let mut sink = MemoryUploadSink::default();
-    let first = resumable_upload_file(&source, &mut sink, UploadCursor::default(), 4, Some(5))
+    let first = resumable_upload_file(&source, &mut sink, &UploadCursor::default(), 4, Some(5))
         .expect("first pass");
     fs::write(&source, b"abcdeXXXXX").expect("mutate source");
     assert!(matches!(
-        resumable_upload_file(&source, &mut sink, first.cursor, 4, None),
+        resumable_upload_file(&source, &mut sink, &first.cursor, 4, None),
         Err(B01Error::ResumeSourceIdentityMismatch)
     ));
     assert_eq!(sink.bytes, b"abcde");

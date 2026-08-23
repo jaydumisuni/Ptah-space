@@ -72,8 +72,13 @@ fn active_upload_detects_source_mutation_before_finalization() {
         mutated: false,
         finalized: false,
     };
-    let result =
-        resumable_upload_file(&source, &mut sink, UploadCursor::default(), 64 * 1024, None);
+    let result = resumable_upload_file(
+        &source,
+        &mut sink,
+        &UploadCursor::default(),
+        64 * 1024,
+        None,
+    );
 
     assert!(matches!(
         result,

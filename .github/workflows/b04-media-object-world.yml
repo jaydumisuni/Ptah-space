@@ -1,16 +1,15 @@
 name: B04 one-use review correction
 
 on:
-  push:
-    branches: [b04-media-object-world]
-    paths:
-      - ".github/workflows/b04-media-object-world.yml"
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   correct:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out writable B04 branch
@@ -27,13 +26,11 @@ jobs:
 
           source = Path('crates/ptah-archive-decomposition/src/b04.rs')
           text = source.read_text(encoding='utf-8')
-
           text = text.replace(
               '    /// Image media such as PNG, JPEG, WebP or other image Provider formats.\n',
               '    /// Image media such as PNG, JPEG, `WebP` or other image Provider formats.\n',
               1,
           )
-
           old_impl = '''\nimpl MediaClass {\n    const fn as_str(self) -> &'static str {\n        match self {\n            Self::Image => "image",\n            Self::Audio => "audio",\n            Self::Video => "video",\n        }\n    }\n}\n'''
           if text.count(old_impl) != 1:
               raise SystemExit('expected unused MediaClass::as_str block once')
@@ -158,7 +155,6 @@ fn apply_adapter_output(
         warnings,
         limitations,
     } = output;
-
     report.adapter_id = Some(adapter_id.to_owned());
     report.coverage.complete_claim = complete_claim;
     report.coverage.observed_source_bytes = observed_source_bytes;
@@ -168,26 +164,12 @@ fn apply_adapter_output(
     report.metadata = retain_metadata(metadata, limits.max_metadata_fields, &mut report.coverage);
     report.dimensions = dimensions;
     report.duration = duration;
-
     apply_source_coverage(report, source_len, complete_claim)?;
     retain_requested_views(
-        report,
-        thumbnail,
-        preview,
-        frames,
-        waveform,
-        context,
-        request,
-        limits,
+        report, thumbnail, preview, frames, waveform, context, request, limits,
     )?;
     retain_requested_derivatives(
-        report,
-        derivatives,
-        context,
-        request,
-        limits.max_derived_bytes,
-        source_sha256,
-        adapter_id,
+        report, derivatives, context, request, limits.max_derived_bytes, source_sha256, adapter_id,
     );
     Ok(())
 }
@@ -245,7 +227,6 @@ fn retain_requested_views(
     if request.thumbnail && report.thumbnail.is_none() {
         mark_gap(report, "requested media thumbnail was not retained".to_owned());
     }
-
     report.preview = retain_view(
         preview,
         context,
@@ -258,7 +239,6 @@ fn retain_requested_views(
     if request.preview && report.preview.is_none() {
         mark_gap(report, "requested media preview was not retained".to_owned());
     }
-
     retain_frames(
         report,
         frames,
@@ -268,18 +248,10 @@ fn retain_requested_views(
         limits.max_cached_view_bytes,
     )?;
     for timestamp in &request.frame_timestamps_ms {
-        if !report
-            .frames
-            .iter()
-            .any(|frame| frame.timestamp_ms == *timestamp)
-        {
-            mark_gap(
-                report,
-                format!("requested frame at {timestamp} ms was not retained"),
-            );
+        if !report.frames.iter().any(|frame| frame.timestamp_ms == *timestamp) {
+            mark_gap(report, format!("requested frame at {timestamp} ms was not retained"));
         }
     }
-
     report.waveform = retain_view(
         waveform,
         context,
@@ -305,12 +277,7 @@ fn retain_requested_derivatives(
     adapter_id: &str,
 ) {
     retain_derivatives(
-        report,
-        derivatives,
-        context,
-        max_derived_bytes,
-        source_sha256,
-        adapter_id,
+        report, derivatives, context, max_derived_bytes, source_sha256, adapter_id,
     );
     if request.image_transform.is_some()
         && !report
@@ -318,10 +285,7 @@ fn retain_requested_derivatives(
             .iter()
             .any(|derived| derived.kind == DerivedMediaKind::ImageTransform)
     {
-        mark_gap(
-            report,
-            "requested image transformation was not retained".to_owned(),
-        );
+        mark_gap(report, "requested image transformation was not retained".to_owned());
     }
     if request.transcode.is_some()
         && !report
@@ -334,7 +298,6 @@ fn retain_requested_derivatives(
 }
 '''
           text = text[:start] + replacement + text[end:]
-
           text = text.replace(
               '    validate_optional_view(&output.thumbnail)?;\n    validate_optional_view(&output.preview)?;\n    validate_optional_view(&output.waveform)?;\n',
               '    validate_optional_view(output.thumbnail.as_ref())?;\n    validate_optional_view(output.preview.as_ref())?;\n    validate_optional_view(output.waveform.as_ref())?;\n',
@@ -345,7 +308,6 @@ fn retain_requested_derivatives(
               'fn validate_optional_view(view: Option<&AdapterMediaView>) -> Result<(), B04Error> {\n',
               1,
           )
-
           old_signature = '''fn retain_derivatives(\n    report: &mut MediaReport,\n    derivatives: Vec<AdapterDerivedMedia>,\n    context: &MediaContext,\n    _request: &MediaRequest,\n    max_derived_bytes: usize,\n'''
           new_signature = '''fn retain_derivatives(\n    report: &mut MediaReport,\n    derivatives: Vec<AdapterDerivedMedia>,\n    context: &MediaContext,\n    max_derived_bytes: usize,\n'''
           if text.count(old_signature) != 1:

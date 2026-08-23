@@ -1,4 +1,4 @@
-name: Temporary ATHENA Oracle Live Runtime Repair
+name: Temporary PR197 Runtime Closure Patch
 
 on:
   pull_request:
@@ -10,75 +10,88 @@ permissions:
   contents: read
 
 jobs:
-  repair-athena-oracle-live:
-    runs-on: [self-hosted, athena, ptah]
-    timeout-minutes: 6
+  patch-pr197:
+    runs-on: [self-hosted, kratos, ptah]
+    timeout-minutes: 15
     steps:
-      - name: Restore canonical browser RPC runtime and prove Live health
-        shell: powershell
+      - name: Patch Oracle PR197 and prove focused tests
+        shell: bash
         run: |
-          $ErrorActionPreference='Stop'
-          $stateRoot=Join-Path $env:LOCALAPPDATA 'OracleNode'
-          $runtimeScripts=Join-Path $stateRoot 'runtime\scripts'
-          $nodeTask='Oracle Live Node (Session Fallback)'
-          $watchdogTask='Oracle Node Watchdog (Session Fallback)'
-          if(-not(Test-Path $runtimeScripts)){throw 'ORACLE_RUNTIME_SCRIPTS_MISSING'}
-          if(-not(Get-ScheduledTask -TaskName $nodeTask -ErrorAction SilentlyContinue)){throw 'ORACLE_SESSION_NODE_TASK_MISSING'}
-          if(-not(Get-ScheduledTask -TaskName $watchdogTask -ErrorAction SilentlyContinue)){throw 'ORACLE_SESSION_WATCHDOG_TASK_MISSING'}
+          set -euo pipefail
+          branch='fix/windows-live-persistence-closeout-20260822'
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          gh repo clone jaydumisuni/Oracle- "$work/repo" -- --branch "$branch" --single-branch --depth 1
+          cd "$work/repo"
+          python3 - <<'PY'
+          from pathlib import Path
 
-          $required=@(
-            @{Name='oracle-browser-rpc-local.mjs'; Blob='2a06fe3f9de3152630ad4dbf32143f9a8ec52e27'; Size=15032},
-            @{Name='oracle-extension-browser-rpc.mjs'; Blob='85d823f7afc513d75010e8e2febe55fc6eba2e0a'; Size=16852}
+          installer = Path('scripts/install-oracle-node-windows.ps1')
+          text = installer.read_text(encoding='utf-8')
+          needle = '  "oracle-browser-rpc.mjs",\n'
+          replacement = (
+              '  "oracle-browser-rpc.mjs",\n'
+              '  "oracle-browser-rpc-local.mjs",\n'
+              '  "oracle-extension-browser-rpc.mjs",\n'
           )
-          foreach($item in $required){
-            $json=& gh api ('repos/jaydumisuni/Oracle-/contents/scripts/'+$item.Name+'?ref=main') 2>&1
-            if($LASTEXITCODE -ne 0){throw ('ORACLE_SOURCE_FETCH_FAILED '+$item.Name+' '+($json -join "`n"))}
-            $meta=(($json -join "`n")|ConvertFrom-Json)
-            if([string]$meta.sha -ne [string]$item.Blob){throw ('ORACLE_SOURCE_BLOB_MISMATCH '+$item.Name+' got='+$meta.sha)}
-            if([int64]$meta.size -ne [int64]$item.Size){throw ('ORACLE_SOURCE_SIZE_MISMATCH '+$item.Name+' got='+$meta.size)}
-            $bytes=[Convert]::FromBase64String(([string]$meta.content -replace '\s',''))
-            if($bytes.Length -ne [int]$item.Size){throw ('ORACLE_DECODED_SIZE_MISMATCH '+$item.Name+' got='+$bytes.Length)}
-            $dest=Join-Path $runtimeScripts $item.Name
-            $tmp=$dest+'.tmp-'+[guid]::NewGuid().ToString('N')
-            [IO.File]::WriteAllBytes($tmp,$bytes)
-            Move-Item -LiteralPath $tmp -Destination $dest -Force
-            Write-Output ('RESTORED '+$item.Name+' BLOB='+$item.Blob+' SHA256='+((Get-FileHash -Algorithm SHA256 -LiteralPath $dest).Hash.ToLowerInvariant()))
-          }
+          count = text.count(needle)
+          if count == 2:
+              text = text.replace(needle, replacement)
+              installer.write_text(text, encoding='utf-8')
+          elif count != 0 or text.count('  "oracle-browser-rpc-local.mjs",\n') != 2 or text.count('  "oracle-extension-browser-rpc.mjs",\n') != 2:
+              raise SystemExit(f'UNEXPECTED_INSTALLER_RUNTIME_LIST browser={count}')
 
-          foreach($name in @('Oracle Always-On Node','Oracle Node Watchdog')){
-            $t=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
-            if($t){Disable-ScheduledTask -InputObject $t -ErrorAction SilentlyContinue|Out-Null; if([string]$t.State -in @('Running','Queued')){Stop-ScheduledTask -InputObject $t -ErrorAction SilentlyContinue|Out-Null}}
-          }
-          Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'oracle-live-node\.mjs|oracle-node-watchdog-windows\.mjs' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-          Start-Sleep -Milliseconds 700
+          test = Path('tests/windows-live-recovery-persistence.test.ts')
+          source = test.read_text(encoding='utf-8')
+          title = 'packages the complete local ESM import closure required by the Windows Live node'
+          if title not in source:
+              marker = '  it("reports persistence and startup truth without exposing the Oracle Live token", async () => {'
+              if marker not in source:
+                  raise SystemExit('TEST_INSERTION_MARKER_NOT_FOUND')
+              block = r'''  it("packages the complete local ESM import closure required by the Windows Live node", async () => {
+            const source = await installer();
+            const installed = new Set(
+              [...source.matchAll(/"([A-Za-z0-9._-]+\.mjs)"/gu)].map((match) => match[1]),
+            );
+            const pending = ["oracle-live-node.mjs"];
+            const seen = new Set<string>();
+            const importPattern = /(?:from\s+|import\s*\()\s*["']\.\/([^"']+\.mjs)["']/gu;
 
-          Enable-ScheduledTask -TaskName $nodeTask | Out-Null
-          Start-ScheduledTask -TaskName $nodeTask
-          $health=$null
-          $ready=$null
-          $deadline=(Get-Date).AddSeconds(45)
-          do{
-            try{$health=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/health' -TimeoutSec 2 -ErrorAction Stop}catch{$health=$null}
-            try{$ready=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/ready' -TimeoutSec 2 -ErrorAction Stop}catch{$ready=$null}
-            if($health -and $health.ok -eq $true -and $ready -and $ready.ok -eq $true -and $ready.connected -eq $true){break}
-            Start-Sleep -Milliseconds 500
-          }while((Get-Date)-lt $deadline)
-          if(-not $health -or $health.ok -ne $true){throw 'ORACLE_HEALTH_NOT_READY'}
-          if(-not $ready -or $ready.ok -ne $true -or $ready.connected -ne $true){throw ('ORACLE_READY_NOT_CONNECTED '+($ready|ConvertTo-Json -Compress -Depth 6))}
+            while (pending.length) {
+              const moduleName = pending.pop()!;
+              if (seen.has(moduleName)) continue;
+              seen.add(moduleName);
+              const moduleSource = await readFile(
+                new URL(`../scripts/${moduleName}`, import.meta.url),
+                "utf8",
+              );
+              for (const match of moduleSource.matchAll(importPattern)) {
+                const dependency = match[1];
+                if (!seen.has(dependency)) pending.push(dependency);
+              }
+            }
 
-          Enable-ScheduledTask -TaskName $watchdogTask | Out-Null
-          Start-ScheduledTask -TaskName $watchdogTask
-          Start-Sleep -Seconds 2
-          $listener=Get-NetTCPConnection -LocalPort 5059 -State Listen -ErrorAction Stop | Select-Object -First 1
-          $proc=Get-CimInstance Win32_Process -Filter ('ProcessId='+$listener.OwningProcess) -ErrorAction Stop
-          if($proc.CommandLine -notmatch 'oracle-live-node\.mjs'){throw ('ORACLE_LISTENER_OWNER_INVALID '+$proc.CommandLine)}
-          $node=Get-ScheduledTask -TaskName $nodeTask
-          $watch=Get-ScheduledTask -TaskName $watchdogTask
-          [ordered]@{
-            ok=$true
-            host=$env:COMPUTERNAME
-            health=$health
-            ready=$ready
-            listener=[ordered]@{address=$listener.LocalAddress;port=$listener.LocalPort;pid=$listener.OwningProcess;commandLine=$proc.CommandLine}
-            tasks=[ordered]@{node=[string]$node.State;watchdog=[string]$watch.State}
-          } | ConvertTo-Json -Depth 8
+            expect([...seen]).toContain("oracle-browser-rpc-local.mjs");
+            expect([...seen]).toContain("oracle-extension-browser-rpc.mjs");
+            for (const moduleName of seen) {
+              expect(installed.has(moduleName), `Windows runtime is missing ${moduleName}`).toBe(true);
+            }
+          });
+
+'''
+              source = source.replace(marker, block + marker, 1)
+              test.write_text(source, encoding='utf-8')
+          PY
+          git diff --check
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm test -- tests/windows-live-recovery-persistence.test.ts
+          if git diff --quiet -- scripts/install-oracle-node-windows.ps1 tests/windows-live-recovery-persistence.test.ts; then
+            echo 'PR197 already contains runtime closure fix.'
+            exit 0
+          fi
+          gh auth setup-git
+          git config user.name 'oracle-pr197-repair'
+          git config user.email 'oracle-pr197-repair@users.noreply.github.com'
+          git add scripts/install-oracle-node-windows.ps1 tests/windows-live-recovery-persistence.test.ts
+          git commit -m 'fix: package complete Windows Live runtime closure'
+          git push origin "HEAD:$branch"

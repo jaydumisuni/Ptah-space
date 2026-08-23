@@ -571,6 +571,32 @@ fn unsafe_adapter_is_rejected_before_media_bytes_are_inspected() {
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
+struct OtherAdapter;
+
+impl MediaAdapter for OtherAdapter {
+    fn adapter_id(&self) -> &'static str {
+        "b04.fixture.other"
+    }
+
+    fn supports_media_type(&self, media_type: &str) -> bool {
+        media_type == "image/png"
+    }
+
+    fn isolation(&self) -> MediaIsolation {
+        MediaIsolation::passive()
+    }
+
+    fn inspect(
+        &self,
+        _source_bytes: &[u8],
+        _media_type: &str,
+        _request: &MediaRequest,
+        _limits: MediaLimits,
+    ) -> Result<AdapterMedia, String> {
+        unreachable!("ambiguity is rejected before inspection")
+    }
+}
+
 #[test]
 fn ambiguous_media_adapters_fail_closed_without_provider_selection() {
     let error = inspect_media(
@@ -584,27 +610,6 @@ fn ambiguous_media_adapters_fail_closed_without_provider_selection() {
     .expect_err("ambiguous adapters must fail");
     assert!(matches!(error, B04Error::DuplicateAdapterId(_)));
 
-    struct OtherAdapter;
-    impl MediaAdapter for OtherAdapter {
-        fn adapter_id(&self) -> &'static str {
-            "b04.fixture.other"
-        }
-        fn supports_media_type(&self, media_type: &str) -> bool {
-            media_type == "image/png"
-        }
-        fn isolation(&self) -> MediaIsolation {
-            MediaIsolation::passive()
-        }
-        fn inspect(
-            &self,
-            _source_bytes: &[u8],
-            _media_type: &str,
-            _request: &MediaRequest,
-            _limits: MediaLimits,
-        ) -> Result<AdapterMedia, String> {
-            unreachable!("ambiguity is rejected before inspection")
-        }
-    }
 
     let error = inspect_media(
         b"image",

@@ -30,11 +30,13 @@ fn production() -> ProductionEvidence {
 }
 
 fn spec(level: ProgressiveLevel, max_depth: u32, declared_type: Option<&str>) -> ProgressiveSpec {
-    let mut budget = DecompositionBudget::default();
-    budget.max_depth = max_depth;
-    budget.max_members = 64;
-    budget.max_expanded_bytes = 1024 * 1024;
-    budget.max_member_bytes = 256 * 1024;
+    let budget = DecompositionBudget {
+        max_depth,
+        max_members: 64,
+        max_expanded_bytes: 1024 * 1024,
+        max_member_bytes: 256 * 1024,
+        ..DecompositionBudget::default()
+    };
     ProgressiveSpec {
         declared_type: declared_type.map(ToOwned::to_owned),
         requested_level: level,

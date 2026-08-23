@@ -1,250 +1,218 @@
-name: B03 one-use review correction
+name: B03 documents structured text exact-head proof
 
 on:
-  push:
-    branches:
-      - b03-documents-structured-text
-    paths:
-      - ".github/workflows/b03-documents-structured-text.yml"
   pull_request:
-    branches: [main]
     paths:
+      - "B03_DOCUMENTS_STRUCTURED_TEXT.md"
+      - "crates/ptah-archive-decomposition/Cargo.toml"
+      - "crates/ptah-archive-decomposition/src/lib.rs"
+      - "crates/ptah-archive-decomposition/src/b03.rs"
+      - "crates/ptah-archive-decomposition/tests/b03.rs"
+      - "crates/ptah-archive-decomposition/tests/b03_review.rs"
       - ".github/workflows/b03-documents-structured-text.yml"
+  workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: read
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PTAH_PR_BASE: ${{ github.event.pull_request.base.sha }}
+  PTAH_B03_BASE_SHA: af4f7dbb87fb5ab4674d2509577dca0003ad2740
+  CARGO_TERM_COLOR: always
 
 jobs:
-  correct:
-    if: github.ref == 'refs/heads/b03-documents-structured-text' || (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'b03-documents-structured-text' && github.event.pull_request.head.repo.full_name == github.repository)
+  b03-proof:
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
-      - name: Check out writable B03 branch
+      - name: Check out exact B03 candidate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: b03-documents-structured-text
+          ref: ${{ env.PTAH_EXACT_SHA }}
           fetch-depth: 0
-      - name: Apply exact Review findings and regressions
+          persist-credentials: false
+
+      - name: Lock accepted B02 base and B03 scope
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+          if [ -n "${PTAH_PR_BASE:-}" ]; then
+            test "$PTAH_PR_BASE" = "$PTAH_B03_BASE_SHA"
+          fi
+          test "$(git merge-base "$PTAH_B03_BASE_SHA" "$PTAH_EXACT_SHA")" = "$PTAH_B03_BASE_SHA"
           python3 - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["PTAH_B03_BASE_SHA"]
+          head = os.environ["PTAH_EXACT_SHA"]
+          files = subprocess.check_output(
+              ["git", "diff", "--name-only", base, head], text=True
+          ).splitlines()
+          allowed = {
+              "B03_DOCUMENTS_STRUCTURED_TEXT.md",
+              "crates/ptah-archive-decomposition/Cargo.toml",
+              "crates/ptah-archive-decomposition/src/lib.rs",
+              "crates/ptah-archive-decomposition/src/b03.rs",
+              "crates/ptah-archive-decomposition/tests/b03.rs",
+              "crates/ptah-archive-decomposition/tests/b03_review.rs",
+              ".github/workflows/b03-documents-structured-text.yml",
+          }
+          unexpected = sorted(set(files).difference(allowed))
+          missing = sorted(allowed.difference(files))
+          assert not unexpected, f"B03 scope drift: {unexpected}"
+          assert not missing, f"B03 required surface missing: {missing}"
+          PY
+          git diff --check "$PTAH_B03_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/b03
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          rustc -Vv | tee /tmp/b03/rustc-version.txt
+          cargo -V | tee /tmp/b03/cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$PTAH_EXACT_SHA" > /tmp/b03/exact-head.txt
+          cat /etc/os-release > /tmp/b03/host-os-release.txt
+
+      - name: Prove formatting and B03 acceptance suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ptah-archive-decomposition --test b03 --locked -- --nocapture \
+            2>&1 | tee /tmp/b03/b03-tests.txt
+          grep -Eq 'test result: ok\. 10 passed; 0 failed;' /tmp/b03/b03-tests.txt
+          cargo test -p ptah-archive-decomposition --test b03_review --locked -- --nocapture \
+            2>&1 | tee /tmp/b03/b03-review-tests.txt
+          grep -Eq 'test result: ok\. 8 passed; 0 failed;' /tmp/b03/b03-review-tests.txt
+
+      - name: Prove B03 surface with strict Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ptah-archive-decomposition --lib --test b03 --test b03_review --locked -- -D warnings \
+            2>&1 | tee /tmp/b03/b03-clippy.txt
+
+      - name: Re-prove inherited B02 general decomposition semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b02 --locked -- --nocapture \
+            2>&1 | tee /tmp/b03/b02-tests.txt
+
+      - name: Re-prove inherited A12 decomposition semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test a12 --locked -- --nocapture \
+            2>&1 | tee /tmp/b03/a12-tests.txt
+
+      - name: Re-prove inherited workspace at exact B03 head
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture \
+            2>&1 | tee /tmp/b03/workspace-tests.txt
+
+      - name: Write exact-head proof manifest
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cp B03_DOCUMENTS_STRUCTURED_TEXT.md /tmp/b03/acceptance-contract.md
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
           from pathlib import Path
 
-          source = Path('crates/ptah-archive-decomposition/src/b03.rs')
-          text = source.read_text(encoding='utf-8')
-          old_anchor = '''        let (byte_start, byte_end_exclusive) = span
-              .source_byte_range
-              .map_or((None, None), |(start, end)| (Some(start), Some(end)));
-'''
-          new_anchor = '''        let (byte_start, byte_end_exclusive) = if truncated {
-              (None, None)
-          } else {
-              span.source_byte_range
-                  .map_or((None, None), |(start, end)| (Some(start), Some(end)))
-          };
-'''
-          if text.count(old_anchor) != 1:
-              raise SystemExit('expected exact B03 retained-text anchor block once')
-          text = text.replace(old_anchor, new_anchor)
-
-          old_remove = '''fn remove_html_element(value: &str, tag: &str) -> String {
-              let lower = value.to_ascii_lowercase();
-              let open = format!("<{tag}");
-              let close = format!("</{tag}");
-              let mut out = String::with_capacity(value.len());
-              let mut cursor = 0usize;
-              while let Some(relative_start) = lower[cursor..].find(&open) {
-                  let start = cursor + relative_start;
-                  out.push_str(&value[cursor..start]);
-                  let Some(open_end_relative) = lower[start..].find('>') else {
-                      cursor = value.len();
-                      break;
-                  };
-                  let content_start = start + open_end_relative + 1;
-                  let Some(close_relative) = lower[content_start..].find(&close) else {
-                      cursor = value.len();
-                      break;
-                  };
-                  let close_start = content_start + close_relative;
-                  let Some(close_end_relative) = lower[close_start..].find('>') else {
-                      cursor = value.len();
-                      break;
-                  };
-                  cursor = close_start + close_end_relative + 1;
+          root = Path('/tmp/b03')
+          required = [
+              'exact-head.txt',
+              'host-os-release.txt',
+              'rustc-version.txt',
+              'cargo-version.txt',
+              'b03-tests.txt',
+              'b03-review-tests.txt',
+              'b03-clippy.txt',
+              'b02-tests.txt',
+              'a12-tests.txt',
+              'workspace-tests.txt',
+              'acceptance-contract.md',
+          ]
+          files = {}
+          for name in required:
+              path = root / name
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f'missing B03 proof report: {name}')
+              files[name] = {
+                  'size_bytes': path.stat().st_size,
+                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
               }
-              if cursor < value.len() {
-                  out.push_str(&value[cursor..]);
-              }
-              out
+          head = (root / 'exact-head.txt').read_text(encoding='utf-8').strip()
+          if head != os.environ['PTAH_EXACT_SHA']:
+              raise SystemExit('B03 proof head mismatch')
+          manifest = {
+              'schema_version': '0.1.0',
+              'record_type': 'ptah.b03.documents_structured_text_exact_head_proof',
+              'status': 'pass',
+              'implementation_commit': head,
+              'accepted_base_commit': os.environ['PTAH_B03_BASE_SHA'],
+              'workflow_run_id': int(os.environ['RUN_ID']),
+              'workflow_run_attempt': int(os.environ['RUN_ATTEMPT']),
+              'b03_acceptance_test_count': 18,
+              'document_detection_bound_to_b02': True,
+              'metadata_text_extraction_proven': True,
+              'page_render_views_proven': True,
+              'pdf_office_html_adapter_boundary_proven': True,
+              'citation_source_anchoring_proven': True,
+              'truncated_exact_anchor_cleared': True,
+              'safe_preview_conversion_proven': True,
+              'limitations_recorded': True,
+              'malicious_active_content_isolated': True,
+              'nested_active_regions_isolated': True,
+              'preview_truncation_explicit': True,
+              'exact_page_boundary_truth_proven': True,
+              'view_source_rebinding_blocked': True,
+              'conversion_source_rebinding_blocked': True,
+              'conversion_exact_source_revision_bound': True,
+              'source_content_immutable': True,
+              'inherited_b02_reproven': True,
+              'inherited_a12_reproven': True,
+              'files': files,
           }
-'''
-          new_remove = '''fn remove_html_element(value: &str, tag: &str) -> String {
-              let lower = value.to_ascii_lowercase();
-              let mut out = String::with_capacity(value.len());
-              let mut cursor = 0usize;
-              while let Some(start) = find_html_tag_start(&lower, cursor, tag, false) {
-                  out.push_str(&value[cursor..start]);
-                  let Some(open_end_relative) = lower[start..].find('>') else {
-                      cursor = value.len();
-                      break;
-                  };
-                  let open_end = start + open_end_relative;
-                  if tag_is_self_closing(&lower[start..=open_end]) {
-                      cursor = open_end + 1;
-                      continue;
-                  }
-
-                  let mut depth = 1usize;
-                  let mut scan = open_end + 1;
-                  let mut closed = false;
-                  while depth > 0 {
-                      let next_open = find_html_tag_start(&lower, scan, tag, false);
-                      let next_close = find_html_tag_start(&lower, scan, tag, true);
-                      match (next_open, next_close) {
-                          (_, Some(close_start)) if next_open.is_none_or(|open_start| close_start < open_start) => {
-                              let Some(close_end_relative) = lower[close_start..].find('>') else {
-                                  scan = value.len();
-                                  break;
-                              };
-                              depth -= 1;
-                              scan = close_start + close_end_relative + 1;
-                              if depth == 0 {
-                                  closed = true;
-                              }
-                          }
-                          (Some(open_start), _) => {
-                              let Some(nested_end_relative) = lower[open_start..].find('>') else {
-                                  scan = value.len();
-                                  break;
-                              };
-                              let nested_end = open_start + nested_end_relative;
-                              if !tag_is_self_closing(&lower[open_start..=nested_end]) {
-                                  depth = depth.saturating_add(1);
-                              }
-                              scan = nested_end + 1;
-                          }
-                          (None, None) => {
-                              scan = value.len();
-                              break;
-                          }
-                      }
-                  }
-                  if !closed {
-                      cursor = value.len();
-                      break;
-                  }
-                  cursor = scan;
-              }
-              if cursor < value.len() {
-                  out.push_str(&value[cursor..]);
-              }
-              out
-          }
-
-          fn find_html_tag_start(lower: &str, from: usize, tag: &str, closing: bool) -> Option<usize> {
-              let needle = if closing {
-                  format!("</{tag}")
-              } else {
-                  format!("<{tag}")
-              };
-              let mut cursor = from;
-              while let Some(relative) = lower[cursor..].find(&needle) {
-                  let start = cursor + relative;
-                  let boundary = start + needle.len();
-                  let accepted = lower.as_bytes().get(boundary).is_none_or(|byte| {
-                      byte.is_ascii_whitespace() || matches!(*byte, b'>' | b'/')
-                  });
-                  if accepted {
-                      return Some(start);
-                  }
-                  cursor = boundary;
-              }
-              None
-          }
-
-          fn tag_is_self_closing(tag_source: &str) -> bool {
-              tag_source
-                  .strip_suffix('>')
-                  .is_some_and(|prefix| prefix.trim_end().ends_with('/'))
-          }
-'''
-          if text.count(old_remove) != 1:
-              raise SystemExit('expected exact B03 active-element remover once')
-          source.write_text(text.replace(old_remove, new_remove), encoding='utf-8')
-
-          tests = Path('crates/ptah-archive-decomposition/tests/b03_review.rs')
-          test_text = tests.read_text(encoding='utf-8')
-          marker = 'fn truncated_text_clears_exact_byte_anchor()'
-          if marker not in test_text:
-              test_text += r'''
-
-          #[test]
-          fn truncated_text_clears_exact_byte_anchor() {
-              let report = inspect_document(
-                  b"abcdefgh",
-                  &agreed("text/plain"),
-                  &context(),
-                  DocumentLimits {
-                      max_text_bytes: 4,
-                      ..DocumentLimits::default()
-                  },
-                  &[&SafeTextAdapter],
-              )
-              .expect("bounded text");
-
-              assert_eq!(report.text[0].text, "abcd");
-              assert_eq!(report.text[0].anchor.byte_start, None);
-              assert_eq!(report.text[0].anchor.byte_end_exclusive, None);
-              assert!(
-                  report
-                      .coverage
-                      .unknown_gaps
-                      .iter()
-                      .any(|gap| gap.contains("max_text_bytes"))
-              );
-          }
-
-          #[test]
-          fn nested_active_regions_are_removed_as_complete_outer_region() {
-              let source = br#"<html><body><script>evil1<script>evil2</script>evil3</script><p>safe</p></body></html>"#;
-              let report = inspect_document(
-                  source,
-                  &agreed("text/html"),
-                  &context(),
-                  DocumentLimits::default(),
-                  &[&SafeHtmlAdapter],
-              )
-              .expect("nested active HTML");
-
-              assert!(report.active_content_observed);
-              let preview = String::from_utf8(report.preview.expect("preview").bytes).expect("UTF-8");
-              assert!(preview.contains("safe"));
-              assert!(!preview.contains("evil1"));
-              assert!(!preview.contains("evil2"));
-              assert!(!preview.contains("evil3"));
-              let conversion = String::from_utf8(report.conversion.expect("conversion").bytes)
-                  .expect("UTF-8 conversion");
-              assert!(conversion.contains("safe"));
-              assert!(!conversion.contains("evil1"));
-              assert!(!conversion.contains("evil2"));
-              assert!(!conversion.contains("evil3"));
-          }
-          '''
-              tests.write_text(test_text, encoding='utf-8')
+          rendered = json.dumps(manifest, indent=2, sort_keys=True) + '\n'
+          (root / 'proof-manifest.json').write_text(rendered, encoding='utf-8')
+          digest = hashlib.sha256(rendered.encode()).hexdigest()
+          (root / 'proof-manifest.sha256').write_text(
+              f'{digest}  proof-manifest.json\n', encoding='utf-8'
+          )
+          print(rendered, end='')
           PY
-          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
-          rustup default 1.97.1
-          cargo fmt --all
-          git diff --check
-      - name: Commit reviewed B03 corrections
+          cd /tmp/b03
+          sha256sum -c proof-manifest.sha256
+
+      - name: Confirm exact clean candidate
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add crates/ptah-archive-decomposition/src/b03.rs crates/ptah-archive-decomposition/tests/b03_review.rs
-          git diff --cached --check
-          git commit -m "B03 review: harden truncated anchors and nested active regions"
-          git push origin HEAD:b03-documents-structured-text
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Retain B03 proof bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: b03-documents-structured-text-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/b03/
+          if-no-files-found: error
+          retention-days: 90

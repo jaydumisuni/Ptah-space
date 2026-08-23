@@ -192,7 +192,7 @@ fn truncated_text_clears_exact_byte_anchor() {
 
 #[test]
 fn nested_active_regions_are_removed_as_complete_outer_region() {
-    let source = br#"<html><body><script>evil1<script>evil2</script>evil3</script><p>safe</p></body></html>"#;
+    let source = br"<html><body><script>evil1<script>evil2</script>evil3</script><p>safe</p></body></html>";
     let report = inspect_document(
         source,
         &agreed("text/html"),

@@ -1,337 +1,226 @@
-name: B04 one-use review correction
+name: B04 media object world exact-head proof
 
 on:
   pull_request:
-    branches: [main]
+    paths:
+      - "B04_MEDIA_OBJECT_WORLD.md"
+      - "crates/ptah-archive-decomposition/Cargo.toml"
+      - "crates/ptah-archive-decomposition/src/lib.rs"
+      - "crates/ptah-archive-decomposition/src/b04.rs"
+      - "crates/ptah-archive-decomposition/tests/b04.rs"
+      - "crates/ptah-archive-decomposition/tests/b04_entry.rs"
+      - ".github/workflows/b04-media-object-world.yml"
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PTAH_PR_BASE: ${{ github.event.pull_request.base.sha }}
+  PTAH_B04_BASE_SHA: a4b844b1f1267ee045e3905b314a65970fd9c2bf
+  CARGO_TERM_COLOR: always
 
 jobs:
-  correct:
-    if: github.actor != 'github-actions[bot]'
+  b04-proof:
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
-      - name: Check out writable B04 branch
+      - name: Check out exact B04 candidate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: b04-media-object-world
+          ref: ${{ env.PTAH_EXACT_SHA }}
           fetch-depth: 0
-      - name: Apply exact Review corrections
+          persist-credentials: false
+
+      - name: Lock accepted B03 base and B04 scope
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+          if [ -n "${PTAH_PR_BASE:-}" ]; then
+            test "$PTAH_PR_BASE" = "$PTAH_B04_BASE_SHA"
+          fi
+          test "$(git merge-base "$PTAH_B04_BASE_SHA" "$PTAH_EXACT_SHA")" = "$PTAH_B04_BASE_SHA"
           python3 - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["PTAH_B04_BASE_SHA"]
+          head = os.environ["PTAH_EXACT_SHA"]
+          files = subprocess.check_output(
+              ["git", "diff", "--name-only", base, head], text=True
+          ).splitlines()
+          allowed = {
+              "B04_MEDIA_OBJECT_WORLD.md",
+              "crates/ptah-archive-decomposition/Cargo.toml",
+              "crates/ptah-archive-decomposition/src/lib.rs",
+              "crates/ptah-archive-decomposition/src/b04.rs",
+              "crates/ptah-archive-decomposition/tests/b04.rs",
+              "crates/ptah-archive-decomposition/tests/b04_entry.rs",
+              ".github/workflows/b04-media-object-world.yml",
+          }
+          unexpected = sorted(set(files).difference(allowed))
+          missing = sorted(allowed.difference(files))
+          assert not unexpected, f"B04 scope drift: {unexpected}"
+          assert not missing, f"B04 required surface missing: {missing}"
+          PY
+          git diff --check "$PTAH_B04_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/b04
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          rustc -Vv | tee /tmp/b04/rustc-version.txt
+          cargo -V | tee /tmp/b04/cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$PTAH_EXACT_SHA" > /tmp/b04/exact-head.txt
+          cat /etc/os-release > /tmp/b04/host-os-release.txt
+
+      - name: Prove formatting and B04 acceptance suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ptah-archive-decomposition --test b04 --locked -- --nocapture \
+            2>&1 | tee /tmp/b04/b04-tests.txt
+          grep -Eq 'test result: ok\. 14 passed; 0 failed;' /tmp/b04/b04-tests.txt
+
+      - name: Prove B04 surface with strict Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ptah-archive-decomposition --lib --test b04 --locked -- -D warnings \
+            2>&1 | tee /tmp/b04/b04-clippy.txt
+
+      - name: Re-prove inherited B03 document semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b03 --locked -- --nocapture \
+            2>&1 | tee /tmp/b04/b03-tests.txt
+          grep -Eq 'test result: ok\. 10 passed; 0 failed;' /tmp/b04/b03-tests.txt
+          cargo test -p ptah-archive-decomposition --test b03_review --locked -- --nocapture \
+            2>&1 | tee /tmp/b04/b03-review-tests.txt
+          grep -Eq 'test result: ok\. 8 passed; 0 failed;' /tmp/b04/b03-review-tests.txt
+
+      - name: Re-prove inherited B02 general decomposition semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b02 --locked -- --nocapture \
+            2>&1 | tee /tmp/b04/b02-tests.txt
+
+      - name: Re-prove inherited A12 decomposition semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test a12 --locked -- --nocapture \
+            2>&1 | tee /tmp/b04/a12-tests.txt
+
+      - name: Re-prove inherited workspace at exact B04 head
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture \
+            2>&1 | tee /tmp/b04/workspace-tests.txt
+
+      - name: Write exact-head proof manifest
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cp B04_MEDIA_OBJECT_WORLD.md /tmp/b04/acceptance-contract.md
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
           from pathlib import Path
 
-          source = Path('crates/ptah-archive-decomposition/src/b04.rs')
-          text = source.read_text(encoding='utf-8')
-          text = text.replace(
-              '    /// Image media such as PNG, JPEG, WebP or other image Provider formats.\n',
-              '    /// Image media such as PNG, JPEG, `WebP` or other image Provider formats.\n',
-              1,
+          root = Path('/tmp/b04')
+          required = [
+              'exact-head.txt',
+              'host-os-release.txt',
+              'rustc-version.txt',
+              'cargo-version.txt',
+              'b04-tests.txt',
+              'b04-clippy.txt',
+              'b03-tests.txt',
+              'b03-review-tests.txt',
+              'b02-tests.txt',
+              'a12-tests.txt',
+              'workspace-tests.txt',
+              'acceptance-contract.md',
+          ]
+          files = {}
+          for name in required:
+              path = root / name
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f'missing B04 proof report: {name}')
+              files[name] = {
+                  'size_bytes': path.stat().st_size,
+                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+              }
+          head = (root / 'exact-head.txt').read_text(encoding='utf-8').strip()
+          if head != os.environ['PTAH_EXACT_SHA']:
+              raise SystemExit('B04 proof head mismatch')
+          manifest = {
+              'schema_version': '0.1.0',
+              'record_type': 'ptah.b04.media_object_world_exact_head_proof',
+              'status': 'pass',
+              'implementation_commit': head,
+              'accepted_base_commit': os.environ['PTAH_B04_BASE_SHA'],
+              'workflow_run_id': int(os.environ['RUN_ID']),
+              'workflow_run_attempt': int(os.environ['RUN_ATTEMPT']),
+              'b04_acceptance_test_count': 14,
+              'media_detection_bound_to_b02': True,
+              'passive_provider_isolation_proven': True,
+              'technical_metadata_views_proven': True,
+              'thumbnail_preview_views_proven': True,
+              'frame_waveform_views_proven': True,
+              'image_transform_revision_plan_proven': True,
+              'controlled_transcode_revision_plan_proven': True,
+              'explicit_artifact_promotion_boundary_proven': True,
+              'source_content_immutable': True,
+              'partial_duration_coverage_truth_proven': True,
+              'large_media_cache_policy_proven': True,
+              'unrequested_output_rejected': True,
+              'source_extent_overclaim_rejected': True,
+              'heavy_transcode_nonblocking_independence_proven': True,
+              'inherited_b03_reproven': True,
+              'inherited_b02_reproven': True,
+              'inherited_a12_reproven': True,
+              'files': files,
+          }
+          rendered = json.dumps(manifest, indent=2, sort_keys=True) + '\n'
+          (root / 'proof-manifest.json').write_text(rendered, encoding='utf-8')
+          digest = hashlib.sha256(rendered.encode()).hexdigest()
+          (root / 'proof-manifest.sha256').write_text(
+              f'{digest}  proof-manifest.json\n', encoding='utf-8'
           )
-          old_impl = '''\nimpl MediaClass {\n    const fn as_str(self) -> &'static str {\n        match self {\n            Self::Image => "image",\n            Self::Audio => "audio",\n            Self::Video => "video",\n        }\n    }\n}\n'''
-          if text.count(old_impl) != 1:
-              raise SystemExit('expected unused MediaClass::as_str block once')
-          text = text.replace(old_impl, '\n', 1)
-
-          start = text.index('pub fn inspect_media(\n')
-          end = text.index('\nfn validate_context(', start)
-          replacement = r'''pub fn inspect_media(
-    source_bytes: &[u8],
-    type_assessment: &TypeAssessment,
-    context: &MediaContext,
-    request: &MediaRequest,
-    limits: MediaLimits,
-    adapters: &[&dyn MediaAdapter],
-) -> Result<MediaReport, B04Error> {
-    validate_context(context)?;
-    validate_limits(limits)?;
-    validate_adapter_ids(adapters)?;
-
-    let source_sha256 = sha256_bytes(source_bytes);
-    let agreed_media_type = match &type_assessment.agreement {
-        TypeAgreement::Agreed(value) => Some(normalize_media_type(value)),
-        TypeAgreement::Unknown | TypeAgreement::Disputed(_) => None,
-    };
-    let mut report = empty_report(
-        source_sha256.clone(),
-        context.source_revision_ref.clone(),
-        agreed_media_type.clone(),
-    );
-
-    let Some(media_type) = agreed_media_type else {
-        record_unresolved_type_gap(&mut report, type_assessment);
-        return Ok(report);
-    };
-    let Some(media_class) = media_class_for_type(&media_type) else {
-        report.coverage.unknown_gaps.push(format!(
-            "B02 agreed type {media_type} is outside the B04 image/audio/video domain"
-        ));
-        return Ok(report);
-    };
-    report.media_class = Some(media_class);
-    validate_request(request, media_class, limits)?;
-
-    let matching: Vec<&dyn MediaAdapter> = adapters
-        .iter()
-        .copied()
-        .filter(|adapter| adapter.supports_media_type(&media_type))
-        .collect();
-    if matching.len() > 1 {
-        return Err(B04Error::AmbiguousAdapter(media_type));
-    }
-    let Some(adapter) = matching.first().copied() else {
-        report.coverage.unknown_gaps.push(format!(
-            "no B04 media adapter is registered for agreed type {media_type}"
-        ));
-        return Ok(report);
-    };
-    let adapter_id = adapter.adapter_id().trim().to_owned();
-    if !adapter.isolation().is_safe() {
-        return Err(B04Error::UnsafeAdapterIsolation(adapter_id));
-    }
-
-    let output = adapter
-        .inspect(source_bytes, &media_type, request, limits)
-        .map_err(B04Error::Adapter)?;
-    validate_adapter_output(&output, source_bytes.len(), media_class, request)?;
-    apply_adapter_output(
-        &mut report,
-        output,
-        source_bytes.len(),
-        context,
-        request,
-        limits,
-        &source_sha256,
-        &adapter_id,
-    )?;
-
-    if !report.coverage.unknown_gaps.is_empty() {
-        report.coverage.complete_claim = false;
-    }
-    dedup_strings(&mut report.coverage.unknown_gaps);
-    dedup_strings(&mut report.warnings);
-    dedup_strings(&mut report.limitations);
-    debug_assert_eq!(source_sha256, sha256_bytes(source_bytes));
-    Ok(report)
-}
-
-fn record_unresolved_type_gap(report: &mut MediaReport, type_assessment: &TypeAssessment) {
-    report.coverage.unknown_gaps.push(match &type_assessment.agreement {
-        TypeAgreement::Unknown => "B02 did not establish an agreed media type".to_owned(),
-        TypeAgreement::Disputed(values) => format!(
-            "B02 detector disagreement prevents media adapter selection: {}",
-            values.join(", ")
-        ),
-        TypeAgreement::Agreed(_) => unreachable!("agreed media type was extracted above"),
-    });
-}
-
-#[allow(clippy::too_many_arguments)]
-fn apply_adapter_output(
-    report: &mut MediaReport,
-    output: AdapterMedia,
-    source_len: usize,
-    context: &MediaContext,
-    request: &MediaRequest,
-    limits: MediaLimits,
-    source_sha256: &str,
-    adapter_id: &str,
-) -> Result<(), B04Error> {
-    let AdapterMedia {
-        metadata,
-        dimensions,
-        duration,
-        observed_source_bytes,
-        thumbnail,
-        preview,
-        frames,
-        waveform,
-        derivatives,
-        complete_claim,
-        unknown_gaps,
-        warnings,
-        limitations,
-    } = output;
-    report.adapter_id = Some(adapter_id.to_owned());
-    report.coverage.complete_claim = complete_claim;
-    report.coverage.observed_source_bytes = observed_source_bytes;
-    report.coverage.unknown_gaps.extend(unknown_gaps);
-    report.warnings = warnings;
-    report.limitations = limitations;
-    report.metadata = retain_metadata(metadata, limits.max_metadata_fields, &mut report.coverage);
-    report.dimensions = dimensions;
-    report.duration = duration;
-    apply_source_coverage(report, source_len, complete_claim)?;
-    retain_requested_views(
-        report, thumbnail, preview, frames, waveform, context, request, limits,
-    )?;
-    retain_requested_derivatives(
-        report, derivatives, context, request, limits.max_derived_bytes, source_sha256, adapter_id,
-    );
-    Ok(())
-}
-
-fn apply_source_coverage(
-    report: &mut MediaReport,
-    source_len: usize,
-    provider_complete_claim: bool,
-) -> Result<(), B04Error> {
-    let source_len = u64::try_from(source_len).map_err(|_| B04Error::AccountingOverflow)?;
-    if report.coverage.observed_source_bytes < source_len {
-        mark_gap(
-            report,
-            "media Provider inspected only part of the immutable source bytes".to_owned(),
-        );
-        if let Some(duration) = &mut report.duration {
-            duration.complete = false;
-        }
-    }
-    if !provider_complete_claim && report.coverage.unknown_gaps.is_empty() {
-        mark_gap(
-            report,
-            "media Provider reported partial supported coverage".to_owned(),
-        );
-    }
-    if report.duration.is_some_and(|duration| !duration.complete) {
-        mark_gap(
-            report,
-            "full media duration was not mechanically established".to_owned(),
-        );
-    }
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn retain_requested_views(
-    report: &mut MediaReport,
-    thumbnail: Option<AdapterMediaView>,
-    preview: Option<AdapterMediaView>,
-    frames: Vec<AdapterMediaFrame>,
-    waveform: Option<AdapterMediaView>,
-    context: &MediaContext,
-    request: &MediaRequest,
-    limits: MediaLimits,
-) -> Result<(), B04Error> {
-    report.thumbnail = retain_view(
-        thumbnail,
-        context,
-        "thumbnail",
-        limits.max_thumbnail_bytes,
-        limits.max_cached_view_bytes,
-        &mut report.coverage,
-        &mut report.limitations,
-    )?;
-    if request.thumbnail && report.thumbnail.is_none() {
-        mark_gap(report, "requested media thumbnail was not retained".to_owned());
-    }
-    report.preview = retain_view(
-        preview,
-        context,
-        "preview",
-        limits.max_preview_bytes,
-        limits.max_cached_view_bytes,
-        &mut report.coverage,
-        &mut report.limitations,
-    )?;
-    if request.preview && report.preview.is_none() {
-        mark_gap(report, "requested media preview was not retained".to_owned());
-    }
-    retain_frames(
-        report,
-        frames,
-        context,
-        limits.max_frames,
-        limits.max_frame_bytes,
-        limits.max_cached_view_bytes,
-    )?;
-    for timestamp in &request.frame_timestamps_ms {
-        if !report.frames.iter().any(|frame| frame.timestamp_ms == *timestamp) {
-            mark_gap(report, format!("requested frame at {timestamp} ms was not retained"));
-        }
-    }
-    report.waveform = retain_view(
-        waveform,
-        context,
-        "waveform",
-        limits.max_waveform_bytes,
-        limits.max_cached_view_bytes,
-        &mut report.coverage,
-        &mut report.limitations,
-    )?;
-    if request.waveform && report.waveform.is_none() {
-        mark_gap(report, "requested media waveform was not retained".to_owned());
-    }
-    Ok(())
-}
-
-fn retain_requested_derivatives(
-    report: &mut MediaReport,
-    derivatives: Vec<AdapterDerivedMedia>,
-    context: &MediaContext,
-    request: &MediaRequest,
-    max_derived_bytes: usize,
-    source_sha256: &str,
-    adapter_id: &str,
-) {
-    retain_derivatives(
-        report, derivatives, context, max_derived_bytes, source_sha256, adapter_id,
-    );
-    if request.image_transform.is_some()
-        && !report
-            .derivatives
-            .iter()
-            .any(|derived| derived.kind == DerivedMediaKind::ImageTransform)
-    {
-        mark_gap(report, "requested image transformation was not retained".to_owned());
-    }
-    if request.transcode.is_some()
-        && !report
-            .derivatives
-            .iter()
-            .any(|derived| derived.kind == DerivedMediaKind::Transcode)
-    {
-        mark_gap(report, "requested media transcode was not retained".to_owned());
-    }
-}
-'''
-          text = text[:start] + replacement + text[end:]
-          text = text.replace(
-              '    validate_optional_view(&output.thumbnail)?;\n    validate_optional_view(&output.preview)?;\n    validate_optional_view(&output.waveform)?;\n',
-              '    validate_optional_view(output.thumbnail.as_ref())?;\n    validate_optional_view(output.preview.as_ref())?;\n    validate_optional_view(output.waveform.as_ref())?;\n',
-              1,
-          )
-          text = text.replace(
-              'fn validate_optional_view(view: &Option<AdapterMediaView>) -> Result<(), B04Error> {\n',
-              'fn validate_optional_view(view: Option<&AdapterMediaView>) -> Result<(), B04Error> {\n',
-              1,
-          )
-          old_signature = '''fn retain_derivatives(\n    report: &mut MediaReport,\n    derivatives: Vec<AdapterDerivedMedia>,\n    context: &MediaContext,\n    _request: &MediaRequest,\n    max_derived_bytes: usize,\n'''
-          new_signature = '''fn retain_derivatives(\n    report: &mut MediaReport,\n    derivatives: Vec<AdapterDerivedMedia>,\n    context: &MediaContext,\n    max_derived_bytes: usize,\n'''
-          if text.count(old_signature) != 1:
-              raise SystemExit('expected retain_derivatives signature once')
-          text = text.replace(old_signature, new_signature, 1)
-          source.write_text(text, encoding='utf-8')
-
-          tests = Path('crates/ptah-archive-decomposition/tests/b04.rs')
-          test_text = tests.read_text(encoding='utf-8')
-          if not test_text.startswith('//! B04'):
-              test_text = '//! B04 media object-world acceptance and adversarial proofs.\n\n' + test_text
-          tests.write_text(test_text, encoding='utf-8')
+          print(rendered, end='')
           PY
-          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
-          rustup default 1.97.1
-          cargo fmt --all
-          git diff --check
-      - name: Commit reviewed B04 corrections
+          cd /tmp/b04
+          sha256sum -c proof-manifest.sha256
+
+      - name: Confirm exact clean candidate
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add crates/ptah-archive-decomposition/src/b04.rs crates/ptah-archive-decomposition/tests/b04.rs
-          git diff --cached --check
-          git commit -m "B04 review: satisfy strict Clippy and tighten coverage orchestration"
-          git push origin HEAD:b04-media-object-world
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Retain B04 proof bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: b04-media-object-world-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/b04/
+          if-no-files-found: error
+          retention-days: 90

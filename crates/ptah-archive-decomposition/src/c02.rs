@@ -505,7 +505,10 @@ pub fn detect_filesystem(source: &[u8]) -> FilesystemDetection {
         return detection(FilesystemKind::SquashFs, "SquashFS magic at byte 0");
     }
     if has_bytes_at(source, 0, b"UBI#") {
-        return detection(FilesystemKind::Ubi, "UBI erase-counter header magic at byte 0");
+        return detection(
+            FilesystemKind::Ubi,
+            "UBI erase-counter header magic at byte 0",
+        );
     }
     if has_bytes_at(source, 0, &[0x31, 0x18, 0x10, 0x06]) {
         return detection(FilesystemKind::Ubifs, "UBIFS node magic at byte 0");
@@ -517,7 +520,10 @@ pub fn detect_filesystem(source: &[u8]) -> FilesystemDetection {
         return detection(FilesystemKind::F2fs, "F2FS superblock magic at byte 1024");
     }
     if has_bytes_at(source, 1_080, &0xef53_u16.to_le_bytes()) {
-        return detection(FilesystemKind::Ext4, "ext filesystem magic at superblock+0x38");
+        return detection(
+            FilesystemKind::Ext4,
+            "ext filesystem magic at superblock+0x38",
+        );
     }
     if has_boot_signature(source)
         && (has_bytes_at(source, 54, b"FAT12   ")
@@ -697,8 +703,8 @@ pub fn materialize_filesystem_file(
                     return Err(C02Error::ExtentNotReadable);
                 }
                 let start = usize::try_from(*source_start).map_err(|_| C02Error::InvalidExtent)?;
-                let end = usize::try_from(*source_end_exclusive)
-                    .map_err(|_| C02Error::InvalidExtent)?;
+                let end =
+                    usize::try_from(*source_end_exclusive).map_err(|_| C02Error::InvalidExtent)?;
                 output.extend_from_slice(source.get(start..end).ok_or(C02Error::InvalidExtent)?);
             }
             FilesystemExtent::Zero { length } => {
@@ -788,10 +794,7 @@ fn validate_metadata(
     Ok(())
 }
 
-fn validate_limitations(
-    limitations: &[String],
-    limits: FilesystemLimits,
-) -> Result<(), C02Error> {
+fn validate_limitations(limitations: &[String], limits: FilesystemLimits) -> Result<(), C02Error> {
     if limitations.len() > limits.max_metadata_pairs
         || limitations
             .iter()
@@ -844,7 +847,12 @@ fn canonicalize_coverage(
             FilesystemCoverageKind::Unknown,
         );
     }
-    if canonical.len() > limits.max_coverage_ranges.saturating_mul(2).saturating_add(1) {
+    if canonical.len()
+        > limits
+            .max_coverage_ranges
+            .saturating_mul(2)
+            .saturating_add(1)
+    {
         return Err(C02Error::TooManyCoverageRanges);
     }
     Ok(canonical)
@@ -906,7 +914,11 @@ fn validate_exact_file(
     coverage: &[FilesystemCoverageRange],
     source_size: u64,
 ) -> Result<(), C02Error> {
-    if entry.content_sha256.as_deref().is_none_or(|digest| digest.len() != 64) {
+    if entry
+        .content_sha256
+        .as_deref()
+        .is_none_or(|digest| digest.len() != 64)
+    {
         return Err(C02Error::ExactFileMismatch);
     }
     if entry.size > 0 && entry.extents.is_empty() {
@@ -982,7 +994,8 @@ fn validate_path(path: &str, limits: FilesystemLimits) -> Result<(), C02Error> {
         return Err(C02Error::UnsafePath);
     }
     let first = path.split('/').next().unwrap_or_default();
-    if first.len() >= 2 && first.as_bytes()[1] == b':' && first.as_bytes()[0].is_ascii_alphabetic() {
+    if first.len() >= 2 && first.as_bytes()[1] == b':' && first.as_bytes()[0].is_ascii_alphabetic()
+    {
         return Err(C02Error::UnsafePath);
     }
     if path
@@ -994,11 +1007,7 @@ fn validate_path(path: &str, limits: FilesystemLimits) -> Result<(), C02Error> {
     Ok(())
 }
 
-fn range_is_exact_read(
-    coverage: &[FilesystemCoverageRange],
-    start: u64,
-    end: u64,
-) -> bool {
+fn range_is_exact_read(coverage: &[FilesystemCoverageRange], start: u64, end: u64) -> bool {
     if start >= end {
         return false;
     }

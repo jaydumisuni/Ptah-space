@@ -182,13 +182,8 @@ fn complete_provider_evidence_is_source_bound_and_alias_only() {
         complete_observation(FilesystemKind::Ext4, &source),
     );
     let ctx = context(reference("object.revision"));
-    let report = inspect_filesystem(
-        &source,
-        &ctx,
-        FilesystemLimits::default(),
-        Some(&provider),
-    )
-    .expect("complete report");
+    let report = inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider))
+        .expect("complete report");
     assert_eq!(report.assessment, FilesystemAssessment::Complete);
     assert_eq!(report.source_revision_ref, ctx.source_revision_ref);
     let alias = report.provider_alias.expect("provider alias");
@@ -204,12 +199,7 @@ fn provider_kind_disagreement_fails_closed() {
     let provider = FixtureProvider::new(FilesystemKind::Ext4, observation);
     let ctx = context(reference("object.revision"));
     assert!(matches!(
-        inspect_filesystem(
-            &source,
-            &ctx,
-            FilesystemLimits::default(),
-            Some(&provider)
-        ),
+        inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
         Err(C02Error::ProviderKindMismatch)
     ));
 }
@@ -222,12 +212,7 @@ fn false_complete_claim_with_gap_is_rejected() {
     let provider = FixtureProvider::new(FilesystemKind::Ext4, observation);
     let ctx = context(reference("object.revision"));
     assert!(matches!(
-        inspect_filesystem(
-            &source,
-            &ctx,
-            FilesystemLimits::default(),
-            Some(&provider)
-        ),
+        inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
         Err(C02Error::FalseCompletenessClaim)
     ));
 }
@@ -251,12 +236,7 @@ fn false_complete_claim_with_unsupported_region_is_rejected() {
     let provider = FixtureProvider::new(FilesystemKind::Ext4, observation);
     let ctx = context(reference("object.revision"));
     assert!(matches!(
-        inspect_filesystem(
-            &source,
-            &ctx,
-            FilesystemLimits::default(),
-            Some(&provider)
-        ),
+        inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
         Err(C02Error::FalseCompletenessClaim)
     ));
 }
@@ -274,13 +254,8 @@ fn partial_provider_gaps_become_explicit_unknown_coverage() {
     observation.entries.clear();
     let provider = FixtureProvider::new(FilesystemKind::Ext4, observation);
     let ctx = context(reference("object.revision"));
-    let report = inspect_filesystem(
-        &source,
-        &ctx,
-        FilesystemLimits::default(),
-        Some(&provider),
-    )
-    .expect("partial report");
+    let report = inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider))
+        .expect("partial report");
     assert_eq!(report.assessment, FilesystemAssessment::Partial);
     assert_eq!(report.coverage.len(), 2);
     assert_eq!(report.coverage[1].kind, FilesystemCoverageKind::Unknown);
@@ -295,12 +270,7 @@ fn traversal_entry_path_is_rejected() {
     let provider = FixtureProvider::new(FilesystemKind::Ext4, observation);
     let ctx = context(reference("object.revision"));
     assert!(matches!(
-        inspect_filesystem(
-            &source,
-            &ctx,
-            FilesystemLimits::default(),
-            Some(&provider)
-        ),
+        inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
         Err(C02Error::UnsafePath)
     ));
 }
@@ -314,12 +284,7 @@ fn windows_drive_and_backslash_paths_are_rejected() {
         observation.entries[0].path = unsafe_path.to_owned();
         let provider = FixtureProvider::new(FilesystemKind::Ext4, observation);
         assert!(matches!(
-            inspect_filesystem(
-                &source,
-                &ctx,
-                FilesystemLimits::default(),
-                Some(&provider)
-            ),
+            inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
             Err(C02Error::UnsafePath)
         ));
     }
@@ -333,12 +298,7 @@ fn duplicate_inventory_paths_are_rejected() {
     let provider = FixtureProvider::new(FilesystemKind::Ext4, observation);
     let ctx = context(reference("object.revision"));
     assert!(matches!(
-        inspect_filesystem(
-            &source,
-            &ctx,
-            FilesystemLimits::default(),
-            Some(&provider)
-        ),
+        inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
         Err(C02Error::DuplicatePath)
     ));
 }
@@ -355,12 +315,7 @@ fn out_of_bounds_exact_extent_is_rejected() {
     let provider = FixtureProvider::new(FilesystemKind::Ext4, observation);
     let ctx = context(reference("object.revision"));
     assert!(matches!(
-        inspect_filesystem(
-            &source,
-            &ctx,
-            FilesystemLimits::default(),
-            Some(&provider)
-        ),
+        inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
         Err(C02Error::InvalidExtent)
     ));
 }
@@ -385,12 +340,7 @@ fn exact_extent_must_be_backed_by_read_coverage() {
     let provider = FixtureProvider::new(FilesystemKind::Ext4, observation);
     let ctx = context(reference("object.revision"));
     assert!(matches!(
-        inspect_filesystem(
-            &source,
-            &ctx,
-            FilesystemLimits::default(),
-            Some(&provider)
-        ),
+        inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
         Err(C02Error::ExtentNotReadable)
     ));
 }
@@ -408,12 +358,7 @@ fn unsupported_regular_file_requires_explicit_limitation() {
     let provider = FixtureProvider::new(FilesystemKind::Ext4, observation);
     let ctx = context(reference("object.revision"));
     assert!(matches!(
-        inspect_filesystem(
-            &source,
-            &ctx,
-            FilesystemLimits::default(),
-            Some(&provider)
-        ),
+        inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
         Err(C02Error::ExactFileMismatch)
     ));
 }
@@ -428,13 +373,8 @@ fn exact_file_materialization_is_read_only_and_digest_bound() {
         complete_observation(FilesystemKind::Ext4, &source),
     );
     let ctx = context(reference("object.revision"));
-    let report = inspect_filesystem(
-        &source,
-        &ctx,
-        FilesystemLimits::default(),
-        Some(&provider),
-    )
-    .expect("report");
+    let report = inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider))
+        .expect("report");
     let file = materialize_filesystem_file(
         &source,
         &report,
@@ -456,13 +396,8 @@ fn report_mutation_cannot_authorize_materialization() {
         complete_observation(FilesystemKind::Ext4, &source),
     );
     let ctx = context(reference("object.revision"));
-    let report = inspect_filesystem(
-        &source,
-        &ctx,
-        FilesystemLimits::default(),
-        Some(&provider),
-    )
-    .expect("report");
+    let report = inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider))
+        .expect("report");
     let mut forged = report.clone();
     forged.entries[0].path = "forged".to_owned();
     assert!(matches!(
@@ -485,13 +420,8 @@ fn source_mutation_invalidates_materialization_binding() {
         complete_observation(FilesystemKind::Ext4, &source),
     );
     let ctx = context(reference("object.revision"));
-    let report = inspect_filesystem(
-        &source,
-        &ctx,
-        FilesystemLimits::default(),
-        Some(&provider),
-    )
-    .expect("report");
+    let report = inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider))
+        .expect("report");
     let mut changed = source.clone();
     changed[3000] ^= 0xff;
     assert!(matches!(
@@ -514,13 +444,8 @@ fn exact_file_builds_a07_registration_and_relationship_plans() {
         complete_observation(FilesystemKind::Ext4, &source),
     );
     let ctx = context(reference("object.revision"));
-    let report = inspect_filesystem(
-        &source,
-        &ctx,
-        FilesystemLimits::default(),
-        Some(&provider),
-    )
-    .expect("report");
+    let report = inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider))
+        .expect("report");
     let file = materialize_filesystem_file(
         &source,
         &report,
@@ -546,7 +471,10 @@ fn exact_file_builds_a07_registration_and_relationship_plans() {
         .relationship_spec(&ctx, &registration)
         .expect("relationship");
     assert_eq!(relationship.relationship_type, "contains.filesystem_file");
-    assert_eq!(relationship.subject_refs, vec![ctx.source_revision_ref.clone()]);
+    assert_eq!(
+        relationship.subject_refs,
+        vec![ctx.source_revision_ref.clone()]
+    );
 }
 
 #[test]
@@ -557,13 +485,8 @@ fn view_plans_are_exact_source_bound() {
         complete_observation(FilesystemKind::Ext4, &source),
     );
     let ctx = context(reference("object.revision"));
-    let report = inspect_filesystem(
-        &source,
-        &ctx,
-        FilesystemLimits::default(),
-        Some(&provider),
-    )
-    .expect("report");
+    let report = inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider))
+        .expect("report");
     let views = report.view_specs(&ctx).expect("views");
     assert_eq!(views.len(), 2);
     assert!(
@@ -631,13 +554,8 @@ fn provider_failure_and_unknown_signature_never_manufacture_completeness() {
     ));
 
     let unknown = vec![0_u8; 4096];
-    let report = inspect_filesystem(
-        &unknown,
-        &ctx,
-        FilesystemLimits::default(),
-        Some(&provider),
-    )
-    .expect("unknown report");
+    let report = inspect_filesystem(&unknown, &ctx, FilesystemLimits::default(), Some(&provider))
+        .expect("unknown report");
     assert_eq!(report.detection.kind, FilesystemKind::Unknown);
     assert_eq!(report.assessment, FilesystemAssessment::Inconclusive);
     assert!(report.provider_alias.is_none());

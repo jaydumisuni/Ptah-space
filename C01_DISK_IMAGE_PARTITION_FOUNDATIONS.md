@@ -17,13 +17,15 @@ Delivered candidate surface:
 - exact source-defined versus sparse `DONT_CARE` byte coverage;
 - MBR primary partition parsing;
 - GPT primary-header and partition-entry parsing with CRC32 verification;
+- GPT primary/current/backup/usable-LBA and entry-array bound validation;
 - exact partition byte/LBA boundaries;
 - partition-table metadata ranges;
 - explicit complete / partial / inconclusive partition-map truth;
 - explicit unknown/unallocated/partition layout coverage;
 - MBR extended-container and hybrid-MBR limitation truth;
 - exact read-only partition materialization;
-- A07 partition Object registration plans;
+- integrity-sealed parser reports before materialization or canonical View planning;
+- A07 partition Object registration plans with exact source-Revision revalidation;
 - A07 source-to-partition Relationship plans;
 - A07 partition-map and block-coverage View plans;
 - structural, source-bound disk-image comparison foundations;
@@ -39,12 +41,14 @@ Filesystem interpretation and filesystem mounting are intentionally outside C01;
 - Partition materialization fails if any requested partition byte overlaps `Unspecified` source coverage.
 - Corrupt MBR/GPT state cannot become a complete partition-map claim.
 - GPT primary-header and partition-entry CRC32 checks are mechanical evidence gates.
-- Invalid partition extents are excluded and reduce the map to partial/inconclusive.
+- GPT current/backup/usable LBA bounds and entry-array placement are validated before a complete claim.
+- Invalid partition extents or missing GPT partition identity are excluded and reduce the map to partial/inconclusive.
 - Extended MBR containers are retained but EBR recursion is not claimed by C01.
 - Hybrid MBR + GPT is explicit partial coverage because C01 projects GPT only.
 - Partition layout overlap becomes unknown coverage rather than contradictory overlapping truth.
+- Parser reports are integrity-sealed over exact source identity, partition projection and source coverage; post-parse mutation cannot authorize materialization.
 - Partition Objects remain A07 registrations derived from exact source Revision bytes.
-- View and Relationship plans bind the exact source Revision and A04 production evidence.
+- Registration, View and Relationship plans re-bind the exact source Revision and A04 production evidence.
 - Comparison is structural only; it does not claim filesystem or application semantic equality.
 
 ## Acceptance corpus
@@ -64,8 +68,8 @@ The exact candidate must pass all 20 C01 cases covering:
 11. corrupt GPT entry-array CRC inconclusive behavior;
 12. invalid GPT partition extent rejection;
 13. hybrid MBR/GPT explicit partial state;
-14. sparse DONT_CARE partition materialization rejection;
-15. exact partition materialization and A07 registration plan;
+14. sparse DONT_CARE partition materialization rejection plus report-integrity mutation rejection;
+15. exact partition materialization and source-checked A07 registration plan;
 16. exact A07 Relationship byte binding;
 17. exact source-bound A07 View plans;
 18. structural source-bound comparison;

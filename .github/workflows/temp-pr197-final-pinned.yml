@@ -11,7 +11,7 @@ permissions:
 
 env:
   ORACLE_SHA: 299165caa11d936ceb05ef4d055f043faed12eed
-  CONTROL_SHA: 8574c0abbf3c7bca2e2129441817e5359bffe7a3
+  CONTROL_SHA: 4a5d9089e42cc4ee6d96a5b29ca90b52eb5f2c20
 
 jobs:
   boot-elevate-reboot:
@@ -38,6 +38,7 @@ jobs:
             if(-not(Test-Path -LiteralPath $launcher)){throw 'UAC_LAUNCHER_MISSING'}
             $attemptText=Get-Content -LiteralPath $attempt -Raw
             if($attemptText -notmatch [regex]::Escape("Resolve-Path (Join-Path `$PSScriptRoot '..\..')")){throw 'FIXED_REPO_PATH_NOT_PRESENT'}
+            if($attemptText -notmatch 'worktree add --quiet'){throw 'QUIET_WORKTREE_FIX_NOT_PRESENT'}
             Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
             & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher
             if($LASTEXITCODE -ne 0){throw 'UAC_LAUNCH_FAILED'}

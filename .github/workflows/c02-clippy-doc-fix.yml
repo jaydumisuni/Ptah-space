@@ -1,4 +1,4 @@
-name: C02 one-shot strict Clippy doc fix
+name: C02 consolidated Review correction
 
 on:
   push:
@@ -13,14 +13,15 @@ permissions:
 jobs:
   correct-c02:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: c02-filesystem-providers
           fetch-depth: 0
           persist-credentials: true
-      - name: Apply exact mechanical correction and verify
+
+      - name: Apply exact reviewed corrections
         shell: bash
         run: |
           set -euo pipefail
@@ -28,33 +29,284 @@ jobs:
           rustup default 1.97.1
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('crates/ptah-archive-decomposition/src/c02.rs')
-          source = path.read_text(encoding='utf-8')
+
+          source_path = Path('crates/ptah-archive-decomposition/src/c02.rs')
+          source = source_path.read_text(encoding='utf-8')
+
           old = '    /// SquashFS.\n'
           new = '    /// `SquashFS`.\n'
           assert source.count(old) == 1, source.count(old)
           source = source.replace(old, new, 1)
-          path.write_text(source, encoding='utf-8')
+
+          old = '''    if has_boot_signature(source)
+              && (has_bytes_at(source, 54, b"FAT12   ")
+                  || has_bytes_at(source, 54, b"FAT16   ")
+                  || has_bytes_at(source, 82, b"FAT32   "))
+              {
+                  return detection(FilesystemKind::Fat, "FAT boot-sector filesystem type field");
+              }
+          '''
+          new = '''    if let Some(fat) = detect_fat(source) {
+                  return fat;
+              }
+          '''
+          assert source.count(old) == 1, source.count(old)
+          source = source.replace(old, new, 1)
+
+          old = '''    if entries.iter().any(|entry| {
+                  entry.content_state == FilesystemContentState::Unsupported
+                      || (entry.kind == FilesystemEntryKind::File
+                          && entry.content_state != FilesystemContentState::Exact)
+              }) {
+          '''
+          new = '''    if entries.iter().any(|entry| {
+                  !entry.limitations.is_empty()
+                      || entry.content_state == FilesystemContentState::Unsupported
+                      || (entry.kind == FilesystemEntryKind::File
+                          && entry.content_state != FilesystemContentState::Exact)
+              }) {
+          '''
+          assert source.count(old) == 1, source.count(old)
+          source = source.replace(old, new, 1)
+
+          marker = '''fn has_boot_signature(source: &[u8]) -> bool {
+          '''
+          assert source.count(marker) == 1, source.count(marker)
+          helper = '''fn detect_fat(source: &[u8]) -> Option<FilesystemDetection> {
+              if !has_boot_signature(source) {
+                  return None;
+              }
+              let bytes_per_sector = u64::from(read_u16_le(source, 11)?);
+              if !matches!(bytes_per_sector, 512 | 1024 | 2048 | 4096) {
+                  return None;
+              }
+              let sectors_per_cluster = u64::from(*source.get(13)?);
+              if sectors_per_cluster == 0
+                  || sectors_per_cluster > 128
+                  || !sectors_per_cluster.is_power_of_two()
+              {
+                  return None;
+              }
+              let reserved_sectors = u64::from(read_u16_le(source, 14)?);
+              let number_of_fats = u64::from(*source.get(16)?);
+              let root_entry_count = u64::from(read_u16_le(source, 17)?);
+              let total_sectors_16 = u64::from(read_u16_le(source, 19)?);
+              let fat_size_16 = u64::from(read_u16_le(source, 22)?);
+              let total_sectors_32 = u64::from(read_u32_le(source, 32)?);
+              let fat_size_32 = u64::from(read_u32_le(source, 36)?);
+              if reserved_sectors == 0 || !(1..=2).contains(&number_of_fats) {
+                  return None;
+              }
+              let total_sectors = if total_sectors_16 != 0 {
+                  total_sectors_16
+              } else {
+                  total_sectors_32
+              };
+              let fat_size = if fat_size_16 != 0 {
+                  fat_size_16
+              } else {
+                  fat_size_32
+              };
+              if total_sectors == 0 || fat_size == 0 {
+                  return None;
+              }
+              let root_dir_bytes = root_entry_count.checked_mul(32)?;
+              let root_dir_sectors = root_dir_bytes
+                  .checked_add(bytes_per_sector.checked_sub(1)?)?
+                  / bytes_per_sector;
+              let non_data_sectors = reserved_sectors
+                  .checked_add(number_of_fats.checked_mul(fat_size)?)?
+                  .checked_add(root_dir_sectors)?;
+              let data_sectors = total_sectors.checked_sub(non_data_sectors)?;
+              if data_sectors == 0 {
+                  return None;
+              }
+              let source_sectors = u64::try_from(source.len()).ok()? / bytes_per_sector;
+              if total_sectors > source_sectors {
+                  return None;
+              }
+              let clusters = data_sectors / sectors_per_cluster;
+              if clusters == 0 {
+                  return None;
+              }
+              let variant = if clusters < 4_085 {
+                  "FAT12"
+              } else if clusters < 65_525 {
+                  "FAT16"
+              } else {
+                  "FAT32"
+              };
+              if variant == "FAT32" {
+                  if root_entry_count != 0 || fat_size_16 != 0 || fat_size_32 == 0 {
+                      return None;
+                  }
+              } else if root_entry_count == 0 || fat_size_16 == 0 {
+                  return None;
+              }
+              Some(FilesystemDetection {
+                  kind: FilesystemKind::Fat,
+                  evidence: vec![format!(
+                      "{variant} validated BPB geometry with {clusters} data clusters"
+                  )],
+              })
+          }
+
+          fn read_u16_le(source: &[u8], offset: usize) -> Option<u16> {
+              let end = offset.checked_add(2)?;
+              let bytes = source.get(offset..end)?;
+              Some(u16::from_le_bytes([bytes[0], bytes[1]]))
+          }
+
+          fn read_u32_le(source: &[u8], offset: usize) -> Option<u32> {
+              let end = offset.checked_add(4)?;
+              let bytes = source.get(offset..end)?;
+              Some(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+          }
+
+          '''
+          source = source.replace(marker, helper + marker, 1)
+          source_path.write_text(source, encoding='utf-8')
+
+          tests_path = Path('crates/ptah-archive-decomposition/tests/c02.rs')
+          tests = tests_path.read_text(encoding='utf-8')
+
+          old = '''        FilesystemKind::Fat => {
+                      bytes[54..62].copy_from_slice(b"FAT16   ");
+                      bytes[510] = 0x55;
+                      bytes[511] = 0xaa;
+                  }
+          '''
+          new = '''        FilesystemKind::Fat => {
+                      bytes[11..13].copy_from_slice(&512_u16.to_le_bytes());
+                      bytes[13] = 1;
+                      bytes[14..16].copy_from_slice(&1_u16.to_le_bytes());
+                      bytes[16] = 1;
+                      bytes[17..19].copy_from_slice(&16_u16.to_le_bytes());
+                      bytes[19..21].copy_from_slice(&78_u16.to_le_bytes());
+                      bytes[21] = 0xf8;
+                      bytes[22..24].copy_from_slice(&1_u16.to_le_bytes());
+                      bytes[510] = 0x55;
+                      bytes[511] = 0xaa;
+                  }
+          '''
+          assert tests.count(old) == 1, tests.count(old)
+          tests = tests.replace(old, new, 1)
+
+          marker = '''    for kind in kinds {
+                  let source = source_for(kind);
+                  let detection = detect_filesystem(&source);
+                  assert_eq!(detection.kind, kind);
+                  assert!(!detection.evidence.is_empty());
+              }
+          '''
+          insertion = '''    let mut fat_without_type_label = source_for(FilesystemKind::Fat);
+              fat_without_type_label[54..62].copy_from_slice(b"NOTFAT!!");
+              let fat = detect_filesystem(&fat_without_type_label);
+              assert_eq!(fat.kind, FilesystemKind::Fat);
+              assert!(fat.evidence[0].contains("FAT12"));
+          '''
+          assert tests.count(marker) == 1, tests.count(marker)
+          tests = tests.replace(marker, marker + insertion, 1)
+
+          marker = '''    assert!(matches!(
+                  inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
+                  Err(C02Error::FalseCompletenessClaim)
+              ));
+          }
+
+          #[test]
+          fn partial_provider_gaps_become_explicit_unknown_coverage() {
+          '''
+          insertion = '''    assert!(matches!(
+                  inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
+                  Err(C02Error::FalseCompletenessClaim)
+              ));
+
+              let mut entry_limited = complete_observation(FilesystemKind::Ext4, &source);
+              entry_limited.entries[0]
+                  .limitations
+                  .push("extended attribute feature not interpreted".to_owned());
+              let provider = FixtureProvider::new(FilesystemKind::Ext4, entry_limited);
+              assert!(matches!(
+                  inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
+                  Err(C02Error::FalseCompletenessClaim)
+              ));
+          }
+
+          #[test]
+          fn partial_provider_gaps_become_explicit_unknown_coverage() {
+          '''
+          assert tests.count(marker) == 1, tests.count(marker)
+          tests = tests.replace(marker, insertion, 1)
+
+          old = '''    let mut limits = FilesystemLimits::default();
+              limits.max_entries = 1;
+          '''
+          new = '''    let limits = FilesystemLimits {
+                  max_entries: 1,
+                  ..FilesystemLimits::default()
+              };
+          '''
+          assert tests.count(old) == 1, tests.count(old)
+          tests = tests.replace(old, new, 1)
+
+          old = '''    let mut tiny = FilesystemLimits::default();
+              tiny.max_string_bytes = 3;
+          '''
+          new = '''    let tiny = FilesystemLimits {
+                  max_string_bytes: 3,
+                  ..FilesystemLimits::default()
+              };
+          '''
+          assert tests.count(old) == 1, tests.count(old)
+          tests = tests.replace(old, new, 1)
+          tests_path.write_text(tests, encoding='utf-8')
+
+          contract_path = Path('C02_FILESYSTEM_PROVIDERS.md')
+          contract = contract_path.read_text(encoding='utf-8')
+          anchor = '- A recognized filesystem signature is detection evidence only; it cannot establish inventory or completeness by itself.\n'
+          assert contract.count(anchor) == 1
+          contract = contract.replace(
+              anchor,
+              anchor
+              + '- FAT detection derives family evidence from validated BPB geometry and data-cluster count; the informational filesystem-type label is not authoritative.\n',
+              1,
+          )
+          anchor = '- Unsupported features or unknown ranges cannot claim completeness.\n'
+          assert contract.count(anchor) == 1
+          contract = contract.replace(
+              anchor,
+              anchor
+              + '- A complete claim also requires every retained entry to have no entry-specific limitations.\n',
+              1,
+          )
+          contract_path.write_text(contract, encoding='utf-8')
           PY
+
           cargo fmt --all
           cargo test -p ptah-archive-decomposition --test c02 --locked -- --nocapture \
-            2>&1 | tee /tmp/c02-tests.txt
-          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c02-tests.txt
+            2>&1 | tee /tmp/c02-corrected-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c02-corrected-tests.txt
           cargo clippy -p ptah-archive-decomposition --lib --test c02 --locked -- -D warnings \
-            2>&1 | tee /tmp/c02-clippy.txt
+            2>&1 | tee /tmp/c02-corrected-clippy.txt
           git diff --check
-      - name: Commit correction and self-delete
+
+      - name: Commit corrected C02 surface and self-delete
         shell: bash
         run: |
           set -euo pipefail
           git rm .github/workflows/c02-clippy-doc-fix.yml
-          git add crates/ptah-archive-decomposition/src/c02.rs
+          git add C02_FILESYSTEM_PROVIDERS.md \
+                  crates/ptah-archive-decomposition/src/c02.rs \
+                  crates/ptah-archive-decomposition/tests/c02.rs
           changed="$(git diff --cached --name-only | sort)"
           allowed="$(printf '%s\n' \
             .github/workflows/c02-clippy-doc-fix.yml \
-            crates/ptah-archive-decomposition/src/c02.rs | sort)"
+            C02_FILESYSTEM_PROVIDERS.md \
+            crates/ptah-archive-decomposition/src/c02.rs \
+            crates/ptah-archive-decomposition/tests/c02.rs | sort)"
           test "$changed" = "$allowed"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "C02 review: satisfy strict Clippy documentation"
+          git commit -m "C02 review: harden completeness and FAT detection"
           git push origin HEAD:c02-filesystem-providers

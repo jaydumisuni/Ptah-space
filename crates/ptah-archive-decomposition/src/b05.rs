@@ -111,7 +111,7 @@ pub struct ExecutableContext {
     pub production: ProductionEvidence,
 }
 
-/// Technical metadata observation from a passive Provider.
+/// Technical or package metadata observation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutableMetadata {
     /// Stable metadata key.
@@ -125,14 +125,25 @@ pub struct ExecutableMetadata {
 pub struct ExecutableSection {
     /// Provider-reported section name.
     pub name: String,
-    /// Byte offset within the immutable source.
+    /// Byte offset within immutable source bytes.
     pub offset: u64,
-    /// Byte size within the immutable source.
+    /// Byte size within immutable source bytes.
     pub size: u64,
-    /// Provider-reported flags, retained as passive metadata.
+    /// Provider-reported passive flags.
     pub flags: Vec<String>,
-    /// Whether this region is packed, opaque or otherwise not statically understood.
+    /// Whether this region is packed, opaque or not statically understood.
     pub packed_or_unknown: bool,
+}
+
+/// Passive signature verification vocabulary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignatureStatus {
+    /// Signature verified by the declared passive verifier.
+    Verified,
+    /// Signature was present but failed verification.
+    Invalid,
+    /// Signature was observed but not independently verified.
+    Unverified,
 }
 
 /// Passive signature observation.
@@ -142,25 +153,14 @@ pub struct SignatureObservation {
     pub scheme: String,
     /// Signer identity text when mechanically available.
     pub signer: Option<String>,
-    /// Verification status token supplied by the passive Provider.
+    /// Passive verification status.
     pub status: SignatureStatus,
-}
-
-/// Bounded signature verification vocabulary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SignatureStatus {
-    /// Signature verified under the Provider's declared static verifier.
-    Verified,
-    /// Signature was present but failed verification.
-    Invalid,
-    /// Signature was observed but not independently verified.
-    Unverified,
 }
 
 /// Provider-produced embedded child before B05 attaches canonical provenance.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdapterEmbeddedChild {
-    /// Safe logical path or package-local name.
+    /// Safe package-local logical path.
     pub logical_path: String,
     /// Exact observed child media type.
     pub media_type: String,
@@ -181,13 +181,13 @@ pub struct AdapterExecutable {
     pub exports: Vec<String>,
     /// Signature observations.
     pub signatures: Vec<SignatureObservation>,
-    /// Recovered embedded package/application children.
+    /// Recovered embedded children.
     pub children: Vec<AdapterEmbeddedChild>,
-    /// Number of source bytes mechanically inspected.
+    /// Number of immutable source bytes mechanically inspected.
     pub observed_source_bytes: u64,
     /// Provider claim that all supported static regions were understood.
     pub complete_claim: bool,
-    /// Explicit opaque, encrypted, packed or unsupported regions.
+    /// Explicit opaque, packed, encrypted or unsupported regions.
     pub unknown_regions: Vec<String>,
     /// Provider warnings.
     pub warnings: Vec<String>,
@@ -199,13 +199,10 @@ pub struct AdapterExecutable {
 pub trait ExecutableAdapter: Send + Sync {
     /// Stable Provider adapter identity.
     fn adapter_id(&self) -> &str;
-
     /// Whether the Provider supports the exact normalized B02 agreed type.
     fn supports_media_type(&self, media_type: &str) -> bool;
-
     /// Passive isolation declaration.
     fn isolation(&self) -> StaticIsolation;
-
     /// Inspect immutable bytes without loading or executing analyzed code.
     ///
     /// # Errors
@@ -218,7 +215,7 @@ pub trait ExecutableAdapter: Send + Sync {
     ) -> Result<AdapterExecutable, String>;
 }
 
-/// Static execution truth. B05 never executes the source under analysis.
+/// Static execution truth. B05 never executes source under analysis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionAssessment {
     /// No execution-success claim exists because B05 is static-only.
@@ -258,11 +255,10 @@ impl EmbeddedExecutableChild {
         }
     }
 
-    /// Build the canonical parent-to-child Relationship after A07 child registration.
+    /// Build the parent-to-child Relationship after A07 child registration.
     ///
     /// # Errors
-    /// Returns [`B05Error::InvalidChildRevision`] when the supplied child reference is not an
-    /// exact Object Revision.
+    /// Returns [`B05Error::InvalidChildRevision`] unless the child target is an Object Revision.
     pub fn relationship_spec(
         &self,
         context: &ExecutableContext,
@@ -289,9 +285,9 @@ pub struct ExecutableCoverage {
     pub complete_claim: bool,
     /// Number of source bytes mechanically inspected.
     pub observed_source_bytes: u64,
-    /// Explicit opaque, packed, encrypted, unsupported or truncated regions.
+    /// Explicit opaque, packed, unsupported or truncated regions.
     pub unknown_regions: Vec<String>,
-    /// Aggregate retained bytes across recovered embedded children.
+    /// Aggregate retained bytes across embedded children.
     pub retained_child_bytes: u64,
 }
 
@@ -335,52 +331,12 @@ impl ExecutableReport {
     #[must_use]
     pub fn view_specs(&self, context: &ExecutableContext) -> Vec<ViewSpec> {
         let mut views = Vec::new();
-        if !self.metadata.is_empty() {
-            views.push(view_spec(
-                context,
-                &self.source_revision_ref,
-                "executable.metadata",
-                "urn:ptah:schema:executable:metadata-view:0.1.0",
-            ));
-        }
-        if !self.sections.is_empty() {
-            views.push(view_spec(
-                context,
-                &self.source_revision_ref,
-                "executable.sections",
-                "urn:ptah:schema:executable:sections-view:0.1.0",
-            ));
-        }
-        if !self.imports.is_empty() {
-            views.push(view_spec(
-                context,
-                &self.source_revision_ref,
-                "executable.imports",
-                "urn:ptah:schema:executable:imports-view:0.1.0",
-            ));
-        }
-        if !self.exports.is_empty() {
-            views.push(view_spec(
-                context,
-                &self.source_revision_ref,
-                "executable.exports",
-                "urn:ptah:schema:executable:exports-view:0.1.0",
-            ));
-        }
-        if !self.signatures.is_empty() {
-            views.push(view_spec(
-                context,
-                &self.source_revision_ref,
-                "executable.signatures",
-                "urn:ptah:schema:executable:signatures-view:0.1.0",
-            ));
-        }
-        views.push(view_spec(
-            context,
-            &self.source_revision_ref,
-            "executable.coverage",
-            "urn:ptah:schema:executable:coverage-view:0.1.0",
-        ));
+        add_view_if(&mut views, context, &self.source_revision_ref, !self.metadata.is_empty(), "executable.metadata", "metadata");
+        add_view_if(&mut views, context, &self.source_revision_ref, !self.sections.is_empty(), "executable.sections", "sections");
+        add_view_if(&mut views, context, &self.source_revision_ref, !self.imports.is_empty(), "executable.imports", "imports");
+        add_view_if(&mut views, context, &self.source_revision_ref, !self.exports.is_empty(), "executable.exports", "exports");
+        add_view_if(&mut views, context, &self.source_revision_ref, !self.signatures.is_empty(), "executable.signatures", "signatures");
+        views.push(view_spec(context, &self.source_revision_ref, "executable.coverage", "coverage"));
         views
     }
 }
@@ -456,60 +412,38 @@ pub fn inspect_executable(
     validate_context(context)?;
     validate_limits(limits)?;
     validate_adapter_ids(adapters)?;
-
     let source_sha256 = sha256_bytes(source_bytes);
-    let agreed_media_type = match &type_assessment.agreement {
+    let agreed = match &type_assessment.agreement {
         TypeAgreement::Agreed(value) => Some(normalize(value)),
         TypeAgreement::Unknown | TypeAgreement::Disputed(_) => None,
     };
-    let mut report = empty_report(
-        source_sha256.clone(),
-        context.source_revision_ref.clone(),
-        agreed_media_type.clone(),
-    );
-
-    let Some(media_type) = agreed_media_type else {
+    let mut report = empty_report(source_sha256.clone(), context.source_revision_ref.clone(), agreed.clone());
+    let Some(media_type) = agreed else {
         report.coverage.unknown_regions.push(match &type_assessment.agreement {
             TypeAgreement::Unknown => "B02 did not establish an agreed executable/package type".to_owned(),
-            TypeAgreement::Disputed(values) => format!(
-                "B02 detector disagreement prevents B05 adapter selection: {}",
-                values.join(", ")
-            ),
-            TypeAgreement::Agreed(_) => unreachable!("agreed media type was extracted above"),
+            TypeAgreement::Disputed(values) => format!("B02 detector disagreement prevents B05 adapter selection: {}", values.join(", ")),
+            TypeAgreement::Agreed(_) => unreachable!("agreed type extracted above"),
         });
         return Ok(report);
     };
-
-    let Some(executable_class) = executable_class_for_type(&media_type) else {
-        report.coverage.unknown_regions.push(format!(
-            "B02 agreed type {media_type} is outside the B05 executable/application-package domain"
-        ));
+    let Some(class) = executable_class_for_type(&media_type) else {
+        report.coverage.unknown_regions.push(format!("B02 agreed type {media_type} is outside the B05 executable/application-package domain"));
         return Ok(report);
     };
-    report.executable_class = Some(executable_class);
-
-    let matching: Vec<&dyn ExecutableAdapter> = adapters
-        .iter()
-        .copied()
-        .filter(|adapter| adapter.supports_media_type(&media_type))
-        .collect();
+    report.executable_class = Some(class);
+    let matching: Vec<_> = adapters.iter().copied().filter(|adapter| adapter.supports_media_type(&media_type)).collect();
     if matching.len() > 1 {
         return Err(B05Error::AmbiguousAdapter(media_type));
     }
     let Some(adapter) = matching.first().copied() else {
-        report.coverage.unknown_regions.push(format!(
-            "no B05 static-analysis adapter is registered for agreed type {media_type}"
-        ));
+        report.coverage.unknown_regions.push(format!("no B05 static-analysis adapter is registered for agreed type {media_type}"));
         return Ok(report);
     };
     let adapter_id = adapter.adapter_id().trim().to_owned();
     if !adapter.isolation().is_safe() {
         return Err(B05Error::UnsafeAdapterIsolation(adapter_id));
     }
-
-    let output = adapter
-        .inspect(source_bytes, &media_type, limits)
-        .map_err(B05Error::Adapter)?;
+    let output = adapter.inspect(source_bytes, &media_type, limits).map_err(B05Error::Adapter)?;
     validate_output(&output, source_bytes.len())?;
     apply_output(&mut report, output, context, source_bytes.len(), limits, &adapter_id)?;
     dedup_strings(&mut report.coverage.unknown_regions);
@@ -533,51 +467,18 @@ fn apply_output(
     report.coverage.unknown_regions.extend(output.unknown_regions);
     report.warnings = output.warnings;
     report.limitations = output.limitations;
-
-    retain_bounded(
-        &mut report.metadata,
-        output.metadata,
-        limits.max_metadata_fields,
-        &mut report.coverage,
-        "metadata fields",
-    );
-    retain_bounded(
-        &mut report.sections,
-        output.sections,
-        limits.max_sections,
-        &mut report.coverage,
-        "sections",
-    );
-    retain_bounded(
-        &mut report.imports,
-        output.imports,
-        limits.max_imports,
-        &mut report.coverage,
-        "imports",
-    );
-    retain_bounded(
-        &mut report.exports,
-        output.exports,
-        limits.max_exports,
-        &mut report.coverage,
-        "exports",
-    );
-    retain_bounded(
-        &mut report.signatures,
-        output.signatures,
-        limits.max_signatures,
-        &mut report.coverage,
-        "signature observations",
-    );
-
-    let source_len_u64 = u64::try_from(source_len).map_err(|_| B05Error::AccountingOverflow)?;
-    if report.coverage.observed_source_bytes < source_len_u64 {
+    retain_bounded(&mut report.metadata, output.metadata, limits.max_metadata_fields, &mut report.coverage, "metadata fields");
+    retain_bounded(&mut report.sections, output.sections, limits.max_sections, &mut report.coverage, "sections");
+    retain_bounded(&mut report.imports, output.imports, limits.max_imports, &mut report.coverage, "imports");
+    retain_bounded(&mut report.exports, output.exports, limits.max_exports, &mut report.coverage, "exports");
+    retain_bounded(&mut report.signatures, output.signatures, limits.max_signatures, &mut report.coverage, "signature observations");
+    let source_len = u64::try_from(source_len).map_err(|_| B05Error::AccountingOverflow)?;
+    if report.coverage.observed_source_bytes < source_len {
         mark_gap(report, "static Provider inspected only part of the immutable source bytes".to_owned());
     }
-    for section in &report.sections {
-        if section.packed_or_unknown {
-            mark_gap(report, format!("section {} is packed or statically unknown", section.name));
-        }
+    let packed: Vec<String> = report.sections.iter().filter(|section| section.packed_or_unknown).map(|section| section.name.clone()).collect();
+    for name in packed {
+        mark_gap(report, format!("section {name} is packed or statically unknown"));
     }
     if !report.coverage.complete_claim && report.coverage.unknown_regions.is_empty() {
         mark_gap(report, "static Provider reported partial supported coverage".to_owned());
@@ -598,23 +499,14 @@ fn retain_children(
     let produced = children.len();
     for child in children.into_iter().take(limits.max_children) {
         if child.bytes.len() > limits.max_child_bytes {
-            mark_gap(
-                report,
-                format!("embedded child {} exceeded max_child_bytes", child.logical_path),
-            );
+            mark_gap(report, format!("embedded child {} exceeded max_child_bytes", child.logical_path));
             continue;
         }
-        let child_bytes = u64::try_from(child.bytes.len()).map_err(|_| B05Error::AccountingOverflow)?;
-        let max_total = u64::try_from(limits.max_total_child_bytes)
-            .map_err(|_| B05Error::AccountingOverflow)?;
-        let Some(next) = report.coverage.retained_child_bytes.checked_add(child_bytes) else {
-            return Err(B05Error::AccountingOverflow);
-        };
-        if next > max_total {
-            mark_gap(
-                report,
-                format!("embedded child {} exceeded aggregate child-byte policy", child.logical_path),
-            );
+        let size = u64::try_from(child.bytes.len()).map_err(|_| B05Error::AccountingOverflow)?;
+        let max = u64::try_from(limits.max_total_child_bytes).map_err(|_| B05Error::AccountingOverflow)?;
+        let next = report.coverage.retained_child_bytes.checked_add(size).ok_or(B05Error::AccountingOverflow)?;
+        if next > max {
+            mark_gap(report, format!("embedded child {} exceeded aggregate child-byte policy", child.logical_path));
             continue;
         }
         report.coverage.retained_child_bytes = next;
@@ -641,15 +533,17 @@ fn validate_context(context: &ExecutableContext) -> Result<(), B05Error> {
 }
 
 fn validate_limits(limits: ExecutableLimits) -> Result<(), B05Error> {
-    if limits.max_metadata_fields == 0
-        || limits.max_sections == 0
-        || limits.max_imports == 0
-        || limits.max_exports == 0
-        || limits.max_signatures == 0
-        || limits.max_children == 0
-        || limits.max_child_bytes == 0
-        || limits.max_total_child_bytes == 0
-    {
+    let values = [
+        limits.max_metadata_fields,
+        limits.max_sections,
+        limits.max_imports,
+        limits.max_exports,
+        limits.max_signatures,
+        limits.max_children,
+        limits.max_child_bytes,
+        limits.max_total_child_bytes,
+    ];
+    if values.contains(&0) {
         return Err(B05Error::InvalidLimits);
     }
     Ok(())
@@ -674,34 +568,27 @@ fn validate_output(output: &AdapterExecutable, source_len: usize) -> Result<(), 
     if output.observed_source_bytes > source_len {
         return Err(B05Error::InvalidObservedSourceBytes);
     }
-    for metadata in &output.metadata {
-        if metadata.key.trim().is_empty() {
-            return Err(B05Error::EmptyField("metadata key"));
-        }
+    if output.metadata.iter().any(|entry| entry.key.trim().is_empty()) {
+        return Err(B05Error::EmptyField("metadata key"));
     }
-    let mut section_ids = HashSet::new();
+    let mut sections = HashSet::new();
     for section in &output.sections {
         if section.name.trim().is_empty() {
             return Err(B05Error::EmptyField("section name"));
         }
-        let Some(end) = section.offset.checked_add(section.size) else {
-            return Err(B05Error::InvalidSectionExtent);
-        };
-        if end > source_len {
+        if section.offset.checked_add(section.size).is_none_or(|end| end > source_len) {
             return Err(B05Error::InvalidSectionExtent);
         }
-        if !section_ids.insert((section.name.clone(), section.offset)) {
+        if !sections.insert((section.name.clone(), section.offset)) {
             return Err(B05Error::DuplicateSection);
         }
     }
     validate_names(&output.imports, "import")?;
     validate_names(&output.exports, "export")?;
-    for signature in &output.signatures {
-        if signature.scheme.trim().is_empty() {
-            return Err(B05Error::EmptyField("signature scheme"));
-        }
+    if output.signatures.iter().any(|signature| signature.scheme.trim().is_empty()) {
+        return Err(B05Error::EmptyField("signature scheme"));
     }
-    let mut child_paths = HashSet::new();
+    let mut paths = HashSet::new();
     for child in &output.children {
         if child.bytes.is_empty() {
             return Err(B05Error::EmptyChild);
@@ -712,7 +599,7 @@ fn validate_output(output: &AdapterExecutable, source_len: usize) -> Result<(), 
         if !safe_child_path(&child.logical_path) {
             return Err(B05Error::UnsafeChildPath);
         }
-        if !child_paths.insert(child.logical_path.clone()) {
+        if !paths.insert(child.logical_path.clone()) {
             return Err(B05Error::DuplicateChildPath);
         }
     }
@@ -727,21 +614,16 @@ fn validate_names(values: &[String], label: &'static str) -> Result<(), B05Error
 }
 
 fn safe_child_path(value: &str) -> bool {
-    let trimmed = value.trim();
-    !trimmed.is_empty()
-        && !trimmed.starts_with('/')
-        && !trimmed.starts_with('\\')
-        && !trimmed.contains('\\')
-        && trimmed
-            .split('/')
-            .all(|component| !component.is_empty() && component != "." && component != "..")
+    let value = value.trim();
+    !value.is_empty()
+        && !value.starts_with('/')
+        && !value.starts_with('\\')
+        && !value.contains('\\')
+        && !value.contains(':')
+        && value.split('/').all(|part| !part.is_empty() && part != "." && part != "..")
 }
 
-fn empty_report(
-    source_sha256: String,
-    source_revision_ref: EntityRef,
-    agreed_media_type: Option<String>,
-) -> ExecutableReport {
+fn empty_report(source_sha256: String, source_revision_ref: EntityRef, agreed_media_type: Option<String>) -> ExecutableReport {
     ExecutableReport {
         source_sha256,
         source_revision_ref,
@@ -766,20 +648,12 @@ fn empty_report(
     }
 }
 
-fn retain_bounded<T>(
-    target: &mut Vec<T>,
-    source: Vec<T>,
-    limit: usize,
-    coverage: &mut ExecutableCoverage,
-    label: &str,
-) {
+fn retain_bounded<T>(target: &mut Vec<T>, source: Vec<T>, limit: usize, coverage: &mut ExecutableCoverage, label: &str) {
     let produced = source.len();
     target.extend(source.into_iter().take(limit));
     if produced > limit {
         coverage.complete_claim = false;
-        coverage
-            .unknown_regions
-            .push(format!("B05 {label} exceeded retention policy"));
+        coverage.unknown_regions.push(format!("B05 {label} exceeded retention policy"));
     }
 }
 
@@ -788,19 +662,20 @@ fn mark_gap(report: &mut ExecutableReport, reason: String) {
     report.coverage.unknown_regions.push(reason);
 }
 
-fn view_spec(
-    context: &ExecutableContext,
-    source_revision_ref: &EntityRef,
-    view_kind: &str,
-    schema_id: &str,
-) -> ViewSpec {
+fn add_view_if(views: &mut Vec<ViewSpec>, context: &ExecutableContext, source: &EntityRef, condition: bool, kind: &str, schema: &str) {
+    if condition {
+        views.push(view_spec(context, source, kind, schema));
+    }
+}
+
+fn view_spec(context: &ExecutableContext, source: &EntityRef, kind: &str, schema: &str) -> ViewSpec {
     ViewSpec {
         workspace_ref: context.workspace_ref.clone(),
         authority_ref: context.authority_ref.clone(),
-        view_kind: view_kind.to_owned(),
-        view_schema_id: schema_id.to_owned(),
+        view_kind: kind.to_owned(),
+        view_schema_id: format!("urn:ptah:schema:executable:{schema}-view:0.1.0"),
         view_schema_version: "0.1.0".to_owned(),
-        source_revision_refs: vec![source_revision_ref.clone()],
+        source_revision_refs: vec![source.clone()],
         origin_class: OriginClass::DecodedResource,
         production: context.production.clone(),
     }
@@ -808,16 +683,11 @@ fn view_spec(
 
 fn executable_class_for_type(media_type: &str) -> Option<ExecutableClass> {
     match media_type {
-        "application/vnd.microsoft.portable-executable" | "application/x-msdownload"
-        | "application/x-dosexec" => Some(ExecutableClass::Pe),
-        "application/x-elf" | "application/x-executable" | "application/x-sharedlib" => {
-            Some(ExecutableClass::Elf)
-        }
+        "application/vnd.microsoft.portable-executable" | "application/x-msdownload" | "application/x-dosexec" => Some(ExecutableClass::Pe),
+        "application/x-elf" | "application/x-executable" | "application/x-sharedlib" => Some(ExecutableClass::Elf),
         "application/x-mach-binary" | "application/x-mach-o" => Some(ExecutableClass::MachO),
         "application/vnd.android.package-archive" => Some(ExecutableClass::Apk),
-        "application/vnd.android.aab" | "application/x-android-app-bundle" => {
-            Some(ExecutableClass::Aab)
-        }
+        "application/vnd.android.aab" | "application/x-android-app-bundle" => Some(ExecutableClass::Aab),
         "application/vnd.android.dex" | "application/x-dex" => Some(ExecutableClass::Dex),
         _ => None,
     }

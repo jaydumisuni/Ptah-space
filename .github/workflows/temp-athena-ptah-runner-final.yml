@@ -155,3 +155,5 @@ jobs:
           cd "$work/repo"
           npm ci --ignore-scripts --no-audit --no-fund >/dev/null
           node scripts/probe-oracle-live.mjs
+
+# user-trigger 20260824-0648z

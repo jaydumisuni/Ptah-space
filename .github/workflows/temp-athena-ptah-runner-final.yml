@@ -1,4 +1,4 @@
-name: Temporary Oracle PR197 Reconciled Proof
+name: Temporary Oracle PR197 Test-Type Correction
 
 on:
   pull_request:
@@ -9,120 +9,16 @@ on:
 permissions:
   contents: read
 
-env:
-  ORACLE_SHA: a14d65092f84d1a443e9b710d74a83df508adeb8
-
 jobs:
-  source-proof:
+  correct-pr197:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
-      - name: Full tests and no-new-TypeScript-diagnostics proof
+      - name: Correct current TypeScript diagnostics in PR197 watchdog test
         shell: bash
         run: |
           set -euo pipefail
-          root="$(mktemp -d)"
-          trap 'rm -rf "$root"' EXIT
-          base_sha="$(git ls-remote https://github.com/jaydumisuni/Oracle-.git refs/heads/main | awk '{print $1}')"
-          test -n "$base_sha"
-          prepare() {
-            local sha="$1" dir="$2"
-            gh repo clone jaydumisuni/Oracle- "$dir" -- --no-checkout
-            git -C "$dir" fetch --depth 1 origin "$sha"
-            git -C "$dir" checkout --detach FETCH_HEAD
-            test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
-            (cd "$dir" && npm ci --ignore-scripts --no-audit --no-fund >/dev/null && npm run typegen >/dev/null)
-          }
-          prepare "$base_sha" "$root/base"
-          prepare "$ORACLE_SHA" "$root/head"
-          (cd "$root/base" && npx tsc --noEmit >"$root/base-tsc.txt" 2>&1 || true)
-          (cd "$root/head" && npx tsc --noEmit >"$root/head-tsc.txt" 2>&1 || true)
-          normalize() {
-            grep -E '^[^ ]+\.tsx?\([0-9]+,[0-9]+\): error TS[0-9]+:' "$1" \
-              | sed -E 's/^([^(:]+)\([0-9]+,[0-9]+\): error (TS[0-9]+): /\1: \2: /' \
-              | sort -u || true
-          }
-          normalize "$root/base-tsc.txt" > "$root/base.diag"
-          normalize "$root/head-tsc.txt" > "$root/head.diag"
-          comm -23 "$root/head.diag" "$root/base.diag" > "$root/new.diag"
-          if [ -s "$root/new.diag" ]; then
-            echo 'NEW_TYPESCRIPT_DIAGNOSTICS:'
-            cat "$root/new.diag"
-            exit 1
-          fi
-          cd "$root/head"
-          npm test
-          git diff --check
-          echo "SOURCE_PROOF_HEAD=$ORACLE_SHA BASELINE=$base_sha"
-
-  session-proof:
-    runs-on: [self-hosted, athena, ptah]
-    timeout-minutes: 15
-    steps:
-      - name: Exact-head Session persistence proof on ATHENA
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Stop'
-          $work=Join-Path $env:TEMP ('oracle-pr197-session-'+[guid]::NewGuid().ToString('N'))
-          try {
-            & gh repo clone jaydumisuni/Oracle- $work -- --no-checkout
-            if($LASTEXITCODE -ne 0){throw 'ORACLE_CLONE_FAILED'}
-            & git -C $work fetch --depth 1 origin $env:ORACLE_SHA
-            if($LASTEXITCODE -ne 0){throw 'ORACLE_FETCH_FAILED'}
-            & git -C $work checkout --detach FETCH_HEAD
-            if($LASTEXITCODE -ne 0){throw 'ORACLE_CHECKOUT_FAILED'}
-            $head=(& git -C $work rev-parse HEAD).Trim()
-            if($head -ne $env:ORACLE_SHA){throw ('ORACLE_HEAD_MISMATCH '+$head)}
-            $installedWs=Join-Path $env:LOCALAPPDATA 'OracleNode\runtime\node_modules\ws'
-            $manifest=Join-Path $installedWs 'package.json'
-            if(-not(Test-Path $manifest)){throw 'INSTALLED_WS_SOURCE_MISSING'}
-            $version=[string](Get-Content -Raw $manifest|ConvertFrom-Json).version
-            if($version -ne '8.21.0'){throw ('INSTALLED_WS_VERSION_INVALID '+$version)}
-            New-Item -ItemType Directory -Force -Path (Join-Path $work 'node_modules')|Out-Null
-            Copy-Item -LiteralPath $installedWs -Destination (Join-Path $work 'node_modules\ws') -Recurse -Force
-            $installer=Join-Path $work 'scripts\install-oracle-node-windows.ps1'
-            $output=& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -SourceRoot $work -PersistenceMode Session 2>&1
-            $code=$LASTEXITCODE
-            $output|ForEach-Object{Write-Output $_}
-            if($code -ne 0){throw ('ORACLE_INSTALL_SESSION_FAILED exit='+$code)}
-            $health=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/health' -TimeoutSec 5
-            $ready=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/ready' -TimeoutSec 5
-            if($health.ok -ne $true -or $health.nodeId -ne 'ATHENA'){throw ('HEALTH_INVALID '+($health|ConvertTo-Json -Compress))}
-            if($ready.ok -ne $true -or $ready.connected -ne $true -or $ready.nodeId -ne 'ATHENA' -or [string]::IsNullOrWhiteSpace([string]$ready.connectionId)){throw ('READY_INVALID '+($ready|ConvertTo-Json -Compress))}
-            $node=Get-ScheduledTask -TaskName 'Oracle Live Node (Session Fallback)' -ErrorAction Stop
-            $watch=Get-ScheduledTask -TaskName 'Oracle Node Watchdog (Session Fallback)' -ErrorAction Stop
-            if([string]$node.State -ne 'Running'){throw ('NODE_TASK_NOT_RUNNING '+$node.State)}
-            if([string]$watch.State -ne 'Running'){throw ('WATCHDOG_TASK_NOT_RUNNING '+$watch.State)}
-            $listener=Get-NetTCPConnection -LocalPort 5059 -State Listen -ErrorAction Stop|Select-Object -First 1
-            if([int]$listener.OwningProcess -ne [int]$health.pid){throw ('LISTENER_PID_MISMATCH endpoint='+$health.pid+' listener='+$listener.OwningProcess)}
-            $proc=Get-CimInstance Win32_Process -Filter ('ProcessId='+$listener.OwningProcess) -ErrorAction Stop
-            if($proc.CommandLine -notmatch 'OracleNode\\runtime\\scripts\\oracle-live-node\.mjs'){throw ('LISTENER_OWNER_INVALID '+$proc.CommandLine)}
-            Write-Output ('SESSION_PROOF_HEAD='+$head+' PID='+$listener.OwningProcess+' CONNECTION='+$ready.connectionId)
-          } finally {
-            Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
-          }
-
-  live-proof:
-    needs: [source-proof, session-proof]
-    runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 12
-    steps:
-      - name: Direct oracle.live.v1 round-trip to ATHENA
-        shell: bash
-        env:
-          ORACLE_LIVE_URL: https://oracle.thetechguyds.com
-          ORACLE_NODE_ID: ATHENA
-          ORACLE_LIVE_TOKEN_FILE: /home/kratos/.oracle/live-token
-        run: |
-          set -euo pipefail
-          work="$(mktemp -d)"
-          trap 'rm -rf "$work"' EXIT
-          gh repo clone jaydumisuni/Oracle- "$work/repo" -- --no-checkout
-          git -C "$work/repo" fetch --depth 1 origin "$ORACLE_SHA"
-          git -C "$work/repo" checkout --detach FETCH_HEAD
-          test "$(git -C "$work/repo" rev-parse HEAD)" = "$ORACLE_SHA"
-          cd "$work/repo"
-          npm ci --ignore-scripts --no-audit --no-fund >/dev/null
-          node scripts/probe-oracle-live.mjs
-
-# user-trigger 20260824-0732z
+          payload="$(mktemp --suffix=.mjs)"
+          trap 'rm -f "$payload"' EXIT
+          gh api 'repos/jaydumisuni/Oracle-/contents/oracle_control/pr197-test-type-correction-20260824.mjs?ref=main' --jq .content | tr -d '\n' | base64 -d > "$payload"
+          node "$payload"

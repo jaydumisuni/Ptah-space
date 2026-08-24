@@ -48,12 +48,89 @@ jobs:
           python3 /tmp/c01-reviewed-transform.py
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('crates/ptah-archive-decomposition/src/c01.rs')
-          text = path.read_text(encoding='utf-8')
+
+          source_path = Path('crates/ptah-archive-decomposition/src/c01.rs')
+          source = source_path.read_text(encoding='utf-8')
           old = 'if chunk.chunk_bytes % 4 != 0 {'
           new = 'if !chunk.chunk_bytes.is_multiple_of(4) {'
-          assert text.count(old) == 1, text.count(old)
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          assert source.count(old) == 1, source.count(old)
+          source = source.replace(old, new, 1)
+
+          old = '''    if left.normalized_size != right.normalized_size {
+              differences.push(format!(
+                  "normalized_size:{}->{}",
+                  left.normalized_size, right.normalized_size
+              ));
+          }
+          if left.source_coverage != right.source_coverage {
+          '''
+          new = '''    if left.normalized_size != right.normalized_size {
+              differences.push(format!(
+                  "normalized_size:{}->{}",
+                  left.normalized_size, right.normalized_size
+              ));
+          }
+          if left.assessment != right.assessment {
+              differences.push(format!(
+                  "assessment:{:?}->{:?}",
+                  left.assessment, right.assessment
+              ));
+          }
+          if left.layout_coverage != right.layout_coverage {
+              differences.push("layout_coverage_changed".to_owned());
+          }
+          if left.source_coverage != right.source_coverage {
+          '''
+          assert source.count(old) == 1, source.count(old)
+          source = source.replace(old, new, 1)
+          source_path.write_text(source, encoding='utf-8')
+
+          tests_path = Path('crates/ptah-archive-decomposition/tests/c01.rs')
+          tests = tests_path.read_text(encoding='utf-8')
+          anchor = '''    assert!(comparison
+              .differences
+              .iter()
+              .any(|difference| difference.contains("partition_slot_changed:1")));
+          }
+          '''
+          replacement = '''    assert!(comparison
+              .differences
+              .iter()
+              .any(|difference| difference.contains("partition_slot_changed:1")));
+
+              let complete_source = gpt_image(40, 49, false);
+              let partial_source = gpt_image(40, 49, true);
+              let complete_image = normalize_disk_image(&complete_source, DiskImageLimits::default())
+                  .expect("complete normalize");
+              let partial_image = normalize_disk_image(&partial_source, DiskImageLimits::default())
+                  .expect("partial normalize");
+              let complete = inspect_partition_map(
+                  &complete_image,
+                  &context(reference("object.revision")),
+                  DiskImageLimits::default(),
+              )
+              .expect("complete inspect");
+              let partial = inspect_partition_map(
+                  &partial_image,
+                  &context(reference("object.revision")),
+                  DiskImageLimits::default(),
+              )
+              .expect("partial inspect");
+              assert_eq!(complete.partitions, partial.partitions);
+              let uncertainty = compare_disk_images(&complete, &partial);
+              assert!(!uncertainty.identical_layout);
+              assert!(uncertainty
+                  .differences
+                  .iter()
+                  .any(|difference| difference.starts_with("assessment:")));
+              assert!(uncertainty
+                  .differences
+                  .iter()
+                  .any(|difference| difference == "layout_coverage_changed"));
+          }
+          '''
+          assert tests.count(anchor) == 1, tests.count(anchor)
+          tests_path.write_text(tests.replace(anchor, replacement, 1), encoding='utf-8')
           PY
           cargo fmt --all
           cargo test -p ptah-archive-decomposition --test c01 --locked -- --nocapture \

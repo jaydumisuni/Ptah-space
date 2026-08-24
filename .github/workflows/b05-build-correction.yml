@@ -1,0 +1,66 @@
+name: TEMP B05 build correction carrier
+
+on:
+  push:
+    branches: [b05-executables-application-packages]
+
+permissions:
+  contents: write
+
+jobs:
+  correct:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out B05 construction branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: b05-executables-application-packages
+          fetch-depth: 0
+      - name: Apply static Review corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('crates/ptah-archive-decomposition/src/b05.rs')
+          text = path.read_text()
+          old = '''    for section in &report.sections {
+        if section.packed_or_unknown {
+            mark_gap(report, format!("section {} is packed or statically unknown", section.name));
+        }
+    }
+'''
+          new = '''    let packed_sections: Vec<String> = report
+        .sections
+        .iter()
+        .filter(|section| section.packed_or_unknown)
+        .map(|section| section.name.clone())
+        .collect();
+    for section_name in packed_sections {
+        mark_gap(
+            report,
+            format!("section {section_name} is packed or statically unknown"),
+        );
+    }
+'''
+          if text.count(old) != 1:
+              raise SystemExit('packed-section Review patch did not match exactly once')
+          text = text.replace(old, new)
+          old = '''        && !trimmed.contains('\\\\')
+        && trimmed
+'''
+          new = '''        && !trimmed.contains('\\\\')
+        && !trimmed.contains(':')
+        && trimmed
+'''
+          if text.count(old) != 1:
+              raise SystemExit('child-path Review patch did not match exactly once')
+          path.write_text(text.replace(old, new))
+          PY
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+          cargo +1.97.1 fmt --all
+          git diff --check
+          git add crates/ptah-archive-decomposition/src/b05.rs crates/ptah-archive-decomposition/src/lib.rs crates/ptah-archive-decomposition/tests/b05.rs
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'B05 review: canonicalize static inspection truth'
+          git push origin HEAD:b05-executables-application-packages

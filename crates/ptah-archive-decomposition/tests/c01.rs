@@ -342,7 +342,7 @@ fn invalid_gpt_partition_extent_is_inconclusive() {
     assert!(report
         .warnings
         .iter()
-        .any(|value| value.contains("outside normalized image")));
+        .any(|value| value.contains("invalid identity or usable-LBA extent")));
 }
 
 #[test]

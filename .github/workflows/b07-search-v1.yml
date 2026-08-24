@@ -1,4 +1,4 @@
-name: B07 review correction helper
+name: B07 Search v1 exact-head proof
 
 on:
   pull_request:
@@ -9,586 +9,228 @@ on:
       - "crates/ptah-archive-decomposition/src/b07.rs"
       - "crates/ptah-archive-decomposition/tests/b07.rs"
       - ".github/workflows/b07-search-v1.yml"
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
-  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha }}
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PTAH_PR_BASE: ${{ github.event.pull_request.base.sha }}
+  PTAH_B07_BASE_SHA: 84340971d03bb3ed9780fbb73f4a7ecf1589072d
   CARGO_TERM_COLOR: always
 
 jobs:
-  correct-b07-review:
+  b07-proof:
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
-      - name: Check out exact B07 review head
+      - name: Check out exact B07 candidate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: ${{ env.PTAH_EXACT_SHA }}
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
-      - name: Install pinned Rust review toolchain
+      - name: Lock accepted B06 base and B07 scope
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+          if [ -n "${PTAH_PR_BASE:-}" ]; then
+            test "$PTAH_PR_BASE" = "$PTAH_B07_BASE_SHA"
+          fi
+          test "$(git merge-base "$PTAH_B07_BASE_SHA" "$PTAH_EXACT_SHA")" = "$PTAH_B07_BASE_SHA"
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["PTAH_B07_BASE_SHA"]
+          head = os.environ["PTAH_EXACT_SHA"]
+          files = subprocess.check_output(
+              ["git", "diff", "--name-only", base, head], text=True
+          ).splitlines()
+          allowed = {
+              "B07_SEARCH_V1.md",
+              "crates/ptah-archive-decomposition/Cargo.toml",
+              "crates/ptah-archive-decomposition/src/lib.rs",
+              "crates/ptah-archive-decomposition/src/b07.rs",
+              "crates/ptah-archive-decomposition/tests/b07.rs",
+              ".github/workflows/b07-search-v1.yml",
+          }
+          unexpected = sorted(set(files).difference(allowed))
+          missing = sorted(allowed.difference(files))
+          assert not unexpected, f"B07 scope drift: {unexpected}"
+          assert not missing, f"B07 required surface missing: {missing}"
+          PY
+          git diff --check "$PTAH_B07_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/b07
           rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
           rustup default 1.97.1
+          rustc -Vv | tee /tmp/b07/rustc-version.txt
+          cargo -V | tee /tmp/b07/cargo-version.txt
           rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$PTAH_EXACT_SHA" > /tmp/b07/exact-head.txt
+          cat /etc/os-release > /tmp/b07/host-os-release.txt
 
-      - name: Apply exact Review corrections and validate
+      - name: Prove formatting and 16-case B07 acceptance
         shell: bash
         run: |
           set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ptah-archive-decomposition --test b07 --locked -- --nocapture \
+            2>&1 | tee /tmp/b07/b07-tests.txt
+          grep -Eq 'test result: ok\. 14 passed; 0 failed;' /tmp/b07/b07-tests.txt
+          cargo test -p ptah-archive-decomposition --lib b07::tests --locked -- --nocapture \
+            2>&1 | tee /tmp/b07/b07-boundary-tests.txt
+          grep -Eq 'test result: ok\. 2 passed; 0 failed;' /tmp/b07/b07-boundary-tests.txt
+
+      - name: Prove B07 surface with strict Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ptah-archive-decomposition --lib --test b07 --locked -- -D warnings \
+            2>&1 | tee /tmp/b07/b07-clippy.txt
+
+      - name: Re-prove inherited B02 search-metadata semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b02 --locked -- --nocapture \
+            2>&1 | tee /tmp/b07/b02-tests.txt
+
+      - name: Re-prove inherited B03 document anchoring semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b03 --locked -- --nocapture \
+            2>&1 | tee /tmp/b07/b03-tests.txt
+          cargo test -p ptah-archive-decomposition --test b03_review --locked -- --nocapture \
+            2>&1 | tee /tmp/b07/b03-review-tests.txt
+
+      - name: Re-prove inherited B05 executable/package semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b05 --locked -- --nocapture \
+            2>&1 | tee /tmp/b07/b05-tests.txt
+          grep -Eq 'test result: ok\. 15 passed; 0 failed;' /tmp/b07/b05-tests.txt
+
+      - name: Re-prove inherited B06 Session Vault semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-checkpoint --test b06 --locked -- --nocapture \
+            2>&1 | tee /tmp/b07/b06-tests.txt
+          grep -Eq 'test result: ok\. 12 passed; 0 failed;' /tmp/b07/b06-tests.txt
+
+      - name: Re-prove inherited workspace at exact B07 head
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture \
+            2>&1 | tee /tmp/b07/workspace-tests.txt
+
+      - name: Write exact-head proof manifest
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cp B07_SEARCH_V1.md /tmp/b07/acceptance-contract.md
           python3 - <<'PY'
+          import hashlib
+          import json
+          import os
           from pathlib import Path
 
-          source_path = Path('crates/ptah-archive-decomposition/src/b07.rs')
-          source = source_path.read_text(encoding='utf-8')
-
-          old = '''pub struct SearchField {
-              /// Search domain of this field.
-              pub domain: SearchDomain,
-              /// Optional stable key such as a metadata key, page or symbol class.
-              pub key: Option<String>,
-              /// Exact searchable value.
-              pub value: String,
-              /// Evidence/projection source that supplied this field.
-              pub evidence_source: String,
+          root = Path('/tmp/b07')
+          required = [
+              'exact-head.txt',
+              'host-os-release.txt',
+              'rustc-version.txt',
+              'cargo-version.txt',
+              'b07-tests.txt',
+              'b07-boundary-tests.txt',
+              'b07-clippy.txt',
+              'b02-tests.txt',
+              'b03-tests.txt',
+              'b03-review-tests.txt',
+              'b05-tests.txt',
+              'b06-tests.txt',
+              'workspace-tests.txt',
+              'acceptance-contract.md',
+          ]
+          files = {}
+          for name in required:
+              path = root / name
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f'missing B07 proof report: {name}')
+              files[name] = {
+                  'size_bytes': path.stat().st_size,
+                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+              }
+          head = (root / 'exact-head.txt').read_text(encoding='utf-8').strip()
+          if head != os.environ['PTAH_EXACT_SHA']:
+              raise SystemExit('B07 proof head mismatch')
+          manifest = {
+              'schema_version': '0.1.0',
+              'record_type': 'ptah.b07.search_v1_exact_head_proof',
+              'status': 'pass',
+              'implementation_commit': head,
+              'accepted_base_commit': os.environ['PTAH_B07_BASE_SHA'],
+              'workflow_run_id': int(os.environ['RUN_ID']),
+              'workflow_run_attempt': int(os.environ['RUN_ATTEMPT']),
+              'b07_acceptance_test_count': 16,
+              'derived_index_not_canonical_truth': True,
+              'workspace_isolation_proven': True,
+              'exact_source_revision_binding_proven': True,
+              'deterministic_rebuild_digest_proven': True,
+              'index_clear_nonmutation_proven': True,
+              'canonical_empty_digest_proven': True,
+              'generic_document_invariants_proven': True,
+              'bounds_before_clone_proven': True,
+              'retained_field_strings_bounded': True,
+              'document_level_and_semantics_proven': True,
+              'b02_metadata_evidence_preserved': True,
+              'b03_anchor_binding_proven': True,
+              'inherited_b02_reproven': True,
+              'inherited_b03_reproven': True,
+              'inherited_b05_reproven': True,
+              'inherited_b06_reproven': True,
+              'object_world_beta_candidate': True,
+              'files': files,
           }
-          '''
-          new = '''pub struct SearchField {
-              /// Search domain of this field.
-              domain: SearchDomain,
-              /// Optional stable key such as a metadata key, page or symbol class.
-              key: Option<String>,
-              /// Exact searchable value.
-              value: String,
-              /// Evidence/projection source that supplied this field.
-              evidence_source: String,
-          }
-
-          impl SearchField {
-              /// Return the immutable search domain.
-              #[must_use]
-              pub fn domain(&self) -> SearchDomain {
-                  self.domain
-              }
-
-              /// Return the optional immutable field key.
-              #[must_use]
-              pub fn key(&self) -> Option<&str> {
-                  self.key.as_deref()
-              }
-
-              /// Return the immutable searchable value.
-              #[must_use]
-              pub fn value(&self) -> &str {
-                  &self.value
-              }
-
-              /// Return the immutable evidence/projection source.
-              #[must_use]
-              pub fn evidence_source(&self) -> &str {
-                  &self.evidence_source
-              }
-          }
-          '''
-          assert source.count(old) == 1
-          source = source.replace(old, new, 1)
-
-          old = '''pub struct SearchDocument {
-              /// Exact source binding.
-              pub source: SearchSourceBinding,
-              /// Logical projection class.
-              pub kind: SearchDocumentKind,
-              /// Searchable copied fields.
-              pub fields: Vec<SearchField>,
-          }
-          '''
-          new = '''pub struct SearchDocument {
-              /// Exact source binding.
-              source: SearchSourceBinding,
-              /// Logical projection class.
-              kind: SearchDocumentKind,
-              /// Searchable copied fields.
-              fields: Vec<SearchField>,
-          }
-
-          impl SearchDocument {
-              /// Return the immutable exact source binding.
-              #[must_use]
-              pub fn source(&self) -> &SearchSourceBinding {
-                  &self.source
-              }
-
-              /// Return the immutable projection class.
-              #[must_use]
-              pub fn kind(&self) -> SearchDocumentKind {
-                  self.kind
-              }
-
-              /// Return the immutable validated searchable fields.
-              #[must_use]
-              pub fn fields(&self) -> &[SearchField] {
-                  &self.fields
-              }
-          }
-          '''
-          assert source.count(old) == 1
-          source = source.replace(old, new, 1)
-
-          old = '    /// Maximum UTF-8 bytes retained in one field value.\n'
-          new = '    /// Maximum UTF-8 bytes retained in any field key, value or evidence source.\n'
-          assert source.count(old) == 1
-          source = source.replace(old, new, 1)
-
-          old = '''    /// A copied field exceeds the configured bound.
-              #[error("B07 copied field exceeds max_field_bytes")]
-              FieldTooLarge,
-          '''
-          new = '''    /// A copied field string exceeds the configured bound.
-              #[error("B07 copied field string exceeds max_field_bytes")]
-              FieldTooLarge,
-              /// Search document kind and field domain disagree.
-              #[error("B07 search document kind/domain invariant violated")]
-              InvalidDocumentDomain,
-              /// Anchored document text is missing its exact Object Revision binding.
-              #[error("B07 document text requires an exact object.revision binding")]
-              MissingObjectRevisionBinding,
-          '''
-          assert source.count(old) == 1
-          source = source.replace(old, new, 1)
-
-          old = '            content_sha256: sha256_bytes(&[]),\n'
-          new = '            content_sha256: empty_index_digest(),\n'
-          assert source.count(old) == 1
-          source = source.replace(old, new, 1)
-
-          old = '''        let mut canonical = documents.to_vec();
-                  for document in &mut canonical {
-                      validate_document(document, self.limits)?;
-                      canonicalize_fields(&mut document.fields);
-                  }
-          '''
-          new = '''        for document in documents {
-                      validate_document(document, self.limits)?;
-                  }
-                  let mut canonical = documents.to_vec();
-                  for document in &mut canonical {
-                      canonicalize_fields(&mut document.fields);
-                  }
-          '''
-          assert source.count(old) == 1
-          source = source.replace(old, new, 1)
-
-          old = '        self.content_sha256 = sha256_bytes(&[]);\n'
-          new = '        self.content_sha256 = empty_index_digest();\n'
-          assert source.count(old) == 1
-          source = source.replace(old, new, 1)
-
-          old = '''            let mut matches = Vec::new();
-                      for field in &document.fields {
-                          if !domains.is_empty() && !domains.contains(&field.domain) {
-                              continue;
-                          }
-                          let haystack = match &field.key {
-                              Some(key) => format!("{key} {}", field.value).to_lowercase(),
-                              None => field.value.to_lowercase(),
-                          };
-                          if terms.iter().all(|term| haystack.contains(term)) {
-                              matches.push(SearchMatch {
-                                  domain: field.domain,
-                                  key: field.key.clone(),
-                                  value: field.value.clone(),
-                                  evidence_source: field.evidence_source.clone(),
-                              });
-                          }
-                      }
-                      if !matches.is_empty() {
-          '''
-          new = '''            let mut matches = Vec::new();
-                      let mut covered_terms = BTreeSet::new();
-                      for field in &document.fields {
-                          if !domains.is_empty() && !domains.contains(&field.domain) {
-                              continue;
-                          }
-                          let haystack = match &field.key {
-                              Some(key) => format!("{key} {}", field.value).to_lowercase(),
-                              None => field.value.to_lowercase(),
-                          };
-                          let mut contributed = false;
-                          for term in &terms {
-                              if haystack.contains(term.as_str()) {
-                                  covered_terms.insert(term.as_str());
-                                  contributed = true;
-                              }
-                          }
-                          if contributed {
-                              matches.push(SearchMatch {
-                                  domain: field.domain,
-                                  key: field.key.clone(),
-                                  value: field.value.clone(),
-                                  evidence_source: field.evidence_source.clone(),
-                              });
-                          }
-                      }
-                      if covered_terms.len() == terms.len() && !matches.is_empty() {
-          '''
-          assert source.count(old) == 1
-          source = source.replace(old, new, 1)
-
-          start = source.index('fn validate_document(document: &SearchDocument, limits: SearchLimits)')
-          end = source.index('fn validate_binding(source: &SearchSourceBinding)', start)
-          replacement = '''fn validate_document(document: &SearchDocument, limits: SearchLimits) -> Result<(), SearchError> {
-              validate_binding(&document.source)?;
-              validate_document_invariants(document)?;
-              if document.fields.is_empty() {
-                  return Err(SearchError::InvalidText("document fields"));
-              }
-              if document.fields.len() > limits.max_fields_per_document {
-                  return Err(SearchError::TooManyFields);
-              }
-              for field in &document.fields {
-                  require_bounded_text(&field.value, "field value", limits.max_field_bytes)?;
-                  require_bounded_text(
-                      &field.evidence_source,
-                      "field evidence_source",
-                      limits.max_field_bytes,
-                  )?;
-                  if let Some(key) = &field.key {
-                      require_bounded_text(key, "field key", limits.max_field_bytes)?;
-                  }
-              }
-              Ok(())
-          }
-
-          fn validate_document_invariants(document: &SearchDocument) -> Result<(), SearchError> {
-              let valid_domains = document.fields.iter().all(|field| match document.kind {
-                  SearchDocumentKind::ObjectMetadata => {
-                      matches!(field.domain, SearchDomain::Filename | SearchDomain::Metadata)
-                  }
-                  SearchDocumentKind::DocumentText => field.domain == SearchDomain::DocumentText,
-                  SearchDocumentKind::SourceSymbols => field.domain == SearchDomain::SourceSymbol,
-                  SearchDocumentKind::Log => field.domain == SearchDomain::Log,
-                  SearchDocumentKind::Activity => field.domain == SearchDomain::Activity,
-                  SearchDocumentKind::Artifact => field.domain == SearchDomain::Artifact,
-              });
-              if !valid_domains {
-                  return Err(SearchError::InvalidDocumentDomain);
-              }
-              if document.kind == SearchDocumentKind::DocumentText
-                  && document.source.object_revision_ref.is_none()
-              {
-                  return Err(SearchError::MissingObjectRevisionBinding);
-              }
-              Ok(())
-          }
-
-          fn require_bounded_text(
-              value: &str,
-              field: &'static str,
-              max_bytes: usize,
-          ) -> Result<(), SearchError> {
-              if value.len() > max_bytes {
-                  return Err(SearchError::FieldTooLarge);
-              }
-              require_text(value, field)
-          }
-
-          '''
-          source = source[:start] + replacement + source[end:]
-
-          old = '''fn sha256_bytes(bytes: &[u8]) -> String {
-              let mut hasher = Sha256::new();
-              hasher.update(bytes);
-              format!("{:x}", hasher.finalize())
-          }
-          '''
-          new = '''fn empty_index_digest() -> String {
-              let mut hasher = Sha256::new();
-              hash_usize(&mut hasher, 0);
-              format!("{:x}", hasher.finalize())
-          }
-
-          #[cfg(test)]
-          mod tests {
-              use super::*;
-
-              fn reference(kind: &str) -> EntityRef {
-                  EntityRef::new(kind).expect("valid unit-test reference")
-              }
-
-              fn source_binding(object_revision_ref: Option<EntityRef>) -> SearchSourceBinding {
-                  SearchSourceBinding {
-                      workspace_ref: reference("core.workspace"),
-                      source_ref: reference("object.view"),
-                      source_record_revision: 1,
-                      object_revision_ref,
-                  }
-              }
-
-              #[test]
-              fn forged_kind_domain_combination_fails_generic_boundary() {
-                  let document = SearchDocument {
-                      source: source_binding(Some(reference("object.revision"))),
-                      kind: SearchDocumentKind::DocumentText,
-                      fields: vec![SearchField {
-                          domain: SearchDomain::Metadata,
-                          key: Some("key".to_owned()),
-                          value: "value".to_owned(),
-                          evidence_source: "forged".to_owned(),
-                      }],
-                  };
-                  assert!(matches!(
-                      validate_document(&document, SearchLimits::default()),
-                      Err(SearchError::InvalidDocumentDomain)
-                  ));
-              }
-
-              #[test]
-              fn forged_unanchored_document_text_fails_generic_boundary() {
-                  let document = SearchDocument {
-                      source: source_binding(None),
-                      kind: SearchDocumentKind::DocumentText,
-                      fields: vec![SearchField {
-                          domain: SearchDomain::DocumentText,
-                          key: Some("page:1".to_owned()),
-                          value: "forged text".to_owned(),
-                          evidence_source: "b03.anchored_text".to_owned(),
-                      }],
-                  };
-                  assert!(matches!(
-                      validate_document(&document, SearchLimits::default()),
-                      Err(SearchError::MissingObjectRevisionBinding)
-                  ));
-              }
-          }
-          '''
-          assert source.count(old) == 1
-          source = source.replace(old, new, 1)
-          source_path.write_text(source, encoding='utf-8')
-
-          test_path = Path('crates/ptah-archive-decomposition/tests/b07.rs')
-          tests = test_path.read_text(encoding='utf-8')
-          old = '''    AnchoredText, SearchDocument, SearchDocumentKind, SearchDomain, SearchError, SearchField,
-              SearchIndex, SearchLimits, SearchMetadata, SearchQuery, SearchSourceBinding, SourceAnchor,
-          '''
-          new = '''    AnchoredText, SearchDomain, SearchError, SearchIndex, SearchLimits, SearchMetadata,
-              SearchQuery, SearchSourceBinding, SourceAnchor,
-          '''
-          assert tests.count(old) == 1
-          tests = tests.replace(old, new, 1)
-
-          start = tests.index('#[test]\nfn clear_and_rebuild_do_not_mutate_canonical_inputs_and_digest_is_reproducible()')
-          end = tests.index('#[test]\nfn duplicate_exact_document_identity_is_rejected()', start)
-          tests = tests[:start] + '''#[test]
-          fn clear_and_rebuild_do_not_mutate_canonical_inputs_and_digest_is_reproducible() {
-              let workspace = reference("core.workspace");
-              let document = log_search_document(
-                  binding(&workspace, "core.attempt", 1, None),
-                  &["stable canonical source".to_owned()],
-              )
-              .expect("document");
-              let canonical_input = vec![document];
-              let before = canonical_input.clone();
-              let empty_initial = SearchIndex::new(SearchLimits::default())
-                  .expect("empty initial")
-                  .snapshot();
-              let mut empty_rebuild_index = SearchIndex::new(SearchLimits::default()).expect("empty");
-              let empty_rebuild = empty_rebuild_index.rebuild(&[]).expect("empty rebuild");
-              let mut index = SearchIndex::new(SearchLimits::default()).expect("index");
-              let first = index.rebuild(&canonical_input).expect("first rebuild");
-              let cleared = index.clear().expect("clear");
-              assert_eq!(cleared.document_count, 0);
-              assert_eq!(empty_initial.content_sha256, empty_rebuild.content_sha256);
-              assert_eq!(cleared.content_sha256, empty_rebuild.content_sha256);
-              let second = index.rebuild(&canonical_input).expect("second rebuild");
-              assert_eq!(canonical_input, before);
-              assert_eq!(first.content_sha256, second.content_sha256);
-              assert!(first.revision < cleared.revision && cleared.revision < second.revision);
-          }
-
-          ''' + tests[end:]
-
-          start = tests.index('#[test]\nfn field_document_and_query_resource_bounds_fail_closed()')
-          end = tests.index('#[test]\nfn domain_filter_prevents_cross_domain_false_positive()', start)
-          tests = tests[:start] + '''#[test]
-          fn field_document_and_query_resource_bounds_fail_closed() {
-              let workspace = reference("core.workspace");
-              let limits = SearchLimits {
-                  max_documents: 1,
-                  max_fields_per_document: 1,
-                  max_field_bytes: 16,
-                  max_query_bytes: 4,
-                  max_results: 1,
-              };
-              let mut index = SearchIndex::new(limits).expect("index");
-              let source = binding(&workspace, "core.activity", 1, None);
-              let too_large = activity_search_document(
-                  source.clone(),
-                  &["12345678901234567".to_owned()],
-              )
-              .expect("large document");
-              assert!(matches!(
-                  index.rebuild(&[too_large]),
-                  Err(SearchError::FieldTooLarge)
-              ));
-
-              let too_many_fields = activity_search_document(
-                  source.clone(),
-                  &["one".to_owned(), "two".to_owned()],
-              )
-              .expect("multi-field document");
-              assert!(matches!(
-                  index.rebuild(&[too_many_fields]),
-                  Err(SearchError::TooManyFields)
-              ));
-
-              let oversized_evidence = filename_metadata_document(
-                  binding(
-                      &workspace,
-                      "object.object",
-                      2,
-                      Some(reference("object.revision")),
-                  ),
-                  None,
-                  &[SearchMetadata {
-                      path: None,
-                      key: "key".to_owned(),
-                      value: "value".to_owned(),
-                      source: "12345678901234567".to_owned(),
-                  }],
-              )
-              .expect("oversized evidence document");
-              assert!(matches!(
-                  index.rebuild(&[oversized_evidence]),
-                  Err(SearchError::FieldTooLarge)
-              ));
-
-              let oversized_key = filename_metadata_document(
-                  binding(
-                      &workspace,
-                      "object.object",
-                      3,
-                      Some(reference("object.revision")),
-                  ),
-                  None,
-                  &[SearchMetadata {
-                      path: None,
-                      key: "12345678901234567".to_owned(),
-                      value: "value".to_owned(),
-                      source: "fixture".to_owned(),
-                  }],
-              )
-              .expect("oversized key document");
-              assert!(matches!(
-                  index.rebuild(&[oversized_key]),
-                  Err(SearchError::FieldTooLarge)
-              ));
-
-              let okay = activity_search_document(source, &["okay".to_owned()]).expect("okay");
-              index.rebuild(&[okay]).expect("bounded rebuild");
-              let mut overlong_query = query(&workspace, "12345", Vec::new());
-              overlong_query.limit = 1;
-              assert!(matches!(
-                  index.query(&overlong_query),
-                  Err(SearchError::InvalidQuery)
-              ));
-              let mut too_many_results = query(&workspace, "okay", Vec::new());
-              too_many_results.limit = 2;
-              assert!(matches!(
-                  index.query(&too_many_results),
-                  Err(SearchError::InvalidResultLimit)
-              ));
-          }
-
-          ''' + tests[end:]
-
-          start = tests.index('#[test]\nfn query_is_case_insensitive_and_requires_all_terms()')
-          tests = tests[:start] + '''#[test]
-          fn query_is_case_insensitive_and_requires_all_terms_across_document_fields() {
-              let workspace = reference("core.workspace");
-              let document = filename_metadata_document(
-                  binding(
-                      &workspace,
-                      "object.object",
-                      1,
-                      Some(reference("object.revision")),
-                  ),
-                  Some("Recovery-Report.txt".to_owned()),
-                  &[SearchMetadata {
-                      path: None,
-                      key: "architecture".to_owned(),
-                      value: "x86_64".to_owned(),
-                      source: "fixture".to_owned(),
-                  }],
-              )
-              .expect("metadata document");
-              let mut index = SearchIndex::new(SearchLimits::default()).expect("index");
-              index.rebuild(&[document]).expect("rebuild");
-              let response = index
-                  .query(&query(&workspace, "REPORT X86_64", Vec::new()))
-                  .expect("cross-field AND query");
-              assert_eq!(response.hits.len(), 1);
-              assert_eq!(response.hits[0].matches.len(), 2);
-              assert!(
-                  index
-                      .query(&query(&workspace, "report missing", Vec::new()))
-                      .expect("AND query")
-                      .hits
-                      .is_empty()
-              );
-          }
-          '''
-          assert 'SearchDocument {' not in tests
-          assert 'SearchField {' not in tests
-          test_path.write_text(tests, encoding='utf-8')
-
-          doc_path = Path('B07_SEARCH_V1.md')
-          doc = doc_path.read_text(encoding='utf-8')
-          doc = doc.replace(
-              '- bounded document, field, query and result resources;\n',
-              '- bounded document, field key/value/evidence-source, query and result resources;\n',
-              1,
+          rendered = json.dumps(manifest, indent=2, sort_keys=True) + '\n'
+          (root / 'proof-manifest.json').write_text(rendered, encoding='utf-8')
+          digest = hashlib.sha256(rendered.encode()).hexdigest()
+          (root / 'proof-manifest.sha256').write_text(
+              f'{digest}  proof-manifest.json\n', encoding='utf-8'
           )
-          old = '- Clearing or rebuilding the index mutates only private derived copies and cannot mutate caller/canonical documents.\n'
-          new = '- Public callers cannot construct raw `SearchDocument`/`SearchField` payloads; adapter constructors establish provenance invariants and rebuild revalidates every borrowed document before any clone.\n- Clearing or rebuilding the index mutates only private derived copies and cannot mutate caller/canonical documents.\n'
-          assert old in doc
-          doc = doc.replace(old, new, 1)
-          old = '- Same canonicalized source input rebuilt later produces the same content digest even though the local index revision advances.\n'
-          new = '- Same canonicalized source input rebuilt later produces the same content digest even though the local index revision advances; initialization, `clear()` and `rebuild(&[])` use the same canonical empty digest.\n'
-          assert old in doc
-          doc = doc.replace(old, new, 1)
-          old = '- Search hits expose canonical source bindings, never index-local surrogate identity.\n'
-          new = '- Search hits expose canonical source bindings, never index-local surrogate identity.\n- Multi-term AND queries are satisfied across the union of eligible fields in one document, while returned matches identify the contributing fields.\n'
-          assert old in doc
-          doc = doc.replace(old, new, 1)
-          doc = doc.replace('The exact candidate must pass all 14 B07 cases covering:', 'The exact candidate must pass all 16 B07 cases covering:', 1)
-          doc = doc.replace('10. field, document, query and result resource bounds;', '10. field key/value/evidence-source, document, query and result resource bounds;', 1)
-          doc = doc.replace('14. case-insensitive all-term query semantics.', '14. case-insensitive document-level all-term query semantics across eligible fields;\n15. forged kind/domain payload rejection at the generic rebuild boundary;\n16. forged unanchored DocumentText rejection at the generic rebuild boundary.', 1)
-          doc = doc.replace('- B07 acceptance: 14/14;', '- B07 acceptance: 16/16;', 1)
-          doc_path.write_text(doc, encoding='utf-8')
+          print(rendered, end='')
           PY
+          cd /tmp/b07
+          sha256sum -c proof-manifest.sha256
 
-          cargo fmt --all
-          cargo test -p ptah-archive-decomposition --test b07 --locked -- --nocapture
-          cargo test -p ptah-archive-decomposition --lib b07::tests --locked -- --nocapture
-          cargo clippy -p ptah-archive-decomposition --lib --test b07 --locked -- -D warnings
-          git diff --check
-          python3 - <<'PY'
-          import subprocess
-          changed = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
-          expected = {
-              'B07_SEARCH_V1.md',
-              'crates/ptah-archive-decomposition/src/b07.rs',
-              'crates/ptah-archive-decomposition/tests/b07.rs',
-          }
-          assert changed == expected, (changed, expected)
-          PY
+      - name: Confirm exact clean candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add B07_SEARCH_V1.md crates/ptah-archive-decomposition/src/b07.rs crates/ptah-archive-decomposition/tests/b07.rs
-          git commit -m "B07 review: harden provenance bounds and document-level AND search"
-          git push origin "HEAD:${GITHUB_HEAD_REF}"
+      - name: Retain B07 proof bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: b07-search-v1-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/b07/
+          if-no-files-found: error
+          retention-days: 90

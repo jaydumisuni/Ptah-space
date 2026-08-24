@@ -22,6 +22,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "Retrying exact C01 generator correction"
           python3 - <<'PY'
           from pathlib import Path
           path = Path('.github/workflows/c01-disk-image-partition-foundations.yml')

@@ -1,13 +1,13 @@
 //! B06 Session Vault v1 portability over verified A13 checkpoint/recovery truth.
 
-use super::{
+use crate::{
     CheckpointBackend, CheckpointBundle, CheckpointClass, CheckpointEngine, CheckpointError,
-    CheckpointVerification, CompatibilityOutcome, Postcondition, RecoveryVerification, RestoreRun,
-    RestoreTarget, StoredBundle, VerificationState, validate_stored_bundle,
+    CheckpointVerification, CompatibilityOutcome, Postcondition, RecoveryVerification,
+    RestoreCompatibilityDecision, RestoreRun, RestoreTarget, VerificationState,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use thiserror::Error;
 
 /// Frozen B06 portable archive schema.
@@ -94,9 +94,9 @@ pub struct SessionVaultExportSpec {
     pub objects: Vec<VaultObjectEntry>,
     /// Artifact manifest.
     pub artifacts: Vec<VaultArtifactEntry>,
-    /// Conflicts known at export time. Empty is valid and means no known conflict was supplied.
+    /// Conflicts known at export time.
     pub conflicts: Vec<String>,
-    /// Additional target capability requirements beyond those captured by A13 components.
+    /// Additional target capability requirements beyond A13 component requirements.
     pub additional_required_capability_refs: Vec<String>,
     /// Evidence supporting the Session Vault export operation itself.
     pub export_evidence_refs: Vec<String>,
@@ -135,20 +135,22 @@ pub struct SessionVaultManifest {
     pub export_evidence_refs: Vec<String>,
 }
 
-/// Portable B06 archive. Embedded checkpoint bytes remain private to the archive implementation.
+/// Portable B06 archive carrying public checkpoint metadata plus opaque durable A13 state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionVaultArchive {
     /// Frozen archive schema identity.
     pub schema_version: String,
     /// Human-readable portability manifest.
     pub manifest: SessionVaultManifest,
-    stored_bundle: StoredBundle,
-    used_restore_attempt_refs: BTreeSet<String>,
-    /// SHA-256 over the exact schema, manifest, retained A13 bundle bytes and Attempt fence set.
+    /// Exact public A13 checkpoint bundle represented by the archive.
+    pub checkpoint_bundle: CheckpointBundle,
+    /// Opaque A13 durable engine state. Import is delegated back to A13.
+    checkpoint_engine_state: Vec<u8>,
+    /// SHA-256 over schema, manifest, public bundle and exact opaque A13 durable state.
     pub payload_sha256: String,
 }
 
-/// One checkpoint component exposed in the readable recovery export without its retained bytes.
+/// One checkpoint component exposed in the readable recovery export without retained bytes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadableCheckpointComponent {
     /// Stable A13 checkpoint component reference.
@@ -183,8 +185,8 @@ pub struct ReadableRecoveryExport {
 /// Target-specific B06 compatibility projection over the A13 decision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionVaultCompatibilityReport {
-    /// Exact A13 target-bound compatibility decision.
-    pub decision: super::RestoreCompatibilityDecision,
+    /// Exact A13 target-bound compatibility decision, tightened by B06 requirements.
+    pub decision: RestoreCompatibilityDecision,
     /// Exact capability references absent from the target.
     pub missing_capability_refs: Vec<String>,
     /// Restore-specific conflicts such as workspace mismatch or stale/missing Provider targets.
@@ -208,8 +210,8 @@ impl ImportedSessionVault {
 
     /// Return the exact embedded A13 checkpoint bundle.
     #[must_use]
-    pub fn checkpoint_bundle(&self) -> &CheckpointBundle {
-        &self.archive.stored_bundle.bundle
+    pub const fn checkpoint_bundle(&self) -> &CheckpointBundle {
+        &self.archive.checkpoint_bundle
     }
 
     /// Return whether restore authorization has been independently re-earned after import.
@@ -229,8 +231,7 @@ impl ImportedSessionVault {
     ) -> Result<CheckpointVerification, SessionVaultError> {
         let required: Vec<_> = self
             .archive
-            .stored_bundle
-            .bundle
+            .checkpoint_bundle
             .manifest
             .components
             .iter()
@@ -247,6 +248,10 @@ impl ImportedSessionVault {
 
     /// Evaluate exact target compatibility and expose missing capabilities/conflicts structurally.
     ///
+    /// B06-required capabilities tighten the A13 result: a capability missing from the target
+    /// forces the returned decision to `Incompatible` even if A13's component-only requirements
+    /// would otherwise be satisfied.
+    ///
     /// # Errors
     /// Returns A13 target-validation/serialization failure.
     pub fn evaluate_compatibility(
@@ -256,7 +261,7 @@ impl ImportedSessionVault {
         evaluated_at_unix_ms: u64,
         valid_until_unix_ms: u64,
     ) -> Result<SessionVaultCompatibilityReport, SessionVaultError> {
-        let decision = self.engine.evaluate_restore_compatibility(
+        let mut decision = self.engine.evaluate_restore_compatibility(
             &self.archive.manifest.checkpoint_bundle_ref,
             target,
             evidence_refs,
@@ -264,7 +269,7 @@ impl ImportedSessionVault {
             valid_until_unix_ms,
         )?;
         let available: BTreeSet<_> = target.compatibility_refs.iter().cloned().collect();
-        let missing_capability_refs = self
+        let missing_capability_refs: Vec<_> = self
             .archive
             .manifest
             .required_capability_refs
@@ -272,6 +277,17 @@ impl ImportedSessionVault {
             .filter(|capability| !available.contains(*capability))
             .cloned()
             .collect();
+        if !missing_capability_refs.is_empty() {
+            decision.outcome = CompatibilityOutcome::Incompatible;
+            for capability in &missing_capability_refs {
+                let limitation = format!("missing_compatibility:{capability}");
+                if !decision.limitations.contains(&limitation) {
+                    decision.limitations.push(limitation);
+                }
+            }
+        }
+        decision.limitations.sort();
+        decision.limitations.dedup();
         let restore_conflicts = decision
             .limitations
             .iter()
@@ -289,6 +305,8 @@ impl ImportedSessionVault {
     /// Restore the imported Vault on an exact compatible target through A13.
     ///
     /// Import never grants restore authorization; [`Self::reverify_checkpoint`] must pass first.
+    /// The target is checked again against B06-required capabilities so a caller-mutated report
+    /// cannot weaken the Session Vault contract.
     ///
     /// # Errors
     /// Returns A13 fail-closed restore errors, including unverified or incompatible targets.
@@ -306,6 +324,17 @@ impl ImportedSessionVault {
             return Err(SessionVaultError::ArchiveBindingMismatch(
                 "compatibility checkpoint bundle",
             ));
+        }
+        let available: BTreeSet<_> = target.compatibility_refs.iter().cloned().collect();
+        if self
+            .archive
+            .manifest
+            .required_capability_refs
+            .iter()
+            .any(|capability| !available.contains(capability))
+            || !compatibility_is_full(compatibility)
+        {
+            return Err(CheckpointError::IncompatibleRestoreTarget.into());
         }
         self.engine
             .restore(
@@ -367,29 +396,24 @@ pub enum SessionVaultError {
 
 /// Export one Workspace-scoped Session Vault from an exact independently verified A13 checkpoint.
 ///
-/// The archive contains only the selected checkpoint bundle plus the A13 restore-Attempt fence set;
-/// other checkpoint bundles held by the engine are not exported.
+/// A13 durable engine state is consumed only through [`CheckpointEngine::export_state`]. B06
+/// requires that export to contain exactly this checkpoint bundle, preventing an archive intended
+/// for one Workspace from silently carrying unrelated checkpoint bundles.
 ///
 /// # Errors
 /// Fails closed for unverified/mismatched checkpoint evidence, malformed Workspace/Session/Object
-/// metadata, impossible Artifact linkage, missing export evidence, or serialization failure.
+/// metadata, impossible Artifact linkage, multi-bundle engine state, missing export evidence, or
+/// serialization failure.
 pub fn export_session_vault(
     engine: &CheckpointEngine,
     bundle: &CheckpointBundle,
     verification: &CheckpointVerification,
     mut spec: SessionVaultExportSpec,
 ) -> Result<Vec<u8>, SessionVaultError> {
-    let stored = engine
-        .bundles
-        .get(&bundle.bundle_id)
-        .ok_or(CheckpointError::BundleNotFound)?;
-    if &stored.bundle != bundle {
-        return Err(SessionVaultError::ArchiveBindingMismatch(
-            "checkpoint bundle bytes",
-        ));
-    }
     validate_export_verification(engine, bundle, verification)?;
     normalize_and_validate_spec(bundle, &mut spec)?;
+    let checkpoint_engine_state = engine.export_state()?;
+    validate_engine_state_binding(&checkpoint_engine_state, bundle)?;
 
     let mut required_capability_refs: BTreeSet<String> = bundle
         .manifest
@@ -398,7 +422,6 @@ pub fn export_session_vault(
         .flat_map(|component| component.compatibility_requirement_refs.iter().cloned())
         .collect();
     required_capability_refs.extend(spec.additional_required_capability_refs);
-
     let manifest = SessionVaultManifest {
         workspace_ref: bundle.manifest.workspace_ref.clone(),
         current_workspace_revision_ref: bundle.manifest.workspace_revision_ref.clone(),
@@ -421,8 +444,8 @@ pub fn export_session_vault(
     let mut archive = SessionVaultArchive {
         schema_version: SESSION_VAULT_SCHEMA_VERSION.to_owned(),
         manifest,
-        stored_bundle: stored.clone(),
-        used_restore_attempt_refs: engine.used_attempts.clone(),
+        checkpoint_bundle: bundle.clone(),
+        checkpoint_engine_state,
         payload_sha256: String::new(),
     };
     archive.payload_sha256 = archive_digest(&archive)?;
@@ -431,33 +454,25 @@ pub fn export_session_vault(
 
 /// Import an integrity-bound Session Vault into a new A13 engine.
 ///
-/// Restore verification authorization is deliberately cleared. Used restore Attempt identities are
-/// preserved so moving to another Node cannot bypass A13 Attempt fencing.
+/// Restore verification authorization is deliberately cleared by A13 import. Used restore Attempt
+/// identities remain inside A13 durable state, so moving to another Node cannot bypass Attempt
+/// fencing.
 ///
 /// # Errors
-/// Fails closed for unknown schema, archive digest drift, malformed metadata, checkpoint integrity
-/// failure, or manifest/checkpoint binding mismatch.
+/// Fails closed for unknown schema, archive digest drift, malformed metadata, checkpoint-state
+/// binding failure, or A13 durable-state import failure.
 pub fn import_session_vault(bytes: &[u8]) -> Result<ImportedSessionVault, SessionVaultError> {
-    let archive: SessionVaultArchive =
-        serde_json::from_slice(bytes).map_err(serialization_error)?;
+    let archive: SessionVaultArchive = serde_json::from_slice(bytes).map_err(serialization_error)?;
     if archive.schema_version != SESSION_VAULT_SCHEMA_VERSION {
         return Err(SessionVaultError::InvalidMetadata("schema_version"));
     }
     if archive.payload_sha256 != archive_digest(&archive)? {
         return Err(SessionVaultError::PayloadDigestMismatch);
     }
-    validate_stored_bundle(&archive.stored_bundle)?;
     validate_archive_binding(&archive)?;
     validate_manifest_metadata(&archive.manifest)?;
-
-    let bundle_id = archive.stored_bundle.bundle.bundle_id.clone();
-    let mut bundles = BTreeMap::new();
-    bundles.insert(bundle_id, archive.stored_bundle.clone());
-    let engine = CheckpointEngine {
-        bundles,
-        verified_bundles: BTreeSet::new(),
-        used_attempts: archive.used_restore_attempt_refs.clone(),
-    };
+    validate_engine_state_binding(&archive.checkpoint_engine_state, &archive.checkpoint_bundle)?;
+    let engine = CheckpointEngine::import_state(&archive.checkpoint_engine_state)?;
     Ok(ImportedSessionVault { archive, engine })
 }
 
@@ -468,8 +483,7 @@ impl SessionVaultArchive {
     /// Returns serialization failure when the readable projection cannot be encoded.
     pub fn readable_recovery_export(&self) -> Result<String, SessionVaultError> {
         let checkpoint_components = self
-            .stored_bundle
-            .bundle
+            .checkpoint_bundle
             .manifest
             .components
             .iter()
@@ -497,6 +511,36 @@ impl SessionVaultArchive {
     }
 }
 
+#[derive(Deserialize)]
+struct DurableStateProjection {
+    schema_version: String,
+    bundles: Vec<StoredBundleProjection>,
+}
+
+#[derive(Deserialize)]
+struct StoredBundleProjection {
+    bundle: CheckpointBundle,
+}
+
+fn validate_engine_state_binding(
+    bytes: &[u8],
+    bundle: &CheckpointBundle,
+) -> Result<(), SessionVaultError> {
+    let projection: DurableStateProjection = serde_json::from_slice(bytes).map_err(serialization_error)?;
+    require_text(&projection.schema_version, "checkpoint durable state schema")?;
+    if projection.bundles.len() != 1 {
+        return Err(SessionVaultError::InvalidMetadata(
+            "checkpoint engine must contain exactly one bundle",
+        ));
+    }
+    if projection.bundles[0].bundle != *bundle {
+        return Err(SessionVaultError::ArchiveBindingMismatch(
+            "checkpoint durable state bundle",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_export_verification(
     engine: &CheckpointEngine,
     bundle: &CheckpointBundle,
@@ -505,10 +549,23 @@ fn validate_export_verification(
     if !engine.is_verified(&bundle.bundle_id) || verification.state != VerificationState::Verified {
         return Err(SessionVaultError::UnverifiedCheckpoint);
     }
+    let expected_components: BTreeSet<_> = bundle
+        .manifest
+        .components
+        .iter()
+        .map(|component| component.component_id.as_str())
+        .collect();
+    let actual_components: BTreeSet<_> = verification
+        .component_results
+        .iter()
+        .map(|component| component.component_ref.as_str())
+        .collect();
     if verification.checkpoint_bundle_ref != bundle.bundle_id
         || !verification.manifest_valid
         || !verification.required_components_present
         || verification.evidence_refs.is_empty()
+        || actual_components != expected_components
+        || verification.component_results.len() != expected_components.len()
         || verification
             .component_results
             .iter()
@@ -539,12 +596,15 @@ fn normalize_and_validate_spec(
         std::mem::take(&mut spec.export_evidence_refs),
         "export_evidence_refs",
     )?;
+    if spec.export_evidence_refs.is_empty() {
+        return Err(SessionVaultError::InvalidMetadata("export_evidence_refs"));
+    }
     Ok(())
 }
 
 fn validate_versions(
     bundle: &CheckpointBundle,
-    versions: &mut Vec<WorkspaceVersionRecord>,
+    versions: &mut [WorkspaceVersionRecord],
 ) -> Result<(), SessionVaultError> {
     let mut seen = BTreeSet::new();
     let mut current_found = false;
@@ -558,7 +618,7 @@ fn validate_versions(
         if version
             .parent_revision_ref
             .as_ref()
-            .is_some_and(|value| value.trim().is_empty())
+            .is_some_and(|value| value.trim().is_empty() || value != value.trim())
         {
             return Err(SessionVaultError::InvalidMetadata("parent_revision_ref"));
         }
@@ -566,6 +626,11 @@ fn validate_versions(
             std::mem::take(&mut version.evidence_refs),
             "workspace version evidence",
         )?;
+        if version.evidence_refs.is_empty() {
+            return Err(SessionVaultError::InvalidMetadata(
+                "workspace version evidence",
+            ));
+        }
         if !seen.insert(version.workspace_revision_ref.clone()) {
             return Err(SessionVaultError::InvalidMetadata(
                 "duplicate workspace revision",
@@ -593,7 +658,7 @@ fn validate_versions(
 fn validate_sessions(
     bundle: &CheckpointBundle,
     versions: &[WorkspaceVersionRecord],
-    sessions: &mut Vec<SessionVaultSession>,
+    sessions: &mut [SessionVaultSession],
 ) -> Result<(), SessionVaultError> {
     let valid_versions: BTreeSet<_> = versions
         .iter()
@@ -655,7 +720,7 @@ fn validate_sessions(
     Ok(())
 }
 
-fn validate_objects(objects: &mut Vec<VaultObjectEntry>) -> Result<(), SessionVaultError> {
+fn validate_objects(objects: &mut [VaultObjectEntry]) -> Result<(), SessionVaultError> {
     let mut seen = BTreeSet::new();
     for object in objects.iter_mut() {
         require_text(&object.object_ref, "object_ref")?;
@@ -689,7 +754,7 @@ fn validate_objects(objects: &mut Vec<VaultObjectEntry>) -> Result<(), SessionVa
 
 fn validate_artifacts(
     objects: &[VaultObjectEntry],
-    artifacts: &mut Vec<VaultArtifactEntry>,
+    artifacts: &mut [VaultArtifactEntry],
 ) -> Result<(), SessionVaultError> {
     let object_revisions: BTreeSet<_> = objects
         .iter()
@@ -732,7 +797,7 @@ fn validate_artifacts(
 }
 
 fn validate_archive_binding(archive: &SessionVaultArchive) -> Result<(), SessionVaultError> {
-    let bundle = &archive.stored_bundle.bundle;
+    let bundle = &archive.checkpoint_bundle;
     let manifest = &archive.manifest;
     if manifest.checkpoint_bundle_ref != bundle.bundle_id {
         return Err(SessionVaultError::ArchiveBindingMismatch(
@@ -778,53 +843,78 @@ fn validate_manifest_metadata(manifest: &SessionVaultManifest) -> Result<(), Ses
         &manifest.checkpoint_verification_ref,
         "checkpoint_verification_ref",
     )?;
-    if manifest.checkpoint_verification_evidence_refs.is_empty()
-        || manifest.export_evidence_refs.is_empty()
-    {
-        return Err(SessionVaultError::InvalidMetadata(
-            "verification/export evidence",
-        ));
-    }
     if manifest.current_materialization_generation == 0 {
         return Err(SessionVaultError::InvalidMetadata(
             "current_materialization_generation",
         ));
     }
+    require_canonical_list(
+        &manifest.checkpoint_verification_evidence_refs,
+        "checkpoint verification evidence",
+        true,
+    )?;
+    require_canonical_list(&manifest.export_evidence_refs, "export evidence", true)?;
+    require_canonical_list(&manifest.conflicts, "conflicts", false)?;
+    require_canonical_list(
+        &manifest.required_capability_refs,
+        "required_capability_refs",
+        false,
+    )?;
+
+    let stub = manifest_bundle_stub(manifest);
     let mut versions = manifest.workspace_versions.clone();
-    validate_versions(&manifest_bundle_stub(manifest), &mut versions)?;
+    validate_versions(&stub, &mut versions)?;
+    if versions != manifest.workspace_versions {
+        return Err(SessionVaultError::InvalidMetadata(
+            "workspace_versions canonical order",
+        ));
+    }
     let mut sessions = manifest.sessions.clone();
-    validate_sessions(&manifest_bundle_stub(manifest), &versions, &mut sessions)?;
+    validate_sessions(&stub, &versions, &mut sessions)?;
+    if sessions != manifest.sessions {
+        return Err(SessionVaultError::InvalidMetadata(
+            "sessions canonical order",
+        ));
+    }
     let mut objects = manifest.objects.clone();
     validate_objects(&mut objects)?;
+    if objects != manifest.objects {
+        return Err(SessionVaultError::InvalidMetadata(
+            "objects canonical order",
+        ));
+    }
     let mut artifacts = manifest.artifacts.clone();
     validate_artifacts(&objects, &mut artifacts)?;
+    if artifacts != manifest.artifacts {
+        return Err(SessionVaultError::InvalidMetadata(
+            "artifacts canonical order",
+        ));
+    }
     Ok(())
 }
 
 fn manifest_bundle_stub(manifest: &SessionVaultManifest) -> CheckpointBundle {
-    let mut bundle = CheckpointBundle {
+    CheckpointBundle {
         bundle_id: manifest.checkpoint_bundle_ref.clone(),
-        manifest: super::BundleManifest {
+        manifest: crate::BundleManifest {
             checkpoint_request_ref: "vault:validation".to_owned(),
             workspace_ref: manifest.workspace_ref.clone(),
             workspace_revision_ref: manifest.current_workspace_revision_ref.clone(),
             workspace_materialization_ref: "vault:materialization".to_owned(),
             source_materialization_generation: manifest.current_materialization_generation,
-            requested_consistency: super::Consistency::Unknown,
+            requested_consistency: crate::Consistency::Unknown,
             privacy_policy_ref: "vault:privacy".to_owned(),
             credential_policy_ref: "vault:credential".to_owned(),
             destination_or_retention_refs: vec!["vault:retention".to_owned()],
             requested_proof_refs: vec!["vault:proof".to_owned()],
             components: Vec::new(),
-            snapshot: super::RecoverySnapshot::default(),
+            snapshot: crate::RecoverySnapshot::default(),
         },
         manifest_sha256: manifest.checkpoint_manifest_sha256.clone(),
         created_activity_ref: "vault:activity".to_owned(),
         created_attempt_ref: "vault:attempt".to_owned(),
         receipt_refs: vec!["vault:receipt".to_owned()],
-    };
-    bundle.manifest.workspace_ref.clone_from(&manifest.workspace_ref);
-    bundle
+    }
 }
 
 fn archive_digest(archive: &SessionVaultArchive) -> Result<String, SessionVaultError> {
@@ -832,21 +922,39 @@ fn archive_digest(archive: &SessionVaultArchive) -> Result<String, SessionVaultE
     struct Payload<'a> {
         schema_version: &'a str,
         manifest: &'a SessionVaultManifest,
-        stored_bundle: &'a StoredBundle,
-        used_restore_attempt_refs: &'a BTreeSet<String>,
+        checkpoint_bundle: &'a CheckpointBundle,
+        checkpoint_engine_state: &'a [u8],
     }
     let payload = Payload {
         schema_version: &archive.schema_version,
         manifest: &archive.manifest,
-        stored_bundle: &archive.stored_bundle,
-        used_restore_attempt_refs: &archive.used_restore_attempt_refs,
+        checkpoint_bundle: &archive.checkpoint_bundle,
+        checkpoint_engine_state: &archive.checkpoint_engine_state,
     };
     let bytes = serde_json::to_vec(&payload).map_err(serialization_error)?;
     Ok(sha256(&bytes))
 }
 
+fn require_canonical_list(
+    values: &[String],
+    name: &'static str,
+    require_nonempty: bool,
+) -> Result<(), SessionVaultError> {
+    if require_nonempty && values.is_empty() {
+        return Err(SessionVaultError::InvalidMetadata(name));
+    }
+    let canonical = sorted_unique(values.to_vec(), name)?;
+    if canonical != values {
+        return Err(SessionVaultError::InvalidMetadata(name));
+    }
+    Ok(())
+}
+
 fn sorted_unique(values: Vec<String>, name: &'static str) -> Result<Vec<String>, SessionVaultError> {
-    if values.iter().any(|item| item.trim().is_empty()) {
+    if values
+        .iter()
+        .any(|item| item.trim().is_empty() || item != item.trim())
+    {
         return Err(SessionVaultError::InvalidMetadata(name));
     }
     Ok(values.into_iter().collect::<BTreeSet<_>>().into_iter().collect())
@@ -876,7 +984,6 @@ fn serialization_error(error: serde_json::Error) -> SessionVaultError {
     SessionVaultError::Serialization(error.to_string())
 }
 
-#[allow(dead_code)]
 fn compatibility_is_full(report: &SessionVaultCompatibilityReport) -> bool {
     matches!(
         report.decision.outcome,

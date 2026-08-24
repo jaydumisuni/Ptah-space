@@ -7,9 +7,7 @@ use ptah_archive_decomposition::{
     StaticIsolationPolicy, TypeAgreement, TypeAssessment, inspect_executable,
 };
 use ptah_identifiers::EntityRef;
-use ptah_object_store::{
-    OriginClass, ProductionEvidence, Registration, RevisionRole,
-};
+use ptah_object_store::{OriginClass, ProductionEvidence, Registration, RevisionRole};
 
 fn reference(kind: &str) -> EntityRef {
     EntityRef::new(kind).expect("valid fixture reference")
@@ -402,14 +400,8 @@ fn apk_children_become_recovered_revisions_with_frozen_parent_provenance() {
         vec![source_context.source_revision_ref.clone()]
     );
     assert_eq!(spec.revision_role, RevisionRole::Recovered);
-    assert_eq!(
-        spec.origin_class,
-        OriginClass::RecoveredEmbeddedSource
-    );
-    assert_eq!(
-        spec.expected_sha256.as_deref(),
-        Some(child.sha256.as_str())
-    );
+    assert_eq!(spec.origin_class, OriginClass::RecoveredEmbeddedSource);
+    assert_eq!(spec.expected_sha256.as_deref(), Some(child.sha256.as_str()));
 }
 
 #[test]

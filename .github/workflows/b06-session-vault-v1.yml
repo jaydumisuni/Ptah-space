@@ -1,4 +1,4 @@
-name: B06 review correction helper
+name: B06 Session Vault v1 exact-head proof
 
 on:
   pull_request:
@@ -9,258 +9,214 @@ on:
       - "crates/ptah-checkpoint/src/b06.rs"
       - "crates/ptah-checkpoint/tests/b06.rs"
       - ".github/workflows/b06-session-vault-v1.yml"
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
-  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha }}
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PTAH_PR_BASE: ${{ github.event.pull_request.base.sha }}
+  PTAH_B06_BASE_SHA: 0325b67884cc60971e005dee90ea82ed944906c4
   CARGO_TERM_COLOR: always
 
 jobs:
-  correct-b06-review:
+  b06-proof:
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
-      - name: Check out exact review head
+      - name: Check out exact B06 candidate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: ${{ env.PTAH_EXACT_SHA }}
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
-      - name: Install pinned Rust review toolchain
+      - name: Lock accepted B05 base and B06 scope
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+          if [ -n "${PTAH_PR_BASE:-}" ]; then
+            test "$PTAH_PR_BASE" = "$PTAH_B06_BASE_SHA"
+          fi
+          test "$(git merge-base "$PTAH_B06_BASE_SHA" "$PTAH_EXACT_SHA")" = "$PTAH_B06_BASE_SHA"
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["PTAH_B06_BASE_SHA"]
+          head = os.environ["PTAH_EXACT_SHA"]
+          files = subprocess.check_output(
+              ["git", "diff", "--name-only", base, head], text=True
+          ).splitlines()
+          allowed = {
+              "B06_SESSION_VAULT_V1.md",
+              "crates/ptah-checkpoint/Cargo.toml",
+              "crates/ptah-checkpoint/src/b06_lib.rs",
+              "crates/ptah-checkpoint/src/b06.rs",
+              "crates/ptah-checkpoint/tests/b06.rs",
+              ".github/workflows/b06-session-vault-v1.yml",
+          }
+          unexpected = sorted(set(files).difference(allowed))
+          missing = sorted(allowed.difference(files))
+          assert not unexpected, f"B06 scope drift: {unexpected}"
+          assert not missing, f"B06 required surface missing: {missing}"
+          PY
+          git diff --check "$PTAH_B06_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/b06
           rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
           rustup default 1.97.1
+          rustc -Vv | tee /tmp/b06/rustc-version.txt
+          cargo -V | tee /tmp/b06/cargo-version.txt
           rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$PTAH_EXACT_SHA" > /tmp/b06/exact-head.txt
+          cat /etc/os-release > /tmp/b06/host-os-release.txt
 
-      - name: Apply and validate P2 corrections
+      - name: Prove formatting and B06 acceptance
         shell: bash
         run: |
           set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ptah-checkpoint --test b06 --locked -- --nocapture \
+            2>&1 | tee /tmp/b06/b06-tests.txt
+          grep -Eq 'test result: ok\. 12 passed; 0 failed;' /tmp/b06/b06-tests.txt
+
+      - name: Prove B06 surface with strict Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ptah-checkpoint --lib --test b06 --locked -- -D warnings \
+            2>&1 | tee /tmp/b06/b06-clippy.txt
+
+      - name: Re-prove inherited A13 recovery semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-checkpoint --test a13 --locked -- --nocapture \
+            2>&1 | tee /tmp/b06/a13-tests.txt
+
+      - name: Re-prove inherited B01 transfer and storage semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-transfer --test b01 --locked -- --nocapture \
+            2>&1 | tee /tmp/b06/b01-tests.txt
+          grep -Eq 'test result: ok\. 18 passed; 0 failed;' /tmp/b06/b01-tests.txt
+          cargo test -p ptah-transfer --test b01_source_mutation --locked -- --nocapture \
+            2>&1 | tee /tmp/b06/b01-source-mutation-tests.txt
+          grep -Eq 'test result: ok\. 1 passed; 0 failed;' /tmp/b06/b01-source-mutation-tests.txt
+
+      - name: Re-prove inherited B05 executable and package semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b05 --locked -- --nocapture \
+            2>&1 | tee /tmp/b06/b05-tests.txt
+          grep -Eq 'test result: ok\. 15 passed; 0 failed;' /tmp/b06/b05-tests.txt
+
+      - name: Re-prove inherited workspace at exact B06 head
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture \
+            2>&1 | tee /tmp/b06/workspace-tests.txt
+
+      - name: Write exact-head proof manifest
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cp B06_SESSION_VAULT_V1.md /tmp/b06/acceptance-contract.md
           python3 - <<'PY'
+          import hashlib
+          import json
+          import os
           from pathlib import Path
-          import re
 
-          def once(text, old, new):
-              assert text.count(old) == 1, old[:80]
-              return text.replace(old, new, 1)
-
-          p = Path('crates/ptah-checkpoint/src/b06.rs')
-          s = p.read_text()
-          s = once(s,
-              '    CheckpointVerification, CompatibilityOutcome, Postcondition, RecoveryVerification,\n    RestoreCompatibilityDecision, RestoreRun, RestoreTarget, VerificationState,\n',
-              '    CheckpointVerification, CompatibilityOutcome, Postcondition, RecoveryVerification,\n    RestoreCompatibilityDecision, RestoreRun, RestoreTarget,\n')
-          s = once(s, 'use std::collections::BTreeSet;\n', 'use std::collections::{BTreeMap, BTreeSet};\n')
-          s = once(s,
-              '    /// Independent A13 verification retained as export evidence.\n    pub checkpoint_verification_ref: String,\n    /// Evidence from the independent A13 checkpoint verification.\n    pub checkpoint_verification_evidence_refs: Vec<String>,\n',
-              '    /// Engine-owned fact that the checkpoint was verified at export time.\n    pub checkpoint_verified_at_export: bool,\n')
-          s = once(s,
-              '    /// The supplied verification does not bind the exact exported checkpoint.\n    #[error("Session Vault verification does not bind the exact checkpoint")]\n    VerificationMismatch,\n', '')
-          s = once(s,
-              'pub fn export_session_vault(\n    engine: &CheckpointEngine,\n    bundle: &CheckpointBundle,\n    verification: &CheckpointVerification,\n    mut spec: SessionVaultExportSpec,\n) -> Result<Vec<u8>, SessionVaultError> {\n    validate_export_verification(engine, bundle, verification)?;\n',
-              'pub fn export_session_vault(\n    engine: &CheckpointEngine,\n    bundle: &CheckpointBundle,\n    mut spec: SessionVaultExportSpec,\n) -> Result<Vec<u8>, SessionVaultError> {\n    validate_export_authorization(engine, bundle)?;\n')
-          s = once(s,
-              '        checkpoint_bundle_ref: bundle.bundle_id.clone(),\n        checkpoint_manifest_sha256: bundle.manifest_sha256.clone(),\n        checkpoint_verification_ref: verification.verification_id.clone(),\n        checkpoint_verification_evidence_refs: sorted_unique(\n            verification.evidence_refs.clone(),\n            "checkpoint verification evidence",\n        )?,\n        export_evidence_refs: sorted_unique(spec.export_evidence_refs, "export evidence")?,\n',
-              '        checkpoint_bundle_ref: bundle.bundle_id.clone(),\n        checkpoint_manifest_sha256: bundle.manifest_sha256.clone(),\n        checkpoint_verified_at_export: true,\n        export_evidence_refs: sorted_unique(spec.export_evidence_refs, "export evidence")?,\n')
-
-          a = s.index('fn validate_export_verification(')
-          b = s.index('fn normalize_and_validate_spec(', a)
-          s = s[:a] + '''fn validate_export_authorization(
-              engine: &CheckpointEngine,
-              bundle: &CheckpointBundle,
-          ) -> Result<(), SessionVaultError> {
-              if !engine.is_verified(&bundle.bundle_id) {
-                  return Err(SessionVaultError::UnverifiedCheckpoint);
+          root = Path('/tmp/b06')
+          required = [
+              'exact-head.txt',
+              'host-os-release.txt',
+              'rustc-version.txt',
+              'cargo-version.txt',
+              'b06-tests.txt',
+              'b06-clippy.txt',
+              'a13-tests.txt',
+              'b01-tests.txt',
+              'b01-source-mutation-tests.txt',
+              'b05-tests.txt',
+              'workspace-tests.txt',
+              'acceptance-contract.md',
+          ]
+          files = {}
+          for name in required:
+              path = root / name
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f'missing B06 proof report: {name}')
+              files[name] = {
+                  'size_bytes': path.stat().st_size,
+                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
               }
-              Ok(())
+          head = (root / 'exact-head.txt').read_text(encoding='utf-8').strip()
+          if head != os.environ['PTAH_EXACT_SHA']:
+              raise SystemExit('B06 proof head mismatch')
+          manifest = {
+              'schema_version': '0.1.0',
+              'record_type': 'ptah.b06.session_vault_v1_exact_head_proof',
+              'status': 'pass',
+              'implementation_commit': head,
+              'accepted_base_commit': os.environ['PTAH_B06_BASE_SHA'],
+              'workflow_run_id': int(os.environ['RUN_ID']),
+              'workflow_run_attempt': int(os.environ['RUN_ATTEMPT']),
+              'b06_acceptance_test_count': 12,
+              'workspace_versions_portable': True,
+              'session_metadata_not_live_authority': True,
+              'object_artifact_manifest_proven': True,
+              'readable_recovery_export_proven': True,
+              'archive_digest_binding_proven': True,
+              'import_reverification_required': True,
+              'compatible_cross_node_resume_proven': True,
+              'missing_capability_fail_closed_proven': True,
+              'conflicts_remain_explicit': True,
+              'attempt_fence_survives_portability': True,
+              'independent_recovery_verification_proven': True,
+              'inherited_a13_reproven': True,
+              'inherited_b01_reproven': True,
+              'inherited_b05_reproven': True,
+              'files': files,
           }
-
-          ''' + s[b:]
-
-          a = s.index('fn validate_artifacts(')
-          b = s.index('fn validate_archive_binding(', a)
-          s = s[:a] + '''fn validate_artifacts(
-              objects: &[VaultObjectEntry],
-              artifacts: &mut [VaultArtifactEntry],
-          ) -> Result<(), SessionVaultError> {
-              let mut declared_owners = BTreeMap::new();
-              for object in objects {
-                  for artifact_ref in &object.artifact_refs {
-                      if declared_owners
-                          .insert(
-                              artifact_ref.as_str(),
-                              (object.object_ref.as_str(), object.revision_ref.as_str()),
-                          )
-                          .is_some()
-                      {
-                          return Err(SessionVaultError::InvalidMetadata(
-                              "artifact linked from multiple object revisions",
-                          ));
-                      }
-                  }
-              }
-              let mut seen = BTreeSet::new();
-              for artifact in artifacts.iter() {
-                  for (name, value) in [
-                      ("artifact_ref", artifact.artifact_ref.as_str()),
-                      ("artifact object_ref", artifact.object_ref.as_str()),
-                      ("artifact revision_ref", artifact.revision_ref.as_str()),
-                      ("artifact_type", artifact.artifact_type.as_str()),
-                      ("artifact purpose", artifact.purpose.as_str()),
-                  ] {
-                      require_text(value, name)?;
-                  }
-                  let Some((owner_object_ref, owner_revision_ref)) =
-                      declared_owners.get(artifact.artifact_ref.as_str())
-                  else {
-                      return Err(SessionVaultError::InvalidMetadata(
-                          "artifact not linked from object manifest",
-                      ));
-                  };
-                  if *owner_object_ref != artifact.object_ref
-                      || *owner_revision_ref != artifact.revision_ref
-                  {
-                      return Err(SessionVaultError::InvalidMetadata("artifact owner mismatch"));
-                  }
-                  if !seen.insert(artifact.artifact_ref.as_str()) {
-                      return Err(SessionVaultError::InvalidMetadata("duplicate artifact_ref"));
-                  }
-              }
-              if seen.len() != declared_owners.len() {
-                  return Err(SessionVaultError::InvalidMetadata(
-                      "object artifact_ref missing artifact manifest entry",
-                  ));
-              }
-              artifacts.sort_by(|left, right| left.artifact_ref.cmp(&right.artifact_ref));
-              Ok(())
-          }
-
-          ''' + s[b:]
-          s = once(s,
-              '    require_text(\n        &manifest.checkpoint_verification_ref,\n        "checkpoint_verification_ref",\n    )?;\n    if manifest.current_materialization_generation == 0 {\n',
-              '    if !manifest.checkpoint_verified_at_export {\n        return Err(SessionVaultError::InvalidMetadata(\n            "checkpoint_verified_at_export",\n        ));\n    }\n    if manifest.current_materialization_generation == 0 {\n')
-          s = once(s,
-              '    require_canonical_list(\n        &manifest.checkpoint_verification_evidence_refs,\n        "checkpoint verification evidence",\n        true,\n    )?;\n', '')
-          assert s.count('.map_err(serialization_error)') > 0
-          s = s.replace('.map_err(serialization_error)', '.map_err(|error| serialization_error(&error))')
-          s = once(s,
-              'fn serialization_error(error: serde_json::Error) -> SessionVaultError {',
-              'fn serialization_error(error: &serde_json::Error) -> SessionVaultError {')
-          p.write_text(s)
-
-          p = Path('crates/ptah-checkpoint/tests/b06.rs')
-          t = p.read_text()
-          t = once(t,
-              'fn create_verified() -> (\n    CheckpointEngine,\n    MemoryBackend,\n    CheckpointBundle,\n    CheckpointVerification,\n) {\n',
-              'fn create_verified() -> (CheckpointEngine, MemoryBackend, CheckpointBundle) {\n')
-          t = once(t, '    (engine, backend, bundle, verification)\n', '    (engine, backend, bundle)\n')
-          t, n = re.subn(r'let \(([^\n)]*), verification\) = create_verified\(\);', r'let (\1) = create_verified();', t)
-          assert n >= 1
-          assert '&bundle, &verification,' in t
-          t = t.replace('&bundle, &verification,', '&bundle,')
-
-          a = t.index('#[test]\nfn export_requires_current_independent_checkpoint_verification()')
-          b = t.index('#[test]\nfn verified_archive_roundtrip_preserves_workspace_sessions_objects_and_artifacts()', a)
-          t = t[:a] + '''#[test]
-          fn export_requires_current_independent_checkpoint_verification() {
-              let mut engine = CheckpointEngine::default();
-              let mut backend = MemoryBackend::fixture();
-              let bundle = engine
-                  .create_checkpoint(
-                      request(),
-                      snapshot(),
-                      "activity:checkpoint",
-                      "attempt:checkpoint",
-                      vec!["receipt:capture".to_owned()],
-                      &mut backend,
-                  )
-                  .expect("checkpoint creation");
-              assert_eq!(
-                  export_session_vault(&engine, &bundle, export_spec()),
-                  Err(SessionVaultError::UnverifiedCheckpoint)
-              );
-          }
-
-          ''' + t[b:]
-
-          a = t.index('#[test]\nfn artifact_manifest_cannot_reference_an_unlisted_object_revision()')
-          b = t.index('#[test]\nfn retained_conflicts_survive_portability_without_becoming_hidden_success()', a)
-          t = t[:a] + '''#[test]
-          fn artifact_links_are_bidirectional_and_revision_exact() {
-              let (engine, _, bundle) = create_verified();
-              let mut wrong_revision = export_spec();
-              wrong_revision.artifacts[0].revision_ref = "object-revision:other".to_owned();
-              assert_eq!(
-                  export_session_vault(&engine, &bundle, wrong_revision),
-                  Err(SessionVaultError::InvalidMetadata("artifact owner mismatch"))
-              );
-
-              let mut cross_owner = export_spec();
-              cross_owner.objects.push(VaultObjectEntry {
-                  object_ref: "object:2".to_owned(),
-                  revision_ref: "object-revision:2".to_owned(),
-                  content_sha256: None,
-                  byte_len: None,
-                  artifact_refs: Vec::new(),
-              });
-              cross_owner.artifacts[0].object_ref = "object:2".to_owned();
-              cross_owner.artifacts[0].revision_ref = "object-revision:2".to_owned();
-              assert_eq!(
-                  export_session_vault(&engine, &bundle, cross_owner),
-                  Err(SessionVaultError::InvalidMetadata("artifact owner mismatch"))
-              );
-
-              let mut dangling = export_spec();
-              dangling.artifacts.clear();
-              assert_eq!(
-                  export_session_vault(&engine, &bundle, dangling),
-                  Err(SessionVaultError::InvalidMetadata(
-                      "object artifact_ref missing artifact manifest entry"
-                  ))
-              );
-          }
-
-          ''' + t[b:]
-
-          a = t.index('fn missing_vault_capability_is_exact_and_cannot_restore()')
-          b = t.index('#[test]\nfn incompatible_a13_capability_remains_explicit()', a)
-          section = t[a:b]
-          marker = '''    assert_eq!(
-                  compatibility.decision.outcome,
-                  CompatibilityOutcome::Incompatible
-              );
-          '''
-          assert marker in section
-          section = section.replace(marker, marker + '''    let mut forged = compatibility.clone();
-              forged.decision.outcome = CompatibilityOutcome::Compatible;
-              forged.decision.limitations.clear();
-              forged.missing_capability_refs.clear();
-          ''', 1)
-          assert '&compatibility,' in section
-          section = section.replace('&compatibility,', '&forged,', 1)
-          t = t[:a] + section + t[b:]
-          p.write_text(t)
-
-          p = Path('B06_SESSION_VAULT_V1.md')
-          d = p.read_text()
-          d = once(d,
-              '- The supplied checkpoint verification must enumerate the exact checkpoint component set and successful readback/integrity evidence.\n',
-              '- Export authorization is derived only from A13 engine-owned verification state; caller-supplied verification IDs or evidence cannot be archived as checkpoint proof.\n')
-          d = once(d,
-              '10. Artifact manifest cannot reference an unlisted Object Revision;\n',
-              '10. Object/Artifact links are bidirectional and exact to one owning Object Revision;\n')
-          p.write_text(d)
+          rendered = json.dumps(manifest, indent=2, sort_keys=True) + '\n'
+          (root / 'proof-manifest.json').write_text(rendered, encoding='utf-8')
+          digest = hashlib.sha256(rendered.encode()).hexdigest()
+          (root / 'proof-manifest.sha256').write_text(
+              f'{digest}  proof-manifest.json\n', encoding='utf-8'
+          )
+          print(rendered, end='')
           PY
+          cd /tmp/b06
+          sha256sum -c proof-manifest.sha256
 
-          cargo fmt --all
-          cargo test -p ptah-checkpoint --test b06 --locked -- --nocapture
-          cargo clippy -p ptah-checkpoint --lib --test b06 --locked -- -D warnings
-          git diff --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add B06_SESSION_VAULT_V1.md crates/ptah-checkpoint/src/b06.rs crates/ptah-checkpoint/tests/b06.rs
-          git commit -m "B06 review: bind export authority and artifact ownership"
-          git push origin "HEAD:${GITHUB_HEAD_REF}"
+      - name: Confirm exact clean candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Retain B06 proof bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: b06-session-vault-v1-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/b06/
+          if-no-files-found: error
+          retention-days: 90

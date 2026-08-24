@@ -48,3 +48,7 @@ path = "tests/b04_entry.rs"
 [[test]]
 name = "b04_review"
 path = "tests/b04_review_entry.rs"
+
+[[test]]
+name = "b05"
+path = "tests/b05.rs"

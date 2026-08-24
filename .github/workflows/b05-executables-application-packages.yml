@@ -1,0 +1,227 @@
+name: B05 executables application packages exact-head proof
+
+on:
+  pull_request:
+    paths:
+      - "B05_EXECUTABLES_APPLICATION_PACKAGES.md"
+      - "crates/ptah-archive-decomposition/Cargo.toml"
+      - "crates/ptah-archive-decomposition/src/lib.rs"
+      - "crates/ptah-archive-decomposition/src/b05.rs"
+      - "crates/ptah-archive-decomposition/tests/b05.rs"
+      - ".github/workflows/b05-executables-application-packages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PTAH_PR_BASE: ${{ github.event.pull_request.base.sha }}
+  PTAH_B05_BASE_SHA: a6bd1fcd4e8d16dfe4eb36da1c72e683b37cb384
+  CARGO_TERM_COLOR: always
+
+jobs:
+  b05-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact B05 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Lock accepted B04 base and B05 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+          if [ -n "${PTAH_PR_BASE:-}" ]; then
+            test "$PTAH_PR_BASE" = "$PTAH_B05_BASE_SHA"
+          fi
+          test "$(git merge-base "$PTAH_B05_BASE_SHA" "$PTAH_EXACT_SHA")" = "$PTAH_B05_BASE_SHA"
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["PTAH_B05_BASE_SHA"]
+          head = os.environ["PTAH_EXACT_SHA"]
+          files = subprocess.check_output(
+              ["git", "diff", "--name-only", base, head], text=True
+          ).splitlines()
+          allowed = {
+              "B05_EXECUTABLES_APPLICATION_PACKAGES.md",
+              "crates/ptah-archive-decomposition/Cargo.toml",
+              "crates/ptah-archive-decomposition/src/lib.rs",
+              "crates/ptah-archive-decomposition/src/b05.rs",
+              "crates/ptah-archive-decomposition/tests/b05.rs",
+              ".github/workflows/b05-executables-application-packages.yml",
+          }
+          unexpected = sorted(set(files).difference(allowed))
+          missing = sorted(allowed.difference(files))
+          assert not unexpected, f"B05 scope drift: {unexpected}"
+          assert not missing, f"B05 required surface missing: {missing}"
+          PY
+          git diff --check "$PTAH_B05_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/b05
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          rustc -Vv | tee /tmp/b05/rustc-version.txt
+          cargo -V | tee /tmp/b05/cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$PTAH_EXACT_SHA" > /tmp/b05/exact-head.txt
+          cat /etc/os-release > /tmp/b05/host-os-release.txt
+
+      - name: Prove formatting and B05 acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ptah-archive-decomposition --test b05 --locked -- --nocapture \
+            2>&1 | tee /tmp/b05/b05-tests.txt
+          grep -Eq 'test result: ok\. 15 passed; 0 failed;' /tmp/b05/b05-tests.txt
+
+      - name: Prove B05 surface with strict Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ptah-archive-decomposition --lib --test b05 --locked -- -D warnings \
+            2>&1 | tee /tmp/b05/b05-clippy.txt
+
+      - name: Re-prove inherited B04 media semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b04 --locked -- --nocapture \
+            2>&1 | tee /tmp/b05/b04-tests.txt
+          grep -Eq 'test result: ok\. 14 passed; 0 failed;' /tmp/b05/b04-tests.txt
+          cargo test -p ptah-archive-decomposition --test b04_review --locked -- --nocapture \
+            2>&1 | tee /tmp/b05/b04-review-tests.txt
+          grep -Eq 'test result: ok\. 2 passed; 0 failed;' /tmp/b05/b04-review-tests.txt
+
+      - name: Re-prove inherited B03 document semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b03 --locked -- --nocapture \
+            2>&1 | tee /tmp/b05/b03-tests.txt
+          grep -Eq 'test result: ok\. 10 passed; 0 failed;' /tmp/b05/b03-tests.txt
+          cargo test -p ptah-archive-decomposition --test b03_review --locked -- --nocapture \
+            2>&1 | tee /tmp/b05/b03-review-tests.txt
+          grep -Eq 'test result: ok\. 8 passed; 0 failed;' /tmp/b05/b03-review-tests.txt
+
+      - name: Re-prove inherited B02 and A12 semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b02 --locked -- --nocapture \
+            2>&1 | tee /tmp/b05/b02-tests.txt
+          cargo test -p ptah-archive-decomposition --test a12 --locked -- --nocapture \
+            2>&1 | tee /tmp/b05/a12-tests.txt
+
+      - name: Re-prove inherited workspace at exact B05 head
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture \
+            2>&1 | tee /tmp/b05/workspace-tests.txt
+
+      - name: Write exact-head proof manifest
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cp B05_EXECUTABLES_APPLICATION_PACKAGES.md /tmp/b05/acceptance-contract.md
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('/tmp/b05')
+          required = [
+              'exact-head.txt',
+              'host-os-release.txt',
+              'rustc-version.txt',
+              'cargo-version.txt',
+              'b05-tests.txt',
+              'b05-clippy.txt',
+              'b04-tests.txt',
+              'b04-review-tests.txt',
+              'b03-tests.txt',
+              'b03-review-tests.txt',
+              'b02-tests.txt',
+              'a12-tests.txt',
+              'workspace-tests.txt',
+              'acceptance-contract.md',
+          ]
+          files = {}
+          for name in required:
+              path = root / name
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f'missing B05 proof report: {name}')
+              files[name] = {
+                  'size_bytes': path.stat().st_size,
+                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+              }
+          head = (root / 'exact-head.txt').read_text(encoding='utf-8').strip()
+          if head != os.environ['PTAH_EXACT_SHA']:
+              raise SystemExit('B05 proof head mismatch')
+          manifest = {
+              'schema_version': '0.1.0',
+              'record_type': 'ptah.b05.executables_application_packages_exact_head_proof',
+              'status': 'pass',
+              'implementation_commit': head,
+              'accepted_base_commit': os.environ['PTAH_B05_BASE_SHA'],
+              'workflow_run_id': int(os.environ['RUN_ID']),
+              'workflow_run_attempt': int(os.environ['RUN_ATTEMPT']),
+              'b05_acceptance_test_count': 15,
+              'type_authority_bound_to_b02': True,
+              'pe_elf_macho_static_views_proven': True,
+              'apk_aab_dex_decomposition_proven': True,
+              'embedded_child_provenance_proven': True,
+              'packed_unknown_regions_explicit': True,
+              'static_analysis_never_claims_execution_success': True,
+              'source_content_immutable': True,
+              'passive_provider_isolation_proven': True,
+              'inherited_b04_reproven': True,
+              'inherited_b03_reproven': True,
+              'inherited_b02_reproven': True,
+              'inherited_a12_reproven': True,
+              'files': files,
+          }
+          rendered = json.dumps(manifest, indent=2, sort_keys=True) + '\n'
+          (root / 'proof-manifest.json').write_text(rendered, encoding='utf-8')
+          digest = hashlib.sha256(rendered.encode()).hexdigest()
+          (root / 'proof-manifest.sha256').write_text(
+              f'{digest}  proof-manifest.json\n', encoding='utf-8'
+          )
+          print(rendered, end='')
+          PY
+          cd /tmp/b05
+          sha256sum -c proof-manifest.sha256
+
+      - name: Confirm exact clean candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Retain B05 proof bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: b05-executables-application-packages-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/b05/
+          if-no-files-found: error
+          retention-days: 90

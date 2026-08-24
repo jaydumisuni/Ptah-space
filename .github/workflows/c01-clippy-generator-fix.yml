@@ -1,0 +1,39 @@
+name: C01 one-shot generator lint correction
+
+on:
+  push:
+    branches:
+      - c01-disk-image-partition-foundations
+    paths:
+      - ".github/workflows/c01-clippy-generator-fix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  fix-generator:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: c01-disk-image-partition-foundations
+          persist-credentials: true
+      - name: Correct generated Clippy idiom and self-delete
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/c01-disk-image-partition-foundations.yml')
+          text = path.read_text(encoding='utf-8')
+          old = '              if chunk.chunk_bytes % 4 != 0 {'
+          new = '              if !chunk.chunk_bytes.is_multiple_of(4) {'
+          assert text.count(old) == 1, text.count(old)
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          git rm .github/workflows/c01-clippy-generator-fix.yml
+          git add .github/workflows/c01-disk-image-partition-foundations.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "C01 review: fix generated sparse Clippy idiom"
+          git push origin HEAD:c01-disk-image-partition-foundations

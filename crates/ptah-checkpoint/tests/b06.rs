@@ -109,12 +109,7 @@ fn snapshot() -> RecoverySnapshot {
     }
 }
 
-fn create_verified() -> (
-    CheckpointEngine,
-    MemoryBackend,
-    CheckpointBundle,
-    CheckpointVerification,
-) {
+fn create_verified() -> (CheckpointEngine, MemoryBackend, CheckpointBundle) {
     let mut engine = CheckpointEngine::default();
     let mut backend = MemoryBackend::fixture();
     let bundle = engine
@@ -131,7 +126,7 @@ fn create_verified() -> (
         .verify_checkpoint(&bundle.bundle_id, &request().requested_classes, &backend)
         .expect("checkpoint verification");
     assert_eq!(verification.state, VerificationState::Verified);
-    (engine, backend, bundle, verification)
+    (engine, backend, bundle)
 }
 
 fn export_spec() -> SessionVaultExportSpec {
@@ -205,9 +200,9 @@ fn target(include_vault_capability: bool) -> RestoreTarget {
 }
 
 fn export_verified_bytes() -> (Vec<u8>, MemoryBackend) {
-    let (engine, backend, bundle, verification) = create_verified();
-    let bytes = export_session_vault(&engine, &bundle, &verification, export_spec())
-        .expect("verified vault export");
+    let (engine, backend, bundle) = create_verified();
+    let bytes =
+        export_session_vault(&engine, &bundle, export_spec()).expect("verified vault export");
     (bytes, backend)
 }
 
@@ -225,18 +220,8 @@ fn export_requires_current_independent_checkpoint_verification() {
             &mut backend,
         )
         .expect("checkpoint creation");
-    let fake_verification = CheckpointVerification {
-        verification_id: "verification:fake".to_owned(),
-        checkpoint_bundle_ref: bundle.bundle_id.clone(),
-        state: VerificationState::Verified,
-        manifest_valid: true,
-        required_components_present: true,
-        component_results: Vec::new(),
-        evidence_refs: vec!["evidence:fake".to_owned()],
-        limitations: Vec::new(),
-    };
     assert_eq!(
-        export_session_vault(&engine, &bundle, &fake_verification, export_spec()),
+        export_session_vault(&engine, &bundle, export_spec()),
         Err(SessionVaultError::UnverifiedCheckpoint)
     );
 }
@@ -361,11 +346,15 @@ fn missing_vault_capability_is_exact_and_cannot_restore() {
         compatibility.decision.outcome,
         CompatibilityOutcome::Incompatible
     );
+    let mut forged = compatibility.clone();
+    forged.decision.outcome = CompatibilityOutcome::Compatible;
+    forged.decision.limitations.clear();
+    forged.missing_capability_refs.clear();
     assert!(matches!(
         imported.restore_on_target(
             "attempt:must-not-run",
             restore_target,
-            &compatibility,
+            &forged,
             NOW,
             &mut backend,
         ),
@@ -411,12 +400,12 @@ fn archive_digest_tamper_fails_before_imported_engine_exists() {
 
 #[test]
 fn current_workspace_version_must_match_exact_checkpoint_revision_and_generation() {
-    let (engine, _, bundle, verification) = create_verified();
+    let (engine, _, bundle) = create_verified();
     let mut spec = export_spec();
     spec.workspace_versions
         .retain(|version| version.workspace_revision_ref != "workspace-revision:4");
     assert_eq!(
-        export_session_vault(&engine, &bundle, &verification, spec),
+        export_session_vault(&engine, &bundle, spec),
         Err(SessionVaultError::InvalidMetadata(
             "checkpoint workspace version missing"
         ))
@@ -424,14 +413,40 @@ fn current_workspace_version_must_match_exact_checkpoint_revision_and_generation
 }
 
 #[test]
-fn artifact_manifest_cannot_reference_an_unlisted_object_revision() {
-    let (engine, _, bundle, verification) = create_verified();
-    let mut spec = export_spec();
-    spec.artifacts[0].revision_ref = "object-revision:other".to_owned();
+fn artifact_links_are_bidirectional_and_revision_exact() {
+    let (engine, _, bundle) = create_verified();
+    let mut wrong_revision = export_spec();
+    wrong_revision.artifacts[0].revision_ref = "object-revision:other".to_owned();
     assert_eq!(
-        export_session_vault(&engine, &bundle, &verification, spec),
+        export_session_vault(&engine, &bundle, wrong_revision),
         Err(SessionVaultError::InvalidMetadata(
-            "artifact object/revision missing from manifest"
+            "artifact owner mismatch"
+        ))
+    );
+
+    let mut cross_owner = export_spec();
+    cross_owner.objects.push(VaultObjectEntry {
+        object_ref: "object:2".to_owned(),
+        revision_ref: "object-revision:2".to_owned(),
+        content_sha256: None,
+        byte_len: None,
+        artifact_refs: Vec::new(),
+    });
+    cross_owner.artifacts[0].object_ref = "object:2".to_owned();
+    cross_owner.artifacts[0].revision_ref = "object-revision:2".to_owned();
+    assert_eq!(
+        export_session_vault(&engine, &bundle, cross_owner),
+        Err(SessionVaultError::InvalidMetadata(
+            "artifact owner mismatch"
+        ))
+    );
+
+    let mut dangling = export_spec();
+    dangling.artifacts.clear();
+    assert_eq!(
+        export_session_vault(&engine, &bundle, dangling),
+        Err(SessionVaultError::InvalidMetadata(
+            "object artifact_ref missing artifact manifest entry"
         ))
     );
 }
@@ -454,7 +469,7 @@ fn retained_conflicts_survive_portability_without_becoming_hidden_success() {
 
 #[test]
 fn used_restore_attempt_fence_survives_export_and_import() {
-    let (mut engine, mut backend, bundle, verification) = create_verified();
+    let (mut engine, mut backend, bundle) = create_verified();
     let restore_target = target(false);
     let decision = engine
         .evaluate_restore_compatibility(
@@ -476,8 +491,8 @@ fn used_restore_attempt_fence_survives_export_and_import() {
             &mut backend,
         )
         .expect("source restore");
-    let bytes = export_session_vault(&engine, &bundle, &verification, export_spec())
-        .expect("post-restore vault export");
+    let bytes =
+        export_session_vault(&engine, &bundle, export_spec()).expect("post-restore vault export");
     let mut imported = import_session_vault(&bytes).expect("vault import");
     imported
         .reverify_checkpoint(&backend)

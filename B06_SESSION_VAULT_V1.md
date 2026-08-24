@@ -32,7 +32,7 @@ Delivered candidate surface:
 - A13 remains sole authority for checkpoint integrity, compatibility binding, restore execution, Attempt fencing and independent recovery verification.
 - B06 consumes A13 only through its public durable-state, verification, compatibility, restore and recovery APIs.
 - Export requires the selected A13 checkpoint to be currently independently verified.
-- The supplied checkpoint verification must enumerate the exact checkpoint component set and successful readback/integrity evidence.
+- Export authorization is derived only from A13 engine-owned verification state; caller-supplied verification IDs or evidence cannot be archived as checkpoint proof.
 - One Session Vault carries exactly one A13 checkpoint bundle; unrelated engine bundles are rejected rather than silently exported.
 - Import validates archive digest and checkpoint-state binding, then deliberately loses prior in-memory restore authorization.
 - Required B06 capabilities tighten A13 compatibility; a missing Vault requirement produces an incompatible decision and cannot be bypassed by mutating the caller-visible report.
@@ -53,7 +53,7 @@ The exact candidate must pass all 12 B06 cases covering:
 7. missing A13 component capability remains explicit;
 8. archive digest tamper fails before an imported engine exists;
 9. current Workspace version must match exact checkpoint Revision/generation;
-10. Artifact manifest cannot reference an unlisted Object Revision;
+10. Object/Artifact links are bidirectional and exact to one owning Object Revision;
 11. retained conflicts survive portability without becoming hidden success;
 12. used restore Attempt fencing survives export/import.
 

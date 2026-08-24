@@ -3,11 +3,11 @@
 use crate::{
     CheckpointBackend, CheckpointBundle, CheckpointClass, CheckpointEngine, CheckpointError,
     CheckpointVerification, CompatibilityOutcome, Postcondition, RecoveryVerification,
-    RestoreCompatibilityDecision, RestoreRun, RestoreTarget, VerificationState,
+    RestoreCompatibilityDecision, RestoreRun, RestoreTarget,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
 /// Frozen B06 portable archive schema.
@@ -127,10 +127,8 @@ pub struct SessionVaultManifest {
     pub checkpoint_bundle_ref: String,
     /// A13 checkpoint manifest digest.
     pub checkpoint_manifest_sha256: String,
-    /// Independent A13 verification retained as export evidence.
-    pub checkpoint_verification_ref: String,
-    /// Evidence from the independent A13 checkpoint verification.
-    pub checkpoint_verification_evidence_refs: Vec<String>,
+    /// Engine-owned fact that the checkpoint was verified at export time.
+    pub checkpoint_verified_at_export: bool,
     /// Evidence supporting this B06 export operation.
     pub export_evidence_refs: Vec<String>,
 }
@@ -380,9 +378,6 @@ pub enum SessionVaultError {
     /// The supplied A13 checkpoint has not currently earned independent verification.
     #[error("Session Vault export requires a currently verified A13 checkpoint")]
     UnverifiedCheckpoint,
-    /// The supplied verification does not bind the exact exported checkpoint.
-    #[error("Session Vault verification does not bind the exact checkpoint")]
-    VerificationMismatch,
     /// Session Vault JSON encoding/decoding failed.
     #[error("Session Vault serialization failure: {0}")]
     Serialization(String),
@@ -407,10 +402,9 @@ pub enum SessionVaultError {
 pub fn export_session_vault(
     engine: &CheckpointEngine,
     bundle: &CheckpointBundle,
-    verification: &CheckpointVerification,
     mut spec: SessionVaultExportSpec,
 ) -> Result<Vec<u8>, SessionVaultError> {
-    validate_export_verification(engine, bundle, verification)?;
+    validate_export_authorization(engine, bundle)?;
     normalize_and_validate_spec(bundle, &mut spec)?;
     let checkpoint_engine_state = engine.export_state()?;
     validate_engine_state_binding(&checkpoint_engine_state, bundle)?;
@@ -434,11 +428,7 @@ pub fn export_session_vault(
         required_capability_refs: required_capability_refs.into_iter().collect(),
         checkpoint_bundle_ref: bundle.bundle_id.clone(),
         checkpoint_manifest_sha256: bundle.manifest_sha256.clone(),
-        checkpoint_verification_ref: verification.verification_id.clone(),
-        checkpoint_verification_evidence_refs: sorted_unique(
-            verification.evidence_refs.clone(),
-            "checkpoint verification evidence",
-        )?,
+        checkpoint_verified_at_export: true,
         export_evidence_refs: sorted_unique(spec.export_evidence_refs, "export evidence")?,
     };
     let mut archive = SessionVaultArchive {
@@ -449,7 +439,7 @@ pub fn export_session_vault(
         payload_sha256: String::new(),
     };
     archive.payload_sha256 = archive_digest(&archive)?;
-    serde_json::to_vec(&archive).map_err(serialization_error)
+    serde_json::to_vec(&archive).map_err(|error| serialization_error(&error))
 }
 
 /// Import an integrity-bound Session Vault into a new A13 engine.
@@ -463,7 +453,7 @@ pub fn export_session_vault(
 /// binding failure, or A13 durable-state import failure.
 pub fn import_session_vault(bytes: &[u8]) -> Result<ImportedSessionVault, SessionVaultError> {
     let archive: SessionVaultArchive =
-        serde_json::from_slice(bytes).map_err(serialization_error)?;
+        serde_json::from_slice(bytes).map_err(|error| serialization_error(&error))?;
     if archive.schema_version != SESSION_VAULT_SCHEMA_VERSION {
         return Err(SessionVaultError::InvalidMetadata("schema_version"));
     }
@@ -508,7 +498,7 @@ impl SessionVaultArchive {
                 "imported checkpoint must be independently re-verified before restore".to_owned(),
             ],
         };
-        serde_json::to_string_pretty(&readable).map_err(serialization_error)
+        serde_json::to_string_pretty(&readable).map_err(|error| serialization_error(&error))
     }
 }
 
@@ -528,7 +518,7 @@ fn validate_engine_state_binding(
     bundle: &CheckpointBundle,
 ) -> Result<(), SessionVaultError> {
     let projection: DurableStateProjection =
-        serde_json::from_slice(bytes).map_err(serialization_error)?;
+        serde_json::from_slice(bytes).map_err(|error| serialization_error(&error))?;
     require_text(
         &projection.schema_version,
         "checkpoint durable state schema",
@@ -546,37 +536,12 @@ fn validate_engine_state_binding(
     Ok(())
 }
 
-fn validate_export_verification(
+fn validate_export_authorization(
     engine: &CheckpointEngine,
     bundle: &CheckpointBundle,
-    verification: &CheckpointVerification,
 ) -> Result<(), SessionVaultError> {
-    if !engine.is_verified(&bundle.bundle_id) || verification.state != VerificationState::Verified {
+    if !engine.is_verified(&bundle.bundle_id) {
         return Err(SessionVaultError::UnverifiedCheckpoint);
-    }
-    let expected_components: BTreeSet<_> = bundle
-        .manifest
-        .components
-        .iter()
-        .map(|component| component.component_id.as_str())
-        .collect();
-    let actual_components: BTreeSet<_> = verification
-        .component_results
-        .iter()
-        .map(|component| component.component_ref.as_str())
-        .collect();
-    if verification.checkpoint_bundle_ref != bundle.bundle_id
-        || !verification.manifest_valid
-        || !verification.required_components_present
-        || verification.evidence_refs.is_empty()
-        || actual_components != expected_components
-        || verification.component_results.len() != expected_components.len()
-        || verification
-            .component_results
-            .iter()
-            .any(|item| !item.integrity_verified || !item.readback_verified)
-    {
-        return Err(SessionVaultError::VerificationMismatch);
     }
     Ok(())
 }
@@ -764,14 +729,22 @@ fn validate_artifacts(
     objects: &[VaultObjectEntry],
     artifacts: &mut [VaultArtifactEntry],
 ) -> Result<(), SessionVaultError> {
-    let object_revisions: BTreeSet<_> = objects
-        .iter()
-        .map(|item| (item.object_ref.as_str(), item.revision_ref.as_str()))
-        .collect();
-    let declared_artifact_refs: BTreeSet<_> = objects
-        .iter()
-        .flat_map(|item| item.artifact_refs.iter().map(String::as_str))
-        .collect();
+    let mut declared_owners = BTreeMap::new();
+    for object in objects {
+        for artifact_ref in &object.artifact_refs {
+            if declared_owners
+                .insert(
+                    artifact_ref.as_str(),
+                    (object.object_ref.as_str(), object.revision_ref.as_str()),
+                )
+                .is_some()
+            {
+                return Err(SessionVaultError::InvalidMetadata(
+                    "artifact linked from multiple object revisions",
+                ));
+            }
+        }
+    }
     let mut seen = BTreeSet::new();
     for artifact in artifacts.iter() {
         for (name, value) in [
@@ -783,21 +756,27 @@ fn validate_artifacts(
         ] {
             require_text(value, name)?;
         }
-        if !object_revisions
-            .contains(&(artifact.object_ref.as_str(), artifact.revision_ref.as_str()))
-        {
-            return Err(SessionVaultError::InvalidMetadata(
-                "artifact object/revision missing from manifest",
-            ));
-        }
-        if !declared_artifact_refs.contains(artifact.artifact_ref.as_str()) {
+        let Some((owner_object_ref, owner_revision_ref)) =
+            declared_owners.get(artifact.artifact_ref.as_str())
+        else {
             return Err(SessionVaultError::InvalidMetadata(
                 "artifact not linked from object manifest",
             ));
+        };
+        if *owner_object_ref != artifact.object_ref || *owner_revision_ref != artifact.revision_ref
+        {
+            return Err(SessionVaultError::InvalidMetadata(
+                "artifact owner mismatch",
+            ));
         }
-        if !seen.insert(artifact.artifact_ref.clone()) {
+        if !seen.insert(artifact.artifact_ref.as_str()) {
             return Err(SessionVaultError::InvalidMetadata("duplicate artifact_ref"));
         }
+    }
+    if seen.len() != declared_owners.len() {
+        return Err(SessionVaultError::InvalidMetadata(
+            "object artifact_ref missing artifact manifest entry",
+        ));
     }
     artifacts.sort_by(|left, right| left.artifact_ref.cmp(&right.artifact_ref));
     Ok(())
@@ -846,20 +825,16 @@ fn validate_manifest_metadata(manifest: &SessionVaultManifest) -> Result<(), Ses
             "checkpoint_manifest_sha256",
         ));
     }
-    require_text(
-        &manifest.checkpoint_verification_ref,
-        "checkpoint_verification_ref",
-    )?;
+    if !manifest.checkpoint_verified_at_export {
+        return Err(SessionVaultError::InvalidMetadata(
+            "checkpoint_verified_at_export",
+        ));
+    }
     if manifest.current_materialization_generation == 0 {
         return Err(SessionVaultError::InvalidMetadata(
             "current_materialization_generation",
         ));
     }
-    require_canonical_list(
-        &manifest.checkpoint_verification_evidence_refs,
-        "checkpoint verification evidence",
-        true,
-    )?;
     require_canonical_list(&manifest.export_evidence_refs, "export evidence", true)?;
     require_canonical_list(&manifest.conflicts, "conflicts", false)?;
     require_canonical_list(
@@ -938,7 +913,7 @@ fn archive_digest(archive: &SessionVaultArchive) -> Result<String, SessionVaultE
         checkpoint_bundle: &archive.checkpoint_bundle,
         checkpoint_engine_state: &archive.checkpoint_engine_state,
     };
-    let bytes = serde_json::to_vec(&payload).map_err(serialization_error)?;
+    let bytes = serde_json::to_vec(&payload).map_err(|error| serialization_error(&error))?;
     Ok(sha256(&bytes))
 }
 
@@ -994,7 +969,7 @@ fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn serialization_error(error: serde_json::Error) -> SessionVaultError {
+fn serialization_error(error: &serde_json::Error) -> SessionVaultError {
     SessionVaultError::Serialization(error.to_string())
 }
 

@@ -38,39 +38,26 @@ jobs:
           assert source.count(old) == 1, source.count(old)
           source = source.replace(old, new, 1)
 
-          old = '''    if has_boot_signature(source)
-              && (has_bytes_at(source, 54, b"FAT12   ")
-                  || has_bytes_at(source, 54, b"FAT16   ")
-                  || has_bytes_at(source, 82, b"FAT32   "))
-              {
-                  return detection(FilesystemKind::Fat, "FAT boot-sector filesystem type field");
-              }
-          '''
-          new = '''    if let Some(fat) = detect_fat(source) {
-                  return fat;
-              }
-          '''
-          assert source.count(old) == 1, source.count(old)
-          source = source.replace(old, new, 1)
+          detect_start = source.index('pub fn detect_filesystem(source: &[u8]) -> FilesystemDetection {')
+          fat_start = source.index('    if has_boot_signature(source)\n', detect_start)
+          fat_end = source.index('    FilesystemDetection {\n', fat_start)
+          old_fat = source[fat_start:fat_end]
+          assert 'FAT12' in old_fat and 'FAT16' in old_fat and 'FAT32' in old_fat
+          source = source[:fat_start] + '''    if let Some(fat) = detect_fat(source) {
+              return fat;
+          }
+          ''' + source[fat_end:]
 
-          old = '''    if entries.iter().any(|entry| {
-                  entry.content_state == FilesystemContentState::Unsupported
-                      || (entry.kind == FilesystemEntryKind::File
-                          && entry.content_state != FilesystemContentState::Exact)
-              }) {
-          '''
-          new = '''    if entries.iter().any(|entry| {
-                  !entry.limitations.is_empty()
-                      || entry.content_state == FilesystemContentState::Unsupported
-                      || (entry.kind == FilesystemEntryKind::File
-                          && entry.content_state != FilesystemContentState::Exact)
-              }) {
-          '''
-          assert source.count(old) == 1, source.count(old)
-          source = source.replace(old, new, 1)
+          marker = '        entry.content_state == FilesystemContentState::Unsupported\n'
+          assert source.count(marker) == 1, source.count(marker)
+          source = source.replace(
+              marker,
+              '        !entry.limitations.is_empty()\n'
+              '            || entry.content_state == FilesystemContentState::Unsupported\n',
+              1,
+          )
 
-          marker = '''fn has_boot_signature(source: &[u8]) -> bool {
-          '''
+          marker = 'fn has_boot_signature(source: &[u8]) -> bool {\n'
           assert source.count(marker) == 1, source.count(marker)
           helper = '''fn detect_fat(source: &[u8]) -> Option<FilesystemDetection> {
               if !has_boot_signature(source) {
@@ -170,57 +157,51 @@ jobs:
           tests_path = Path('crates/ptah-archive-decomposition/tests/c02.rs')
           tests = tests_path.read_text(encoding='utf-8')
 
-          old = '''        FilesystemKind::Fat => {
-                      bytes[54..62].copy_from_slice(b"FAT16   ");
-                      bytes[510] = 0x55;
-                      bytes[511] = 0xaa;
-                  }
-          '''
-          new = '''        FilesystemKind::Fat => {
-                      bytes[11..13].copy_from_slice(&512_u16.to_le_bytes());
-                      bytes[13] = 1;
-                      bytes[14..16].copy_from_slice(&1_u16.to_le_bytes());
-                      bytes[16] = 1;
-                      bytes[17..19].copy_from_slice(&16_u16.to_le_bytes());
-                      bytes[19..21].copy_from_slice(&78_u16.to_le_bytes());
-                      bytes[21] = 0xf8;
-                      bytes[22..24].copy_from_slice(&1_u16.to_le_bytes());
-                      bytes[510] = 0x55;
-                      bytes[511] = 0xaa;
-                  }
-          '''
-          assert tests.count(old) == 1, tests.count(old)
-          tests = tests.replace(old, new, 1)
+          fat_case_start = tests.index('        FilesystemKind::Fat => {\n')
+          fat_case_end = tests.index('        FilesystemKind::Ntfs => {\n', fat_case_start)
+          old_fat_case = tests[fat_case_start:fat_case_end]
+          assert 'FAT16' in old_fat_case
+          tests = tests[:fat_case_start] + '''        FilesystemKind::Fat => {
+              bytes[11..13].copy_from_slice(&512_u16.to_le_bytes());
+              bytes[13] = 1;
+              bytes[14..16].copy_from_slice(&1_u16.to_le_bytes());
+              bytes[16] = 1;
+              bytes[17..19].copy_from_slice(&16_u16.to_le_bytes());
+              bytes[19..21].copy_from_slice(&78_u16.to_le_bytes());
+              bytes[21] = 0xf8;
+              bytes[22..24].copy_from_slice(&1_u16.to_le_bytes());
+              bytes[510] = 0x55;
+              bytes[511] = 0xaa;
+          }
+          ''' + tests[fat_case_end:]
 
           marker = '''    for kind in kinds {
-                  let source = source_for(kind);
-                  let detection = detect_filesystem(&source);
-                  assert_eq!(detection.kind, kind);
-                  assert!(!detection.evidence.is_empty());
-              }
+              let source = source_for(kind);
+              let detection = detect_filesystem(&source);
+              assert_eq!(detection.kind, kind);
+              assert!(!detection.evidence.is_empty());
+          }
           '''
-          insertion = '''    let mut fat_without_type_label = source_for(FilesystemKind::Fat);
+          assert tests.count(marker) == 1, tests.count(marker)
+          tests = tests.replace(
+              marker,
+              marker + '''    let mut fat_without_type_label = source_for(FilesystemKind::Fat);
               fat_without_type_label[54..62].copy_from_slice(b"NOTFAT!!");
               let fat = detect_filesystem(&fat_without_type_label);
               assert_eq!(fat.kind, FilesystemKind::Fat);
               assert!(fat.evidence[0].contains("FAT12"));
-          '''
-          assert tests.count(marker) == 1, tests.count(marker)
-          tests = tests.replace(marker, marker + insertion, 1)
+          ''',
+              1,
+          )
 
-          marker = '''    assert!(matches!(
-                  inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
-                  Err(C02Error::FalseCompletenessClaim)
-              ));
-          }
-
-          #[test]
-          fn partial_provider_gaps_become_explicit_unknown_coverage() {
-          '''
-          insertion = '''    assert!(matches!(
-                  inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
-                  Err(C02Error::FalseCompletenessClaim)
-              ));
+          partial_marker = '\n#[test]\nfn partial_provider_gaps_become_explicit_unknown_coverage() {'
+          partial_pos = tests.index(partial_marker)
+          function_start = tests.rfind('\n#[test]\nfn false_complete_claim_with_unsupported_region_is_rejected()', 0, partial_pos)
+          assert function_start >= 0
+          function = tests[function_start:partial_pos]
+          close = function.rfind('\n}')
+          assert close >= 0
+          function = function[:close] + '''
 
               let mut entry_limited = complete_observation(FilesystemKind::Ext4, &source);
               entry_limited.entries[0]
@@ -231,35 +212,36 @@ jobs:
                   inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
                   Err(C02Error::FalseCompletenessClaim)
               ));
-          }
-
-          #[test]
-          fn partial_provider_gaps_become_explicit_unknown_coverage() {
-          '''
-          assert tests.count(marker) == 1, tests.count(marker)
-          tests = tests.replace(marker, insertion, 1)
+          ''' + function[close:]
+          tests = tests[:function_start] + function + tests[partial_pos:]
 
           old = '''    let mut limits = FilesystemLimits::default();
               limits.max_entries = 1;
           '''
-          new = '''    let limits = FilesystemLimits {
+          assert tests.count(old) == 1, tests.count(old)
+          tests = tests.replace(
+              old,
+              '''    let limits = FilesystemLimits {
                   max_entries: 1,
                   ..FilesystemLimits::default()
               };
-          '''
-          assert tests.count(old) == 1, tests.count(old)
-          tests = tests.replace(old, new, 1)
+          ''',
+              1,
+          )
 
           old = '''    let mut tiny = FilesystemLimits::default();
               tiny.max_string_bytes = 3;
           '''
-          new = '''    let tiny = FilesystemLimits {
+          assert tests.count(old) == 1, tests.count(old)
+          tests = tests.replace(
+              old,
+              '''    let tiny = FilesystemLimits {
                   max_string_bytes: 3,
                   ..FilesystemLimits::default()
               };
-          '''
-          assert tests.count(old) == 1, tests.count(old)
-          tests = tests.replace(old, new, 1)
+          ''',
+              1,
+          )
           tests_path.write_text(tests, encoding='utf-8')
 
           contract_path = Path('C02_FILESYSTEM_PROVIDERS.md')
@@ -268,16 +250,14 @@ jobs:
           assert contract.count(anchor) == 1
           contract = contract.replace(
               anchor,
-              anchor
-              + '- FAT detection derives family evidence from validated BPB geometry and data-cluster count; the informational filesystem-type label is not authoritative.\n',
+              anchor + '- FAT detection derives family evidence from validated BPB geometry and data-cluster count; the informational filesystem-type label is not authoritative.\n',
               1,
           )
           anchor = '- Unsupported features or unknown ranges cannot claim completeness.\n'
           assert contract.count(anchor) == 1
           contract = contract.replace(
               anchor,
-              anchor
-              + '- A complete claim also requires every retained entry to have no entry-specific limitations.\n',
+              anchor + '- A complete claim also requires every retained entry to have no entry-specific limitations.\n',
               1,
           )
           contract_path.write_text(contract, encoding='utf-8')

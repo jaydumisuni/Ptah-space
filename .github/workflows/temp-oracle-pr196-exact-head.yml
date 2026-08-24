@@ -31,6 +31,7 @@ jobs:
           git -C "$work/repo" checkout --detach "$ORACLE_MERGE_SHA"
           test "$(git -C "$work/repo" rev-parse HEAD)" = "$ORACLE_MERGE_SHA"
           cd "$work/repo"
+          GITHUB_WORKSPACE="$work/repo" \
           GITHUB_SHA="$ORACLE_MERGE_SHA" \
           GITHUB_RUN_ID="${{ github.run_id }}" \
           GITHUB_RUN_ATTEMPT="${{ github.run_attempt }}" \

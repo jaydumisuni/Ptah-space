@@ -1,3 +1,5 @@
+//! C01 disk-image and partition-foundation acceptance corpus.
+
 use ptah_archive_decomposition::{
     C01Error, DiskImageContext, DiskImageFormat, DiskImageLimits, PartitionLayoutKind,
     PartitionMapAssessment, PartitionTableKind, SourceCoverageKind, compare_disk_images,
@@ -66,12 +68,12 @@ fn gpt_image(first_lba: u64, last_lba: u64, hybrid_mbr: bool) -> Vec<u8> {
     let entries_len = 4 * 128;
     let entry = &mut image[entries_start..entries_start + 128];
     entry[0..16].copy_from_slice(&[
-        0xa2, 0xa0, 0xd0, 0xeb, 0xe5, 0xb9, 0x33, 0x44, 0x87, 0xc0, 0x68, 0xb6, 0xb7, 0x26,
-        0x99, 0xc7,
+        0xa2, 0xa0, 0xd0, 0xeb, 0xe5, 0xb9, 0x33, 0x44, 0x87, 0xc0, 0x68, 0xb6, 0xb7, 0x26, 0x99,
+        0xc7,
     ]);
     entry[16..32].copy_from_slice(&[
-        0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba,
-        0xdc, 0xfe,
+        0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc,
+        0xfe,
     ]);
     entry[32..40].copy_from_slice(&first_lba.to_le_bytes());
     entry[40..48].copy_from_slice(&last_lba.to_le_bytes());
@@ -91,8 +93,8 @@ fn gpt_image(first_lba: u64, last_lba: u64, hybrid_mbr: bool) -> Vec<u8> {
     header[40..48].copy_from_slice(&34_u64.to_le_bytes());
     header[48..56].copy_from_slice(&126_u64.to_le_bytes());
     header[56..72].copy_from_slice(&[
-        0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab,
-        0xcd, 0xef,
+        0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd,
+        0xef,
     ]);
     header[72..80].copy_from_slice(&2_u64.to_le_bytes());
     header[80..84].copy_from_slice(&4_u32.to_le_bytes());
@@ -144,7 +146,10 @@ fn raw_normalization_is_identity_and_source_immutable() {
     assert_eq!(normalized.source_format(), DiskImageFormat::Raw);
     assert_eq!(normalized.bytes(), source.as_slice());
     assert_eq!(normalized.source_coverage().len(), 1);
-    assert_eq!(normalized.source_coverage()[0].kind, SourceCoverageKind::Defined);
+    assert_eq!(
+        normalized.source_coverage()[0].kind,
+        SourceCoverageKind::Defined
+    );
 }
 
 #[test]
@@ -168,7 +173,10 @@ fn sparse_raw_fill_and_dontcare_preserve_exact_coverage() {
     assert_eq!(normalized.bytes().len(), 3 * SECTOR);
     assert_eq!(normalized.source_coverage().len(), 3);
     assert_eq!(normalized.source_coverage()[0].byte_end_exclusive, 512);
-    assert_eq!(normalized.source_coverage()[1].kind, SourceCoverageKind::Unspecified);
+    assert_eq!(
+        normalized.source_coverage()[1].kind,
+        SourceCoverageKind::Unspecified
+    );
     assert_eq!(normalized.source_coverage()[1].byte_start, 512);
     assert_eq!(normalized.source_coverage()[1].byte_end_exclusive, 1024);
     assert_eq!(
@@ -189,8 +197,7 @@ fn malformed_and_crc_bad_sparse_fail_closed() {
 
     let source = vec![0x11_u8; SECTOR];
     let raw = normalize_disk_image(&source, DiskImageLimits::default()).expect("raw");
-    let mut sparse =
-        encode_android_sparse(&raw, 512, DiskImageLimits::default()).expect("sparse");
+    let mut sparse = encode_android_sparse(&raw, 512, DiskImageLimits::default()).expect("sparse");
     sparse[24..28].copy_from_slice(&0xdead_beef_u32.to_le_bytes());
     assert!(matches!(
         normalize_disk_image(&sparse, DiskImageLimits::default()),
@@ -214,9 +221,18 @@ fn mbr_partition_boundaries_and_layout_are_exact() {
     assert_eq!(partition.byte_start, 1024);
     assert_eq!(partition.byte_end_exclusive, 3072);
     assert!(partition.bootable);
-    assert_eq!(report.layout_coverage[0].kind, PartitionLayoutKind::Unallocated);
-    assert_eq!(report.layout_coverage[1].kind, PartitionLayoutKind::Partition);
-    assert_eq!(report.layout_coverage[2].kind, PartitionLayoutKind::Unallocated);
+    assert_eq!(
+        report.layout_coverage[0].kind,
+        PartitionLayoutKind::Unallocated
+    );
+    assert_eq!(
+        report.layout_coverage[1].kind,
+        PartitionLayoutKind::Partition
+    );
+    assert_eq!(
+        report.layout_coverage[2].kind,
+        PartitionLayoutKind::Unallocated
+    );
 }
 
 #[test]
@@ -231,10 +247,12 @@ fn corrupt_mbr_extent_is_inconclusive_not_complete() {
     .expect("inspect");
     assert_eq!(report.assessment, PartitionMapAssessment::Inconclusive);
     assert!(report.partitions.is_empty());
-    assert!(report
-        .layout_coverage
-        .iter()
-        .all(|range| range.kind == PartitionLayoutKind::Unknown));
+    assert!(
+        report
+            .layout_coverage
+            .iter()
+            .all(|range| range.kind == PartitionLayoutKind::Unknown)
+    );
 }
 
 #[test]
@@ -249,10 +267,12 @@ fn extended_mbr_is_explicit_partial() {
     .expect("inspect");
     assert_eq!(report.assessment, PartitionMapAssessment::Partial);
     assert!(report.partitions[0].container);
-    assert!(report
-        .limitations
-        .iter()
-        .any(|value| value.contains("EBR recursion")));
+    assert!(
+        report
+            .limitations
+            .iter()
+            .any(|value| value.contains("EBR recursion"))
+    );
 }
 
 #[test]
@@ -302,10 +322,12 @@ fn corrupt_gpt_header_crc_is_inconclusive() {
     .expect("inspect");
     assert_eq!(report.assessment, PartitionMapAssessment::Inconclusive);
     assert!(report.partitions.is_empty());
-    assert!(report
-        .limitations
-        .iter()
-        .any(|value| value.contains("header CRC32")));
+    assert!(
+        report
+            .limitations
+            .iter()
+            .any(|value| value.contains("header CRC32"))
+    );
 }
 
 #[test]
@@ -321,10 +343,12 @@ fn corrupt_gpt_entry_crc_is_inconclusive() {
     .expect("inspect");
     assert_eq!(report.assessment, PartitionMapAssessment::Inconclusive);
     assert!(report.partitions.is_empty());
-    assert!(report
-        .limitations
-        .iter()
-        .any(|value| value.contains("entry array CRC32")));
+    assert!(
+        report
+            .limitations
+            .iter()
+            .any(|value| value.contains("entry array CRC32"))
+    );
 }
 
 #[test]
@@ -339,10 +363,12 @@ fn invalid_gpt_partition_extent_is_inconclusive() {
     .expect("inspect");
     assert_eq!(report.assessment, PartitionMapAssessment::Inconclusive);
     assert!(report.partitions.is_empty());
-    assert!(report
-        .warnings
-        .iter()
-        .any(|value| value.contains("invalid identity or usable-LBA extent")));
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|value| value.contains("invalid identity or usable-LBA extent"))
+    );
 }
 
 #[test]
@@ -357,10 +383,12 @@ fn hybrid_mbr_is_partial_even_with_valid_gpt() {
     .expect("inspect");
     assert_eq!(report.partition_table, PartitionTableKind::Gpt);
     assert_eq!(report.assessment, PartitionMapAssessment::Partial);
-    assert!(report
-        .limitations
-        .iter()
-        .any(|value| value.contains("hybrid MBR")));
+    assert!(
+        report
+            .limitations
+            .iter()
+            .any(|value| value.contains("hybrid MBR"))
+    );
 }
 
 #[test]
@@ -376,6 +404,12 @@ fn dontcare_partition_materialization_fails_closed() {
         materialize_partition(&normalized, &report, 1, &ctx),
         Err(C01Error::UnspecifiedPartitionBytes)
     ));
+    let mut mutated = report.clone();
+    mutated.partitions[0].byte_start = 0;
+    assert!(matches!(
+        materialize_partition(&normalized, &mutated, 1, &ctx),
+        Err(C01Error::ReportIntegrityMismatch)
+    ));
 }
 
 #[test]
@@ -389,13 +423,20 @@ fn materialization_is_exact_and_builds_a07_registration() {
     let materialized =
         materialize_partition(&normalized, &report, 1, &ctx).expect("materialize partition");
     assert_eq!(materialized.bytes(), &source[2 * SECTOR..4 * SECTOR]);
-    let spec = materialized.registration_spec(&ctx);
+    let spec = materialized
+        .registration_spec(&ctx)
+        .expect("registration spec");
     assert_eq!(spec.object_class, "disk.partition");
     assert_eq!(spec.source_refs, vec![ctx.source_revision_ref.clone()]);
     assert_eq!(
         spec.expected_sha256.as_deref(),
         Some(materialized.sha256.as_str())
     );
+    let wrong_context = context(reference("object.revision"));
+    assert!(matches!(
+        materialized.registration_spec(&wrong_context),
+        Err(C01Error::SourceBindingMismatch)
+    ));
 }
 
 #[test]
@@ -405,8 +446,7 @@ fn relationship_requires_exact_registered_partition_bytes() {
     let ctx = context(reference("object.revision"));
     let report =
         inspect_partition_map(&normalized, &ctx, DiskImageLimits::default()).expect("inspect");
-    let materialized =
-        materialize_partition(&normalized, &report, 1, &ctx).expect("materialize");
+    let materialized = materialize_partition(&normalized, &report, 1, &ctx).expect("materialize");
     let good = Registration {
         content_ref: reference("object.content"),
         object_ref: reference("object.object"),
@@ -439,9 +479,11 @@ fn view_plans_are_exact_source_bound() {
         inspect_partition_map(&normalized, &ctx, DiskImageLimits::default()).expect("inspect");
     let views = report.view_specs(&ctx).expect("views");
     assert_eq!(views.len(), 2);
-    assert!(views
-        .iter()
-        .all(|view| view.source_revision_refs == vec![ctx.source_revision_ref.clone()]));
+    assert!(
+        views
+            .iter()
+            .all(|view| view.source_revision_refs == vec![ctx.source_revision_ref.clone()])
+    );
 
     let other = context(reference("object.revision"));
     assert!(matches!(
@@ -474,10 +516,46 @@ fn structural_comparison_retains_both_source_revisions() {
         right_ctx.source_revision_ref
     );
     assert!(!comparison.identical_layout);
-    assert!(comparison
-        .differences
-        .iter()
-        .any(|difference| difference.contains("partition_slot_changed:1")));
+    assert!(
+        comparison
+            .differences
+            .iter()
+            .any(|difference| difference.contains("partition_slot_changed:1"))
+    );
+
+    let complete_source = gpt_image(40, 49, false);
+    let partial_source = gpt_image(40, 49, true);
+    let complete_image = normalize_disk_image(&complete_source, DiskImageLimits::default())
+        .expect("complete normalize");
+    let partial_image = normalize_disk_image(&partial_source, DiskImageLimits::default())
+        .expect("partial normalize");
+    let complete = inspect_partition_map(
+        &complete_image,
+        &context(reference("object.revision")),
+        DiskImageLimits::default(),
+    )
+    .expect("complete inspect");
+    let partial = inspect_partition_map(
+        &partial_image,
+        &context(reference("object.revision")),
+        DiskImageLimits::default(),
+    )
+    .expect("partial inspect");
+    assert_eq!(complete.partitions, partial.partitions);
+    let uncertainty = compare_disk_images(&complete, &partial);
+    assert!(!uncertainty.identical_layout);
+    assert!(
+        uncertainty
+            .differences
+            .iter()
+            .any(|difference| difference.starts_with("assessment:"))
+    );
+    assert!(
+        uncertainty
+            .differences
+            .iter()
+            .any(|difference| difference == "layout_coverage_changed")
+    );
 }
 
 #[test]

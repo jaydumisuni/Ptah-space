@@ -16,8 +16,12 @@ uuid = { workspace = true }
 workspace = true
 
 [lib]
-path = "src/lib.rs"
+path = "src/b06_lib.rs"
 
 [[test]]
 name = "a13"
 path = "tests/a13.rs"
+
+[[test]]
+name = "b06"
+path = "tests/b06.rs"

@@ -10,7 +10,7 @@ mod b02;
 mod b03;
 mod b04;
 mod b04_review;
-mod b05_impl;
+mod b05;
 mod model;
 mod persist;
 mod policy;
@@ -34,7 +34,7 @@ pub use b04::{
     TranscodeRequest,
 };
 pub use b04_review::{MediaReport, inspect_media};
-pub use b05_impl::{
+pub use b05::{
     AdapterEmbeddedChild, AdapterExecutable, B05Error, EmbeddedExecutableChild, ExecutableAdapter,
     ExecutableClass, ExecutableContext, ExecutableCoverage, ExecutableLimits, ExecutableMetadata,
     ExecutableReport, ExecutableSection, ExecutionAssessment, SignatureObservation, SignatureStatus,

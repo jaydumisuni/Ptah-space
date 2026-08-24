@@ -663,8 +663,7 @@ fn retain_children(
             );
             continue;
         }
-        let size =
-            u64::try_from(child.bytes.len()).map_err(|_| B05Error::AccountingOverflow)?;
+        let size = u64::try_from(child.bytes.len()).map_err(|_| B05Error::AccountingOverflow)?;
         let max = u64::try_from(limits.max_total_child_bytes)
             .map_err(|_| B05Error::AccountingOverflow)?;
         let next = report
@@ -693,10 +692,7 @@ fn retain_children(
         });
     }
     if produced > limits.max_children {
-        mark_gap(
-            report,
-            "embedded children exceeded max_children".to_owned(),
-        );
+        mark_gap(report, "embedded children exceeded max_children".to_owned());
     }
     Ok(())
 }
@@ -740,8 +736,7 @@ fn validate_adapter_ids(adapters: &[&dyn ExecutableAdapter]) -> Result<(), B05Er
 }
 
 fn validate_output(output: &AdapterExecutable, source_len: usize) -> Result<(), B05Error> {
-    let source_len =
-        u64::try_from(source_len).map_err(|_| B05Error::InvalidObservedSourceBytes)?;
+    let source_len = u64::try_from(source_len).map_err(|_| B05Error::InvalidObservedSourceBytes)?;
     if output.observed_source_bytes > source_len {
         return Err(B05Error::InvalidObservedSourceBytes);
     }

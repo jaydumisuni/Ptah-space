@@ -1,16 +1,18 @@
 #![forbid(unsafe_code)]
-//! A12 deterministic archive decomposition plus B02–B05 generic content interpretation.
+//! A12 deterministic archive decomposition plus B02–B07 object-world interpretation/search.
 //!
 //! Parser backends, type detectors, document, media and executable/package adapters are untrusted
 //! mechanical facilities. This crate owns path canonicalization, recursive resource budgets,
 //! provenance, coverage truth, detector disagreement, progressive decomposition truth, passive
-//! interpretation and canonical registration plans through the A07/A03 boundaries.
+//! interpretation, derived source-bound search and canonical registration plans through the
+//! A07/A03 boundaries. B07 index state is rebuildable projection state, never canonical source.
 
 mod b02;
 mod b03;
 mod b04;
 mod b04_review;
 mod b05;
+mod b07;
 mod model;
 mod persist;
 mod policy;
@@ -39,6 +41,13 @@ pub use b05::{
     ExecutableClass, ExecutableContext, ExecutableCoverage, ExecutableLimits, ExecutableMetadata,
     ExecutableReport, ExecutableSection, ExecutionAssessment, SignatureObservation,
     SignatureStatus, StaticIsolation, StaticIsolationPolicy, inspect_executable,
+};
+pub use b07::{
+    SearchDocument, SearchDocumentKind, SearchDomain, SearchError, SearchField, SearchHit,
+    SearchIndex, SearchIndexRevision, SearchLimits, SearchMatch, SearchQuery, SearchResponse,
+    SearchSourceBinding, activity_search_document, artifact_search_document,
+    document_text_search_document, filename_metadata_document, log_search_document,
+    source_symbol_search_document,
 };
 pub use model::{
     ArchiveBackend, BackendIdentity, DecompositionBudget, DecompositionClock, DecompositionOutcome,

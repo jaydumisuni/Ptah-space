@@ -1,13 +1,15 @@
 //! B05 executable/application-package positive, negative and provenance acceptance corpus.
 
 use ptah_archive_decomposition::{
-    AdapterEmbeddedChild, AdapterExecutable, B05Error, ExecutableAdapter, ExecutableClass,
-    ExecutableContext, ExecutableLimits, ExecutableMetadata, ExecutableSection,
+    AdapterEmbeddedChild, AdapterExecutable, B05Error, EmbeddedExecutableChild, ExecutableAdapter,
+    ExecutableClass, ExecutableContext, ExecutableLimits, ExecutableMetadata, ExecutableSection,
     ExecutionAssessment, SignatureObservation, SignatureStatus, StaticIsolation,
     StaticIsolationPolicy, TypeAgreement, TypeAssessment, inspect_executable,
 };
 use ptah_identifiers::EntityRef;
-use ptah_object_store::{OriginClass, ProductionEvidence, RevisionRole};
+use ptah_object_store::{
+    OriginClass, ProductionEvidence, Registration, RevisionRole,
+};
 
 fn reference(kind: &str) -> EntityRef {
     EntityRef::new(kind).expect("valid fixture reference")
@@ -90,6 +92,19 @@ fn full_output() -> AdapterExecutable {
     }
 }
 
+fn registration_for(child: &EmbeddedExecutableChild) -> Registration {
+    Registration {
+        content_ref: reference("object.content"),
+        object_ref: reference("object.object"),
+        revision_ref: reference("object.revision"),
+        location_ref: reference("storage.location"),
+        sha256: child.sha256.clone(),
+        byte_size: u64::try_from(child.bytes.len()).expect("fixture byte size"),
+        cas_object_key: format!("sha256/{}", child.sha256),
+        content_deduplicated: false,
+    }
+}
+
 #[derive(Debug, Clone)]
 struct FixtureAdapter {
     id: &'static str,
@@ -131,9 +146,9 @@ impl ExecutableAdapter for FixtureAdapter {
         _limits: ExecutableLimits,
     ) -> Result<AdapterExecutable, String> {
         let mut output = self.output.clone();
-        output.observed_source_bytes = self
-            .observed_override
-            .unwrap_or_else(|| source_bytes.len() as u64);
+        output.observed_source_bytes = self.observed_override.unwrap_or_else(|| {
+            u64::try_from(source_bytes.len()).expect("fixture source byte size")
+        });
         Ok(output)
     }
 }
@@ -155,14 +170,37 @@ fn pe_static_inspection_retains_views_without_execution_claim() {
 
     assert_eq!(source, before);
     assert_eq!(report.executable_class, Some(ExecutableClass::Pe));
-    assert_eq!(report.execution_assessment, ExecutionAssessment::NotExecuted);
+    assert_eq!(
+        report.execution_assessment,
+        ExecutionAssessment::NotExecuted
+    );
     assert!(report.coverage.complete_claim);
     let views = report.view_specs(&source_context);
-    assert!(views.iter().any(|view| view.view_kind == "executable.imports"));
-    assert!(views.iter().any(|view| view.view_kind == "executable.exports"));
-    assert!(views.iter().any(|view| view.view_kind == "executable.sections"));
-    assert!(views.iter().any(|view| view.view_kind == "executable.signatures"));
-    assert!(views.iter().any(|view| view.view_kind == "executable.coverage"));
+    assert!(
+        views
+            .iter()
+            .any(|view| view.view_kind == "executable.imports")
+    );
+    assert!(
+        views
+            .iter()
+            .any(|view| view.view_kind == "executable.exports")
+    );
+    assert!(
+        views
+            .iter()
+            .any(|view| view.view_kind == "executable.sections")
+    );
+    assert!(
+        views
+            .iter()
+            .any(|view| view.view_kind == "executable.signatures")
+    );
+    assert!(
+        views
+            .iter()
+            .any(|view| view.view_kind == "executable.coverage")
+    );
 }
 
 #[test]
@@ -198,7 +236,10 @@ fn unknown_and_disputed_types_fail_open_only_as_explicit_partial_reports() {
         assert!(report.adapter_id.is_none());
         assert!(!report.coverage.complete_claim);
         assert!(!report.coverage.unknown_regions.is_empty());
-        assert_eq!(report.execution_assessment, ExecutionAssessment::NotExecuted);
+        assert_eq!(
+            report.execution_assessment,
+            ExecutionAssessment::NotExecuted
+        );
         assert_eq!(report.view_specs(&context()).len(), 1);
     }
 }
@@ -214,7 +255,10 @@ fn unsupported_agreed_type_and_missing_provider_keep_coverage_explicit() {
     )
     .expect("unsupported partial report");
     assert!(!unsupported.coverage.unknown_regions.is_empty());
-    assert_eq!(unsupported.view_specs(&context())[0].view_kind, "executable.coverage");
+    assert_eq!(
+        unsupported.view_specs(&context())[0].view_kind,
+        "executable.coverage"
+    );
 
     let missing = inspect_executable(
         b"dex\n035\0",
@@ -308,7 +352,13 @@ fn packed_or_unknown_section_prevents_complete_static_coverage() {
     )
     .expect("packed report");
     assert!(!report.coverage.complete_claim);
-    assert!(report.coverage.unknown_regions.iter().any(|gap| gap.contains("UPX0")));
+    assert!(
+        report
+            .coverage
+            .unknown_regions
+            .iter()
+            .any(|gap| gap.contains("UPX0"))
+    );
 }
 
 #[test]
@@ -342,16 +392,28 @@ fn apk_children_become_recovered_revisions_with_frozen_parent_provenance() {
     let child = &report.children[0];
     let mut different_context = source_context.clone();
     different_context.source_revision_ref = reference("object.revision");
-    assert_ne!(source_context.source_revision_ref, different_context.source_revision_ref);
+    assert_ne!(
+        source_context.source_revision_ref,
+        different_context.source_revision_ref
+    );
     let spec = child.registration_spec(&different_context);
-    assert_eq!(spec.source_refs, vec![source_context.source_revision_ref.clone()]);
+    assert_eq!(
+        spec.source_refs,
+        vec![source_context.source_revision_ref.clone()]
+    );
     assert_eq!(spec.revision_role, RevisionRole::Recovered);
-    assert_eq!(spec.origin_class, OriginClass::RecoveredEmbeddedSource);
-    assert_eq!(spec.expected_sha256.as_deref(), Some(child.sha256.as_str()));
+    assert_eq!(
+        spec.origin_class,
+        OriginClass::RecoveredEmbeddedSource
+    );
+    assert_eq!(
+        spec.expected_sha256.as_deref(),
+        Some(child.sha256.as_str())
+    );
 }
 
 #[test]
-fn embedded_child_relationship_targets_registered_revision_without_rebinding_parent() {
+fn embedded_child_relationship_binds_exact_registration_without_rebinding_parent() {
     let source_context = context();
     let mut output = full_output();
     output.children = vec![AdapterEmbeddedChild {
@@ -370,18 +432,35 @@ fn embedded_child_relationship_targets_registered_revision_without_rebinding_par
     .expect("AAB decomposition");
     assert_eq!(report.executable_class, Some(ExecutableClass::Aab));
 
-    let child_revision = reference("object.revision");
-    let relation = report.children[0]
-        .relationship_spec(&source_context, &child_revision)
+    let child = &report.children[0];
+    let registration = registration_for(child);
+    let mut different_context = source_context.clone();
+    different_context.source_revision_ref = reference("object.revision");
+    let relation = child
+        .relationship_spec(&different_context, &registration)
         .expect("relationship plan");
-    assert_eq!(relation.subject_refs, vec![source_context.source_revision_ref]);
-    assert_eq!(relation.object_refs, vec![child_revision]);
+    assert_eq!(
+        relation.subject_refs,
+        vec![source_context.source_revision_ref]
+    );
+    assert_eq!(
+        relation.object_refs,
+        vec![
+            registration.object_ref.clone(),
+            registration.revision_ref.clone()
+        ]
+    );
     assert_eq!(relation.relationship_type, "contains.embedded");
 }
 
 #[test]
 fn unsafe_and_duplicate_child_paths_fail_closed() {
-    for path in ["../classes.dex", "/classes.dex", "C:/classes.dex", "a\\classes.dex"] {
+    for path in [
+        "../classes.dex",
+        "/classes.dex",
+        "C:/classes.dex",
+        "a\\classes.dex",
+    ] {
         let mut output = full_output();
         output.children = vec![AdapterEmbeddedChild {
             logical_path: path.to_owned(),
@@ -400,6 +479,25 @@ fn unsafe_and_duplicate_child_paths_fail_closed() {
             Err(B05Error::UnsafeChildPath)
         );
     }
+
+    let mut overlong = full_output();
+    overlong.children = vec![AdapterEmbeddedChild {
+        logical_path: "a".repeat(8193),
+        media_type: "application/vnd.android.dex".to_owned(),
+        bytes: b"dex".to_vec(),
+    }];
+    let overlong_adapter =
+        FixtureAdapter::passive("application/vnd.android.package-archive", overlong);
+    assert_eq!(
+        inspect_executable(
+            b"PK-package",
+            &agreed("application/vnd.android.package-archive"),
+            &context(),
+            ExecutableLimits::default(),
+            &[&overlong_adapter],
+        ),
+        Err(B05Error::UnsafeChildPath)
+    );
 
     let mut output = full_output();
     output.children = vec![
@@ -457,7 +555,13 @@ fn child_retention_limits_preserve_partial_truth_instead_of_silent_drop() {
     .expect("bounded package decomposition");
     assert_eq!(report.children.len(), 1);
     assert!(!report.coverage.complete_claim);
-    assert!(report.coverage.unknown_regions.iter().any(|gap| gap.contains("max_children")));
+    assert!(
+        report
+            .coverage
+            .unknown_regions
+            .iter()
+            .any(|gap| gap.contains("max_children"))
+    );
 }
 
 #[test]
@@ -479,7 +583,13 @@ fn list_retention_limits_are_explicit_coverage_gaps() {
     .expect("bounded import inspection");
     assert_eq!(report.imports, vec!["one"]);
     assert!(!report.coverage.complete_claim);
-    assert!(report.coverage.unknown_regions.iter().any(|gap| gap.contains("imports")));
+    assert!(
+        report
+            .coverage
+            .unknown_regions
+            .iter()
+            .any(|gap| gap.contains("imports"))
+    );
 }
 
 #[test]
@@ -513,12 +623,20 @@ fn signature_observation_is_a_static_view_not_an_execution_or_trust_grant() {
     )
     .expect("signed executable inspection");
     assert_eq!(report.signatures[0].status, SignatureStatus::Verified);
-    assert_eq!(report.execution_assessment, ExecutionAssessment::NotExecuted);
-    assert!(report.view_specs(&context()).iter().any(|view| view.view_kind == "executable.signatures"));
+    assert_eq!(
+        report.execution_assessment,
+        ExecutionAssessment::NotExecuted
+    );
+    assert!(
+        report
+            .view_specs(&context())
+            .iter()
+            .any(|view| view.view_kind == "executable.signatures")
+    );
 }
 
 #[test]
-fn invalid_child_relationship_target_is_rejected() {
+fn invalid_or_mismatched_child_registration_is_rejected() {
     let source_context = context();
     let mut output = full_output();
     output.children = vec![AdapterEmbeddedChild {
@@ -535,8 +653,26 @@ fn invalid_child_relationship_target_is_rejected() {
         &[&adapter],
     )
     .expect("package inspection");
+    let child = &report.children[0];
+
+    let mut wrong_kind = registration_for(child);
+    wrong_kind.object_ref = reference("object.revision");
     assert_eq!(
-        report.children[0].relationship_spec(&source_context, &reference("object.object")),
-        Err(B05Error::InvalidChildRevision)
+        child.relationship_spec(&source_context, &wrong_kind),
+        Err(B05Error::InvalidChildRegistration)
+    );
+
+    let mut wrong_digest = registration_for(child);
+    wrong_digest.sha256 = "0".repeat(64);
+    assert_eq!(
+        child.relationship_spec(&source_context, &wrong_digest),
+        Err(B05Error::ChildRegistrationMismatch)
+    );
+
+    let mut wrong_size = registration_for(child);
+    wrong_size.byte_size += 1;
+    assert_eq!(
+        child.relationship_spec(&source_context, &wrong_size),
+        Err(B05Error::ChildRegistrationMismatch)
     );
 }

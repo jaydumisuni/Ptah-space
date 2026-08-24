@@ -1,15 +1,16 @@
 #![forbid(unsafe_code)]
-//! A12 deterministic archive decomposition plus B02/B03/B04 generic content interpretation.
+//! A12 deterministic archive decomposition plus B02–B05 generic content interpretation.
 //!
-//! Parser backends, type detectors, document adapters and media adapters are untrusted mechanical
-//! facilities. This crate owns path canonicalization, recursive resource budgets, provenance,
-//! coverage truth, detector disagreement, progressive decomposition truth, passive document/media
+//! Parser backends, type detectors, document, media and executable/package adapters are untrusted
+//! mechanical facilities. This crate owns path canonicalization, recursive resource budgets,
+//! provenance, coverage truth, detector disagreement, progressive decomposition truth, passive
 //! interpretation and canonical registration plans through the A07/A03 boundaries.
 
 mod b02;
 mod b03;
 mod b04;
 mod b04_review;
+mod b05;
 mod model;
 mod persist;
 mod policy;
@@ -33,6 +34,12 @@ pub use b04::{
     TranscodeRequest,
 };
 pub use b04_review::{MediaReport, inspect_media};
+pub use b05::{
+    AdapterEmbeddedChild, AdapterExecutable, B05Error, EmbeddedExecutableChild, ExecutableAdapter,
+    ExecutableClass, ExecutableContext, ExecutableCoverage, ExecutableLimits, ExecutableMetadata,
+    ExecutableReport, ExecutableSection, ExecutionAssessment, SignatureObservation, SignatureStatus,
+    StaticIsolation, StaticIsolationPolicy, inspect_executable,
+};
 pub use model::{
     ArchiveBackend, BackendIdentity, DecompositionBudget, DecompositionClock, DecompositionOutcome,
     DecompositionPlan, DecompositionSpec, InventoryEntry, MemberKind, ParseReport, ParseTerminal,

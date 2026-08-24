@@ -290,7 +290,7 @@ impl SearchIndex {
             validate_document(document, self.limits)?;
             canonicalize_fields(&mut document.fields);
         }
-        canonical.sort_by(|left, right| document_key(left).cmp(&document_key(right)));
+        canonical.sort_by_key(document_key);
         if canonical
             .windows(2)
             .any(|window| document_key(&window[0]) == document_key(&window[1]))
@@ -603,7 +603,7 @@ fn validate_document(document: &SearchDocument, limits: SearchLimits) -> Result<
         return Err(SearchError::TooManyFields);
     }
     for field in &document.fields {
-        if field.value.as_bytes().len() > limits.max_field_bytes {
+        if field.value.len() > limits.max_field_bytes {
             return Err(SearchError::FieldTooLarge);
         }
         require_text(&field.value, "field value")?;

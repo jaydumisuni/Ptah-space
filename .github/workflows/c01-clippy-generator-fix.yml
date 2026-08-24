@@ -59,21 +59,9 @@ jobs:
           assert source.count(old) == 1, source.count(old)
           source = source.replace(old, new, 1)
 
-          old = '''    if left.normalized_size != right.normalized_size {
-              differences.push(format!(
-                  "normalized_size:{}->{}",
-                  left.normalized_size, right.normalized_size
-              ));
-          }
-          if left.source_coverage != right.source_coverage {
-          '''
-          new = '''    if left.normalized_size != right.normalized_size {
-              differences.push(format!(
-                  "normalized_size:{}->{}",
-                  left.normalized_size, right.normalized_size
-              ));
-          }
-          if left.assessment != right.assessment {
+          marker = '    if left.source_coverage != right.source_coverage {\n'
+          assert source.count(marker) == 1, source.count(marker)
+          insertion = '''    if left.assessment != right.assessment {
               differences.push(format!(
                   "assessment:{:?}->{:?}",
                   left.assessment, right.assessment
@@ -82,25 +70,15 @@ jobs:
           if left.layout_coverage != right.layout_coverage {
               differences.push("layout_coverage_changed".to_owned());
           }
-          if left.source_coverage != right.source_coverage {
           '''
-          assert source.count(old) == 1, source.count(old)
-          source = source.replace(old, new, 1)
+          source = source.replace(marker, insertion + marker, 1)
           source_path.write_text(source, encoding='utf-8')
 
           tests_path = Path('crates/ptah-archive-decomposition/tests/c01.rs')
           tests = tests_path.read_text(encoding='utf-8')
-          anchor = '''    assert!(comparison
-              .differences
-              .iter()
-              .any(|difference| difference.contains("partition_slot_changed:1")));
-          }
-          '''
-          replacement = '''    assert!(comparison
-              .differences
-              .iter()
-              .any(|difference| difference.contains("partition_slot_changed:1")));
-
+          marker = '        .any(|difference| difference.contains("partition_slot_changed:1")));\n'
+          assert tests.count(marker) == 1, tests.count(marker)
+          insertion = '''
               let complete_source = gpt_image(40, 49, false);
               let partial_source = gpt_image(40, 49, true);
               let complete_image = normalize_disk_image(&complete_source, DiskImageLimits::default())
@@ -130,10 +108,9 @@ jobs:
                   .differences
                   .iter()
                   .any(|difference| difference == "layout_coverage_changed"));
-          }
           '''
-          assert tests.count(anchor) == 1, tests.count(anchor)
-          tests_path.write_text(tests.replace(anchor, replacement, 1), encoding='utf-8')
+          tests = tests.replace(marker, marker + insertion, 1)
+          tests_path.write_text(tests, encoding='utf-8')
           PY
 
           cargo fmt --all

@@ -1,11 +1,12 @@
 #![forbid(unsafe_code)]
-//! A12 deterministic archive decomposition plus B02–B07 object-world interpretation/search.
+//! A12 deterministic archive decomposition plus B02–B07 Object World and C01 disk foundations.
 //!
 //! Parser backends, type detectors, document, media and executable/package adapters are untrusted
 //! mechanical facilities. This crate owns path canonicalization, recursive resource budgets,
 //! provenance, coverage truth, detector disagreement, progressive decomposition truth, passive
-//! interpretation, derived source-bound search and canonical registration plans through the
-//! A07/A03 boundaries. B07 index state is rebuildable projection state, never canonical source.
+//! interpretation, derived source-bound search, C01 immutable disk normalization/partition
+//! interpretation, and canonical registration plans through the A07/A03 boundaries. Derived
+//! projections never replace canonical source truth.
 
 mod b02;
 mod b03;
@@ -13,6 +14,7 @@ mod b04;
 mod b04_review;
 mod b05;
 mod b07;
+mod c01;
 mod model;
 mod persist;
 mod policy;
@@ -48,6 +50,13 @@ pub use b07::{
     SearchSourceBinding, activity_search_document, artifact_search_document,
     document_text_search_document, filename_metadata_document, log_search_document,
     source_symbol_search_document,
+};
+pub use c01::{
+    C01Error, DiskImageComparison, DiskImageContext, DiskImageFormat, DiskImageLimits,
+    DiskImageReport, NormalizedDiskImage, PartitionEntry, PartitionLayoutKind,
+    PartitionLayoutRange, PartitionMapAssessment, PartitionMaterialization, PartitionTableKind,
+    PartitionTableRange, SourceCoverageKind, SourceCoverageRange, compare_disk_images,
+    encode_android_sparse, inspect_partition_map, materialize_partition, normalize_disk_image,
 };
 pub use model::{
     ArchiveBackend, BackendIdentity, DecompositionBudget, DecompositionClock, DecompositionOutcome,

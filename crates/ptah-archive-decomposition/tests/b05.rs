@@ -649,22 +649,22 @@ fn invalid_or_mismatched_child_registration_is_rejected() {
 
     let mut wrong_kind = registration_for(child);
     wrong_kind.object_ref = reference("object.revision");
-    assert_eq!(
+    assert!(matches!(
         child.relationship_spec(&source_context, &wrong_kind),
         Err(B05Error::InvalidChildRegistration)
-    );
+    ));
 
     let mut wrong_digest = registration_for(child);
     wrong_digest.sha256 = "0".repeat(64);
-    assert_eq!(
+    assert!(matches!(
         child.relationship_spec(&source_context, &wrong_digest),
         Err(B05Error::ChildRegistrationMismatch)
-    );
+    ));
 
     let mut wrong_size = registration_for(child);
     wrong_size.byte_size += 1;
-    assert_eq!(
+    assert!(matches!(
         child.relationship_spec(&source_context, &wrong_size),
         Err(B05Error::ChildRegistrationMismatch)
-    );
+    ));
 }

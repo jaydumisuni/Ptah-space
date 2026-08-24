@@ -1,4 +1,4 @@
-name: Temporary Oracle PR196 Merged Deploy Proof
+name: Temporary Oracle PR211 Exact-Head Proof
 
 on:
   push:
@@ -9,75 +9,38 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
-  ORACLE_MERGE_SHA: fdd4d58b327f1373ed6f19a17589f7c60c755966
-  ORACLE_URL: https://oracle.thetechguyds.com
+  ORACLE_BASE_SHA: fdd4d58b327f1373ed6f19a17589f7c60c755966
+  ORACLE_SHA: 3fd551ca5548d10a8ed70294b6fb375440468bd3
+  EXTENSION_TEST_BLOB: 1ec3b29d214277eef8799f2700c4de2c152a8677
+  DEPLOY_TEST_BLOB: e02418cb1385c221399986667f6e59fe4d4c0b36
 
 jobs:
-  merged-deploy-proof:
+  exact-head-proof:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
-      - name: Deploy exact merged commit through canonical Oracle Live fallback
+      - name: Review and prove exact PR211 head
         shell: bash
         run: |
           set -euo pipefail
           work="$(mktemp -d)"
           trap 'rm -rf "$work"' EXIT
           gh repo clone jaydumisuni/Oracle- "$work/repo" -- --no-checkout
-          git -C "$work/repo" fetch --depth 1 origin "$ORACLE_MERGE_SHA"
-          git -C "$work/repo" checkout --detach "$ORACLE_MERGE_SHA"
-          test "$(git -C "$work/repo" rev-parse HEAD)" = "$ORACLE_MERGE_SHA"
+          git -C "$work/repo" fetch --depth 2 origin "$ORACLE_SHA" "$ORACLE_BASE_SHA"
+          git -C "$work/repo" checkout --detach "$ORACLE_SHA"
+          test "$(git -C "$work/repo" rev-parse HEAD)" = "$ORACLE_SHA"
+          test "$(git -C "$work/repo" rev-parse 'HEAD:tests/extension-repo-update-installer.test.ts')" = "$EXTENSION_TEST_BLOB"
+          test "$(git -C "$work/repo" rev-parse 'HEAD:tests/private-deploy-live.test.ts')" = "$DEPLOY_TEST_BLOB"
+          git -C "$work/repo" diff --name-only "$ORACLE_BASE_SHA" "$ORACLE_SHA" > "$work/changed.txt"
+          printf '%s\n' 'tests/extension-repo-update-installer.test.ts' 'tests/private-deploy-live.test.ts' > "$work/expected.txt"
+          sort -o "$work/changed.txt" "$work/changed.txt"
+          sort -o "$work/expected.txt" "$work/expected.txt"
+          diff -u "$work/expected.txt" "$work/changed.txt"
+          test "$(git -C "$work/repo" diff --numstat "$ORACLE_BASE_SHA" "$ORACLE_SHA" | awk '{a+=$1;d+=$2} END{print a":"d}')" = '2:2'
           cd "$work/repo"
-          GITHUB_WORKSPACE="$work/repo" \
-          GITHUB_SHA="$ORACLE_MERGE_SHA" \
-          GITHUB_RUN_ID="${{ github.run_id }}" \
-          GITHUB_RUN_ATTEMPT="${{ github.run_attempt }}" \
-          ORACLE_URL="$ORACLE_URL" \
-          node scripts/run-oracle-private-deploy-live.mjs
-          result="oracle_control/live_results/oracle-private-deploy-${{ github.run_id }}-${{ github.run_attempt }}.json"
-          test -f "$result"
-          cat "$result"
-          jq -e --arg sha "$ORACLE_MERGE_SHA" '.ok == true and .targetNode == "kratos-hp-290-g4-microtower-pc" and .transport == "oracle.live.v1" and .result.exitCode == 0 and (.result.stdout | contains($sha))' "$result" >/dev/null
-          echo "PR196_CANONICAL_LIVE_DEPLOY=PASS SHA=$ORACLE_MERGE_SHA"
-
-      - name: Prove canonical production Google-first contract
-        shell: bash
-        run: |
-          set -euo pipefail
-          work="$(mktemp -d)"
-          trap 'rm -rf "$work"' EXIT
-          gh repo clone jaydumisuni/Oracle- "$work/repo" -- --no-checkout
-          git -C "$work/repo" fetch --depth 1 origin "$ORACLE_MERGE_SHA"
-          git -C "$work/repo" checkout --detach "$ORACLE_MERGE_SHA"
-          cd "$work/repo"
-          expected_version="$(sed -n 's/^const VERSION = "\([^"]*\)";.*/\1/p' src/index.ts | head -n1)"
-          expected_revision="$(sed -n 's/^const DEPLOYMENT_REVISION = "\([^"]*\)";.*/\1/p' src/index.ts | head -n1)"
-          test -n "$expected_version"
-          test -n "$expected_revision"
-          ok=0
-          for attempt in 1 2 3 4 5; do
-            if curl --fail --silent --show-error --max-time 30 "$ORACLE_URL/health?proof=${{ github.run_id }}-${{ github.run_attempt }}-$attempt" -o "$work/health.json"; then
-              if jq -e --arg version "$expected_version" --arg revision "$expected_revision" '.ok == true and .version == $version and .deploymentRevision == $revision and .browserProfileConfigured == true and .encryptedStorageState == true and .mcp == true and .mcpOAuth == true and .mcpOAuthProtectedResourceMetadata == "/.well-known/oauth-protected-resource" and .mcpOAuthAuthorizationServerMetadata == "/.well-known/oauth-authorization-server" and .liveOidcControl == true' "$work/health.json" >/dev/null; then
-                ok=1
-                break
-              fi
-            fi
-            sleep $((attempt * 2))
-          done
-          test "$ok" = 1
-          curl --fail --silent --show-error --max-time 30 "$ORACLE_URL/.well-known/oauth-protected-resource" -o "$work/protected.json"
-          jq -e '.resource == "https://oracle.thetechguyds.com/mcp" and (.authorization_servers | index("https://oracle.thetechguyds.com")) != null and (.scopes_supported | index("offline_access")) != null and (.scopes_supported | index("oracle.terminal.exec")) != null' "$work/protected.json" >/dev/null
-          curl --fail --silent --show-error --max-time 30 "$ORACLE_URL/api/account/google/status" -o "$work/google.json"
-          jq -e '.ok == true and .configured == true and (.clientId | length) > 20' "$work/google.json" >/dev/null
-          curl --fail --silent --show-error --max-time 30 "$ORACLE_URL/" -o "$work/root.html"
-          grep -Fq 'Continue with Google' "$work/root.html"
-          grep -Fq 'A customer account never inherits access to another user' "$work/root.html"
-          ! grep -Fq 'type="password"' "$work/root.html"
-          ! grep -Fq 'Create free account' "$work/root.html"
-          ! grep -Fq 'Sign up' "$work/root.html"
-          ! grep -Fq 'Oracle MCP connection key' "$work/root.html"
-          ! grep -Fq '/api/oracle-admin/' "$work/root.html"
-          echo "PR196_PRODUCTION_GOOGLE_FIRST_PROOF=PASS SHA=$ORACLE_MERGE_SHA VERSION=$expected_version REVISION=$expected_revision"
+          npm ci --ignore-scripts --no-audit --no-fund >/dev/null
+          npm run check
+          git diff --check "$ORACLE_BASE_SHA" "$ORACLE_SHA"
+          echo "PR211_EXACT_HEAD_PROOF=PASS HEAD=$ORACLE_SHA BASE=$ORACLE_BASE_SHA FILES=2 DELTA=2:2"

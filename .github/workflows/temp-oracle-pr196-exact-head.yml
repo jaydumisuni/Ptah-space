@@ -1,0 +1,42 @@
+name: Temporary Oracle PR196 Exact-Head Proof
+
+on:
+  push:
+    branches:
+      - proof/oracle-pr196-exact-head-20260825
+    paths:
+      - .github/workflows/temp-oracle-pr196-exact-head.yml
+
+permissions:
+  contents: read
+
+env:
+  ORACLE_BASE_SHA: d71370d9f4d81142f8400a208ed0fd884f7b96c0
+  ORACLE_SHA: 96274b1d2a5909a62e2f0b018695463754d032ee
+  EXPECTED_TEST_BLOB: aeefd876e0ac5a4f5b9a96d96a077cf255516965
+
+jobs:
+  exact-head-proof:
+    runs-on: [self-hosted, kratos, ptah]
+    timeout-minutes: 25
+    steps:
+      - name: Review and prove exact PR196 head
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          gh repo clone jaydumisuni/Oracle- "$work/repo" -- --no-checkout
+          git -C "$work/repo" fetch --depth 1 origin "$ORACLE_SHA" "$ORACLE_BASE_SHA"
+          git -C "$work/repo" checkout --detach "$ORACLE_SHA"
+          test "$(git -C "$work/repo" rev-parse HEAD)" = "$ORACLE_SHA"
+          test "$(git -C "$work/repo" rev-parse 'HEAD:tests/oracle-account-release-contract.test.ts')" = "$EXPECTED_TEST_BLOB"
+          changed="$(git -C "$work/repo" diff --name-only "$ORACLE_BASE_SHA" "$ORACLE_SHA")"
+          test "$changed" = 'tests/oracle-account-release-contract.test.ts'
+          cd "$work/repo"
+          npm ci --ignore-scripts --no-audit --no-fund >/dev/null
+          npm run typegen >/dev/null
+          npx tsc --noEmit
+          npm test -- tests/oracle-account-release-contract.test.ts
+          git diff --check "$ORACLE_BASE_SHA" "$ORACLE_SHA"
+          echo "PR196_EXACT_HEAD_PROOF=PASS HEAD=$ORACLE_SHA BASE=$ORACLE_BASE_SHA BLOB=$EXPECTED_TEST_BLOB"

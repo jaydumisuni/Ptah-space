@@ -466,11 +466,7 @@ pub fn document_text_search_document(
             .anchor
             .page
             .map(|page| format!("page:{page}"))
-            .or_else(|| {
-                span.anchor
-                    .byte_start
-                    .map(|start| format!("byte:{start}"))
-            });
+            .or_else(|| span.anchor.byte_start.map(|start| format!("byte:{start}")));
         fields.push(SearchField {
             domain: SearchDomain::DocumentText,
             key,

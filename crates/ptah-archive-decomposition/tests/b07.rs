@@ -46,12 +46,8 @@ fn filename_and_b02_metadata_are_searchable_with_evidence_source() {
         value: "x86_64".to_owned(),
         source: "b02.detector.fixture".to_owned(),
     }];
-    let document = filename_metadata_document(
-        source,
-        Some("app.exe".to_owned()),
-        &metadata,
-    )
-    .expect("metadata document");
+    let document = filename_metadata_document(source, Some("app.exe".to_owned()), &metadata)
+        .expect("metadata document");
     let mut index = SearchIndex::new(SearchLimits::default()).expect("index");
     index.rebuild(&[document]).expect("rebuild");
 
@@ -77,12 +73,7 @@ fn filename_and_b02_metadata_are_searchable_with_evidence_source() {
 fn b03_anchored_document_text_is_searchable_and_exact_revision_bound() {
     let workspace = reference("core.workspace");
     let object_revision = reference("object.revision");
-    let source = binding(
-        &workspace,
-        "object.view",
-        5,
-        Some(object_revision.clone()),
-    );
+    let source = binding(&workspace, "object.view", 5, Some(object_revision.clone()));
     let spans = vec![AnchoredText {
         text: "Ptah recovery contract keeps evidence explicit".to_owned(),
         anchor: SourceAnchor {
@@ -237,11 +228,9 @@ fn every_result_preserves_exact_source_record_and_object_revision() {
         19,
         Some(object_revision.clone()),
     );
-    let document = artifact_search_document(
-        source.clone(),
-        &["firmware analysis report".to_owned()],
-    )
-    .expect("artifact document");
+    let document =
+        artifact_search_document(source.clone(), &["firmware analysis report".to_owned()])
+            .expect("artifact document");
     let mut index = SearchIndex::new(SearchLimits::default()).expect("index");
     index.rebuild(&[document]).expect("rebuild");
     let hit = index
@@ -349,7 +338,10 @@ fn field_document_and_query_resource_bounds_fail_closed() {
             evidence_source: "test".to_owned(),
         }],
     };
-    assert!(matches!(index.rebuild(&[too_large]), Err(SearchError::FieldTooLarge)));
+    assert!(matches!(
+        index.rebuild(&[too_large]),
+        Err(SearchError::FieldTooLarge)
+    ));
 
     let too_many_fields = SearchDocument {
         source: source.clone(),

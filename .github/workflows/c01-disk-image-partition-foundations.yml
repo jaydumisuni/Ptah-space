@@ -1,0 +1,95 @@
+name: C01 construction review helper
+
+on:
+  pull_request:
+    paths:
+      - "C01_DISK_IMAGE_PARTITION_FOUNDATIONS.md"
+      - "crates/ptah-archive-decomposition/Cargo.toml"
+      - "crates/ptah-archive-decomposition/src/lib.rs"
+      - "crates/ptah-archive-decomposition/src/c01.rs"
+      - "crates/ptah-archive-decomposition/tests/c01.rs"
+      - ".github/workflows/c01-disk-image-partition-foundations.yml"
+
+permissions:
+  contents: write
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha }}
+  PTAH_C01_BASE_SHA: d6c0663a7a9c46c2d12dc9a4ce3bd404b5ffc710
+  CARGO_TERM_COLOR: always
+
+jobs:
+  construct-c01:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact C01 build head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Lock B07 base and six-file C01 surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$PTAH_C01_BASE_SHA" HEAD)" = "$PTAH_C01_BASE_SHA"
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["PTAH_C01_BASE_SHA"]
+          files = subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD"], text=True
+          ).splitlines()
+          allowed = {
+              "C01_DISK_IMAGE_PARTITION_FOUNDATIONS.md",
+              "crates/ptah-archive-decomposition/Cargo.toml",
+              "crates/ptah-archive-decomposition/src/lib.rs",
+              "crates/ptah-archive-decomposition/src/c01.rs",
+              "crates/ptah-archive-decomposition/tests/c01.rs",
+              ".github/workflows/c01-disk-image-partition-foundations.yml",
+          }
+          unexpected = sorted(set(files).difference(allowed))
+          missing = sorted(allowed.difference(files))
+          assert not unexpected, f"C01 scope drift: {unexpected}"
+          assert not missing, f"C01 required surface missing: {missing}"
+          PY
+
+      - name: Install pinned Rust review toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+
+      - name: Format and validate C01 build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          cargo test -p ptah-archive-decomposition --test c01 --locked -- --nocapture 2>&1 | tee /tmp/c01-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c01-tests.txt
+          cargo clippy -p ptah-archive-decomposition --lib --test c01 --locked -- -D warnings
+          git diff --check
+
+      - name: Commit canonical Rust formatting if required
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          git add crates/ptah-archive-decomposition/src/lib.rs \
+                  crates/ptah-archive-decomposition/src/c01.rs \
+                  crates/ptah-archive-decomposition/tests/c01.rs
+          if git diff --cached --quiet; then
+            echo "C01 Rust surface already canonically formatted"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "C01 build: apply canonical Rust formatting"
+          git push origin "HEAD:${HEAD_BRANCH}"

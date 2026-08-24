@@ -18,7 +18,7 @@ pub enum FilesystemKind {
     Erofs,
     /// Flash-Friendly File System.
     F2fs,
-    /// SquashFS.
+    /// `SquashFS`.
     SquashFs,
     /// UBI container layer.
     Ubi,
@@ -525,12 +525,8 @@ pub fn detect_filesystem(source: &[u8]) -> FilesystemDetection {
             "ext filesystem magic at superblock+0x38",
         );
     }
-    if has_boot_signature(source)
-        && (has_bytes_at(source, 54, b"FAT12   ")
-            || has_bytes_at(source, 54, b"FAT16   ")
-            || has_bytes_at(source, 82, b"FAT32   "))
-    {
-        return detection(FilesystemKind::Fat, "FAT boot-sector filesystem type field");
+    if let Some(fat) = detect_fat(source) {
+        return fat;
     }
     FilesystemDetection {
         kind: FilesystemKind::Unknown,
@@ -959,7 +955,8 @@ fn complete_evidence_supported(
         return false;
     }
     if entries.iter().any(|entry| {
-        entry.content_state == FilesystemContentState::Unsupported
+        !entry.limitations.is_empty()
+            || entry.content_state == FilesystemContentState::Unsupported
             || (entry.kind == FilesystemEntryKind::File
                 && entry.content_state != FilesystemContentState::Exact)
     }) {
@@ -1112,6 +1109,84 @@ fn push_coverage(
         byte_end_exclusive: end,
         kind,
     });
+}
+
+fn detect_fat(source: &[u8]) -> Option<FilesystemDetection> {
+    if !has_boot_signature(source) {
+        return None;
+    }
+    let bytes_per_sector = u64::from(read_u16_le(source, 11)?);
+    if !matches!(bytes_per_sector, 512 | 1024 | 2048 | 4096) {
+        return None;
+    }
+    let sectors_per_cluster = u64::from(*source.get(13)?);
+    if sectors_per_cluster == 0
+        || sectors_per_cluster > 128
+        || !sectors_per_cluster.is_power_of_two()
+    {
+        return None;
+    }
+    let reserved = u64::from(read_u16_le(source, 14)?);
+    let fats = u64::from(*source.get(16)?);
+    let root_entries = u64::from(read_u16_le(source, 17)?);
+    let total16 = u64::from(read_u16_le(source, 19)?);
+    let fatsz16 = u64::from(read_u16_le(source, 22)?);
+    let total32 = u64::from(read_u32_le(source, 32)?);
+    let fatsz32 = u64::from(read_u32_le(source, 36)?);
+    if reserved == 0 || !(1..=2).contains(&fats) {
+        return None;
+    }
+    let total = if total16 != 0 { total16 } else { total32 };
+    let fatsz = if fatsz16 != 0 { fatsz16 } else { fatsz32 };
+    if total == 0 || fatsz == 0 {
+        return None;
+    }
+    let root_dir_sectors = root_entries
+        .checked_mul(32)?
+        .checked_add(bytes_per_sector.checked_sub(1)?)?
+        / bytes_per_sector;
+    let non_data = reserved
+        .checked_add(fats.checked_mul(fatsz)?)?
+        .checked_add(root_dir_sectors)?;
+    let data_sectors = total.checked_sub(non_data)?;
+    let source_sectors = u64::try_from(source.len()).ok()? / bytes_per_sector;
+    if data_sectors == 0 || total > source_sectors {
+        return None;
+    }
+    let clusters = data_sectors / sectors_per_cluster;
+    if clusters == 0 {
+        return None;
+    }
+    let variant = if clusters < 4_085 {
+        "FAT12"
+    } else if clusters < 65_525 {
+        "FAT16"
+    } else {
+        "FAT32"
+    };
+    if variant == "FAT32" {
+        if root_entries != 0 || fatsz16 != 0 || fatsz32 == 0 {
+            return None;
+        }
+    } else if root_entries == 0 || fatsz16 == 0 {
+        return None;
+    }
+    Some(FilesystemDetection {
+        kind: FilesystemKind::Fat,
+        evidence: vec![format!(
+            "{variant} validated BPB geometry with {clusters} data clusters"
+        )],
+    })
+}
+
+fn read_u16_le(source: &[u8], offset: usize) -> Option<u16> {
+    let bytes = source.get(offset..offset.checked_add(2)?)?;
+    Some(u16::from_le_bytes([bytes[0], bytes[1]]))
+}
+
+fn read_u32_le(source: &[u8], offset: usize) -> Option<u32> {
+    let bytes = source.get(offset..offset.checked_add(4)?)?;
+    Some(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
 }
 
 fn has_boot_signature(source: &[u8]) -> bool {

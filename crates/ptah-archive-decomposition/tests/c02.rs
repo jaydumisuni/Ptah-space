@@ -50,7 +50,14 @@ fn source_for(kind: FilesystemKind) -> Vec<u8> {
         FilesystemKind::Ubi => bytes[0..4].copy_from_slice(b"UBI#"),
         FilesystemKind::Ubifs => bytes[0..4].copy_from_slice(&[0x31, 0x18, 0x10, 0x06]),
         FilesystemKind::Fat => {
-            bytes[54..62].copy_from_slice(b"FAT16   ");
+            bytes[11..13].copy_from_slice(&512_u16.to_le_bytes());
+            bytes[13] = 1;
+            bytes[14..16].copy_from_slice(&1_u16.to_le_bytes());
+            bytes[16] = 1;
+            bytes[17..19].copy_from_slice(&16_u16.to_le_bytes());
+            bytes[19..21].copy_from_slice(&78_u16.to_le_bytes());
+            bytes[21] = 0xf8;
+            bytes[22..24].copy_from_slice(&1_u16.to_le_bytes());
             bytes[510] = 0x55;
             bytes[511] = 0xaa;
         }
@@ -159,6 +166,11 @@ fn required_filesystem_signatures_are_mechanically_detected() {
         assert_eq!(detection.kind, kind);
         assert!(!detection.evidence.is_empty());
     }
+    let mut fat_without_type_label = source_for(FilesystemKind::Fat);
+    fat_without_type_label[54..62].copy_from_slice(b"NOTFAT!!");
+    let fat = detect_filesystem(&fat_without_type_label);
+    assert_eq!(fat.kind, FilesystemKind::Fat);
+    assert!(fat.evidence[0].contains("FAT12"));
 }
 
 #[test]
@@ -235,6 +247,15 @@ fn false_complete_claim_with_unsupported_region_is_rejected() {
     ];
     let provider = FixtureProvider::new(FilesystemKind::Ext4, observation);
     let ctx = context(reference("object.revision"));
+    assert!(matches!(
+        inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
+        Err(C02Error::FalseCompletenessClaim)
+    ));
+    let mut entry_limited = complete_observation(FilesystemKind::Ext4, &source);
+    entry_limited.entries[0]
+        .limitations
+        .push("extended attribute feature not interpreted".to_owned());
+    let provider = FixtureProvider::new(FilesystemKind::Ext4, entry_limited);
     assert!(matches!(
         inspect_filesystem(&source, &ctx, FilesystemLimits::default(), Some(&provider)),
         Err(C02Error::FalseCompletenessClaim)
@@ -507,8 +528,10 @@ fn configured_inventory_and_metadata_bounds_fail_closed() {
     let observation = complete_observation(FilesystemKind::Ext4, &source);
     let provider = FixtureProvider::new(FilesystemKind::Ext4, observation.clone());
     let ctx = context(reference("object.revision"));
-    let mut limits = FilesystemLimits::default();
-    limits.max_entries = 1;
+    let limits = FilesystemLimits {
+        max_entries: 1,
+        ..FilesystemLimits::default()
+    };
     let mut too_many = observation.clone();
     too_many.entries.push(FilesystemEntry {
         path: "second".to_owned(),
@@ -526,8 +549,10 @@ fn configured_inventory_and_metadata_bounds_fail_closed() {
         Err(C02Error::TooManyEntries)
     ));
 
-    let mut tiny = FilesystemLimits::default();
-    tiny.max_string_bytes = 3;
+    let tiny = FilesystemLimits {
+        max_string_bytes: 3,
+        ..FilesystemLimits::default()
+    };
     assert!(matches!(
         inspect_filesystem(&source, &ctx, tiny, Some(&provider)),
         Err(C02Error::InvalidProviderAlias | C02Error::MetadataTooLarge)

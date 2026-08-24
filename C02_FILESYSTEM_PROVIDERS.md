@@ -48,11 +48,13 @@ Delivered candidate surface:
 
 - C01/C02 source bytes are immutable inputs and are never rewritten in place.
 - A recognized filesystem signature is detection evidence only; it cannot establish inventory or completeness by itself.
+- FAT detection derives family evidence from validated BPB geometry and data-cluster count; the informational filesystem-type label is not authoritative.
 - Provider output is untrusted mechanical evidence and is validated before entering a C02 report.
 - Provider IDs, mount IDs and backend-local handles are Aliases/evidence, never canonical Ptah identity.
 - Gaps in provider coverage become `Unknown`; they are never inferred as free space or readable data.
 - `Complete` is permitted only when the complete provider claim survives C02 validation, all source bytes are covered by `Read` or `Unallocated`, no unsupported file content remains, and no limitations remain.
 - Unsupported features or unknown ranges cannot claim completeness.
+- A complete claim also requires every retained entry to have no entry-specific limitations.
 - Exact regular-file data extents must lie within exact `Read` coverage and source bounds.
 - Sparse/hole file bytes may be reconstructed as filesystem-defined zeros only when the Provider explicitly supplied a zero extent.
 - C02 never follows symlinks and never materializes directory or special-file semantics.

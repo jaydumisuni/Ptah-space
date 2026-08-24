@@ -1,12 +1,12 @@
 #![forbid(unsafe_code)]
-//! A12 deterministic archive decomposition plus B02–B07 Object World and C01 disk foundations.
+//! A12 deterministic archive decomposition plus B02–B07 Object World and C01–C02 firmware foundations.
 //!
-//! Parser backends, type detectors, document, media and executable/package adapters are untrusted
-//! mechanical facilities. This crate owns path canonicalization, recursive resource budgets,
+//! Parser backends, type detectors, document, media, executable/package and filesystem Providers are
+//! untrusted mechanical facilities. This crate owns path canonicalization, recursive resource budgets,
 //! provenance, coverage truth, detector disagreement, progressive decomposition truth, passive
 //! interpretation, derived source-bound search, C01 immutable disk normalization/partition
-//! interpretation, and canonical registration plans through the A07/A03 boundaries. Derived
-//! projections never replace canonical source truth.
+//! interpretation, C02 filesystem Provider validation/materialization, and canonical registration plans
+//! through the A07/A03 boundaries. Derived projections never replace canonical source truth.
 
 mod b02;
 mod b03;
@@ -15,6 +15,7 @@ mod b04_review;
 mod b05;
 mod b07;
 mod c01;
+mod c02;
 mod model;
 mod persist;
 mod policy;
@@ -57,6 +58,14 @@ pub use c01::{
     PartitionLayoutRange, PartitionMapAssessment, PartitionMaterialization, PartitionTableKind,
     PartitionTableRange, SourceCoverageKind, SourceCoverageRange, compare_disk_images,
     encode_android_sparse, inspect_partition_map, materialize_partition, normalize_disk_image,
+};
+pub use c02::{
+    C02Error, FilesystemAssessment, FilesystemContentState, FilesystemContext,
+    FilesystemCoverageKind, FilesystemCoverageRange, FilesystemDetection, FilesystemEntry,
+    FilesystemEntryKind, FilesystemExtent, FilesystemFileMaterialization, FilesystemKind,
+    FilesystemLimits, FilesystemProvider, FilesystemProviderAlias, FilesystemReport,
+    ProviderFilesystemObservation, detect_filesystem, inspect_filesystem,
+    materialize_filesystem_file,
 };
 pub use model::{
     ArchiveBackend, BackendIdentity, DecompositionBudget, DecompositionClock, DecompositionOutcome,

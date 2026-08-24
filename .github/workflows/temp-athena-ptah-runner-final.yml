@@ -22,3 +22,5 @@ jobs:
           trap 'rm -f "$payload"' EXIT
           gh api 'repos/jaydumisuni/Oracle-/contents/oracle_control/pr197-reconcile-current-main-20260824.mjs?ref=main' --jq .content | tr -d '\n' | base64 -d > "$payload"
           node "$payload"
+
+# user-trigger 20260824-0723z

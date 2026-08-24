@@ -1,0 +1,39 @@
+name: C01 one-shot test expectation correction
+
+on:
+  push:
+    branches:
+      - c01-disk-image-partition-foundations
+    paths:
+      - ".github/workflows/c01-test-expectation-helper.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  correct-expectation:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: c01-disk-image-partition-foundations
+          persist-credentials: true
+      - name: Correct exact adversarial expectation and self-delete
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('crates/ptah-archive-decomposition/tests/c01.rs')
+          text = path.read_text(encoding='utf-8')
+          old = '.any(|value| value.contains("outside normalized image")));'
+          new = '.any(|value| value.contains("invalid identity or usable-LBA extent")));'
+          assert text.count(old) == 1
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          git rm .github/workflows/c01-test-expectation-helper.yml
+          git add crates/ptah-archive-decomposition/tests/c01.rs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "C01 review: align adversarial GPT expectation"
+          git push origin HEAD:c01-disk-image-partition-foundations

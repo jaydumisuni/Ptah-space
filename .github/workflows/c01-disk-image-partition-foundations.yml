@@ -1,4 +1,4 @@
-name: C01 construction review helper
+name: C01 review correction helper
 
 on:
   pull_request:
@@ -19,11 +19,11 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  construct-c01:
+  correct-c01:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
-      - name: Check out exact C01 build head
+      - name: Check out exact C01 review head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: ${{ env.PTAH_EXACT_SHA }}
@@ -38,11 +38,8 @@ jobs:
           python3 - <<'PY'
           import os
           import subprocess
-
           base = os.environ["PTAH_C01_BASE_SHA"]
-          files = subprocess.check_output(
-              ["git", "diff", "--name-only", base, "HEAD"], text=True
-          ).splitlines()
+          files = subprocess.check_output(["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines()
           allowed = {
               "C01_DISK_IMAGE_PARTITION_FOUNDATIONS.md",
               "crates/ptah-archive-decomposition/Cargo.toml",
@@ -51,10 +48,8 @@ jobs:
               "crates/ptah-archive-decomposition/tests/c01.rs",
               ".github/workflows/c01-disk-image-partition-foundations.yml",
           }
-          unexpected = sorted(set(files).difference(allowed))
-          missing = sorted(allowed.difference(files))
-          assert not unexpected, f"C01 scope drift: {unexpected}"
-          assert not missing, f"C01 required surface missing: {missing}"
+          assert not sorted(set(files).difference(allowed)), f"C01 scope drift: {files}"
+          assert not sorted(allowed.difference(files)), f"C01 required surface missing: {files}"
           PY
 
       - name: Install pinned Rust review toolchain
@@ -66,17 +61,787 @@ jobs:
           rustc -V | grep -q '^rustc 1.97.1 '
           cargo -V | grep -q '^cargo 1.97.1 '
 
-      - name: Format and validate C01 build
+      - name: Apply exact Review correction
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('crates/ptah-archive-decomposition/src/c01.rs')
+          source = path.read_text(encoding='utf-8')
+          tests_path = Path('crates/ptah-archive-decomposition/tests/c01.rs')
+          tests = tests_path.read_text(encoding='utf-8')
+
+          source = source.replace('sparse DONT_CARE coverage.', 'sparse `DONT_CARE` coverage.')
+          source = source.replace('unspecified ranges become DONT_CARE chunks.', 'unspecified ranges become `DONT_CARE` chunks.')
+          source = source.replace(
+              'let protective = mbr_types.iter().any(|partition_type| *partition_type == 0xee);',
+              'let protective = mbr_types.contains(&0xee);',
+          )
+          source = source.replace(
+              'if entry_size < 128 || entry_size > 4096 || entry_size % 8 != 0 {',
+              'if !(128..=4096).contains(&entry_size) || entry_size % 8 != 0 {',
+          )
+
+          old = '''    /// Unsupported/inconclusive boundaries.
+              pub limitations: Vec<String>,
+          }
+          '''
+          new = '''    /// Unsupported/inconclusive boundaries.
+              pub limitations: Vec<String>,
+              /// Private integrity seal over source identity, exact partitions and source coverage.
+              projection_sha256: String,
+          }
+          '''
+          assert source.count(old) == 1
+          source = source.replace(old, new, 1)
+
+          old = '''        validate_context(context)?;
+                  if context.source_revision_ref != self.source_revision_ref {
+                      return Err(C01Error::SourceBindingMismatch);
+                  }
+          '''
+          new = '''        validate_context(context)?;
+                  validate_report_integrity(self)?;
+                  if context.source_revision_ref != self.source_revision_ref {
+                      return Err(C01Error::SourceBindingMismatch);
+                  }
+          '''
+          assert source.count(old) >= 1
+          source = source.replace(old, new, 1)
+
+          start = source.index('    /// Build an A07 registration request for this recovered partition Object.')
+          end = source.index('    /// Build an exact source-to-partition A07 Relationship plan.', start)
+          replacement = '''    /// Build an A07 registration request for this recovered partition Object.
+              ///
+              /// # Errors
+              /// Rejects a malformed context or one that does not name this exact source Revision.
+              pub fn registration_spec(
+                  &self,
+                  context: &DiskImageContext,
+              ) -> Result<RegisterObjectSpec, C01Error> {
+                  validate_context(context)?;
+                  if context.source_revision_ref != self.source_revision_ref {
+                      return Err(C01Error::SourceBindingMismatch);
+                  }
+                  Ok(RegisterObjectSpec {
+                      workspace_ref: context.workspace_ref.clone(),
+                      authority_ref: context.authority_ref.clone(),
+                      object_class: "disk.partition".to_owned(),
+                      declared_name: self
+                          .partition
+                          .name
+                          .clone()
+                          .or_else(|| Some(format!("partition-{}", self.partition.index))),
+                      source_refs: vec![self.source_revision_ref.clone()],
+                      revision_role: RevisionRole::Recovered,
+                      origin_class: OriginClass::RecoveredEmbeddedSource,
+                      created_reason: "C01 recovered exact disk partition bytes".to_owned(),
+                      production: context.production.clone(),
+                      expected_sha256: Some(self.sha256.clone()),
+                  })
+              }
+
+          '''
+          source = source[:start] + replacement + source[end:]
+
+          old = '''    /// Report and normalized source are not the same exact projection.
+              #[error("C01 report/normalized source binding mismatch")]
+              SourceBindingMismatch,
+          '''
+          new = '''    /// Report and normalized source are not the same exact projection.
+              #[error("C01 report/normalized source binding mismatch")]
+              SourceBindingMismatch,
+              /// Public report fields changed after C01 sealed the exact parser projection.
+              #[error("C01 partition report integrity seal mismatch")]
+              ReportIntegrityMismatch,
+          '''
+          assert source.count(old) == 1
+          source = source.replace(old, new, 1)
+
+          inspect_start = source.index('pub fn inspect_partition_map(')
+          inspect_end = source.index('/// Materialize one exact partition as immutable read-only bytes.', inspect_start)
+          inspect = source[inspect_start:inspect_end]
+          old = '''        warnings: Vec::new(),
+                  limitations: Vec::new(),
+              };
+          '''
+          new = '''        warnings: Vec::new(),
+                  limitations: Vec::new(),
+                  projection_sha256: String::new(),
+              };
+          '''
+          assert inspect.count(old) == 1
+          inspect = inspect.replace(old, new, 1)
+          inspect = inspect.replace('return Ok(report);', 'return Ok(seal_report(report));')
+          inspect = inspect.replace('\n    Ok(report)\n}', '\n    Ok(seal_report(report))\n}')
+          source = source[:inspect_start] + inspect + source[inspect_end:]
+
+          mat_start = source.index('pub fn materialize_partition(')
+          mat_end = source.index('/// Compare two source-bound C01 reports structurally.', mat_start)
+          mat = source[mat_start:mat_end]
+          old = '''    validate_context(context)?;
+              if report.source_revision_ref != context.source_revision_ref
+          '''
+          new = '''    validate_context(context)?;
+              validate_report_integrity(report)?;
+              if report.source_revision_ref != context.source_revision_ref
+          '''
+          assert mat.count(old) == 1
+          mat = mat.replace(old, new, 1)
+          source = source[:mat_start] + mat + source[mat_end:]
+
+          old = '''        if partition_type == 0 || sectors == 0 {
+                      continue;
+                  }
+          '''
+          new = '''        if partition_type == 0 || sectors == 0 {
+                      continue;
+                  }
+                  if status != 0 && status != 0x80 {
+                      saw_invalid = true;
+                      report.warnings.push(format!(
+                          "MBR slot {} has invalid status byte 0x{status:02x}",
+                          slot + 1
+                      ));
+                  }
+          '''
+          assert source.count(old) == 1
+          source = source.replace(old, new, 1)
+
+          sparse_start = source.index('fn normalize_android_sparse(')
+          sparse_end = source.index('fn inspect_mbr(', sparse_start)
+          sparse_replacement = r'''#[derive(Debug, Clone, Copy)]
+          struct SparseHeader {
+              file_header_size: usize,
+              chunk_header_size: usize,
+              block_size: u64,
+              total_blocks: u64,
+              total_chunks: u32,
+              image_checksum: u32,
+              expanded_len: u64,
+          }
+
+          struct SparseDecodeState {
+              output: Vec<u8>,
+              coverage: Vec<SourceCoverageRange>,
+              cursor: usize,
+              produced_blocks: u64,
+          }
+
+          #[derive(Debug, Clone, Copy)]
+          struct SparseChunk {
+              chunk_type: u16,
+              blocks: u64,
+              header_end: usize,
+              chunk_end: usize,
+              chunk_bytes: u64,
+              range_start: u64,
+              range_end: u64,
+              total_size: usize,
+          }
+
+          fn parse_sparse_header(
+              source_bytes: &[u8],
+              limits: DiskImageLimits,
+          ) -> Result<SparseHeader, C01Error> {
+              if source_bytes.len() < 28 {
+                  return Err(C01Error::MalformedSparse("header is truncated"));
+              }
+              if read_u16(source_bytes, 4)? != 1 {
+                  return Err(C01Error::MalformedSparse("unsupported major version"));
+              }
+              let file_header_size = usize::from(read_u16(source_bytes, 8)?);
+              let chunk_header_size = usize::from(read_u16(source_bytes, 10)?);
+              let block_size = u64::from(read_u32(source_bytes, 12)?);
+              let total_blocks = u64::from(read_u32(source_bytes, 16)?);
+              let total_chunks = read_u32(source_bytes, 20)?;
+              if !(28..=source_bytes.len()).contains(&file_header_size) {
+                  return Err(C01Error::MalformedSparse("invalid file header size"));
+              }
+              if chunk_header_size < 12 {
+                  return Err(C01Error::MalformedSparse("invalid chunk header size"));
+              }
+              if block_size == 0 {
+                  return Err(C01Error::MalformedSparse("block size is zero"));
+              }
+              if total_chunks > limits.max_sparse_chunks {
+                  return Err(C01Error::TooManySparseChunks);
+              }
+              let expanded_len = total_blocks
+                  .checked_mul(block_size)
+                  .ok_or(C01Error::AccountingOverflow)?;
+              if expanded_len > limits.max_output_bytes {
+                  return Err(C01Error::OutputTooLarge);
+              }
+              Ok(SparseHeader {
+                  file_header_size,
+                  chunk_header_size,
+                  block_size,
+                  total_blocks,
+                  total_chunks,
+                  image_checksum: read_u32(source_bytes, 24)?,
+                  expanded_len,
+              })
+          }
+
+          fn parse_sparse_chunk(
+              source_bytes: &[u8],
+              header: SparseHeader,
+              state: &SparseDecodeState,
+          ) -> Result<SparseChunk, C01Error> {
+              let header_end = state
+                  .cursor
+                  .checked_add(header.chunk_header_size)
+                  .ok_or(C01Error::AccountingOverflow)?;
+              if header_end > source_bytes.len() {
+                  return Err(C01Error::MalformedSparse("chunk header is truncated"));
+              }
+              let total_size = usize::try_from(read_u32(source_bytes, state.cursor + 8)?)
+                  .map_err(|_| C01Error::AccountingOverflow)?;
+              if total_size < header.chunk_header_size {
+                  return Err(C01Error::MalformedSparse("chunk total size is too small"));
+              }
+              let chunk_end = state
+                  .cursor
+                  .checked_add(total_size)
+                  .ok_or(C01Error::AccountingOverflow)?;
+              if chunk_end > source_bytes.len() {
+                  return Err(C01Error::MalformedSparse("chunk payload is truncated"));
+              }
+              let blocks = u64::from(read_u32(source_bytes, state.cursor + 4)?);
+              let chunk_bytes = blocks
+                  .checked_mul(header.block_size)
+                  .ok_or(C01Error::AccountingOverflow)?;
+              let range_start = u64::try_from(state.output.len())
+                  .map_err(|_| C01Error::AccountingOverflow)?;
+              let range_end = range_start
+                  .checked_add(chunk_bytes)
+                  .ok_or(C01Error::AccountingOverflow)?;
+              if range_end > header.expanded_len {
+                  return Err(C01Error::MalformedSparse("chunk expands beyond declared image"));
+              }
+              Ok(SparseChunk {
+                  chunk_type: read_u16(source_bytes, state.cursor)?,
+                  blocks,
+                  header_end,
+                  chunk_end,
+                  chunk_bytes,
+                  range_start,
+                  range_end,
+                  total_size,
+              })
+          }
+
+          fn apply_sparse_chunk(
+              source_bytes: &[u8],
+              header: SparseHeader,
+              chunk: SparseChunk,
+              state: &mut SparseDecodeState,
+          ) -> Result<(), C01Error> {
+              match chunk.chunk_type {
+                  SPARSE_CHUNK_RAW => {
+                      let payload_len = usize::try_from(chunk.chunk_bytes)
+                          .map_err(|_| C01Error::OutputTooLarge)?;
+                      let expected = header
+                          .chunk_header_size
+                          .checked_add(payload_len)
+                          .ok_or(C01Error::AccountingOverflow)?;
+                      if chunk.total_size != expected || chunk.blocks == 0 {
+                          return Err(C01Error::MalformedSparse("RAW chunk size mismatch"));
+                      }
+                      state
+                          .output
+                          .extend_from_slice(&source_bytes[chunk.header_end..chunk.chunk_end]);
+                      push_coverage(
+                          &mut state.coverage,
+                          chunk.range_start,
+                          chunk.range_end,
+                          SourceCoverageKind::Defined,
+                      );
+                      state.produced_blocks = state
+                          .produced_blocks
+                          .checked_add(chunk.blocks)
+                          .ok_or(C01Error::AccountingOverflow)?;
+                  }
+                  SPARSE_CHUNK_FILL => apply_sparse_fill(source_bytes, header, chunk, state)?,
+                  SPARSE_CHUNK_DONT_CARE => {
+                      if chunk.total_size != header.chunk_header_size || chunk.blocks == 0 {
+                          return Err(C01Error::MalformedSparse("DONT_CARE chunk size mismatch"));
+                      }
+                      let new_len = usize::try_from(chunk.range_end)
+                          .map_err(|_| C01Error::OutputTooLarge)?;
+                      state.output.resize(new_len, 0);
+                      push_coverage(
+                          &mut state.coverage,
+                          chunk.range_start,
+                          chunk.range_end,
+                          SourceCoverageKind::Unspecified,
+                      );
+                      state.produced_blocks = state
+                          .produced_blocks
+                          .checked_add(chunk.blocks)
+                          .ok_or(C01Error::AccountingOverflow)?;
+                  }
+                  SPARSE_CHUNK_CRC32 => {
+                      if chunk.total_size != header.chunk_header_size + 4 || chunk.blocks != 0 {
+                          return Err(C01Error::MalformedSparse("CRC32 chunk size mismatch"));
+                      }
+                      if crc32(&state.output) != read_u32(source_bytes, chunk.header_end)? {
+                          return Err(C01Error::SparseCrcMismatch);
+                      }
+                  }
+                  _ => return Err(C01Error::MalformedSparse("unknown chunk type")),
+              }
+              state.cursor = chunk.chunk_end;
+              Ok(())
+          }
+
+          fn apply_sparse_fill(
+              source_bytes: &[u8],
+              header: SparseHeader,
+              chunk: SparseChunk,
+              state: &mut SparseDecodeState,
+          ) -> Result<(), C01Error> {
+              if chunk.total_size != header.chunk_header_size + 4 || chunk.blocks == 0 {
+                  return Err(C01Error::MalformedSparse("FILL chunk size mismatch"));
+              }
+              if chunk.chunk_bytes % 4 != 0 {
+                  return Err(C01Error::MalformedSparse(
+                      "FILL chunk is not four-byte aligned",
+                  ));
+              }
+              let fill = source_bytes
+                  .get(chunk.header_end..chunk.header_end + 4)
+                  .ok_or(C01Error::MalformedSparse("FILL value is truncated"))?;
+              let count = usize::try_from(chunk.chunk_bytes / 4)
+                  .map_err(|_| C01Error::OutputTooLarge)?;
+              for _ in 0..count {
+                  state.output.extend_from_slice(fill);
+              }
+              push_coverage(
+                  &mut state.coverage,
+                  chunk.range_start,
+                  chunk.range_end,
+                  SourceCoverageKind::Defined,
+              );
+              state.produced_blocks = state
+                  .produced_blocks
+                  .checked_add(chunk.blocks)
+                  .ok_or(C01Error::AccountingOverflow)?;
+              Ok(())
+          }
+
+          fn normalize_android_sparse(
+              source_bytes: &[u8],
+              source_sha256: String,
+              limits: DiskImageLimits,
+          ) -> Result<NormalizedDiskImage, C01Error> {
+              let header = parse_sparse_header(source_bytes, limits)?;
+              let capacity = usize::try_from(header.expanded_len)
+                  .map_err(|_| C01Error::OutputTooLarge)?;
+              let mut state = SparseDecodeState {
+                  output: Vec::with_capacity(capacity),
+                  coverage: Vec::new(),
+                  cursor: header.file_header_size,
+                  produced_blocks: 0,
+              };
+              for _ in 0..header.total_chunks {
+                  let chunk = parse_sparse_chunk(source_bytes, header, &state)?;
+                  apply_sparse_chunk(source_bytes, header, chunk, &mut state)?;
+                  if u64::try_from(state.output.len())
+                      .map_err(|_| C01Error::AccountingOverflow)?
+                      > limits.max_output_bytes
+                  {
+                      return Err(C01Error::OutputTooLarge);
+                  }
+              }
+              if state.cursor != source_bytes.len() {
+                  return Err(C01Error::MalformedSparse(
+                      "trailing bytes remain after declared chunks",
+                  ));
+              }
+              if state.produced_blocks != header.total_blocks
+                  || u64::try_from(state.output.len())
+                      .map_err(|_| C01Error::AccountingOverflow)?
+                      != header.expanded_len
+              {
+                  return Err(C01Error::MalformedSparse(
+                      "expanded block count does not match header",
+                  ));
+              }
+              if header.image_checksum != 0 && crc32(&state.output) != header.image_checksum {
+                  return Err(C01Error::SparseCrcMismatch);
+              }
+              Ok(NormalizedDiskImage {
+                  source_sha256,
+                  normalized_sha256: sha256_bytes(&state.output),
+                  source_format: DiskImageFormat::AndroidSparse,
+                  bytes: state.output,
+                  source_coverage: state.coverage,
+              })
+          }
+
+          '''
+          source = source[:sparse_start] + sparse_replacement + source[sparse_end:]
+
+          gpt_start = source.index('fn inspect_gpt(')
+          gpt_end = source.index('fn build_layout_coverage(', gpt_start)
+          gpt_replacement = r'''#[derive(Debug, Clone, Copy)]
+          struct GptHeader {
+              header_size: usize,
+              first_usable_lba: u64,
+              last_usable_lba: u64,
+              entries_lba: u64,
+              entry_count: u32,
+              entry_size: u32,
+              expected_entries_crc: u32,
+          }
+
+          #[derive(Debug, Clone, Copy)]
+          struct GptEntryArray {
+              byte_start: u64,
+              byte_end_exclusive: u64,
+              start: usize,
+              end: usize,
+          }
+
+          fn parse_gpt_header(
+              image: &NormalizedDiskImage,
+              limits: DiskImageLimits,
+              report: &mut DiskImageReport,
+          ) -> Result<Option<GptHeader>, C01Error> {
+              let header_size = usize::try_from(read_u32(&image.bytes, 512 + 12)?)
+                  .map_err(|_| C01Error::AccountingOverflow)?;
+              if !(92..=512).contains(&header_size) || 512 + header_size > image.bytes.len() {
+                  report.limitations.push("GPT header size is invalid".to_owned());
+                  return Ok(None);
+              }
+              report.partition_table_ranges.push(PartitionTableRange {
+                  byte_start: 512,
+                  byte_end_exclusive: u64::try_from(512 + header_size)
+                      .map_err(|_| C01Error::AccountingOverflow)?,
+              });
+              let expected_crc = read_u32(&image.bytes, 512 + 16)?;
+              let mut header_bytes = image.bytes[512..512 + header_size].to_vec();
+              header_bytes[16..20].fill(0);
+              if crc32(&header_bytes) != expected_crc {
+                  report
+                      .limitations
+                      .push("GPT primary header CRC32 verification failed".to_owned());
+                  return Ok(None);
+              }
+              let total_lbas = u64::try_from(image.bytes.len() / 512)
+                  .map_err(|_| C01Error::AccountingOverflow)?;
+              let current_lba = read_u64(&image.bytes, 512 + 24)?;
+              let backup_lba = read_u64(&image.bytes, 512 + 32)?;
+              let first_usable_lba = read_u64(&image.bytes, 512 + 40)?;
+              let last_usable_lba = read_u64(&image.bytes, 512 + 48)?;
+              if current_lba != 1
+                  || backup_lba == current_lba
+                  || backup_lba >= total_lbas
+                  || first_usable_lba > last_usable_lba
+                  || last_usable_lba >= total_lbas
+              {
+                  report
+                      .limitations
+                      .push("GPT primary header LBA bounds are invalid".to_owned());
+                  return Ok(None);
+              }
+              let entry_count = read_u32(&image.bytes, 512 + 80)?;
+              let entry_size = read_u32(&image.bytes, 512 + 84)?;
+              if entry_count > limits.max_partition_entries {
+                  return Err(C01Error::TooManyPartitionEntries);
+              }
+              if !(128..=4096).contains(&entry_size) || entry_size % 8 != 0 {
+                  report
+                      .limitations
+                      .push("GPT partition-entry size is unsupported".to_owned());
+                  return Ok(None);
+              }
+              Ok(Some(GptHeader {
+                  header_size,
+                  first_usable_lba,
+                  last_usable_lba,
+                  entries_lba: read_u64(&image.bytes, 512 + 72)?,
+                  entry_count,
+                  entry_size,
+                  expected_entries_crc: read_u32(&image.bytes, 512 + 88)?,
+              }))
+          }
+
+          fn validate_gpt_entry_array(
+              image: &NormalizedDiskImage,
+              header: GptHeader,
+              report: &mut DiskImageReport,
+          ) -> Result<Option<GptEntryArray>, C01Error> {
+              let entries_bytes = u64::from(header.entry_count)
+                  .checked_mul(u64::from(header.entry_size))
+                  .ok_or(C01Error::AccountingOverflow)?;
+              let byte_start = header
+                  .entries_lba
+                  .checked_mul(SECTOR_SIZE)
+                  .ok_or(C01Error::AccountingOverflow)?;
+              let byte_end_exclusive = byte_start
+                  .checked_add(entries_bytes)
+                  .ok_or(C01Error::AccountingOverflow)?;
+              let image_size = u64::try_from(image.bytes.len())
+                  .map_err(|_| C01Error::AccountingOverflow)?;
+              let occupied_sectors = entries_bytes
+                  .checked_add(SECTOR_SIZE - 1)
+                  .ok_or(C01Error::AccountingOverflow)?
+                  / SECTOR_SIZE;
+              let entries_end_lba = header
+                  .entries_lba
+                  .checked_add(occupied_sectors)
+                  .ok_or(C01Error::AccountingOverflow)?;
+              if header.entries_lba < 2
+                  || entries_end_lba > header.first_usable_lba
+                  || byte_end_exclusive > image_size
+              {
+                  report.limitations.push(
+                      "GPT partition-entry array bounds are invalid".to_owned(),
+                  );
+                  return Ok(None);
+              }
+              report.partition_table_ranges.push(PartitionTableRange {
+                  byte_start,
+                  byte_end_exclusive,
+              });
+              let start = usize::try_from(byte_start).map_err(|_| C01Error::AccountingOverflow)?;
+              let end = usize::try_from(byte_end_exclusive)
+                  .map_err(|_| C01Error::AccountingOverflow)?;
+              if crc32(&image.bytes[start..end]) != header.expected_entries_crc {
+                  report
+                      .limitations
+                      .push("GPT partition-entry array CRC32 verification failed".to_owned());
+                  return Ok(None);
+              }
+              Ok(Some(GptEntryArray {
+                  byte_start,
+                  byte_end_exclusive,
+                  start,
+                  end,
+              }))
+          }
+
+          fn parse_gpt_partitions(
+              image: &NormalizedDiskImage,
+              header: GptHeader,
+              array: GptEntryArray,
+              report: &mut DiskImageReport,
+          ) -> Result<bool, C01Error> {
+              debug_assert!(array.start <= array.end && array.byte_start <= array.byte_end_exclusive);
+              let image_size = u64::try_from(image.bytes.len())
+                  .map_err(|_| C01Error::AccountingOverflow)?;
+              let mut saw_invalid = false;
+              for slot in 0..header.entry_count {
+                  let offset = array
+                      .byte_start
+                      .checked_add(
+                          u64::from(slot)
+                              .checked_mul(u64::from(header.entry_size))
+                              .ok_or(C01Error::AccountingOverflow)?,
+                      )
+                      .ok_or(C01Error::AccountingOverflow)?;
+                  let start = usize::try_from(offset).map_err(|_| C01Error::AccountingOverflow)?;
+                  let end = start
+                      .checked_add(
+                          usize::try_from(header.entry_size)
+                              .map_err(|_| C01Error::AccountingOverflow)?,
+                      )
+                      .ok_or(C01Error::AccountingOverflow)?;
+                  let entry = &image.bytes[start..end];
+                  if entry[0..16].iter().all(|byte| *byte == 0) {
+                      continue;
+                  }
+                  let first_lba = read_u64(entry, 32)?;
+                  let last_lba = read_u64(entry, 40)?;
+                  let unique_guid_missing = entry[16..32].iter().all(|byte| *byte == 0);
+                  let valid_lbas = first_lba <= last_lba
+                      && first_lba >= header.first_usable_lba
+                      && last_lba <= header.last_usable_lba;
+                  let byte_start = first_lba.checked_mul(SECTOR_SIZE);
+                  let byte_end = last_lba
+                      .checked_add(1)
+                      .and_then(|value| value.checked_mul(SECTOR_SIZE));
+                  if unique_guid_missing
+                      || !valid_lbas
+                      || byte_start.is_none()
+                      || byte_end.is_none()
+                      || byte_end.is_some_and(|end| end > image_size)
+                  {
+                      saw_invalid = true;
+                      report.warnings.push(format!(
+                          "GPT slot {} has invalid identity or usable-LBA extent",
+                          slot + 1
+                      ));
+                      continue;
+                  }
+                  report.partitions.push(PartitionEntry {
+                      index: slot + 1,
+                      name: decode_gpt_name(&entry[56..entry.len().min(128)]),
+                      type_id: format_gpt_guid(&entry[0..16]),
+                      first_lba,
+                      last_lba_inclusive: last_lba,
+                      byte_start: byte_start.expect("validated above"),
+                      byte_end_exclusive: byte_end.expect("validated above"),
+                      bootable: false,
+                      container: false,
+                  });
+              }
+              Ok(saw_invalid)
+          }
+
+          fn inspect_gpt(
+              image: &NormalizedDiskImage,
+              limits: DiskImageLimits,
+              report: &mut DiskImageReport,
+          ) -> Result<(), C01Error> {
+              report.partition_table = PartitionTableKind::Gpt;
+              report.partition_table_ranges.push(PartitionTableRange {
+                  byte_start: 0,
+                  byte_end_exclusive: 512,
+              });
+              let Some(header) = parse_gpt_header(image, limits, report)? else {
+                  return Ok(());
+              };
+              debug_assert!(header.header_size >= 92);
+              let Some(array) = validate_gpt_entry_array(image, header, report)? else {
+                  return Ok(());
+              };
+              let mut saw_invalid = parse_gpt_partitions(image, header, array, report)?;
+              report
+                  .partitions
+                  .sort_by_key(|partition| (partition.byte_start, partition.index));
+              if has_partition_overlap(&report.partitions) {
+                  saw_invalid = true;
+                  report.warnings.push(
+                      "GPT accepted partition entries overlap; layout is not fully trustworthy"
+                          .to_owned(),
+                  );
+              }
+              report.assessment = if saw_invalid {
+                  if report.partitions.is_empty() {
+                      PartitionMapAssessment::Inconclusive
+                  } else {
+                      PartitionMapAssessment::Partial
+                  }
+              } else {
+                  PartitionMapAssessment::Complete
+              };
+              if saw_invalid {
+                  report.limitations.push(
+                      "invalid GPT entries were excluded from canonical partition projection"
+                          .to_owned(),
+                  );
+              }
+              Ok(())
+          }
+
+          '''
+          source = source[:gpt_start] + gpt_replacement + source[gpt_end:]
+
+          helper_anchor = source.index('fn validate_context(context: &DiskImageContext)')
+          guard_helpers = r'''fn report_projection_digest(report: &DiskImageReport) -> String {
+              let mut hasher = Sha256::new();
+              hash_guard_text(
+                  &mut hasher,
+                  &serde_json::to_string(&report.source_revision_ref).unwrap_or_default(),
+              );
+              hash_guard_text(&mut hasher, &report.source_sha256);
+              hash_guard_text(&mut hasher, &report.normalized_sha256);
+              hasher.update(report.normalized_size.to_le_bytes());
+              hash_guard_text(&mut hasher, &format!("{:?}", report.partition_table));
+              hash_guard_text(&mut hasher, &format!("{:?}", report.assessment));
+              hash_guard_text(&mut hasher, &format!("{:?}", report.partitions));
+              hash_guard_text(&mut hasher, &format!("{:?}", report.source_coverage));
+              format!("{:x}", hasher.finalize())
+          }
+
+          fn hash_guard_text(hasher: &mut Sha256, value: &str) {
+              hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_le_bytes());
+              hasher.update(value.as_bytes());
+          }
+
+          fn seal_report(mut report: DiskImageReport) -> DiskImageReport {
+              report.projection_sha256 = report_projection_digest(&report);
+              report
+          }
+
+          fn validate_report_integrity(report: &DiskImageReport) -> Result<(), C01Error> {
+              if report.projection_sha256.is_empty()
+                  || report.projection_sha256 != report_projection_digest(report)
+              {
+                  return Err(C01Error::ReportIntegrityMismatch);
+              }
+              Ok(())
+          }
+
+          '''
+          source = source[:helper_anchor] + guard_helpers + source[helper_anchor:]
+
+          if not tests.startswith('//!'):
+              tests = '//! C01 disk-image and partition-foundation acceptance corpus.\n\n' + tests
+          tests = tests.replace(
+              'let spec = materialized.registration_spec(&ctx);',
+              'let spec = materialized.registration_spec(&ctx).expect("registration spec");',
+          )
+          old = '''    assert_eq!(
+                  spec.expected_sha256.as_deref(),
+                  Some(materialized.sha256.as_str())
+              );
+          }
+          '''
+          new = '''    assert_eq!(
+                  spec.expected_sha256.as_deref(),
+                  Some(materialized.sha256.as_str())
+              );
+              let wrong_context = context(reference("object.revision"));
+              assert!(matches!(
+                  materialized.registration_spec(&wrong_context),
+                  Err(C01Error::SourceBindingMismatch)
+              ));
+          }
+          '''
+          assert tests.count(old) == 1
+          tests = tests.replace(old, new, 1)
+
+          old = '''    assert!(matches!(
+                  materialize_partition(&normalized, &report, 1, &ctx),
+                  Err(C01Error::UnspecifiedPartitionBytes)
+              ));
+          }
+          '''
+          new = '''    assert!(matches!(
+                  materialize_partition(&normalized, &report, 1, &ctx),
+                  Err(C01Error::UnspecifiedPartitionBytes)
+              ));
+              let mut mutated = report.clone();
+              mutated.partitions[0].byte_start = 0;
+              assert!(matches!(
+                  materialize_partition(&normalized, &mutated, 1, &ctx),
+                  Err(C01Error::ReportIntegrityMismatch)
+              ));
+          }
+          '''
+          assert tests.count(old) == 1
+          tests = tests.replace(old, new, 1)
+
+          path.write_text(source, encoding='utf-8')
+          tests_path.write_text(tests, encoding='utf-8')
+          PY
+
           cargo fmt --all
-          cargo test -p ptah-archive-decomposition --test c01 --locked -- --nocapture 2>&1 | tee /tmp/c01-tests.txt
-          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c01-tests.txt
-          cargo clippy -p ptah-archive-decomposition --lib --test c01 --locked -- -D warnings
+          cargo test -p ptah-archive-decomposition --test c01 --locked -- --nocapture \
+            2>&1 | tee /tmp/c01-review-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c01-review-tests.txt
+          cargo clippy -p ptah-archive-decomposition --lib --test c01 --locked -- -D warnings \
+            2>&1 | tee /tmp/c01-review-clippy.txt
           git diff --check
 
-      - name: Commit canonical Rust formatting if required
+      - name: Commit exact corrected C01 surface
         shell: bash
         env:
           HEAD_BRANCH: ${{ github.head_ref }}
@@ -85,11 +850,12 @@ jobs:
           git add crates/ptah-archive-decomposition/src/lib.rs \
                   crates/ptah-archive-decomposition/src/c01.rs \
                   crates/ptah-archive-decomposition/tests/c01.rs
-          if git diff --cached --quiet; then
-            echo "C01 Rust surface already canonically formatted"
-            exit 0
-          fi
+          test -n "$(git diff --cached --name-only)"
+          test "$(git diff --cached --name-only | sort)" = "$(printf '%s\n' \
+            crates/ptah-archive-decomposition/src/c01.rs \
+            crates/ptah-archive-decomposition/src/lib.rs \
+            crates/ptah-archive-decomposition/tests/c01.rs | sort)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "C01 build: apply canonical Rust formatting"
+          git commit -m "C01 review: harden disk partition truth boundaries"
           git push origin "HEAD:${HEAD_BRANCH}"

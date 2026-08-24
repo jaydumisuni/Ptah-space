@@ -1,8 +1,9 @@
 name: TEMP B05 build correction carrier
 
 on:
-  push:
-    branches: [b05-executables-application-packages]
+  pull_request:
+    paths:
+      - ".github/workflows/b05-build-correction.yml"
 
 permissions:
   contents: write

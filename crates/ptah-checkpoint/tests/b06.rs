@@ -247,13 +247,24 @@ fn verified_archive_roundtrip_preserves_workspace_sessions_objects_and_artifacts
     let imported = import_session_vault(&bytes).expect("vault import");
     let manifest = &imported.archive().manifest;
     assert_eq!(manifest.workspace_ref, "workspace:1");
-    assert_eq!(manifest.current_workspace_revision_ref, "workspace-revision:4");
+    assert_eq!(
+        manifest.current_workspace_revision_ref,
+        "workspace-revision:4"
+    );
     assert_eq!(manifest.workspace_versions.len(), 2);
     assert_eq!(manifest.sessions[0].session_ref, "session:1");
     assert_eq!(manifest.objects[0].object_ref, "object:1");
     assert_eq!(manifest.artifacts[0].artifact_ref, "artifact:1");
-    assert!(manifest.required_capability_refs.contains(&COMPAT.to_owned()));
-    assert!(manifest.required_capability_refs.contains(&VAULT_CAP.to_owned()));
+    assert!(
+        manifest
+            .required_capability_refs
+            .contains(&COMPAT.to_owned())
+    );
+    assert!(
+        manifest
+            .required_capability_refs
+            .contains(&VAULT_CAP.to_owned())
+    );
     assert_eq!(manifest.conflicts, vec!["conflict:retained"]);
 }
 
@@ -299,7 +310,10 @@ fn compatible_other_node_resume_and_independent_recovery_verification_pass() {
             VALID_UNTIL,
         )
         .expect("compatibility");
-    assert_eq!(compatibility.decision.outcome, CompatibilityOutcome::Compatible);
+    assert_eq!(
+        compatibility.decision.outcome,
+        CompatibilityOutcome::Compatible
+    );
     assert!(compatibility.missing_capability_refs.is_empty());
     let restore = imported
         .restore_on_target(
@@ -343,7 +357,10 @@ fn missing_vault_capability_is_exact_and_cannot_restore() {
         )
         .expect("compatibility report");
     assert_eq!(compatibility.missing_capability_refs, vec![VAULT_CAP]);
-    assert_eq!(compatibility.decision.outcome, CompatibilityOutcome::Incompatible);
+    assert_eq!(
+        compatibility.decision.outcome,
+        CompatibilityOutcome::Incompatible
+    );
     assert!(matches!(
         imported.restore_on_target(
             "attempt:must-not-run",
@@ -482,6 +499,8 @@ fn used_restore_attempt_fence_survives_export_and_import() {
             NOW,
             &mut backend,
         ),
-        Err(SessionVaultError::Checkpoint(CheckpointError::ReusedAttempt))
+        Err(SessionVaultError::Checkpoint(
+            CheckpointError::ReusedAttempt
+        ))
     ));
 }

@@ -462,7 +462,8 @@ pub fn export_session_vault(
 /// Fails closed for unknown schema, archive digest drift, malformed metadata, checkpoint-state
 /// binding failure, or A13 durable-state import failure.
 pub fn import_session_vault(bytes: &[u8]) -> Result<ImportedSessionVault, SessionVaultError> {
-    let archive: SessionVaultArchive = serde_json::from_slice(bytes).map_err(serialization_error)?;
+    let archive: SessionVaultArchive =
+        serde_json::from_slice(bytes).map_err(serialization_error)?;
     if archive.schema_version != SESSION_VAULT_SCHEMA_VERSION {
         return Err(SessionVaultError::InvalidMetadata("schema_version"));
     }
@@ -526,8 +527,12 @@ fn validate_engine_state_binding(
     bytes: &[u8],
     bundle: &CheckpointBundle,
 ) -> Result<(), SessionVaultError> {
-    let projection: DurableStateProjection = serde_json::from_slice(bytes).map_err(serialization_error)?;
-    require_text(&projection.schema_version, "checkpoint durable state schema")?;
+    let projection: DurableStateProjection =
+        serde_json::from_slice(bytes).map_err(serialization_error)?;
+    require_text(
+        &projection.schema_version,
+        "checkpoint durable state schema",
+    )?;
     if projection.bundles.len() != 1 {
         return Err(SessionVaultError::InvalidMetadata(
             "checkpoint engine must contain exactly one bundle",
@@ -637,7 +642,8 @@ fn validate_versions(
             ));
         }
         if version.workspace_revision_ref == bundle.manifest.workspace_revision_ref
-            && version.materialization_generation == bundle.manifest.source_materialization_generation
+            && version.materialization_generation
+                == bundle.manifest.source_materialization_generation
         {
             current_found = true;
         }
@@ -650,7 +656,10 @@ fn validate_versions(
     versions.sort_by(|left, right| {
         left.materialization_generation
             .cmp(&right.materialization_generation)
-            .then_with(|| left.workspace_revision_ref.cmp(&right.workspace_revision_ref))
+            .then_with(|| {
+                left.workspace_revision_ref
+                    .cmp(&right.workspace_revision_ref)
+            })
     });
     Ok(())
 }
@@ -696,7 +705,8 @@ fn validate_sessions(
             ));
         }
         match (&session.node_ref, session.node_generation) {
-            (Some(node_ref), Some(generation)) if !node_ref.trim().is_empty() && generation > 0 => {}
+            (Some(node_ref), Some(generation)) if !node_ref.trim().is_empty() && generation > 0 => {
+            }
             (None, None) => {}
             _ => {
                 return Err(SessionVaultError::InvalidMetadata(
@@ -729,9 +739,7 @@ fn validate_objects(objects: &mut [VaultObjectEntry]) -> Result<(), SessionVault
             (Some(digest), Some(_)) if valid_sha256(digest) => {}
             (None, None) => {}
             _ => {
-                return Err(SessionVaultError::InvalidMetadata(
-                    "object digest/byte_len",
-                ));
+                return Err(SessionVaultError::InvalidMetadata("object digest/byte_len"));
             }
         }
         object.artifact_refs = sorted_unique(
@@ -775,7 +783,8 @@ fn validate_artifacts(
         ] {
             require_text(value, name)?;
         }
-        if !object_revisions.contains(&(artifact.object_ref.as_str(), artifact.revision_ref.as_str()))
+        if !object_revisions
+            .contains(&(artifact.object_ref.as_str(), artifact.revision_ref.as_str()))
         {
             return Err(SessionVaultError::InvalidMetadata(
                 "artifact object/revision missing from manifest",
@@ -787,9 +796,7 @@ fn validate_artifacts(
             ));
         }
         if !seen.insert(artifact.artifact_ref.clone()) {
-            return Err(SessionVaultError::InvalidMetadata(
-                "duplicate artifact_ref",
-            ));
+            return Err(SessionVaultError::InvalidMetadata("duplicate artifact_ref"));
         }
     }
     artifacts.sort_by(|left, right| left.artifact_ref.cmp(&right.artifact_ref));
@@ -950,14 +957,21 @@ fn require_canonical_list(
     Ok(())
 }
 
-fn sorted_unique(values: Vec<String>, name: &'static str) -> Result<Vec<String>, SessionVaultError> {
+fn sorted_unique(
+    values: Vec<String>,
+    name: &'static str,
+) -> Result<Vec<String>, SessionVaultError> {
     if values
         .iter()
         .any(|item| item.trim().is_empty() || item != item.trim())
     {
         return Err(SessionVaultError::InvalidMetadata(name));
     }
-    Ok(values.into_iter().collect::<BTreeSet<_>>().into_iter().collect())
+    Ok(values
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect())
 }
 
 fn require_text(value: &str, name: &'static str) -> Result<(), SessionVaultError> {

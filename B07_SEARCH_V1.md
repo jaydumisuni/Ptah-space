@@ -23,26 +23,28 @@ Delivered candidate surface:
 - full clear/rebuild semantics;
 - exact source-bound results carrying Workspace, canonical source entity, canonical source record revision and optional exact Object Revision;
 - Workspace filter applied before matching;
-- bounded document, field, query and result resources;
+- bounded document, field key/value/evidence-source, query and result resources;
 - deterministic result ordering and domain filtering.
 
 ## Truth boundaries
 
 - Search index state is derived projection state only; index revision is not an Object Revision or canonical record revision.
 - B07 owns no ledger or ObjectStore mutator.
+- Public callers cannot construct raw `SearchDocument`/`SearchField` payloads; adapter constructors establish provenance invariants and rebuild revalidates every borrowed document before any clone.
 - Clearing or rebuilding the index mutates only private derived copies and cannot mutate caller/canonical documents.
-- Same canonicalized source input rebuilt later produces the same content digest even though the local index revision advances.
+- Same canonicalized source input rebuilt later produces the same content digest even though the local index revision advances; initialization, `clear()` and `rebuild(&[])` use the same canonical empty digest.
 - Every indexed document binds one exact Workspace, canonical source entity and positive canonical source record revision.
 - Byte/content-derived documents may additionally bind one exact `object.revision`; when present that kind is enforced.
 - B03 text is accepted only when every anchor binds the exact supplied Object Revision.
 - B02 metadata preserves its evidence source instead of becoming an unqualified semantic fact.
 - Queries are Workspace-scoped before text matching; private content from another Workspace is not eligible for a result.
 - Search hits expose canonical source bindings, never index-local surrogate identity.
+- Multi-term AND queries are satisfied across the union of eligible fields in one document, while returned matches identify the contributing fields.
 - Unsupported, malformed or over-limit input fails closed rather than silently truncating indexed truth.
 
 ## Acceptance corpus
 
-The exact candidate must pass all 14 B07 cases covering:
+The exact candidate must pass all 16 B07 cases covering:
 
 1. filename and B02 metadata search with evidence source;
 2. B03 anchored document text and exact Object Revision binding;
@@ -53,11 +55,13 @@ The exact candidate must pass all 14 B07 cases covering:
 7. clear/rebuild non-mutation and reproducible content digest;
 8. duplicate exact index-document identity rejection;
 9. malformed Workspace/Object Revision/record-revision binding rejection;
-10. field, document, query and result resource bounds;
+10. field key/value/evidence-source, document, query and result resource bounds;
 11. domain filtering without cross-domain false positives;
 12. deterministic result limiting and ordering;
 13. mismatched B03 source-anchor rejection;
-14. case-insensitive all-term query semantics.
+14. case-insensitive document-level all-term query semantics across eligible fields;
+15. forged kind/domain payload rejection at the generic rebuild boundary;
+16. forged unanchored DocumentText rejection at the generic rebuild boundary.
 
 ## Exact-head proof gate
 
@@ -66,7 +70,7 @@ Promotion requires one exact PR head that passes:
 - accepted B06 base and bounded six-file B07 scope lock;
 - pinned Rust/Cargo 1.97.1;
 - `cargo fmt --all -- --check`;
-- B07 acceptance: 14/14;
+- B07 acceptance: 16/16;
 - strict `ptah-archive-decomposition` Clippy with `-D warnings`;
 - inherited B02 type/search-metadata regressions;
 - inherited B03 document/anchoring regressions;

@@ -71,13 +71,39 @@ impl SearchDocumentKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchField {
     /// Search domain of this field.
-    pub domain: SearchDomain,
+    domain: SearchDomain,
     /// Optional stable key such as a metadata key, page or symbol class.
-    pub key: Option<String>,
+    key: Option<String>,
     /// Exact searchable value.
-    pub value: String,
+    value: String,
     /// Evidence/projection source that supplied this field.
-    pub evidence_source: String,
+    evidence_source: String,
+}
+
+impl SearchField {
+    /// Return the immutable search domain.
+    #[must_use]
+    pub fn domain(&self) -> SearchDomain {
+        self.domain
+    }
+
+    /// Return the optional immutable field key.
+    #[must_use]
+    pub fn key(&self) -> Option<&str> {
+        self.key.as_deref()
+    }
+
+    /// Return the immutable searchable value.
+    #[must_use]
+    pub fn value(&self) -> &str {
+        &self.value
+    }
+
+    /// Return the immutable evidence/projection source.
+    #[must_use]
+    pub fn evidence_source(&self) -> &str {
+        &self.evidence_source
+    }
 }
 
 /// Exact source binding retained by every indexed document and every search hit.
@@ -97,11 +123,31 @@ pub struct SearchSourceBinding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchDocument {
     /// Exact source binding.
-    pub source: SearchSourceBinding,
+    source: SearchSourceBinding,
     /// Logical projection class.
-    pub kind: SearchDocumentKind,
+    kind: SearchDocumentKind,
     /// Searchable copied fields.
-    pub fields: Vec<SearchField>,
+    fields: Vec<SearchField>,
+}
+
+impl SearchDocument {
+    /// Return the immutable exact source binding.
+    #[must_use]
+    pub fn source(&self) -> &SearchSourceBinding {
+        &self.source
+    }
+
+    /// Return the immutable projection class.
+    #[must_use]
+    pub fn kind(&self) -> SearchDocumentKind {
+        self.kind
+    }
+
+    /// Return the immutable validated searchable fields.
+    #[must_use]
+    pub fn fields(&self) -> &[SearchField] {
+        &self.fields
+    }
 }
 
 /// Resource and query limits for one B07 index.
@@ -111,7 +157,7 @@ pub struct SearchLimits {
     pub max_documents: usize,
     /// Maximum fields retained in one document.
     pub max_fields_per_document: usize,
-    /// Maximum UTF-8 bytes retained in one field value.
+    /// Maximum UTF-8 bytes retained in any field key, value or evidence source.
     pub max_field_bytes: usize,
     /// Maximum UTF-8 bytes accepted in one query.
     pub max_query_bytes: usize,
@@ -208,9 +254,15 @@ pub enum SearchError {
     /// A required copied field is empty or not canonical text.
     #[error("B07 required text is invalid: {0}")]
     InvalidText(&'static str),
-    /// A copied field exceeds the configured bound.
-    #[error("B07 copied field exceeds max_field_bytes")]
+    /// A copied field string exceeds the configured bound.
+    #[error("B07 copied field string exceeds max_field_bytes")]
     FieldTooLarge,
+    /// Search document kind and field domain disagree.
+    #[error("B07 search document kind/domain invariant violated")]
+    InvalidDocumentDomain,
+    /// Anchored document text is missing its exact Object Revision binding.
+    #[error("B07 document text requires an exact object.revision binding")]
+    MissingObjectRevisionBinding,
     /// A document exceeds the configured field-count bound.
     #[error("B07 document exceeds max_fields_per_document")]
     TooManyFields,
@@ -255,7 +307,7 @@ impl SearchIndex {
         Ok(Self {
             limits,
             revision: 0,
-            content_sha256: sha256_bytes(&[]),
+            content_sha256: empty_index_digest(),
             documents: Vec::new(),
         })
     }
@@ -285,9 +337,11 @@ impl SearchIndex {
         if documents.len() > self.limits.max_documents {
             return Err(SearchError::TooManyDocuments);
         }
+        for document in documents {
+            validate_document(document, self.limits)?;
+        }
         let mut canonical = documents.to_vec();
         for document in &mut canonical {
-            validate_document(document, self.limits)?;
             canonicalize_fields(&mut document.fields);
         }
         canonical.sort_by_key(document_key);
@@ -317,7 +371,7 @@ impl SearchIndex {
             .checked_add(1)
             .ok_or(SearchError::RevisionOverflow)?;
         self.documents.clear();
-        self.content_sha256 = sha256_bytes(&[]);
+        self.content_sha256 = empty_index_digest();
         Ok(self.snapshot())
     }
 
@@ -351,6 +405,7 @@ impl SearchIndex {
                 continue;
             }
             let mut matches = Vec::new();
+            let mut covered_terms = BTreeSet::new();
             for field in &document.fields {
                 if !domains.is_empty() && !domains.contains(&field.domain) {
                     continue;
@@ -359,7 +414,14 @@ impl SearchIndex {
                     Some(key) => format!("{key} {}", field.value).to_lowercase(),
                     None => field.value.to_lowercase(),
                 };
-                if terms.iter().all(|term| haystack.contains(term)) {
+                let mut contributed = false;
+                for term in &terms {
+                    if haystack.contains(term.as_str()) {
+                        covered_terms.insert(term.as_str());
+                        contributed = true;
+                    }
+                }
+                if contributed {
                     matches.push(SearchMatch {
                         domain: field.domain,
                         key: field.key.clone(),
@@ -368,7 +430,7 @@ impl SearchIndex {
                     });
                 }
             }
-            if !matches.is_empty() {
+            if covered_terms.len() == terms.len() && !matches.is_empty() {
                 let score = u32::try_from(matches.len()).unwrap_or(u32::MAX);
                 hits.push(SearchHit {
                     source: document.source.clone(),
@@ -596,6 +658,7 @@ fn validate_limits(limits: SearchLimits) -> Result<(), SearchError> {
 
 fn validate_document(document: &SearchDocument, limits: SearchLimits) -> Result<(), SearchError> {
     validate_binding(&document.source)?;
+    validate_document_invariants(document)?;
     if document.fields.is_empty() {
         return Err(SearchError::InvalidText("document fields"));
     }
@@ -603,16 +666,53 @@ fn validate_document(document: &SearchDocument, limits: SearchLimits) -> Result<
         return Err(SearchError::TooManyFields);
     }
     for field in &document.fields {
-        if field.value.len() > limits.max_field_bytes {
-            return Err(SearchError::FieldTooLarge);
-        }
-        require_text(&field.value, "field value")?;
-        require_text(&field.evidence_source, "field evidence_source")?;
+        require_bounded_text(&field.value, "field value", limits.max_field_bytes)?;
+        require_bounded_text(
+            &field.evidence_source,
+            "field evidence_source",
+            limits.max_field_bytes,
+        )?;
         if let Some(key) = &field.key {
-            require_text(key, "field key")?;
+            require_bounded_text(key, "field key", limits.max_field_bytes)?;
         }
     }
     Ok(())
+}
+
+fn validate_document_invariants(document: &SearchDocument) -> Result<(), SearchError> {
+    let valid_domains = document.fields.iter().all(|field| match document.kind {
+        SearchDocumentKind::ObjectMetadata => {
+            matches!(
+                field.domain,
+                SearchDomain::Filename | SearchDomain::Metadata
+            )
+        }
+        SearchDocumentKind::DocumentText => field.domain == SearchDomain::DocumentText,
+        SearchDocumentKind::SourceSymbols => field.domain == SearchDomain::SourceSymbol,
+        SearchDocumentKind::Log => field.domain == SearchDomain::Log,
+        SearchDocumentKind::Activity => field.domain == SearchDomain::Activity,
+        SearchDocumentKind::Artifact => field.domain == SearchDomain::Artifact,
+    });
+    if !valid_domains {
+        return Err(SearchError::InvalidDocumentDomain);
+    }
+    if document.kind == SearchDocumentKind::DocumentText
+        && document.source.object_revision_ref.is_none()
+    {
+        return Err(SearchError::MissingObjectRevisionBinding);
+    }
+    Ok(())
+}
+
+fn require_bounded_text(
+    value: &str,
+    field: &'static str,
+    max_bytes: usize,
+) -> Result<(), SearchError> {
+    if value.len() > max_bytes {
+        return Err(SearchError::FieldTooLarge);
+    }
+    require_text(value, field)
 }
 
 fn validate_binding(source: &SearchSourceBinding) -> Result<(), SearchError> {
@@ -731,8 +831,62 @@ fn hash_usize(hasher: &mut Sha256, value: usize) {
     hasher.update(u64::try_from(value).unwrap_or(u64::MAX).to_le_bytes());
 }
 
-fn sha256_bytes(bytes: &[u8]) -> String {
+fn empty_index_digest() -> String {
     let mut hasher = Sha256::new();
-    hasher.update(bytes);
+    hash_usize(&mut hasher, 0);
     format!("{:x}", hasher.finalize())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn reference(kind: &str) -> EntityRef {
+        EntityRef::new(kind).expect("valid unit-test reference")
+    }
+
+    fn source_binding(object_revision_ref: Option<EntityRef>) -> SearchSourceBinding {
+        SearchSourceBinding {
+            workspace_ref: reference("core.workspace"),
+            source_ref: reference("object.view"),
+            source_record_revision: 1,
+            object_revision_ref,
+        }
+    }
+
+    #[test]
+    fn forged_kind_domain_combination_fails_generic_boundary() {
+        let document = SearchDocument {
+            source: source_binding(Some(reference("object.revision"))),
+            kind: SearchDocumentKind::DocumentText,
+            fields: vec![SearchField {
+                domain: SearchDomain::Metadata,
+                key: Some("key".to_owned()),
+                value: "value".to_owned(),
+                evidence_source: "forged".to_owned(),
+            }],
+        };
+        assert!(matches!(
+            validate_document(&document, SearchLimits::default()),
+            Err(SearchError::InvalidDocumentDomain)
+        ));
+    }
+
+    #[test]
+    fn forged_unanchored_document_text_fails_generic_boundary() {
+        let document = SearchDocument {
+            source: source_binding(None),
+            kind: SearchDocumentKind::DocumentText,
+            fields: vec![SearchField {
+                domain: SearchDomain::DocumentText,
+                key: Some("page:1".to_owned()),
+                value: "forged text".to_owned(),
+                evidence_source: "b03.anchored_text".to_owned(),
+            }],
+        };
+        assert!(matches!(
+            validate_document(&document, SearchLimits::default()),
+            Err(SearchError::MissingObjectRevisionBinding)
+        ));
+    }
 }

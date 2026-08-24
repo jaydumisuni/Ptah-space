@@ -1,10 +1,10 @@
 //! B07 Search v1 positive, isolation, rebuild and source-binding corpus.
 
 use ptah_archive_decomposition::{
-    AnchoredText, SearchDocument, SearchDocumentKind, SearchDomain, SearchError, SearchField,
-    SearchIndex, SearchLimits, SearchMetadata, SearchQuery, SearchSourceBinding, SourceAnchor,
-    activity_search_document, artifact_search_document, document_text_search_document,
-    filename_metadata_document, log_search_document, source_symbol_search_document,
+    AnchoredText, SearchDomain, SearchError, SearchIndex, SearchLimits, SearchMetadata,
+    SearchQuery, SearchSourceBinding, SourceAnchor, activity_search_document,
+    artifact_search_document, document_text_search_document, filename_metadata_document,
+    log_search_document, source_symbol_search_document,
 };
 use ptah_identifiers::EntityRef;
 
@@ -254,10 +254,17 @@ fn clear_and_rebuild_do_not_mutate_canonical_inputs_and_digest_is_reproducible()
     .expect("document");
     let canonical_input = vec![document];
     let before = canonical_input.clone();
+    let empty_initial = SearchIndex::new(SearchLimits::default())
+        .expect("empty initial")
+        .snapshot();
+    let mut empty_rebuild_index = SearchIndex::new(SearchLimits::default()).expect("empty");
+    let empty_rebuild = empty_rebuild_index.rebuild(&[]).expect("empty rebuild");
     let mut index = SearchIndex::new(SearchLimits::default()).expect("index");
     let first = index.rebuild(&canonical_input).expect("first rebuild");
     let cleared = index.clear().expect("clear");
     assert_eq!(cleared.document_count, 0);
+    assert_eq!(empty_initial.content_sha256, empty_rebuild.content_sha256);
+    assert_eq!(cleared.content_sha256, empty_rebuild.content_sha256);
     let second = index.rebuild(&canonical_input).expect("second rebuild");
     assert_eq!(canonical_input, before);
     assert_eq!(first.content_sha256, second.content_sha256);
@@ -322,60 +329,70 @@ fn field_document_and_query_resource_bounds_fail_closed() {
     let limits = SearchLimits {
         max_documents: 1,
         max_fields_per_document: 1,
-        max_field_bytes: 4,
+        max_field_bytes: 16,
         max_query_bytes: 4,
         max_results: 1,
     };
     let mut index = SearchIndex::new(limits).expect("index");
     let source = binding(&workspace, "core.activity", 1, None);
-    let too_large = SearchDocument {
-        source: source.clone(),
-        kind: SearchDocumentKind::Activity,
-        fields: vec![SearchField {
-            domain: SearchDomain::Activity,
-            key: None,
-            value: "12345".to_owned(),
-            evidence_source: "test".to_owned(),
-        }],
-    };
+    let too_large = activity_search_document(source.clone(), &["12345678901234567".to_owned()])
+        .expect("large document");
     assert!(matches!(
         index.rebuild(&[too_large]),
         Err(SearchError::FieldTooLarge)
     ));
 
-    let too_many_fields = SearchDocument {
-        source: source.clone(),
-        kind: SearchDocumentKind::Activity,
-        fields: vec![
-            SearchField {
-                domain: SearchDomain::Activity,
-                key: None,
-                value: "one".to_owned(),
-                evidence_source: "test".to_owned(),
-            },
-            SearchField {
-                domain: SearchDomain::Activity,
-                key: None,
-                value: "two".to_owned(),
-                evidence_source: "test".to_owned(),
-            },
-        ],
-    };
+    let too_many_fields =
+        activity_search_document(source.clone(), &["one".to_owned(), "two".to_owned()])
+            .expect("multi-field document");
     assert!(matches!(
         index.rebuild(&[too_many_fields]),
         Err(SearchError::TooManyFields)
     ));
 
-    let okay = SearchDocument {
-        source,
-        kind: SearchDocumentKind::Activity,
-        fields: vec![SearchField {
-            domain: SearchDomain::Activity,
-            key: None,
-            value: "okay".to_owned(),
-            evidence_source: "test".to_owned(),
+    let oversized_evidence = filename_metadata_document(
+        binding(
+            &workspace,
+            "object.object",
+            2,
+            Some(reference("object.revision")),
+        ),
+        None,
+        &[SearchMetadata {
+            path: None,
+            key: "key".to_owned(),
+            value: "value".to_owned(),
+            source: "12345678901234567".to_owned(),
         }],
-    };
+    )
+    .expect("oversized evidence document");
+    assert!(matches!(
+        index.rebuild(&[oversized_evidence]),
+        Err(SearchError::FieldTooLarge)
+    ));
+
+    let oversized_key = filename_metadata_document(
+        binding(
+            &workspace,
+            "object.object",
+            3,
+            Some(reference("object.revision")),
+        ),
+        None,
+        &[SearchMetadata {
+            path: None,
+            key: "12345678901234567".to_owned(),
+            value: "value".to_owned(),
+            source: "fixture".to_owned(),
+        }],
+    )
+    .expect("oversized key document");
+    assert!(matches!(
+        index.rebuild(&[oversized_key]),
+        Err(SearchError::FieldTooLarge)
+    ));
+
+    let okay = activity_search_document(source, &["okay".to_owned()]).expect("okay");
     index.rebuild(&[okay]).expect("bounded rebuild");
     let mut overlong_query = query(&workspace, "12345", Vec::new());
     overlong_query.limit = 1;
@@ -487,26 +504,34 @@ fn mismatched_b03_anchor_is_rejected_before_indexing() {
 }
 
 #[test]
-fn query_is_case_insensitive_and_requires_all_terms() {
+fn query_is_case_insensitive_and_requires_all_terms_across_document_fields() {
     let workspace = reference("core.workspace");
-    let document = activity_search_document(
-        binding(&workspace, "core.activity", 1, None),
-        &["Checkpoint Recovery Verified".to_owned()],
+    let document = filename_metadata_document(
+        binding(
+            &workspace,
+            "object.object",
+            1,
+            Some(reference("object.revision")),
+        ),
+        Some("Recovery-Report.txt".to_owned()),
+        &[SearchMetadata {
+            path: None,
+            key: "architecture".to_owned(),
+            value: "x86_64".to_owned(),
+            source: "fixture".to_owned(),
+        }],
     )
-    .expect("activity");
+    .expect("metadata document");
     let mut index = SearchIndex::new(SearchLimits::default()).expect("index");
     index.rebuild(&[document]).expect("rebuild");
-    assert_eq!(
-        index
-            .query(&query(&workspace, "checkpoint VERIFIED", Vec::new()))
-            .expect("matching query")
-            .hits
-            .len(),
-        1
-    );
+    let response = index
+        .query(&query(&workspace, "REPORT X86_64", Vec::new()))
+        .expect("cross-field AND query");
+    assert_eq!(response.hits.len(), 1);
+    assert_eq!(response.hits[0].matches.len(), 2);
     assert!(
         index
-            .query(&query(&workspace, "checkpoint missing", Vec::new()))
+            .query(&query(&workspace, "report missing", Vec::new()))
             .expect("AND query")
             .hits
             .is_empty()

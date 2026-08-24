@@ -1,4 +1,4 @@
-name: B07 strict Clippy correction helper
+name: B07 Search v1 exact-head proof
 
 on:
   pull_request:
@@ -9,64 +9,219 @@ on:
       - "crates/ptah-archive-decomposition/src/b07.rs"
       - "crates/ptah-archive-decomposition/tests/b07.rs"
       - ".github/workflows/b07-search-v1.yml"
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
-  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha }}
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PTAH_PR_BASE: ${{ github.event.pull_request.base.sha }}
+  PTAH_B07_BASE_SHA: 84340971d03bb3ed9780fbb73f4a7ecf1589072d
   CARGO_TERM_COLOR: always
 
 jobs:
-  correct-b07-clippy:
+  b07-proof:
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
-      - name: Check out exact B07 review head
+      - name: Check out exact B07 candidate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: ${{ env.PTAH_EXACT_SHA }}
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
-      - name: Install pinned Rust review toolchain
+      - name: Lock accepted B06 base and B07 scope
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+          if [ -n "${PTAH_PR_BASE:-}" ]; then
+            test "$PTAH_PR_BASE" = "$PTAH_B07_BASE_SHA"
+          fi
+          test "$(git merge-base "$PTAH_B07_BASE_SHA" "$PTAH_EXACT_SHA")" = "$PTAH_B07_BASE_SHA"
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["PTAH_B07_BASE_SHA"]
+          head = os.environ["PTAH_EXACT_SHA"]
+          files = subprocess.check_output(
+              ["git", "diff", "--name-only", base, head], text=True
+          ).splitlines()
+          allowed = {
+              "B07_SEARCH_V1.md",
+              "crates/ptah-archive-decomposition/Cargo.toml",
+              "crates/ptah-archive-decomposition/src/lib.rs",
+              "crates/ptah-archive-decomposition/src/b07.rs",
+              "crates/ptah-archive-decomposition/tests/b07.rs",
+              ".github/workflows/b07-search-v1.yml",
+          }
+          unexpected = sorted(set(files).difference(allowed))
+          missing = sorted(allowed.difference(files))
+          assert not unexpected, f"B07 scope drift: {unexpected}"
+          assert not missing, f"B07 required surface missing: {missing}"
+          PY
+          git diff --check "$PTAH_B07_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/b07
           rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
           rustup default 1.97.1
+          rustc -Vv | tee /tmp/b07/rustc-version.txt
+          cargo -V | tee /tmp/b07/cargo-version.txt
           rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$PTAH_EXACT_SHA" > /tmp/b07/exact-head.txt
+          cat /etc/os-release > /tmp/b07/host-os-release.txt
 
-      - name: Apply exact strict Clippy corrections
+      - name: Prove formatting and B07 acceptance
         shell: bash
         run: |
           set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ptah-archive-decomposition --test b07 --locked -- --nocapture \
+            2>&1 | tee /tmp/b07/b07-tests.txt
+          grep -Eq 'test result: ok\. 14 passed; 0 failed;' /tmp/b07/b07-tests.txt
+
+      - name: Prove B07 surface with strict Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ptah-archive-decomposition --lib --test b07 --locked -- -D warnings \
+            2>&1 | tee /tmp/b07/b07-clippy.txt
+
+      - name: Re-prove inherited B02 search-metadata semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b02 --locked -- --nocapture \
+            2>&1 | tee /tmp/b07/b02-tests.txt
+
+      - name: Re-prove inherited B03 document anchoring semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b03 --locked -- --nocapture \
+            2>&1 | tee /tmp/b07/b03-tests.txt
+          cargo test -p ptah-archive-decomposition --test b03_review --locked -- --nocapture \
+            2>&1 | tee /tmp/b07/b03-review-tests.txt
+
+      - name: Re-prove inherited B05 executable/package semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b05 --locked -- --nocapture \
+            2>&1 | tee /tmp/b07/b05-tests.txt
+          grep -Eq 'test result: ok\. 15 passed; 0 failed;' /tmp/b07/b05-tests.txt
+
+      - name: Re-prove inherited B06 Session Vault semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-checkpoint --test b06 --locked -- --nocapture \
+            2>&1 | tee /tmp/b07/b06-tests.txt
+          grep -Eq 'test result: ok\. 12 passed; 0 failed;' /tmp/b07/b06-tests.txt
+
+      - name: Re-prove inherited workspace at exact B07 head
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture \
+            2>&1 | tee /tmp/b07/workspace-tests.txt
+
+      - name: Write exact-head proof manifest
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cp B07_SEARCH_V1.md /tmp/b07/acceptance-contract.md
           python3 - <<'PY'
+          import hashlib
+          import json
+          import os
           from pathlib import Path
 
-          path = Path('crates/ptah-archive-decomposition/src/b07.rs')
-          source = path.read_text(encoding='utf-8')
-
-          old = 'canonical.sort_by(|left, right| document_key(left).cmp(&document_key(right)));'
-          new = 'canonical.sort_by_key(document_key);'
-          assert source.count(old) == 1
-          source = source.replace(old, new, 1)
-
-          old = 'field.value.as_bytes().len() > limits.max_field_bytes'
-          new = 'field.value.len() > limits.max_field_bytes'
-          assert source.count(old) == 1
-          source = source.replace(old, new, 1)
-
-          path.write_text(source, encoding='utf-8')
+          root = Path('/tmp/b07')
+          required = [
+              'exact-head.txt',
+              'host-os-release.txt',
+              'rustc-version.txt',
+              'cargo-version.txt',
+              'b07-tests.txt',
+              'b07-clippy.txt',
+              'b02-tests.txt',
+              'b03-tests.txt',
+              'b03-review-tests.txt',
+              'b05-tests.txt',
+              'b06-tests.txt',
+              'workspace-tests.txt',
+              'acceptance-contract.md',
+          ]
+          files = {}
+          for name in required:
+              path = root / name
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f'missing B07 proof report: {name}')
+              files[name] = {
+                  'size_bytes': path.stat().st_size,
+                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+              }
+          head = (root / 'exact-head.txt').read_text(encoding='utf-8').strip()
+          if head != os.environ['PTAH_EXACT_SHA']:
+              raise SystemExit('B07 proof head mismatch')
+          manifest = {
+              'schema_version': '0.1.0',
+              'record_type': 'ptah.b07.search_v1_exact_head_proof',
+              'status': 'pass',
+              'implementation_commit': head,
+              'accepted_base_commit': os.environ['PTAH_B07_BASE_SHA'],
+              'workflow_run_id': int(os.environ['RUN_ID']),
+              'workflow_run_attempt': int(os.environ['RUN_ATTEMPT']),
+              'b07_acceptance_test_count': 14,
+              'derived_index_not_canonical_truth': True,
+              'workspace_isolation_proven': True,
+              'exact_source_revision_binding_proven': True,
+              'deterministic_rebuild_digest_proven': True,
+              'index_clear_nonmutation_proven': True,
+              'b02_metadata_evidence_preserved': True,
+              'b03_anchor_binding_proven': True,
+              'inherited_b02_reproven': True,
+              'inherited_b03_reproven': True,
+              'inherited_b05_reproven': True,
+              'inherited_b06_reproven': True,
+              'object_world_beta_candidate': True,
+              'files': files,
+          }
+          rendered = json.dumps(manifest, indent=2, sort_keys=True) + '\n'
+          (root / 'proof-manifest.json').write_text(rendered, encoding='utf-8')
+          digest = hashlib.sha256(rendered.encode()).hexdigest()
+          (root / 'proof-manifest.sha256').write_text(
+              f'{digest}  proof-manifest.json\n', encoding='utf-8'
+          )
+          print(rendered, end='')
           PY
+          cd /tmp/b07
+          sha256sum -c proof-manifest.sha256
 
-          cargo fmt --all
-          cargo test -p ptah-archive-decomposition --test b07 --locked -- --nocapture
-          cargo clippy -p ptah-archive-decomposition --lib --test b07 --locked -- -D warnings
-          git diff --check
-          test "$(git diff --name-only | paste -sd ' ' -)" = "crates/ptah-archive-decomposition/src/b07.rs"
+      - name: Confirm exact clean candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add crates/ptah-archive-decomposition/src/b07.rs
-          git commit -m "B07 review: satisfy strict Clippy"
-          git push origin "HEAD:${GITHUB_HEAD_REF}"
+      - name: Retain B07 proof bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: b07-search-v1-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/b07/
+          if-no-files-found: error
+          retention-days: 90

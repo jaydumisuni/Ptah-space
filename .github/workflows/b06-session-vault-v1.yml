@@ -36,7 +36,7 @@ jobs:
           rustup default 1.97.1
           rustc -V | grep -q '^rustc 1.97.1 '
 
-      - name: Apply exact P2 review corrections
+      - name: Apply and validate P2 corrections
         shell: bash
         run: |
           set -euo pipefail
@@ -44,86 +44,31 @@ jobs:
           from pathlib import Path
           import re
 
-          source_path = Path('crates/ptah-checkpoint/src/b06.rs')
-          source = source_path.read_text(encoding='utf-8')
+          def once(text, old, new):
+              assert text.count(old) == 1, old[:80]
+              return text.replace(old, new, 1)
 
-          old = '''use crate::{
-              CheckpointBackend, CheckpointBundle, CheckpointClass, CheckpointEngine, CheckpointError,
-              CheckpointVerification, CompatibilityOutcome, Postcondition, RecoveryVerification,
-              RestoreCompatibilityDecision, RestoreRun, RestoreTarget, VerificationState,
-          };
-          use serde::{Deserialize, Serialize};
-          use sha2::{Digest, Sha256};
-          use std::collections::BTreeSet;
-          '''
-          new = '''use crate::{
-              CheckpointBackend, CheckpointBundle, CheckpointClass, CheckpointEngine, CheckpointError,
-              CompatibilityOutcome, Postcondition, RecoveryVerification, RestoreCompatibilityDecision,
-              RestoreRun, RestoreTarget,
-          };
-          use serde::{Deserialize, Serialize};
-          use sha2::{Digest, Sha256};
-          use std::collections::{BTreeMap, BTreeSet};
-          '''
-          assert old in source
-          source = source.replace(old, new, 1)
+          p = Path('crates/ptah-checkpoint/src/b06.rs')
+          s = p.read_text()
+          s = once(s,
+              '    CheckpointVerification, CompatibilityOutcome, Postcondition, RecoveryVerification,\n    RestoreCompatibilityDecision, RestoreRun, RestoreTarget, VerificationState,\n',
+              '    CheckpointVerification, CompatibilityOutcome, Postcondition, RecoveryVerification,\n    RestoreCompatibilityDecision, RestoreRun, RestoreTarget,\n')
+          s = once(s, 'use std::collections::BTreeSet;\n', 'use std::collections::{BTreeMap, BTreeSet};\n')
+          s = once(s,
+              '    /// Independent A13 verification retained as export evidence.\n    pub checkpoint_verification_ref: String,\n    /// Evidence from the independent A13 checkpoint verification.\n    pub checkpoint_verification_evidence_refs: Vec<String>,\n',
+              '    /// Engine-owned fact that the checkpoint was verified at export time.\n    pub checkpoint_verified_at_export: bool,\n')
+          s = once(s,
+              '    /// The supplied verification does not bind the exact exported checkpoint.\n    #[error("Session Vault verification does not bind the exact checkpoint")]\n    VerificationMismatch,\n', '')
+          s = once(s,
+              'pub fn export_session_vault(\n    engine: &CheckpointEngine,\n    bundle: &CheckpointBundle,\n    verification: &CheckpointVerification,\n    mut spec: SessionVaultExportSpec,\n) -> Result<Vec<u8>, SessionVaultError> {\n    validate_export_verification(engine, bundle, verification)?;\n',
+              'pub fn export_session_vault(\n    engine: &CheckpointEngine,\n    bundle: &CheckpointBundle,\n    mut spec: SessionVaultExportSpec,\n) -> Result<Vec<u8>, SessionVaultError> {\n    validate_export_authorization(engine, bundle)?;\n')
+          s = once(s,
+              '        checkpoint_bundle_ref: bundle.bundle_id.clone(),\n        checkpoint_manifest_sha256: bundle.manifest_sha256.clone(),\n        checkpoint_verification_ref: verification.verification_id.clone(),\n        checkpoint_verification_evidence_refs: sorted_unique(\n            verification.evidence_refs.clone(),\n            "checkpoint verification evidence",\n        )?,\n        export_evidence_refs: sorted_unique(spec.export_evidence_refs, "export evidence")?,\n',
+              '        checkpoint_bundle_ref: bundle.bundle_id.clone(),\n        checkpoint_manifest_sha256: bundle.manifest_sha256.clone(),\n        checkpoint_verified_at_export: true,\n        export_evidence_refs: sorted_unique(spec.export_evidence_refs, "export evidence")?,\n')
 
-          old = '''    /// Independent A13 verification retained as export evidence.
-              pub checkpoint_verification_ref: String,
-              /// Evidence from the independent A13 checkpoint verification.
-              pub checkpoint_verification_evidence_refs: Vec<String>,
-          '''
-          new = '''    /// Engine-owned fact that the checkpoint was verified at export time.
-              pub checkpoint_verified_at_export: bool,
-          '''
-          assert old in source
-          source = source.replace(old, new, 1)
-
-          old = '''    /// The supplied verification does not bind the exact exported checkpoint.
-              #[error("Session Vault verification does not bind the exact checkpoint")]
-              VerificationMismatch,
-          '''
-          assert old in source
-          source = source.replace(old, '', 1)
-
-          old = '''pub fn export_session_vault(
-              engine: &CheckpointEngine,
-              bundle: &CheckpointBundle,
-              verification: &CheckpointVerification,
-              mut spec: SessionVaultExportSpec,
-          ) -> Result<Vec<u8>, SessionVaultError> {
-              validate_export_verification(engine, bundle, verification)?;
-          '''
-          new = '''pub fn export_session_vault(
-              engine: &CheckpointEngine,
-              bundle: &CheckpointBundle,
-              mut spec: SessionVaultExportSpec,
-          ) -> Result<Vec<u8>, SessionVaultError> {
-              validate_export_authorization(engine, bundle)?;
-          '''
-          assert old in source
-          source = source.replace(old, new, 1)
-
-          old = '''        checkpoint_bundle_ref: bundle.bundle_id.clone(),
-                  checkpoint_manifest_sha256: bundle.manifest_sha256.clone(),
-                  checkpoint_verification_ref: verification.verification_id.clone(),
-                  checkpoint_verification_evidence_refs: sorted_unique(
-                      verification.evidence_refs.clone(),
-                      "checkpoint verification evidence",
-                  )?,
-                  export_evidence_refs: sorted_unique(spec.export_evidence_refs, "export evidence")?,
-          '''
-          new = '''        checkpoint_bundle_ref: bundle.bundle_id.clone(),
-                  checkpoint_manifest_sha256: bundle.manifest_sha256.clone(),
-                  checkpoint_verified_at_export: true,
-                  export_evidence_refs: sorted_unique(spec.export_evidence_refs, "export evidence")?,
-          '''
-          assert old in source
-          source = source.replace(old, new, 1)
-
-          start = source.index('fn validate_export_verification(')
-          end = source.index('fn normalize_and_validate_spec(', start)
-          source = source[:start] + '''fn validate_export_authorization(
+          a = s.index('fn validate_export_verification(')
+          b = s.index('fn normalize_and_validate_spec(', a)
+          s = s[:a] + '''fn validate_export_authorization(
               engine: &CheckpointEngine,
               bundle: &CheckpointBundle,
           ) -> Result<(), SessionVaultError> {
@@ -133,11 +78,11 @@ jobs:
               Ok(())
           }
 
-          ''' + source[end:]
+          ''' + s[b:]
 
-          start = source.index('fn validate_artifacts(')
-          end = source.index('fn validate_archive_binding(', start)
-          source = source[:start] + '''fn validate_artifacts(
+          a = s.index('fn validate_artifacts(')
+          b = s.index('fn validate_archive_binding(', a)
+          s = s[:a] + '''fn validate_artifacts(
               objects: &[VaultObjectEntry],
               artifacts: &mut [VaultArtifactEntry],
           ) -> Result<(), SessionVaultError> {
@@ -157,7 +102,6 @@ jobs:
                       }
                   }
               }
-
               let mut seen = BTreeSet::new();
               for artifact in artifacts.iter() {
                   for (name, value) in [
@@ -179,9 +123,7 @@ jobs:
                   if *owner_object_ref != artifact.object_ref
                       || *owner_revision_ref != artifact.revision_ref
                   {
-                      return Err(SessionVaultError::InvalidMetadata(
-                          "artifact owner mismatch",
-                      ));
+                      return Err(SessionVaultError::InvalidMetadata("artifact owner mismatch"));
                   }
                   if !seen.insert(artifact.artifact_ref.as_str()) {
                       return Err(SessionVaultError::InvalidMetadata("duplicate artifact_ref"));
@@ -196,71 +138,33 @@ jobs:
               Ok(())
           }
 
-          ''' + source[end:]
+          ''' + s[b:]
+          s = once(s,
+              '    require_text(\n        &manifest.checkpoint_verification_ref,\n        "checkpoint_verification_ref",\n    )?;\n    if manifest.current_materialization_generation == 0 {\n',
+              '    if !manifest.checkpoint_verified_at_export {\n        return Err(SessionVaultError::InvalidMetadata(\n            "checkpoint_verified_at_export",\n        ));\n    }\n    if manifest.current_materialization_generation == 0 {\n')
+          s = once(s,
+              '    require_canonical_list(\n        &manifest.checkpoint_verification_evidence_refs,\n        "checkpoint verification evidence",\n        true,\n    )?;\n', '')
+          assert s.count('.map_err(serialization_error)') > 0
+          s = s.replace('.map_err(serialization_error)', '.map_err(|error| serialization_error(&error))')
+          s = once(s,
+              'fn serialization_error(error: serde_json::Error) -> SessionVaultError {',
+              'fn serialization_error(error: &serde_json::Error) -> SessionVaultError {')
+          p.write_text(s)
 
-          old = '''    require_text(
-                  &manifest.checkpoint_verification_ref,
-                  "checkpoint_verification_ref",
-              )?;
-              if manifest.current_materialization_generation == 0 {
-          '''
-          new = '''    if !manifest.checkpoint_verified_at_export {
-                  return Err(SessionVaultError::InvalidMetadata(
-                      "checkpoint_verified_at_export",
-                  ));
-              }
-              if manifest.current_materialization_generation == 0 {
-          '''
-          assert old in source
-          source = source.replace(old, new, 1)
+          p = Path('crates/ptah-checkpoint/tests/b06.rs')
+          t = p.read_text()
+          t = once(t,
+              'fn create_verified() -> (\n    CheckpointEngine,\n    MemoryBackend,\n    CheckpointBundle,\n    CheckpointVerification,\n) {\n',
+              'fn create_verified() -> (CheckpointEngine, MemoryBackend, CheckpointBundle) {\n')
+          t = once(t, '    (engine, backend, bundle, verification)\n', '    (engine, backend, bundle)\n')
+          t, n = re.subn(r'let \(([^\n)]*), verification\) = create_verified\(\);', r'let (\1) = create_verified();', t)
+          assert n >= 1
+          assert '&bundle, &verification,' in t
+          t = t.replace('&bundle, &verification,', '&bundle,')
 
-          old = '''    require_canonical_list(
-                  &manifest.checkpoint_verification_evidence_refs,
-                  "checkpoint verification evidence",
-                  true,
-              )?;
-          '''
-          assert old in source
-          source = source.replace(old, '', 1)
-
-          source = source.replace(
-              '.map_err(serialization_error)',
-              '.map_err(|error| serialization_error(&error))',
-          )
-          old = 'fn serialization_error(error: serde_json::Error) -> SessionVaultError {'
-          new = 'fn serialization_error(error: &serde_json::Error) -> SessionVaultError {'
-          assert old in source
-          source = source.replace(old, new, 1)
-          source_path.write_text(source, encoding='utf-8')
-
-          test_path = Path('crates/ptah-checkpoint/tests/b06.rs')
-          tests = test_path.read_text(encoding='utf-8')
-          old = '''fn create_verified() -> (
-              CheckpointEngine,
-              MemoryBackend,
-              CheckpointBundle,
-              CheckpointVerification,
-          ) {
-          '''
-          new = '''fn create_verified() -> (CheckpointEngine, MemoryBackend, CheckpointBundle) {
-          '''
-          assert old in tests
-          tests = tests.replace(old, new, 1)
-          old = '    (engine, backend, bundle, verification)\n'
-          new = '    (engine, backend, bundle)\n'
-          assert old in tests
-          tests = tests.replace(old, new, 1)
-
-          tests = re.sub(
-              r'let \(([^\n)]*), verification\) = create_verified\(\);',
-              r'let (\1) = create_verified();',
-              tests,
-          )
-          tests = tests.replace('&bundle, &verification,', '&bundle,')
-
-          start = tests.index('#[test]\nfn export_requires_current_independent_checkpoint_verification()')
-          end = tests.index('#[test]\nfn verified_archive_roundtrip_preserves_workspace_sessions_objects_and_artifacts()', start)
-          tests = tests[:start] + '''#[test]
+          a = t.index('#[test]\nfn export_requires_current_independent_checkpoint_verification()')
+          b = t.index('#[test]\nfn verified_archive_roundtrip_preserves_workspace_sessions_objects_and_artifacts()', a)
+          t = t[:a] + '''#[test]
           fn export_requires_current_independent_checkpoint_verification() {
               let mut engine = CheckpointEngine::default();
               let mut backend = MemoryBackend::fixture();
@@ -280,14 +184,13 @@ jobs:
               );
           }
 
-          ''' + tests[end:]
+          ''' + t[b:]
 
-          start = tests.index('#[test]\nfn artifact_manifest_cannot_reference_an_unlisted_object_revision()')
-          end = tests.index('#[test]\nfn retained_conflicts_survive_portability_without_becoming_hidden_success()', start)
-          tests = tests[:start] + '''#[test]
+          a = t.index('#[test]\nfn artifact_manifest_cannot_reference_an_unlisted_object_revision()')
+          b = t.index('#[test]\nfn retained_conflicts_survive_portability_without_becoming_hidden_success()', a)
+          t = t[:a] + '''#[test]
           fn artifact_links_are_bidirectional_and_revision_exact() {
               let (engine, _, bundle) = create_verified();
-
               let mut wrong_revision = export_spec();
               wrong_revision.artifacts[0].revision_ref = "object-revision:other".to_owned();
               assert_eq!(
@@ -320,40 +223,41 @@ jobs:
               );
           }
 
-          ''' + tests[end:]
+          ''' + t[b:]
 
+          a = t.index('fn missing_vault_capability_is_exact_and_cannot_restore()')
+          b = t.index('#[test]\nfn incompatible_a13_capability_remains_explicit()', a)
+          section = t[a:b]
           marker = '''    assert_eq!(
                   compatibility.decision.outcome,
                   CompatibilityOutcome::Incompatible
               );
           '''
-          assert marker in tests
-          forged = marker + '''    let mut forged = compatibility.clone();
+          assert marker in section
+          section = section.replace(marker, marker + '''    let mut forged = compatibility.clone();
               forged.decision.outcome = CompatibilityOutcome::Compatible;
               forged.decision.limitations.clear();
               forged.missing_capability_refs.clear();
-          '''
-          tests = tests.replace(marker, forged, 1)
-          tests = tests.replace('&compatibility,\n            NOW,\n            &mut backend,\n        ),\n        Err(SessionVaultError::Checkpoint(\n            CheckpointError::IncompatibleRestoreTarget\n        ))\n    ));\n    assert_eq!(backend.restore_calls, 0);', '&forged,\n            NOW,\n            &mut backend,\n        ),\n        Err(SessionVaultError::Checkpoint(\n            CheckpointError::IncompatibleRestoreTarget\n        ))\n    ));\n    assert_eq!(backend.restore_calls, 0);', 1)
-          test_path.write_text(tests, encoding='utf-8')
+          ''', 1)
+          assert '&compatibility,' in section
+          section = section.replace('&compatibility,', '&forged,', 1)
+          t = t[:a] + section + t[b:]
+          p.write_text(t)
 
-          doc_path = Path('B06_SESSION_VAULT_V1.md')
-          doc = doc_path.read_text(encoding='utf-8')
-          old = '- The supplied checkpoint verification must enumerate the exact checkpoint component set and successful readback/integrity evidence.\n'
-          new = '- Export authorization is derived only from A13 engine-owned verification state; caller-supplied verification IDs or evidence cannot be archived as checkpoint proof.\n'
-          assert old in doc
-          doc = doc.replace(old, new, 1)
-          old = '10. Artifact manifest cannot reference an unlisted Object Revision;\n'
-          new = '10. Object/Artifact links are bidirectional and exact to one owning Object Revision;\n'
-          assert old in doc
-          doc = doc.replace(old, new, 1)
-          doc_path.write_text(doc, encoding='utf-8')
+          p = Path('B06_SESSION_VAULT_V1.md')
+          d = p.read_text()
+          d = once(d,
+              '- The supplied checkpoint verification must enumerate the exact checkpoint component set and successful readback/integrity evidence.\n',
+              '- Export authorization is derived only from A13 engine-owned verification state; caller-supplied verification IDs or evidence cannot be archived as checkpoint proof.\n')
+          d = once(d,
+              '10. Artifact manifest cannot reference an unlisted Object Revision;\n',
+              '10. Object/Artifact links are bidirectional and exact to one owning Object Revision;\n')
+          p.write_text(d)
           PY
 
           cargo fmt --all
           cargo test -p ptah-checkpoint --test b06 --locked -- --nocapture
           cargo clippy -p ptah-checkpoint --lib --test b06 --locked -- -D warnings
-
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

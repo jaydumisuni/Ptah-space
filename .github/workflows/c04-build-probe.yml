@@ -72,6 +72,28 @@ jobs:
           assert old in segment
           segment = segment.replace(old, new, 1).replace('&context()', '&ctx')
           text = text[:start] + segment + text[end:]
+
+          old_provider = 'fn provider_id(&self) -> &str {'
+          assert text.count(old_provider) == 2, text.count(old_provider)
+          text = text.replace(old_provider, "fn provider_id(&self) -> &'static str {")
+
+          replacements = [
+              (
+                  '    let mut limits = AppleFirmwareLimits::default();\n    limits.max_archive_entries = 1;\n',
+                  '    let limits = AppleFirmwareLimits {\n        max_archive_entries: 1,\n        ..AppleFirmwareLimits::default()\n    };\n',
+              ),
+              (
+                  '    let mut limits = AppleFirmwareLimits::default();\n    limits.max_recovered_bytes = 5;\n',
+                  '    let limits = AppleFirmwareLimits {\n        max_recovered_bytes: 5,\n        ..AppleFirmwareLimits::default()\n    };\n',
+              ),
+              (
+                  '    let mut limits = AppleFirmwareLimits::default();\n    limits.max_string_bytes = 4;\n',
+                  '    let limits = AppleFirmwareLimits {\n        max_string_bytes: 4,\n        ..AppleFirmwareLimits::default()\n    };\n',
+              ),
+          ]
+          for old_limit, new_limit in replacements:
+              assert text.count(old_limit) == 1, text.count(old_limit)
+              text = text.replace(old_limit, new_limit, 1)
           tests_path.write_text(text, encoding='utf-8')
 
           source_path = Path('crates/ptah-archive-decomposition/src/c04.rs')

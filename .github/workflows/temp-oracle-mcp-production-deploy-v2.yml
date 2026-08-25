@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - ".github/workflows/temp-oracle-mcp-production-deploy-v2.yml"
       - "proof/tmp-trigger-oracle-mcp-production-deploy-v2-*.txt"
 
 permissions:

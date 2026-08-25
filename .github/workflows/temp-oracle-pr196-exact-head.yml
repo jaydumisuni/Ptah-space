@@ -1,4 +1,4 @@
-name: Temporary ATHENA Cloudflare D1 Authority Probe
+name: Temporary ATHENA OAuth-to-D1 Authority Bridge Proof
 
 on:
   push:
@@ -11,25 +11,22 @@ permissions:
   contents: read
 
 jobs:
-  d1-authority:
+  oauth-d1-bridge:
     runs-on: [self-hosted, athena, windows, ptah]
     timeout-minutes: 8
     steps:
-      - name: Prove Wrangler account and D1 read authority without exposing credentials
+      - name: Refresh cached OAuth and prove D1 read authority without exposing token
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $oldCI = $env:CI
-          $oldActions = $env:GITHUB_ACTIONS
           try {
-            Remove-Item Env:CI -ErrorAction SilentlyContinue
-            Remove-Item Env:GITHUB_ACTIONS -ErrorAction SilentlyContinue
+            $raw = & npx --yes 'wrangler@4.122.0' auth token --json 2>$null
+            if ($LASTEXITCODE -ne 0) { throw 'WRANGLER_AUTH_TOKEN_FAILED' }
+            $auth = (@($raw) -join "`n") | ConvertFrom-Json
+            if (-not $auth.token -or ([string]$auth.token).Length -lt 20) { throw 'WRANGLER_AUTH_TOKEN_EMPTY' }
+            Write-Host ('WRANGLER_AUTH_TYPE=' + $auth.type)
 
-            $who = & npx --yes 'wrangler@4.122.0' whoami 2>&1
-            $whoCode = $LASTEXITCODE
-            Write-Host ('WHOAMI_EXIT=' + $whoCode)
-            if ($whoCode -ne 0) { throw 'WRANGLER_WHOAMI_FAILED' }
-
+            $env:CLOUDFLARE_API_TOKEN = [string]$auth.token
             $list = & npx --yes 'wrangler@4.122.0' d1 list --json 2>&1
             $listCode = $LASTEXITCODE
             Write-Host ('D1_LIST_EXIT=' + $listCode)
@@ -42,9 +39,10 @@ jobs:
             $db = @($json) | Where-Object { $_.name -eq 'oracle-accounts' -or $_.uuid -eq '28224b01-26b3-485e-84f5-1bc31b162752' } | Select-Object -First 1
             if (-not $db) { throw 'ORACLE_D1_DATABASE_NOT_VISIBLE' }
             Write-Host ('D1_DATABASE_VISIBLE=PASS name=' + $db.name + ' uuid=' + $db.uuid)
-            Write-Host 'ATHENA_CLOUDFLARE_D1_AUTHORITY=PASS'
+            Write-Host 'ATHENA_OAUTH_TO_D1_AUTHORITY=PASS'
           }
           finally {
-            if ($null -ne $oldCI) { $env:CI = $oldCI }
-            if ($null -ne $oldActions) { $env:GITHUB_ACTIONS = $oldActions }
+            Remove-Item Env:CLOUDFLARE_API_TOKEN -ErrorAction SilentlyContinue
+            $auth = $null
+            $raw = $null
           }

@@ -1,4 +1,4 @@
-name: Temporary Redmi sky Global ROM offline preflight on KRATOS
+name: Temporary Redmi sky Global ROM locator on KRATOS
 
 on:
   push:
@@ -10,70 +10,25 @@ permissions:
   contents: read
 
 jobs:
-  preflight:
+  locate:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 20
+    timeout-minutes: 8
     steps:
-      - name: Verify and inspect Global fastboot archive without extracting it
+      - name: Locate Global fastboot archive across KRATOS desktops and mounts
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import datetime, hashlib, json, pathlib, shlex, shutil, socket, subprocess
-
-          expected_name = 'sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
-          expected_md5 = '3334591f858477053b68f4c0e47debf0'
-          desktop = pathlib.Path.home() / 'Desktop'
-          exact = sorted(desktop.rglob(expected_name)) if desktop.exists() else []
-          fallback = sorted(desktop.rglob('sky_global_images_*.tgz')) if desktop.exists() and not exact else []
-          archive = (exact or fallback or [None])[0]
-
-          def run(args, timeout=120):
-              try:
-                  p = subprocess.run(args, text=True, capture_output=True, timeout=timeout, check=False)
-                  return {'rc': p.returncode, 'stdout': p.stdout[-40000:], 'stderr': p.stderr[-10000:]}
-              except Exception as e:
-                  return {'rc': -1, 'stdout': '', 'stderr': f'{type(e).__name__}: {e}'}
-
-          out = {
-              'schema': 'ttg.redmi.sky.global-preflight.v1',
-              'host': socket.gethostname(),
-              'desktop': str(desktop),
-              'expected_name': expected_name,
-              'expected_md5': expected_md5,
-              'archive_found': archive is not None,
-              'archive': None,
-              'tools': {name: shutil.which(name) for name in [
-                  'tar','7z','python3','simg2img','img2simg','lpunpack','debugfs','e2fsck',
-                  'unsquashfs','brotli','avbtool','payload-dumper-go','file','md5sum','sha256sum'
-              ]},
-              'completed_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-          }
-
-          if archive is not None:
-              md5 = hashlib.md5()
-              sha256 = hashlib.sha256()
-              with archive.open('rb') as f:
-                  while chunk := f.read(8 * 1024 * 1024):
-                      md5.update(chunk)
-                      sha256.update(chunk)
-              quoted = shlex.quote(str(archive))
-              listing = run(['bash','-lc', f'set +o pipefail; tar -tzf {quoted} 2>&1 | head -n 260'])
-              out['archive'] = {
-                  'path': str(archive),
-                  'size_bytes': archive.stat().st_size,
-                  'md5': md5.hexdigest(),
-                  'md5_matches_expected': md5.hexdigest().lower() == expected_md5.lower(),
-                  'sha256': sha256.hexdigest(),
-                  'file_type': run(['file','-b',str(archive)], timeout=30),
-                  'listing': listing,
-              }
-
-          print('TTG_ROM_PREFLIGHT=' + json.dumps(out, separators=(',', ':')))
-          if archive is None:
-              raise SystemExit('ROM_ARCHIVE_NOT_FOUND_ON_KRATOS_DESKTOP')
-          if out['archive']['md5_matches_expected'] is not True:
-              raise SystemExit('ROM_MD5_MISMATCH')
-          if out['archive']['listing']['rc'] not in (0, 141):
-              raise SystemExit('ROM_TAR_LIST_FAILED')
-          PY
+          echo '=== IDENTITY ==='
+          id
+          printf 'HOME=%s\n' "$HOME"
+          echo '=== USER HOMES ==='
+          getent passwd | awk -F: '$6 ~ /^\/home\// {print $1 "\t" $6}' || true
+          echo '=== DESKTOP DIRECTORIES ==='
+          find /home /root -maxdepth 3 -type d \( -iname Desktop -o -iname desktop \) -print 2>/dev/null | sort -u || true
+          echo '=== EXACT / SKY ARCHIVE CANDIDATES ==='
+          find /home /root /mnt /media /run/media -maxdepth 7 -type f \
+            \( -name 'sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz' -o -name 'sky_global_images_*.tgz' \) \
+            -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' 2>/dev/null | sort -k3 | head -n 40 || true
+          echo '=== LARGE TGZ ON DESKTOP-LIKE PATHS ==='
+          find /home /root /mnt /media /run/media -maxdepth 7 -type f -name '*.tgz' -size +1G \
+            -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' 2>/dev/null | grep -Ei '/desktop/|/Desktop/' | sort -k3 | head -n 40 || true

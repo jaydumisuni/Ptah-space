@@ -1,4 +1,4 @@
-name: TEMP ATHENA Xiaomi ROM mirror benchmark
+name: TEMP ATHENA Redmi ROM pause without Starlink
 
 on:
   push:
@@ -10,50 +10,34 @@ permissions:
   contents: read
 
 jobs:
-  probe:
+  pause:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
-    timeout-minutes: 8
+    timeout-minutes: 5
     steps:
-      - name: Benchmark official Xiaomi mirrors without modifying BITS job
+      - name: Suspend existing BITS transfer and report storage
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $name = 'sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
-          $rel = "OS2.0.9.0.VMWMIXM/$name"
-          $start = 142606336
-          $end = $start + 4194304 - 1
           $bitsName = 'TTG Redmi sky Global OS2.0.9.0'
-
-          Write-Output '=== CURRENT BITS ==='
           $job = Get-BitsTransfer -Name $bitsName -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($job) {
-            $pct = [math]::Round(([double]$job.BytesTransferred / [double]$job.BytesTotal) * 100, 3)
-            [ordered]@{state=[string]$job.JobState;bytesTransferred=[int64]$job.BytesTransferred;bytesTotal=[int64]$job.BytesTotal;percent=$pct} | ConvertTo-Json -Compress
-          }
-
-          Write-Output '=== TOOLS ==='
-          foreach ($tool in @('curl.exe','aria2c.exe','wget.exe')) {
-            $cmd = Get-Command $tool -ErrorAction SilentlyContinue
-            [ordered]@{tool=$tool;path=if($cmd){$cmd.Source}else{$null}} | ConvertTo-Json -Compress
-          }
-
-          Write-Output '=== 4 MiB RANGE BENCHMARK ==='
-          $urls = @(
-            "https://bigota.d.miui.com/$rel",
-            "https://cdnorg.d.miui.com/$rel",
-            "https://hugeota.d.miui.com/$rel"
-          )
-          foreach ($url in $urls) {
-            $tmp = Join-Path $env:TEMP ([guid]::NewGuid().ToString() + '.bin')
-            try {
-              $sw = [Diagnostics.Stopwatch]::StartNew()
-              & curl.exe -L --fail --silent --show-error --connect-timeout 15 --max-time 75 --range "$start-$end" --output $tmp $url
-              $code = $LASTEXITCODE
-              $sw.Stop()
-              $size = if(Test-Path $tmp){(Get-Item $tmp).Length}else{0}
-              $speed = if($sw.Elapsed.TotalSeconds -gt 0){[math]::Round($size/$sw.Elapsed.TotalSeconds,0)}else{0}
-              [ordered]@{url=$url;exitCode=$code;bytes=[int64]$size;seconds=[math]::Round($sw.Elapsed.TotalSeconds,3);bytesPerSecond=[int64]$speed} | ConvertTo-Json -Compress
-            } finally {
-              Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+            if ($job.JobState -eq 'Transferring' -or $job.JobState -eq 'Connecting' -or $job.JobState -eq 'Queued') {
+              Suspend-BitsTransfer -BitsJob $job
+              $job = Get-BitsTransfer -Name $bitsName -ErrorAction SilentlyContinue | Select-Object -First 1
             }
+            $pct = if ([int64]$job.BytesTotal -gt 0) { [math]::Round(([double]$job.BytesTransferred / [double]$job.BytesTotal) * 100, 3) } else { 0 }
+            [ordered]@{
+              state=[string]$job.JobState
+              bytesTransferred=[int64]$job.BytesTransferred
+              bytesTotal=[int64]$job.BytesTotal
+              percent=$pct
+              destination=($job.FileList | Select-Object -First 1 -ExpandProperty LocalName)
+            } | ConvertTo-Json -Compress
+          } else {
+            Write-Output '{"state":"NO_BITS_JOB"}'
+          }
+
+          $vol = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='E:'"
+          if ($vol) {
+            [ordered]@{drive='E:';label=$vol.VolumeName;driveType=[int]$vol.DriveType;fileSystem=$vol.FileSystem;freeBytes=[int64]$vol.FreeSpace;sizeBytes=[int64]$vol.Size} | ConvertTo-Json -Compress
           }

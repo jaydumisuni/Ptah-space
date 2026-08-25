@@ -1,5 +1,6 @@
 name: TEMP KRATOS Redmi sky CN active-region mapping
 
+# activation: v2
 on:
   push:
     branches: [main]

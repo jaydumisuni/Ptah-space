@@ -1,4 +1,4 @@
-name: Temporary Redmi sky Global ROM resume preflight on KRATOS
+name: Temporary Redmi sky local payload extent diagnosis on KRATOS
 
 on:
   push:
@@ -10,46 +10,63 @@ permissions:
   contents: read
 
 jobs:
-  preflight:
+  diagnose:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
-      - name: Prove official CDN range semantics and local prefix
+      - name: Inspect local allocation and tail without network transfer
         shell: bash
         run: |
           set -euo pipefail
           payload='/home/kratos/Desktop/redmi r12/BIT85A4.tmp'
-          url='https://bigota.d.miui.com/OS2.0.9.0.VMWMIXM/sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
           test -f "$payload"
 
-          work="$(mktemp -d)"
-          trap 'rm -rf "$work"' EXIT
+          echo '=== SIZE / ALLOCATION ==='
+          stat --printf='size_bytes=%s\nblocks_512=%b\nallocated_from_stat=%b*512\n' "$payload"
+          printf 'du_apparent='; du -B1 --apparent-size "$payload" | awk '{print $1}'
+          printf 'du_allocated='; du -B1 "$payload" | awk '{print $1}'
+          printf 'sparse_ratio='; python3 - <<'PY'
+          import os
+          p='/home/kratos/Desktop/redmi r12/BIT85A4.tmp'
+          s=os.stat(p)
+          allocated=s.st_blocks*512
+          print(f'{allocated/s.st_size:.9f}')
+          PY
 
-          echo '=== LOCAL ==='
-          local_size="$(stat -c %s "$payload")"
-          printf 'local_size=%s\n' "$local_size"
-
-          echo '=== CDN RANGE 0-0 ==='
-          curl -fLsS --connect-timeout 20 --max-time 90 -r 0-0 -D "$work/headers.txt" -o "$work/byte0.bin" "$url"
-          cat "$work/headers.txt"
-          printf 'received_bytes=%s\n' "$(stat -c %s "$work/byte0.bin")"
-
-          total="$(awk 'BEGIN{IGNORECASE=1} /^content-range:/ {gsub("\r",""); n=split($0,a,"/"); print a[n]}' "$work/headers.txt" | tail -n1)"
-          printf 'remote_total_size=%s\n' "$total"
-          if [[ "$total" =~ ^[0-9]+$ ]]; then
-            printf 'missing_bytes=%s\n' "$(( total - local_size ))"
+          echo '=== EXTENTS ==='
+          if command -v filefrag >/dev/null 2>&1; then
+            filefrag -v "$payload" 2>&1 | tail -n 80 || true
           else
-            echo 'remote_total_size=UNKNOWN'
+            echo 'filefrag=unavailable'
           fi
 
-          echo '=== PREFIX SAMPLE COMPARISON (1 MiB) ==='
-          dd if="$payload" of="$work/local-prefix.bin" bs=1M count=1 status=none
-          curl -fLsS --connect-timeout 20 --max-time 90 -r 0-1048575 -o "$work/remote-prefix.bin" "$url"
-          local_prefix_sha="$(sha256sum "$work/local-prefix.bin" | awk '{print $1}')"
-          remote_prefix_sha="$(sha256sum "$work/remote-prefix.bin" | awk '{print $1}')"
-          printf 'local_prefix_sha256=%s\n' "$local_prefix_sha"
-          printf 'remote_prefix_sha256=%s\n' "$remote_prefix_sha"
-          printf 'prefix_match=%s\n' "$([[ "$local_prefix_sha" == "$remote_prefix_sha" ]] && echo true || echo false)"
+          echo '=== HEAD / MIDDLE / TAIL LOCAL SAMPLES ==='
+          python3 - <<'PY'
+          import hashlib, os
+          p='/home/kratos/Desktop/redmi r12/BIT85A4.tmp'
+          size=os.path.getsize(p)
+          sample=1024*1024
+          points=[0, size//4, size//2, (size*3)//4, max(0,size-sample)]
+          with open(p,'rb',buffering=0) as f:
+              for off in points:
+                  f.seek(off)
+                  b=f.read(sample)
+                  zeros=b.count(0)
+                  print(f'offset={off} len={len(b)} sha256={hashlib.sha256(b).hexdigest()} zero_fraction={zeros/max(1,len(b)):.6f}')
+              f.seek(max(0,size-64))
+              tail=f.read(64)
+              print('tail64_hex='+tail.hex())
+          PY
 
-          test "$local_prefix_sha" = "$remote_prefix_sha"
-          test "$total" -gt "$local_size"
+          echo '=== GZIP FOOTER INTERPRETATION ==='
+          python3 - <<'PY'
+          import os, struct
+          p='/home/kratos/Desktop/redmi r12/BIT85A4.tmp'
+          with open(p,'rb') as f:
+              f.seek(-8, os.SEEK_END)
+              b=f.read(8)
+          if len(b)==8:
+              crc,isize=struct.unpack('<II',b)
+              print(f'footer_crc32=0x{crc:08x}')
+              print(f'footer_isize_mod_2_32={isize}')
+          PY

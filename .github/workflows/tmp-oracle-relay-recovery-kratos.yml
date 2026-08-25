@@ -1,4 +1,4 @@
-name: Temporary Redmi sky payload boundary recovery on KRATOS
+name: Temporary Redmi sky ROM source throughput probe on KRATOS
 
 on:
   push:
@@ -10,73 +10,47 @@ permissions:
   contents: read
 
 jobs:
-  boundary:
+  probe:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 8
     steps:
-      - name: Locate zero-filled tail boundary read-only
+      - name: Probe downloader availability and official Xiaomi source throughput
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import hashlib, os
-          p='/home/kratos/Desktop/redmi r12/BIT85A4.tmp'
-          size=os.path.getsize(p)
-          chunk=8*1024*1024
-          zero=b'\0'*chunk
-          first_zero=None
-          prior_sha=''
-          prior_off=0
-          with open(p,'rb',buffering=0) as f:
-              off=0
-              while off < size:
-                  data=f.read(min(chunk,size-off))
-                  if not data:
-                      break
-                  if not any(data):
-                      first_zero=off
-                      break
-                  prior_off=off
-                  prior_sha=hashlib.sha256(data).hexdigest()
-                  off += len(data)
-          print(f'size={size}')
-          print(f'chunk_size={chunk}')
-          print(f'first_all_zero_chunk_offset={first_zero}')
-          print(f'preceding_chunk_offset={prior_off}')
-          print(f'preceding_chunk_sha256={prior_sha}')
-          if first_zero is None:
-              raise SystemExit('NO_ZERO_TAIL_FOUND')
+          name='sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
+          rel="OS2.0.9.0.VMWMIXM/$name"
+          start=142606336
+          end=$((start + 4*1024*1024 - 1))
 
-          # Refine the transition: find the final non-zero byte before the first all-zero chunk.
-          search_start=max(0, first_zero-chunk)
-          search_len=min(chunk*2, size-search_start)
-          with open(p,'rb',buffering=0) as f:
-              f.seek(search_start)
-              window=f.read(search_len)
-          last_nonzero=-1
-          for i in range(len(window)-1,-1,-1):
-              if window[i] != 0:
-                  last_nonzero=search_start+i
-                  break
-          print(f'last_nonzero_byte_offset_in_boundary_window={last_nonzero}')
-          print(f'zero_tail_candidate_start={last_nonzero+1}')
+          echo '=== DOWNLOADERS ==='
+          for x in curl wget aria2c axel; do
+            printf '%s=' "$x"
+            command -v "$x" || true
+          done
 
-          # Prove the rest of the file is zero-filled in bounded large reads.
-          tail_start=last_nonzero+1
-          nonzero_after=0
-          checked=0
-          with open(p,'rb',buffering=0) as f:
-              f.seek(tail_start)
-              while True:
-                  data=f.read(32*1024*1024)
-                  if not data:
-                      break
-                  checked += len(data)
-                  if any(data):
-                      nonzero_after += 1
-                      break
-          print(f'tail_bytes_checked={checked}')
-          print(f'nonzero_chunks_after_candidate={nonzero_after}')
-          if nonzero_after:
-              raise SystemExit('ZERO_TAIL_NOT_CONTIGUOUS')
-          PY
+          echo '=== SOURCE URL DISCOVERY ==='
+          for page in \
+            'https://xmfirmwareupdater.com/hyperos/sky/stable/OS2.0.9.0.VMWMIXM/' \
+            'https://mifirm.net/download/17503'; do
+            echo "page=$page"
+            curl -fLsS --connect-timeout 15 --max-time 45 "$page" 2>/dev/null \
+              | grep -Eo 'https?[^"<> ]+' \
+              | sed 's/&amp;/\&/g' \
+              | grep -F "$name" \
+              | head -n 20 || true
+          done
+
+          echo '=== 4 MiB RANGE BENCHMARK ==='
+          candidates=(
+            "https://bigota.d.miui.com/$rel"
+            "https://cdnorg.d.miui.com/$rel"
+            "https://hugeota.d.miui.com/$rel"
+          )
+          for url in "${candidates[@]}"; do
+            echo "candidate=$url"
+            curl -LsS --fail --connect-timeout 15 --max-time 75 \
+              -r "$start-$end" -o /dev/null \
+              -w 'http_code=%{http_code} size_download=%{size_download} speed_download=%{speed_download} time_total=%{time_total}\n' \
+              "$url" || echo 'probe=FAIL'
+          done

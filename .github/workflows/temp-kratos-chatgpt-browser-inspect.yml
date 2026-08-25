@@ -1,6 +1,6 @@
-name: TEMP KRATOS Redmi sky mi_ext/pangu provenance map
+name: TEMP KRATOS Redmi sky mi_ext direct map
 
-# activation: v6
+# activation: v7
 on:
   push:
     branches: [main]
@@ -15,7 +15,7 @@ jobs:
     runs-on: [self-hosted, kratos, linux, x64, physical, ptah]
     timeout-minutes: 10
     steps:
-      - name: Map mi_ext and pangu overlay provenance read-only
+      - name: Inventory accessible mi_ext logical partition read-only
         shell: bash
         run: |
           set -euo pipefail
@@ -30,31 +30,25 @@ jobs:
           echo '=== HOST ROUTES BEFORE ==='
           ip route show default || true
 
-          echo '=== MI_EXT / PANGU MOUNTS ==='
-          "$ADB" shell 'mount 2>/dev/null | grep -E "mi_ext|pangu" | head -n 180 || true; echo --; cat /proc/mounts 2>/dev/null | grep -E "mi_ext|pangu" | head -n 180 || true'
+          echo '=== MI_EXT ACCESS / MOUNT ==='
+          "$ADB" shell 'ls -ld /mi_ext /mnt/vendor/mi_ext 2>&1 || true; mount 2>/dev/null | grep " on /mi_ext " || true; getprop | grep "partition.mi_ext" | sort || true'
 
-          echo '=== BLOCK / PROP IDENTITY ==='
-          "$ADB" shell 'ls -l /dev/block/by-name 2>/dev/null | grep -Ei "mi_ext|pangu|cust|opcust|super" | head -n 160 || true; getprop | grep -Ei "mi_ext|pangu" | sort | head -n 160 || true'
-
-          echo '=== MI_EXT TOP LEVEL ==='
-          "$ADB" shell 'if [ -d /mnt/vendor/mi_ext ]; then find /mnt/vendor/mi_ext -maxdepth 3 -type d 2>/dev/null | sort | head -n 280; else echo MI_EXT_NOT_MOUNTED; fi'
-
-          echo '=== MI_EXT REGION/GOOGLE/CN FILES ==='
-          "$ADB" shell 'if [ -d /mnt/vendor/mi_ext ]; then find /mnt/vendor/mi_ext -maxdepth 5 -type f 2>/dev/null | grep -Ei "google|gms|vending|phonesky|setup|region|cust|china|/cn[._/-]|miui|xiaomi|preload|market|search|voice" | sort | head -n 360; fi'
+          echo '=== MI_EXT TOPOLOGY ==='
+          "$ADB" shell 'if [ -d /mi_ext ]; then find /mi_ext -maxdepth 4 -type d 2>/dev/null | sort | head -n 340; else echo MI_EXT_INACCESSIBLE; fi'
 
           echo '=== MI_EXT APK INVENTORY ==='
-          "$ADB" shell 'if [ -d /mnt/vendor/mi_ext ]; then find /mnt/vendor/mi_ext -maxdepth 6 -type f -name "*.apk" 2>/dev/null | sort | head -n 320; fi'
+          "$ADB" shell 'if [ -d /mi_ext ]; then find /mi_ext -maxdepth 8 -type f -name "*.apk" 2>/dev/null | sort | head -n 420; fi'
 
-          echo '=== MI_EXT CONFIG TEXT REFERENCES ==='
-          "$ADB" shell 'if [ -d /mnt/vendor/mi_ext ]; then find /mnt/vendor/mi_ext -maxdepth 6 -type f -size -524288c 2>/dev/null | sort | while IFS= read -r p; do m=$(grep -a -i -E "com\.google\.android\.gms|com\.google\.android\.gsf|com\.android\.vending|cn_chinatelecom|ro\.miui\.region|romRegion|currentSku|preload" "$p" 2>/dev/null | head -n 12); if [ -n "$m" ]; then echo "--- $p"; printf "%s\n" "$m"; fi; done; fi'
+          echo '=== MI_EXT REGION / GMS / PRELOAD FILES ==='
+          "$ADB" shell 'if [ -d /mi_ext ]; then find /mi_ext -maxdepth 8 -type f 2>/dev/null | grep -Ei "google|gms|vending|phonesky|setup|region|cust|china|/cn[._/-]|miui|xiaomi|preload|market|search|voice|opcust" | sort | head -n 480; fi'
 
-          echo '=== PANGU TOP LEVEL / APK INVENTORY ==='
-          "$ADB" shell 'if [ -d /product/pangu ]; then find /product/pangu -maxdepth 4 -type d 2>/dev/null | sort | head -n 220; echo --APKS--; find /product/pangu -maxdepth 7 -type f -name "*.apk" 2>/dev/null | sort | head -n 260; else echo PANGU_NOT_PRESENT; fi'
+          echo '=== MI_EXT SMALL CONFIG REFERENCES ==='
+          "$ADB" shell 'if [ -d /mi_ext ]; then find /mi_ext -maxdepth 8 -type f -size -524288c 2>/dev/null | sort | while IFS= read -r p; do m=$(grep -a -i -E "com\.google\.android\.gms|com\.google\.android\.gsf|com\.android\.vending|cn_chinatelecom|ro\.miui\.(region|build\.region|cust_variant)|romRegion|currentSku|preload|google" "$p" 2>/dev/null | head -n 16); if [ -n "$m" ]; then echo "--- $p"; printf "%s\n" "$m"; fi; done; fi'
 
-          echo '=== SOURCE COUNTS ==='
-          "$ADB" shell 'for root in /mnt/vendor/mi_ext /product/pangu /cust; do if [ -d "$root" ]; then printf "%s files=" "$root"; find "$root" -type f 2>/dev/null | wc -l; printf "%s apks=" "$root"; find "$root" -type f -name "*.apk" 2>/dev/null | wc -l; fi; done'
+          echo '=== MI_EXT COUNTS ==='
+          "$ADB" shell 'if [ -d /mi_ext ]; then printf "files="; find /mi_ext -type f 2>/dev/null | wc -l; printf "apks="; find /mi_ext -type f -name "*.apk" 2>/dev/null | wc -l; printf "xml="; find /mi_ext -type f -name "*.xml" 2>/dev/null | wc -l; fi'
 
           echo '=== POST-PROBE ==='
           "$ADB" get-state
           ip route show default || true
-          echo 'TTG_REDMI_MI_EXT_PANGU_PROVENANCE=PASS'
+          echo 'TTG_REDMI_MI_EXT_DIRECT_MAP=PASS'

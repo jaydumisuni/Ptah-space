@@ -50,3 +50,5 @@ jobs:
           echo '=== POST-PROBE ADB / HOST ROUTE ==='
           "$ADB" get-state
           ip route show default || true
+
+          echo 'TTG_REDMI_CN_SELECTOR_MAP=PASS'

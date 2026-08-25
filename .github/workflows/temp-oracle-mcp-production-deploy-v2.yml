@@ -1,72 +1,49 @@
-name: TEMP Oracle MCP production deploy v2
+name: TEMP ATHENA Redmi sky Global ROM download carrier
 
 on:
   push:
     branches: [main]
     paths:
       - ".github/workflows/temp-oracle-mcp-production-deploy-v2.yml"
-      - "proof/tmp-trigger-oracle-mcp-production-deploy-v2-*.txt"
 
 permissions:
   contents: read
 
 jobs:
-  deploy:
+  download:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
-      - name: Deploy frozen Oracle MCP release from ATHENA
+      - name: Start or resume official sky Global ROM BITS transfer
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $sha = 'b8420c076c8dd63bdd684ba8fac022d95e4f0e98'
-          $root = Join-Path $env:RUNNER_TEMP ('oracle-mcp-production-' + $env:GITHUB_RUN_ID)
-          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
-          git -c core.autocrlf=false clone --quiet --no-checkout https://github.com/jaydumisuni/Oracle-.git $root
-          Set-Location $root
-          git -c core.autocrlf=false checkout --quiet --detach $sha
-          if ((git rev-parse HEAD).Trim() -ne $sha) { throw 'ORACLE_SHA_MISMATCH' }
-          git config core.autocrlf false
-          git reset --hard $sha | Out-Null
-          Write-Host ('ORACLE_SHA=' + $sha)
-          npm ci --silent
-          npm run check
-          $raw = (& .\node_modules\.bin\wrangler.cmd auth token --json 2>$null | Out-String).Trim()
-          if (-not $raw) { throw 'WRANGLER_AUTH_TOKEN_EMPTY' }
-          $auth = $raw | ConvertFrom-Json
-          $token = $auth.token
-          if (-not $token) { $token = $auth.access_token }
-          if (-not $token) { $token = $auth.accessToken }
-          if (-not $token -or $token.Length -lt 20) { throw 'WRANGLER_AUTH_TOKEN_INVALID' }
-          $env:CLOUDFLARE_API_TOKEN = $token
-          try {
-            $d1 = (& .\node_modules\.bin\wrangler.cmd d1 list --json 2>$null | Out-String) | ConvertFrom-Json
-            if (-not ($d1 | Where-Object { $_.uuid -eq '7a7b4a7a-3d1e-4af3-96fc-00ee703b5b8d' -or $_.name -eq 'oracle-accounts-db' })) { throw 'ORACLE_D1_BINDING_NOT_VISIBLE' }
-            Write-Host 'D1_AUTHORITY=PASS'
-            & .\node_modules\.bin\wrangler.cmd deploy --keep-vars
-            if ($LASTEXITCODE -ne 0) { throw ('WRANGLER_DEPLOY_FAILED_' + $LASTEXITCODE) }
-          } finally {
-            Remove-Item Env:CLOUDFLARE_API_TOKEN -ErrorAction SilentlyContinue
-            $token = $null; $auth = $null; $raw = $null
+          $dir = 'C:\Users\ATHENA 2.0\Desktop\redmi r12'
+          $file = 'sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
+          $url = 'https://bigota.d.miui.com/OS2.0.9.0.VMWMIXM/sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
+          $name = 'TTG Redmi sky Global OS2.0.9.0'
+          $expectedMd5 = '3334591f858477053b68f4c0e47debf0'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $dest = Join-Path $dir $file
+
+          $job = Get-BitsTransfer -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($job) {
+            if ($job.JobState -in @('Error','TransientError')) {
+              Resume-BitsTransfer -BitsJob $job -Asynchronous | Out-Null
+              Start-Sleep -Seconds 2
+              $job = Get-BitsTransfer -Id $job.Id
+            }
+            [ordered]@{ok=$true;action='existing-bits-job';jobId=[string]$job.Id;state=[string]$job.JobState;bytesTransferred=[int64]$job.BytesTransferred;bytesTotal=[int64]$job.BytesTotal;destination=$dest;expectedMd5=$expectedMd5} | ConvertTo-Json -Compress
+            exit 0
           }
-          Start-Sleep -Seconds 5
-          $health = Invoke-RestMethod -Method Get -Uri 'https://oracle.thetechguyds.com/health' -TimeoutSec 30
-          if (-not $health.ok -or $health.version -ne '1.0.0-rc.16' -or $health.deploymentRevision -ne 'oracle-account-portal-20260819' -or -not $health.mcp -or -not $health.mcpOAuth) { throw ('HEALTH_CONTRACT_FAILED ' + ($health | ConvertTo-Json -Compress)) }
-          Write-Host 'HEALTH=PASS'
-          $resource = Invoke-RestMethod -Method Get -Uri 'https://oracle.thetechguyds.com/.well-known/oauth-protected-resource' -TimeoutSec 30
-          if ([string]$resource.resource -ne 'https://oracle.thetechguyds.com/mcp') { throw ('RESOURCE_ORIGIN_MISMATCH_' + [string]$resource.resource) }
-          Write-Host 'OAUTH_RESOURCE=PASS'
-          $google = Invoke-RestMethod -Method Get -Uri 'https://oracle.thetechguyds.com/api/account/google/status' -TimeoutSec 30
-          if (-not $google.configured) { throw 'GOOGLE_ACCOUNT_NOT_CONFIGURED' }
-          Write-Host 'GOOGLE_STATUS=PASS'
-          try {
-            Invoke-WebRequest -Method Post -Uri 'https://oracle.thetechguyds.com/mcp' -ContentType 'application/json' -Headers @{ 'Accept'='application/json, text/event-stream'; 'MCP-Protocol-Version'='2025-06-18' } -Body '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ttg-production-proof","version":"1"}}}' -TimeoutSec 30 -ErrorAction Stop | Out-Null
-            throw 'MCP_UNAUTHENTICATED_INITIALIZE_UNEXPECTEDLY_SUCCEEDED'
-          } catch {
-            $resp = $_.Exception.Response
-            if (-not $resp -or [int]$resp.StatusCode -ne 401) { throw }
-            $challenge = [string]$resp.Headers['WWW-Authenticate']
-            if ($challenge -notmatch 'oracle\.thetechguyds\.com') { throw ('MCP_CHALLENGE_ORIGIN_MISMATCH_' + $challenge) }
-            Write-Host 'MCP_UNAUTH_CHALLENGE=PASS'
+
+          if (Test-Path -LiteralPath $dest) {
+            $size = (Get-Item -LiteralPath $dest).Length
+            [ordered]@{ok=$true;action='file-already-present';state='LOCAL_FILE_PRESENT';bytesTransferred=[int64]$size;bytesTotal=[int64]$size;destination=$dest;expectedMd5=$expectedMd5} | ConvertTo-Json -Compress
+            exit 0
           }
-          Write-Host 'ORACLE_MCP_PRODUCTION_DEPLOY=PASS'
+
+          $job = Start-BitsTransfer -Source $url -Destination $dest -DisplayName $name -Description 'Official Xiaomi sky Global HyperOS fastboot archive for offline CN-vs-Global analysis' -Priority Foreground -TransferType Download -Asynchronous
+          Start-Sleep -Seconds 8
+          $job = Get-BitsTransfer -Id $job.Id
+          [ordered]@{ok=$true;action='bits-started';jobId=[string]$job.Id;state=[string]$job.JobState;bytesTransferred=[int64]$job.BytesTransferred;bytesTotal=[int64]$job.BytesTotal;destination=$dest;expectedMd5=$expectedMd5} | ConvertTo-Json -Compress

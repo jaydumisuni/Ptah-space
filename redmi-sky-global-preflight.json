@@ -1,0 +1,27 @@
+{
+  "schema": "ttg.redmi.sky.global-preflight.v1",
+  "host": "kratos-HP-290-G4-Microtower-PC",
+  "desktop": "/home/kratos/Desktop",
+  "expected_name": "sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz",
+  "expected_md5": "3334591f858477053b68f4c0e47debf0",
+  "archive_found": false,
+  "archive": null,
+  "tools": {
+    "tar": "/usr/bin/tar",
+    "7z": null,
+    "python3": "/usr/bin/python3",
+    "simg2img": null,
+    "img2simg": null,
+    "lpunpack": null,
+    "debugfs": "/usr/sbin/debugfs",
+    "e2fsck": "/usr/sbin/e2fsck",
+    "unsquashfs": "/usr/bin/unsquashfs",
+    "brotli": null,
+    "avbtool": null,
+    "payload-dumper-go": null,
+    "file": "/usr/bin/file",
+    "md5sum": "/usr/bin/md5sum",
+    "sha256sum": "/usr/bin/sha256sum"
+  },
+  "completed_at": "2026-08-25T21:24:05.325080+00:00"
+}

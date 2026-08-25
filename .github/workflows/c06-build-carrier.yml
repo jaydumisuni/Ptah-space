@@ -1,4 +1,5 @@
 name: TEMP C06 build carrier
+# carrier revision 2: binary payload transport
 
 on:
   push:

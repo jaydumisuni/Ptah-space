@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "oracle.recovery.kratos.diagnose.v1",
+  "host": "kratos-HP-290-G4-Microtower-PC",
+  "service": {
+    "rc": 0,
+    "stdout": "ActiveState=active\nSubState=running\nMainPID=2834035\nResult=success\n",
+    "stderr": ""
+  },
+  "supervisor": {
+    "schemaVersion": "oracle.recovery-relay-supervisor.v1",
+    "state": "running",
+    "detail": "Recovery-only relay is active from isolated runtime.",
+    "host": "kratos-HP-290-G4-Microtower-PC",
+    "supervisorProcessId": 2834035,
+    "relayExitCode": null,
+    "sourceRoot": "/home/kratos/.oracle-work/pr169-detached/worktree",
+    "runtimeRepo": "/home/kratos/.local/state/OracleRelay/repo",
+    "tokenExposed": false,
+    "updatedAt": "2026-08-25T13:00:06.875Z"
+  },
+  "relay": {
+    "schemaVersion": "oracle.local-relay.v4",
+    "state": "running",
+    "detail": "Next poll in 3s. Engine ready: false.",
+    "processId": 2834694,
+    "updatedAt": "2026-08-25T13:01:02.437Z",
+    "repository": "/home/kratos/.local/state/OracleRelay/repo",
+    "engineUrl": "http://127.0.0.1:5056",
+    "host": "kratos-HP-290-G4-Microtower-PC",
+    "nodeId": "kratos-HP-290-G4-Microtower-PC",
+    "nodeAliases": [
+      "kratos-HP-290-G4-Microtower-PC"
+    ],
+    "platform": "linux",
+    "concurrency": {
+      "active": 0,
+      "maxConcurrency": 4,
+      "activeIds": [],
+      "resourceLocks": [],
+      "claimed": 0,
+      "pendingPublications": 0,
+      "normalActive": 0,
+      "priorityActive": 0,
+      "normalConcurrencyLimit": 3
+    }
+  },
+  "runtimeGit": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "journal": {
+    "rc": 0,
+    "stdout": "Aug 25 11:25:43 kratos-HP-290-G4-Microtower-PC bash[1653021]: Oracle command returned a failure result: !oracle-mcp-athena-interactive-d1-20260825-0927\nAug 25 11:27:42 kratos-HP-290-G4-Microtower-PC bash[1653021]: Error: Oracle could not fast-forward to origin/main after safe result recovery:\nAug 25 11:27:42 kratos-HP-290-G4-Microtower-PC bash[1653021]: fatal: unable to access 'https://github.com/jaydumisuni/Oracle-.git/': Error in the HTTP2 framing layer\nAug 25 11:27:42 kratos-HP-290-G4-Microtower-PC bash[1653021]: fatal: could not fetch 7ee8f44544d54a4e6b95af99354f4d07b5fb0fd1 from promisor remote\nAug 25 11:27:42 kratos-HP-290-G4-Microtower-PC bash[1653021]:     at sync (file:///home/kratos/.local/state/OracleRelay/repo/scripts/start-oracle-private-relay.mjs:284:11)\nAug 25 11:27:42 kratos-HP-290-G4-Microtower-PC bash[1653021]:     at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\nAug 25 11:28:00 kratos-HP-290-G4-Microtower-PC bash[2662002]: From https://github.com/jaydumisuni/Oracle-\nAug 25 11:28:00 kratos-HP-290-G4-Microtower-PC bash[2662002]:  * branch                main       -> FETCH_HEAD\nAug 25 11:28:03 kratos-HP-290-G4-Microtower-PC bash[2662141]: [87B blob data]\nAug 25 11:28:03 kratos-HP-290-G4-Microtower-PC bash[2662141]: HEAD is now at 69d4378ac oracle-control: return ATHENA results\nAug 25 11:32:15 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-google-basic-check-20260825-0929\nAug 25 11:33:12 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-debloat-cn-userland-20260825-0934\nAug 25 11:35:13 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-debloat-protected-20260825-0937\nAug 25 11:35:39 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-getapps-play-probe-20260825-0935\nAug 25 11:36:16 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-getapps-ui-20260825-0935b\nAug 25 11:36:50 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-getapps-launch-20260825-0936\nAug 25 11:37:49 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-getapps-resolve-20260825-0937b\nAug 25 11:38:17 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-getapps-open-direct-20260825-0938\nAug 25 11:39:02 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-aptoide-gms-probe-20260825-0939\nAug 25 11:39:41 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-gms-tooling-source-probe-20260825-0940\nAug 25 11:41:32 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-final-clean-gms-feasibility-20260825-1128\nAug 25 11:42:50 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-remaining-cn-inventory-20260825-1129\nAug 25 11:43:31 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-final-consumer-strip-20260825-1130\nAug 25 11:44:48 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-apkmirror-session-probe-20260825-1131\nAug 25 11:44:48 kratos-HP-290-G4-Microtower-PC bash[2683557]: SyntaxError: Bad escaped character in JSON at position 1138 (line 11 column 847)\nAug 25 11:44:48 kratos-HP-290-G4-Microtower-PC bash[2683557]:     at JSON.parse (<anonymous>)\nAug 25 11:44:48 kratos-HP-290-G4-Microtower-PC bash[2683557]:     at main (file:///home/kratos/.local/state/OracleRelay/repo/scripts/run-oracle-linux-control.mjs:199:27)\nAug 25 11:44:48 kratos-HP-290-G4-Microtower-PC bash[2683557]:     at async file:///home/kratos/.local/state/OracleRelay/repo/scripts/run-oracle-linux-control.mjs:206:1\nAug 25 11:44:48 kratos-HP-290-G4-Microtower-PC bash[2662389]: Oracle command returned a failure result: !redmi-apkmirror-session-probe-20260825-1131\nAug 25 11:45:26 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-refresh-apkmirror-probe-20260825-1132\nAug 25 11:45:59 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-apk-verify-tooling-20260825-1133\nAug 25 11:46:48 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-gsf-download-chain-probe-20260825-1134\nAug 25 11:47:45 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-hide-protected-launchers-20260825-1135\nAug 25 11:49:35 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-getapps-exit-diagnostic-20260825-1136\nAug 25 11:50:34 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-mibu-status-20260825-1137\nAug 25 11:50:59 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-mibu-status2-20260825-1138\nAug 25 11:51:43 kratos-HP-290-G4-Microtower-PC bash[2662389]: Executing Oracle command: !redmi-uptodown-gsf-endpoint-20260825-1139\nAug 25 12:54:11 kratos-HP-290-G4-Microtower-PC bash[2662389]: Oracle synchronization deferred: fatal: unable to access 'https://github.com/jaydumisuni/Oracle-.git/': Error in the HTTP2 framing layer\nAug 25 13:09:27 kratos-HP-290-G4-Microtower-PC bash[2662389]: Oracle synchronization deferred: fatal: unable to access 'https://github.com/jaydumisuni/Oracle-.git/': Connection timed out after 300035 milliseconds\nAug 25 13:14:30 kratos-HP-290-G4-Microtower-PC bash[2662389]: Oracle synchronization deferred: fatal: unable to access 'https://github.com/jaydumisuni/Oracle-.git/': Connection timed out after 300033 milliseconds\nAug 25 13:16:32 kratos-HP-290-G4-Microtower-PC bash[2662389]: Oracle synchronization deferred: fatal: unable to access 'https://github.com/jaydumisuni/Oracle-.git/': Recv failure: Connection reset by peer\nAug 25 13:59:32 kratos-HP-290-G4-Microtower-PC bash[2662389]: Oracle synchronization deferred: fatal: unable to access 'https://github.com/jaydumisuni/Oracle-.git/': Error in the HTTP2 framing layer\nAug 25 14:25:41 kratos-HP-290-G4-Microtower-PC bash[2662389]: Oracle synchronization deferred: fatal: unable to access 'https://github.com/jaydumisuni/Oracle-.git/': Error in the HTTP2 framing layer\nAug 25 14:55:51 kratos-HP-290-G4-Microtower-PC bash[2662389]: Oracle synchronization deferred: fatal: unable to access 'https://github.com/jaydumisuni/Oracle-.git/': Recv failure: Connection timed out\nAug 25 14:56:07 kratos-HP-290-G4-Microtower-PC systemd[1869]: Stopping oracle-recovery-relay.service - Oracle Recovery Relay (fallback only)...\nAug 25 14:56:07 kratos-HP-290-G4-Microtower-PC bash[2662389]: Oracle synchronization deferred: origin/main fetch failed\nAug 25 14:56:10 kratos-HP-290-G4-Microtower-PC systemd[1869]: Stopped oracle-recovery-relay.service - Oracle Recovery Relay (fallback only).\nAug 25 14:56:10 kratos-HP-290-G4-Microtower-PC systemd[1869]: oracle-recovery-relay.service: Consumed 1h 45min 41.758s CPU time over 2d 22min 51.545s wall clock time, 3.7G memory peak, 60.7M memory swap peak.\nAug 25 14:56:10 kratos-HP-290-G4-Microtower-PC systemd[1869]: Started oracle-recovery-relay.service - Oracle Recovery Relay (fallback only).\nAug 25 14:56:16 kratos-HP-290-G4-Microtower-PC bash[2830897]: From https://github.com/jaydumisuni/Oracle-\nAug 25 14:56:16 kratos-HP-290-G4-Microtower-PC bash[2830897]:  * branch              main       -> FETCH_HEAD\nAug 25 14:56:17 kratos-HP-290-G4-Microtower-PC bash[2831064]: HEAD is now at a27aa39e recovery: inspect ATHENA Oracle relay through canonical Live command\nAug 25 14:58:30 kratos-HP-290-G4-Microtower-PC bash[2831273]: Executing Oracle command: !!!!!!!!oracle-kratos-relay-browser-proof-20260825-1258\nAug 25 15:00:01 kratos-HP-290-G4-Microtower-PC systemd[1869]: Stopping oracle-recovery-relay.service - Oracle Recovery Relay (fallback only)...\nAug 25 15:00:02 kratos-HP-290-G4-Microtower-PC systemd[1869]: Stopped oracle-recovery-relay.service - Oracle Recovery Relay (fallback only).\nAug 25 15:00:02 kratos-HP-290-G4-Microtower-PC systemd[1869]: oracle-recovery-relay.service: Consumed 7.860s CPU time over 3min 52.799s wall clock time, 65.5M memory peak.\nAug 25 15:00:02 kratos-HP-290-G4-Microtower-PC systemd[1869]: Started oracle-recovery-relay.service - Oracle Recovery Relay (fallback only).\nAug 25 15:00:06 kratos-HP-290-G4-Microtower-PC bash[2834342]: From https://github.com/jaydumisuni/Oracle-\nAug 25 15:00:06 kratos-HP-290-G4-Microtower-PC bash[2834342]:  * branch              main       -> FETCH_HEAD\nAug 25 15:00:06 kratos-HP-290-G4-Microtower-PC bash[2834485]: HEAD is now at a4973818 oracle-control: return kratos-HP-290-G4-Microtower-PC results\n",
+    "stderr": ""
+  },
+  "completedAt": "2026-08-25T13:01:03.855307+00:00"
+}

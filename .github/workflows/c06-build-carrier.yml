@@ -1,0 +1,83 @@
+name: TEMP C06 build carrier
+# disposable base-side trigger for PR execution
+
+on:
+  pull_request:
+    branches:
+      - temp/c06-carrier-base-20260825
+    paths:
+      - ".github/workflows/c06-build-carrier.yml"
+      - ".ttg/c06-candidate.tar.gz"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PTAH_C06_BASE_SHA: 170b91195fa5e68ae15a8a9c26b9cf677fd78224
+  PTAH_C06_TARGET_BRANCH: c06-unisoc-qualcomm-packs
+  PTAH_C06_PAYLOAD_SHA256: 2119c94940fe9c424b3963fce6f3a5153413f9aa3d751ffa745f567882c890f2
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-c06:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact carrier head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Recover immutable C06 candidate payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' "$PTAH_C06_PAYLOAD_SHA256" .ttg/c06-candidate.tar.gz | sha256sum -c -
+          tar -xzf .ttg/c06-candidate.tar.gz -C "$GITHUB_WORKSPACE"
+
+      - name: Build and review C06 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo test -p ptah-archive-decomposition --test c06 --locked -- --nocapture
+          cargo clippy -p ptah-archive-decomposition --lib --test c06 --locked -- -D warnings
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          source = Path('crates/ptah-archive-decomposition/src/c06.rs').read_text(encoding='utf-8')
+          tests = Path('crates/ptah-archive-decomposition/tests/c06.rs').read_text(encoding='utf-8')
+          assert len(re.findall(r'^#\[test\]$', tests, re.M)) == 20
+          public_functions = re.findall(r'\bpub\s+fn\s+([A-Za-z0-9_]+)', source)
+          forbidden = re.compile(r'(?:^|_)(?:write|erase|flash|reset|reboot|unlock|relock|repartition|execute|upload_fdl|load_fdl|load_programmer|sahara|firehose_command|raw_xml|raw_command|memory_write|rpmb|efuse|nv)(?:_|$)')
+          offenders = sorted(name for name in public_functions if forbidden.search(name))
+          assert not offenders, f'C06 mutation API surfaced: {offenders}'
+          assert 'C06TrustAssessment::NotEstablished' in source
+          assert 'contains.unisoc_pac_component' in source
+          assert 'references.qualcomm_firmware_component' in source
+          print('C06 static authority review: PASS')
+          PY
+
+      - name: Publish one clean C06 candidate commit over accepted C05
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$PTAH_C06_BASE_SHA" HEAD)" = "$PTAH_C06_BASE_SHA"
+          rm -f .github/workflows/c06-build-carrier.yml .ttg/c06-candidate.tar.gz
+          git add -A
+          tree="$(git write-tree)"
+          git config user.name 'THE TECH GUY'
+          git config user.email '65334711+jaydumisuni@users.noreply.github.com'
+          candidate="$(printf '%s\n\n%s\n' 'Build C06 Unisoc and Qualcomm static packs' 'Exact PAC/FDL and MBN/ELF/Firehose/XML static evidence boundaries over accepted C05.' | git commit-tree "$tree" -p "$PTAH_C06_BASE_SHA")"
+          files="$(git diff --name-only "$PTAH_C06_BASE_SHA" "$candidate")"
+          printf '%s\n' "$files"
+          test "$(printf '%s\n' "$files" | sed '/^$/d' | wc -l)" -eq 6
+          test "$(git rev-list --count "$PTAH_C06_BASE_SHA..$candidate")" -eq 1
+          git diff --check "$PTAH_C06_BASE_SHA" "$candidate"
+          git push --force origin "$candidate:refs/heads/$PTAH_C06_TARGET_BRANCH"
+          echo "C06_CANDIDATE=$candidate"

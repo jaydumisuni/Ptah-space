@@ -11,7 +11,7 @@ jobs:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 5
     steps:
-      - name: Pair existing Oracle extension to local bridge through Chrome UI
+      - name: Pair existing Oracle extension using X11 without new packages
         shell: bash
         run: |
           set -euo pipefail
@@ -24,36 +24,43 @@ jobs:
           token_path="$HOME/.local/state/OracleBrowserBridge/agent-token.txt"
           test -s "$token_path"
           token="$(tr -d '\r\n' < "$token_path")"
-          test "${#token}" -ge 32
-          test -n "$(command -v xdotool || true)" || { echo 'XDOTOOL_MISSING'; exit 40; }
+          if [[ ! "$token" =~ ^[0-9A-Fa-f]{64}$ ]]; then echo 'TOKEN_FORMAT_UNEXPECTED'; exit 42; fi
+          echo 'TOKEN_FORMAT=hex64'
           chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)"
           ext_id='hoahdcllchhncnenbeplgfgmpjihakab'
-          options_url="chrome-extension://$ext_id/options/index.html"
-
-          "$chrome" --profile-directory=Default --new-tab "$options_url" >/dev/null 2>&1 || true
+          "$chrome" --profile-directory=Default --new-tab "chrome-extension://$ext_id/options/index.html" >/dev/null 2>&1 || true
           sleep 3
-          win="$(xdotool search --onlyvisible --name 'Oracle Browser settings' 2>/dev/null | tail -n1 || true)"
-          if [ -z "$win" ]; then win="$(xdotool search --onlyvisible --class 'google-chrome' 2>/dev/null | tail -n1 || true)"; fi
-          test -n "$win" || { echo 'CHROME_WINDOW_NOT_FOUND'; exit 41; }
-          xdotool windowactivate --sync "$win"
-          sleep 1
 
-          # Click the page background to place sequential focus in document content, then
-          # walk the deterministic options-page tab order to Bridge WebSocket + Pairing token.
-          xdotool mousemove --window "$win" 20 420 click 1
-          sleep 1
-          xdotool key --window "$win" --clearmodifiers Tab
-          xdotool key --window "$win" --clearmodifiers Tab
-          xdotool key --window "$win" --clearmodifiers Tab
-          xdotool key --window "$win" --clearmodifiers Tab
-          xdotool key --window "$win" --clearmodifiers ctrl+a
-          xdotool type --window "$win" --clearmodifiers --delay 1 'ws://127.0.0.1:8765/browser'
-          xdotool key --window "$win" --clearmodifiers Tab
-          xdotool key --window "$win" --clearmodifiers ctrl+a
-          xdotool type --window "$win" --clearmodifiers --delay 1 -- "$token"
-          unset token
-          xdotool key --window "$win" --clearmodifiers Tab
-          xdotool key --window "$win" --clearmodifiers Return
+          ORACLE_LOCAL_PAIRING_TOKEN="$token" python3 - <<'PY'
+          import ctypes,ctypes.util,os,time
+          x11=ctypes.CDLL(ctypes.util.find_library('X11') or 'libX11.so.6')
+          xtst=ctypes.CDLL(ctypes.util.find_library('Xtst') or 'libXtst.so.6')
+          x11.XOpenDisplay.argtypes=[ctypes.c_char_p]; x11.XOpenDisplay.restype=ctypes.c_void_p
+          x11.XStringToKeysym.argtypes=[ctypes.c_char_p]; x11.XStringToKeysym.restype=ctypes.c_ulong
+          x11.XKeysymToKeycode.argtypes=[ctypes.c_void_p,ctypes.c_ulong]; x11.XKeysymToKeycode.restype=ctypes.c_ubyte
+          x11.XFlush.argtypes=[ctypes.c_void_p]
+          xtst.XTestFakeKeyEvent.argtypes=[ctypes.c_void_p,ctypes.c_uint,ctypes.c_int,ctypes.c_ulong]
+          d=x11.XOpenDisplay(None)
+          if not d: raise SystemExit('X11_DISPLAY_OPEN_FAILED')
+          def code(name):
+              ks=x11.XStringToKeysym(name.encode())
+              kc=x11.XKeysymToKeycode(d,ks)
+              if not kc: raise RuntimeError('NO_KEYCODE:'+name)
+              return kc
+          def ev(name,down):
+              xtst.XTestFakeKeyEvent(d,code(name),1 if down else 0,0); x11.XFlush(d); time.sleep(.025)
+          def tap(name): ev(name,True); ev(name,False)
+          def combo(mod,key): ev(mod,True); tap(key); ev(mod,False)
+          # Force a deterministic focus transition: omnibox -> web content.
+          combo('Control_L','l'); time.sleep(.2); tap('F6'); time.sleep(.4)
+          for _ in range(5): tap('Tab'); time.sleep(.08)
+          combo('Control_L','a')
+          for ch in os.environ['ORACLE_LOCAL_PAIRING_TOKEN'].lower(): tap(ch)
+          tap('Tab'); tap('Return')
+          x11.XFlush(d); time.sleep(1)
+          print('X11_OPTIONS_RECONNECT_SENT=true')
+          PY
+          unset token ORACLE_LOCAL_PAIRING_TOKEN || true
 
           connected=0
           for i in $(seq 1 20); do
@@ -61,7 +68,6 @@ jobs:
             curl -fsS --max-time 2 http://127.0.0.1:8765/health >"$RUNNER_TEMP/bridge-health.json" 2>/dev/null || true
             if [ -s "$RUNNER_TEMP/bridge-health.json" ] && python3 -c "import json; d=json.load(open('$RUNNER_TEMP/bridge-health.json')); raise SystemExit(0 if d.get('browserConnected') else 1)"; then connected=1; break; fi
           done
-          echo '=== BRIDGE HEALTH ==='
           cat "$RUNNER_TEMP/bridge-health.json" 2>/dev/null || true
           echo
           echo "BROWSER_BRIDGE_CONNECTED=$connected"

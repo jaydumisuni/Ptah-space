@@ -68,7 +68,7 @@ impl FixtureArchiveProvider {
 }
 
 impl AppleArchiveProvider for FixtureArchiveProvider {
-    fn provider_id(&self) -> &str {
+    fn provider_id(&self) -> &'static str {
         "fixture.apple.archive"
     }
 
@@ -111,7 +111,7 @@ impl FixtureManifestProvider {
 }
 
 impl AppleManifestProvider for FixtureManifestProvider {
-    fn provider_id(&self) -> &str {
+    fn provider_id(&self) -> &'static str {
         "fixture.apple.manifest"
     }
 
@@ -243,7 +243,10 @@ fn ipsw_inventory_with_buildmanifest_linkage() {
         .expect("valid linked IPSW");
     assert_eq!(report.kind, AppleFirmwareArtifactKind::IpswArchive);
     assert_eq!(report.assessment, AppleAssessment::Complete);
-    assert_eq!(report.proof_level, Some(AppleStaticProofLevel::ManifestLinked));
+    assert_eq!(
+        report.proof_level,
+        Some(AppleStaticProofLevel::ManifestLinked)
+    );
     assert_eq!(report.trust, AppleTrustAssessment::NotEstablished);
     let linked = report.manifest.expect("manifest projection");
     assert_eq!(linked.components.len(), 1);
@@ -261,7 +264,10 @@ fn apple_ota_inventory_requires_and_retains_explicit_role() {
         .expect("valid explicit OTA inventory");
     assert_eq!(report.kind, AppleFirmwareArtifactKind::OtaArchive);
     assert_eq!(report.assessment, AppleAssessment::Partial);
-    assert_eq!(report.proof_level, Some(AppleStaticProofLevel::StructureChecked));
+    assert_eq!(
+        report.proof_level,
+        Some(AppleStaticProofLevel::StructureChecked)
+    );
     assert_eq!(report.archive_entries[0].path, "AssetData/payload.bin");
 }
 
@@ -318,8 +324,10 @@ fn archive_count_byte_and_string_limits_fail_closed() {
     ]);
     let source = zip_source();
     let ctx = context();
-    let mut limits = AppleFirmwareLimits::default();
-    limits.max_archive_entries = 1;
+    let limits = AppleFirmwareLimits {
+        max_archive_entries: 1,
+        ..AppleFirmwareLimits::default()
+    };
     assert_eq!(
         inspect_apple_firmware(
             &source,
@@ -333,8 +341,10 @@ fn archive_count_byte_and_string_limits_fail_closed() {
         C04Error::TooManyEntries
     );
 
-    let mut limits = AppleFirmwareLimits::default();
-    limits.max_recovered_bytes = 5;
+    let limits = AppleFirmwareLimits {
+        max_recovered_bytes: 5,
+        ..AppleFirmwareLimits::default()
+    };
     assert_eq!(
         inspect_apple_firmware(
             &source,
@@ -349,8 +359,10 @@ fn archive_count_byte_and_string_limits_fail_closed() {
     );
 
     let long_path = FixtureArchiveProvider::complete(vec![archive_entry("long-name", b"x")]);
-    let mut limits = AppleFirmwareLimits::default();
-    limits.max_string_bytes = 4;
+    let limits = AppleFirmwareLimits {
+        max_string_bytes: 4,
+        ..AppleFirmwareLimits::default()
+    };
     assert_eq!(
         inspect_apple_firmware(
             &source,
@@ -382,7 +394,10 @@ fn unresolved_manifest_component_reduces_truth() {
     let report = inspect_archive(AppleArchiveRole::Ipsw, Some(&archive), Some(&manifest))
         .expect("unresolved linkage remains reportable");
     assert_eq!(report.assessment, AppleAssessment::Partial);
-    assert_eq!(report.proof_level, Some(AppleStaticProofLevel::StructureChecked));
+    assert_eq!(
+        report.proof_level,
+        Some(AppleStaticProofLevel::StructureChecked)
+    );
     let manifest = report.manifest.expect("manifest projection");
     assert_eq!(manifest.unresolved_paths, vec!["Firmware/missing.im4p"]);
 }
@@ -396,7 +411,10 @@ fn incomplete_manifest_provider_claim_remains_partial() {
     let report = inspect_archive(AppleArchiveRole::Ipsw, Some(&archive), Some(&manifest))
         .expect("incomplete claim remains reportable");
     assert_eq!(report.assessment, AppleAssessment::Partial);
-    assert_ne!(report.proof_level, Some(AppleStaticProofLevel::ManifestLinked));
+    assert_ne!(
+        report.proof_level,
+        Some(AppleStaticProofLevel::ManifestLinked)
+    );
     assert!(
         report
             .manifest
@@ -429,16 +447,22 @@ fn valid_img4_yields_exact_im4p_im4m_and_im4r_inventory() {
         "img4.im4r",
         "img4.im4r.payload",
     ] {
-        assert!(report.der_components.iter().any(|component| component.name == name));
+        assert!(
+            report
+                .der_components
+                .iter()
+                .any(|component| component.name == name)
+        );
     }
 }
 
 #[test]
 fn standalone_im4p_exposes_exact_payload_range() {
     let source = im4p(b"exact-payload");
+    let ctx = context();
     let report = inspect_apple_firmware(
         &source,
-        &context(),
+        &ctx,
         AppleInspectRequest::default(),
         AppleFirmwareLimits::default(),
         None,
@@ -450,7 +474,7 @@ fn standalone_im4p_exposes_exact_payload_range() {
         &source,
         &report,
         "im4p.payload",
-        &context(),
+        &ctx,
         AppleFirmwareLimits::default(),
     )
     .expect("payload materialization");
@@ -471,7 +495,10 @@ fn standalone_im4m_observes_signing_material_without_trust() {
     .expect("valid IM4M");
     assert_eq!(report.kind, AppleFirmwareArtifactKind::Im4m);
     assert_eq!(report.trust, AppleTrustAssessment::NotEstablished);
-    assert_eq!(report.proof_level, Some(AppleStaticProofLevel::StructureChecked));
+    assert_eq!(
+        report.proof_level,
+        Some(AppleStaticProofLevel::StructureChecked)
+    );
     assert_eq!(
         report
             .der_components
@@ -576,13 +603,21 @@ fn wrong_marker_and_malformed_context_wrapper_fail_closed() {
 fn exact_child_and_archive_materialization_are_source_bound() {
     let archive = good_archive_provider();
     let source = zip_source();
-    let report = inspect_archive(AppleArchiveRole::Ipsw, Some(&archive), None)
-        .expect("archive report");
+    let ctx = context();
+    let report = inspect_apple_firmware(
+        &source,
+        &ctx,
+        archive_request(AppleArchiveRole::Ipsw),
+        AppleFirmwareLimits::default(),
+        Some(&archive),
+        None,
+    )
+    .expect("archive report");
     let entry = materialize_apple_archive_entry(
         &source,
         &report,
         "Firmware/kernelcache.im4p",
-        &context(),
+        &ctx,
         AppleFirmwareLimits::default(),
     )
     .expect("archive entry materialization");
@@ -594,7 +629,7 @@ fn exact_child_and_archive_materialization_are_source_bound() {
             &changed_source,
             &report,
             "Firmware/kernelcache.im4p",
-            &context(),
+            &ctx,
             AppleFirmwareLimits::default(),
         )
         .expect_err("source mutation must fail"),
@@ -604,7 +639,7 @@ fn exact_child_and_archive_materialization_are_source_bound() {
     let source = img4();
     let report = inspect_apple_firmware(
         &source,
-        &context(),
+        &ctx,
         AppleInspectRequest::default(),
         AppleFirmwareLimits::default(),
         None,
@@ -615,7 +650,7 @@ fn exact_child_and_archive_materialization_are_source_bound() {
         &source,
         &report,
         "img4.im4p",
-        &context(),
+        &ctx,
         AppleFirmwareLimits::default(),
     )
     .expect("exact IM4P child");
@@ -625,8 +660,8 @@ fn exact_child_and_archive_materialization_are_source_bound() {
 #[test]
 fn report_mutation_cannot_authorize_materialization_or_views() {
     let source = zip_source();
-    let mut report = inspect_archive(AppleArchiveRole::Ipsw, None, None)
-        .expect("truthful inconclusive report");
+    let mut report =
+        inspect_archive(AppleArchiveRole::Ipsw, None, None).expect("truthful inconclusive report");
     report.assessment = AppleAssessment::Complete;
     assert_eq!(
         materialize_apple_archive_entry(
@@ -669,9 +704,18 @@ fn registration_relationship_and_view_plans_retain_exact_evidence() {
     )
     .expect("exact child");
     let registration_spec = child.registration_spec(&ctx).expect("registration plan");
-    assert_eq!(registration_spec.source_refs, vec![ctx.source_revision_ref.clone()]);
-    assert_eq!(registration_spec.production.attempt_ref, ctx.production.attempt_ref);
-    assert_eq!(registration_spec.expected_sha256, Some(child.sha256.clone()));
+    assert_eq!(
+        registration_spec.source_refs,
+        vec![ctx.source_revision_ref.clone()]
+    );
+    assert_eq!(
+        registration_spec.production.attempt_ref,
+        ctx.production.attempt_ref
+    );
+    assert_eq!(
+        registration_spec.expected_sha256,
+        Some(child.sha256.clone())
+    );
 
     let registration = Registration {
         content_ref: reference("object.content"),
@@ -686,9 +730,18 @@ fn registration_relationship_and_view_plans_retain_exact_evidence() {
     let relationship = child
         .relationship_spec(&ctx, &registration)
         .expect("relationship plan");
-    assert_eq!(relationship.subject_refs, vec![ctx.source_revision_ref.clone()]);
-    assert_eq!(relationship.production.attempt_ref, ctx.production.attempt_ref);
-    assert_eq!(relationship.relationship_type, "contains.apple_firmware_child");
+    assert_eq!(
+        relationship.subject_refs,
+        vec![ctx.source_revision_ref.clone()]
+    );
+    assert_eq!(
+        relationship.production.attempt_ref,
+        ctx.production.attempt_ref
+    );
+    assert_eq!(
+        relationship.relationship_type,
+        "contains.apple_firmware_child"
+    );
 
     let views = report.view_specs(&ctx).expect("view plans");
     assert_eq!(views.len(), 3);

@@ -338,10 +338,7 @@ impl AppleFirmwareReport {
     ///
     /// # Errors
     /// Rejects mutated reports or mismatched source context.
-    pub fn view_specs(
-        &self,
-        context: &AppleFirmwareContext,
-    ) -> Result<Vec<ViewSpec>, C04Error> {
+    pub fn view_specs(&self, context: &AppleFirmwareContext) -> Result<Vec<ViewSpec>, C04Error> {
         validate_context(context)?;
         validate_report_integrity(self)?;
         if self.source_revision_ref != context.source_revision_ref {
@@ -641,8 +638,8 @@ pub fn materialize_apple_der_component(
         .ok_or(C04Error::AccountingOverflow)?;
     ensure_materialization_size(length, limits)?;
     let start = usize::try_from(component.byte_start).map_err(|_| C04Error::AccountingOverflow)?;
-    let end = usize::try_from(component.byte_end_exclusive)
-        .map_err(|_| C04Error::AccountingOverflow)?;
+    let end =
+        usize::try_from(component.byte_end_exclusive).map_err(|_| C04Error::AccountingOverflow)?;
     let bytes = source
         .get(start..end)
         .ok_or(C04Error::SourceBindingMismatch)?
@@ -678,15 +675,16 @@ pub fn compare_apple_firmware(
     if left_shape == right_shape && !component_exact {
         differences.push("component_bytes_changed".to_owned());
     }
-    let level = if left.source_sha256 == right.source_sha256 && left.source_size == right.source_size {
-        AppleComparisonLevel::ByteExact
-    } else if left.kind == right.kind && left_shape == right_shape && component_exact {
-        AppleComparisonLevel::ComponentExact
-    } else if left.kind == right.kind && left_shape == right_shape {
-        AppleComparisonLevel::Structural
-    } else {
-        AppleComparisonLevel::Different
-    };
+    let level =
+        if left.source_sha256 == right.source_sha256 && left.source_size == right.source_size {
+            AppleComparisonLevel::ByteExact
+        } else if left.kind == right.kind && left_shape == right_shape && component_exact {
+            AppleComparisonLevel::ComponentExact
+        } else if left.kind == right.kind && left_shape == right_shape {
+            AppleComparisonLevel::Structural
+        } else {
+            AppleComparisonLevel::Different
+        };
     AppleComparison {
         left_source_revision_ref: left.source_revision_ref.clone(),
         right_source_revision_ref: right.source_revision_ref.clone(),
@@ -736,7 +734,9 @@ fn inspect_archive(
             manifest: None,
             der_components: Vec::new(),
             warnings: Vec::new(),
-            limitations: vec!["archive Provider not supplied; ZIP framing alone is not inventory".to_owned()],
+            limitations: vec![
+                "archive Provider not supplied; ZIP framing alone is not inventory".to_owned(),
+            ],
             projection_sha256: String::new(),
         }));
     };
@@ -744,17 +744,17 @@ fn inspect_archive(
     let observation = provider
         .inspect_archive(source, role, limits)
         .map_err(C04Error::ArchiveProvider)?;
-    build_archive_report(
+    build_archive_report_inner(ArchiveReportInput {
         context,
         kind,
         source,
         source_sha256,
         limits,
-        provider.provider_id(),
+        provider_id: provider.provider_id(),
         observation,
         manifest_provider,
         role,
-    )
+    })
 }
 
 struct ArchiveReportInput<'a> {
@@ -769,37 +769,11 @@ struct ArchiveReportInput<'a> {
     role: AppleArchiveRole,
 }
 
-fn build_archive_report(
-    context: &AppleFirmwareContext,
-    kind: AppleFirmwareArtifactKind,
-    source: &[u8],
-    source_sha256: String,
-    limits: AppleFirmwareLimits,
-    provider_id: &str,
-    observation: AppleArchiveObservation,
-    manifest_provider: Option<&dyn AppleManifestProvider>,
-    role: AppleArchiveRole,
+fn build_archive_report_inner(
+    input: ArchiveReportInput<'_>,
 ) -> Result<AppleFirmwareReport, C04Error> {
-    let input = ArchiveReportInput {
-        context,
-        kind,
-        source,
-        source_sha256,
-        limits,
-        provider_id,
-        observation,
-        manifest_provider,
-        role,
-    };
-    build_archive_report_inner(input)
-}
-
-fn build_archive_report_inner(input: ArchiveReportInput<'_>) -> Result<AppleFirmwareReport, C04Error> {
-    let (entries, archive_complete, mut limitations) = validate_archive_observation(
-        input.observation,
-        input.provider_id,
-        input.limits,
-    )?;
+    let (entries, archive_complete, mut limitations) =
+        validate_archive_observation(input.observation, input.provider_id, input.limits)?;
     let manifest = inspect_manifest_if_available(
         &entries,
         input.role,
@@ -898,7 +872,9 @@ fn inspect_manifest_if_available(
 ) -> Result<Option<AppleManifest>, C04Error> {
     let candidate = entries.iter().find(|entry| entry.manifest_candidate);
     let Some(provider) = provider else {
-        limitations.push("manifest Provider not supplied; archive inventory is not manifest linkage".to_owned());
+        limitations.push(
+            "manifest Provider not supplied; archive inventory is not manifest linkage".to_owned(),
+        );
         return Ok(None);
     };
     validate_string(provider.provider_id(), limits)?;
@@ -961,9 +937,8 @@ fn validate_manifest_observation(
     unresolved_paths.sort();
     let mut provider_limitations = observation.limitations;
     if !observation.complete_claim {
-        provider_limitations.push(
-            "manifest Provider did not claim complete supported semantics".to_owned(),
-        );
+        provider_limitations
+            .push("manifest Provider did not claim complete supported semantics".to_owned());
     }
     Ok(AppleManifest {
         manifest_path: manifest_entry.path.clone(),
@@ -990,7 +965,9 @@ fn inspect_der(
     let mut budget = DerBudget::default();
     let (outer, children) = parse_constructed(source, 0, DER_SEQUENCE, 0, &mut budget, limits)?;
     if outer.end != source.len() {
-        return Err(C04Error::MalformedDer("trailing bytes after top-level sequence"));
+        return Err(C04Error::MalformedDer(
+            "trailing bytes after top-level sequence",
+        ));
     }
     let marker = marker_from_children(source, &children, limits)?;
     let mut components = Vec::new();
@@ -1039,7 +1016,9 @@ fn inspect_img4_children(
     limits: AppleFirmwareLimits,
 ) -> Result<(), C04Error> {
     if children.len() < 2 || children[1].tag != DER_SEQUENCE {
-        return Err(C04Error::MalformedDer("IMG4 does not contain IM4P sequence"));
+        return Err(C04Error::MalformedDer(
+            "IMG4 does not contain IM4P sequence",
+        ));
     }
     let im4p = children[1];
     let (_, im4p_children) =
@@ -1060,7 +1039,9 @@ fn inspect_img4_children(
         if !matches!(wrapper.tag, DER_CONTEXT_0 | DER_CONTEXT_1)
             || !seen_context.insert(wrapper.tag)
         {
-            return Err(C04Error::MalformedDer("invalid or duplicate IMG4 context wrapper"));
+            return Err(C04Error::MalformedDer(
+                "invalid or duplicate IMG4 context wrapper",
+            ));
         }
         inspect_img4_wrapper(source, *wrapper, components, budget, limits)?;
     }
@@ -1074,11 +1055,14 @@ fn inspect_img4_wrapper(
     budget: &mut DerBudget,
     limits: AppleFirmwareLimits,
 ) -> Result<(), C04Error> {
-    let (_, wrapped) = parse_constructed(source, wrapper.start, wrapper.tag, 1, budget, limits)?;
-    if wrapped.len() != 1 || wrapped[0].tag != DER_SEQUENCE {
-        return Err(C04Error::MalformedDer("IMG4 context wrapper must contain one sequence"));
+    let (_, wrapped_children) =
+        parse_constructed(source, wrapper.start, wrapper.tag, 1, budget, limits)?;
+    if wrapped_children.len() != 1 || wrapped_children[0].tag != DER_SEQUENCE {
+        return Err(C04Error::MalformedDer(
+            "IMG4 context wrapper must contain one sequence",
+        ));
     }
-    let child = wrapped[0];
+    let child = wrapped_children[0];
     let (_, child_elements) =
         parse_constructed(source, child.start, DER_SEQUENCE, 2, budget, limits)?;
     match wrapper.tag {
@@ -1170,7 +1154,9 @@ fn inspect_im4m_children(
         }
     }
     if signing_index == 0 {
-        return Err(C04Error::MalformedDer("IM4M contains no signing material octets"));
+        return Err(C04Error::MalformedDer(
+            "IM4M contains no signing material octets",
+        ));
     }
     Ok(())
 }
@@ -1230,7 +1216,9 @@ fn parse_constructed(
     while cursor < outer.end {
         let child = parse_tlv(source, cursor, depth.saturating_add(1), budget, limits)?;
         if child.end > outer.end {
-            return Err(C04Error::MalformedDer("child exceeds containing DER object"));
+            return Err(C04Error::MalformedDer(
+                "child exceeds containing DER object",
+            ));
         }
         children.push(child);
         cursor = child.end;
@@ -1262,7 +1250,9 @@ fn parse_tlv(
         .get(offset)
         .ok_or(C04Error::MalformedDer("truncated DER tag"))?;
     if tag & 0x1f == 0x1f {
-        return Err(C04Error::MalformedDer("high-tag-number form is outside C04"));
+        return Err(C04Error::MalformedDer(
+            "high-tag-number form is outside C04",
+        ));
     }
     let length_offset = offset.checked_add(1).ok_or(C04Error::AccountingOverflow)?;
     let (length, length_bytes) = parse_der_length(source, length_offset)?;
@@ -1298,12 +1288,16 @@ fn parse_der_length(source: &[u8], offset: usize) -> Result<(usize, usize), C04E
         return Err(C04Error::MalformedDer("unsupported DER length width"));
     }
     let start = offset.checked_add(1).ok_or(C04Error::AccountingOverflow)?;
-    let end = start.checked_add(width).ok_or(C04Error::AccountingOverflow)?;
+    let end = start
+        .checked_add(width)
+        .ok_or(C04Error::AccountingOverflow)?;
     let bytes = source
         .get(start..end)
         .ok_or(C04Error::MalformedDer("truncated long-form DER length"))?;
     if bytes.first().copied() == Some(0) {
-        return Err(C04Error::MalformedDer("non-minimal DER length has leading zero"));
+        return Err(C04Error::MalformedDer(
+            "non-minimal DER length has leading zero",
+        ));
     }
     let mut value = 0_usize;
     for byte in bytes {
@@ -1328,7 +1322,9 @@ fn marker_from_children(
         .copied()
         .ok_or(C04Error::MalformedDer("DER sequence is empty"))?;
     if marker.tag != DER_IA5_STRING {
-        return Err(C04Error::MalformedDer("IMG4-family marker is not IA5String"));
+        return Err(C04Error::MalformedDer(
+            "IMG4-family marker is not IA5String",
+        ));
     }
     der_text(source, marker, limits)
 }
@@ -1345,11 +1341,7 @@ fn require_marker(
     Ok(())
 }
 
-fn der_text(
-    source: &[u8],
-    tlv: DerTlv,
-    limits: AppleFirmwareLimits,
-) -> Result<String, C04Error> {
+fn der_text(source: &[u8], tlv: DerTlv, limits: AppleFirmwareLimits) -> Result<String, C04Error> {
     if tlv.tag != DER_IA5_STRING {
         return Err(C04Error::MalformedDer("expected IA5String"));
     }
@@ -1406,10 +1398,7 @@ fn validate_materialization_source(
     Ok(())
 }
 
-fn ensure_materialization_size(
-    size: u64,
-    limits: AppleFirmwareLimits,
-) -> Result<(), C04Error> {
+fn ensure_materialization_size(size: u64, limits: AppleFirmwareLimits) -> Result<(), C04Error> {
     if size > limits.max_materialized_bytes {
         return Err(C04Error::MaterializationTooLarge);
     }
@@ -1452,9 +1441,10 @@ fn validate_archive_path(path: &str, limits: AppleFirmwareLimits) -> Result<(), 
     {
         return Err(C04Error::InvalidArchivePath);
     }
-    if path.split('/').any(|component| {
-        component.is_empty() || component == "." || component == ".."
-    }) {
+    if path
+        .split('/')
+        .any(|component| component.is_empty() || component == "." || component == "..")
+    {
         return Err(C04Error::InvalidArchivePath);
     }
     Ok(())
@@ -1482,10 +1472,7 @@ fn validate_string(value: &str, limits: AppleFirmwareLimits) -> Result<(), C04Er
     Ok(())
 }
 
-fn validate_limitations(
-    values: &[String],
-    limits: AppleFirmwareLimits,
-) -> Result<(), C04Error> {
+fn validate_limitations(values: &[String], limits: AppleFirmwareLimits) -> Result<(), C04Error> {
     for value in values {
         validate_string(value, limits)?;
     }
@@ -1530,7 +1517,13 @@ fn report_shape(report: &AppleFirmwareReport) -> ReportShape {
         archive: report
             .archive_entries
             .iter()
-            .map(|entry| (entry.path.clone(), entry.byte_size, entry.manifest_candidate))
+            .map(|entry| {
+                (
+                    entry.path.clone(),
+                    entry.byte_size,
+                    entry.manifest_candidate,
+                )
+            })
             .collect(),
         manifest: report.manifest.as_ref().map(|manifest| {
             (

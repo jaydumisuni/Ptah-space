@@ -1,0 +1,327 @@
+name: C03 final structural cleanup
+
+on:
+  push:
+    branches:
+      - c03-generic-android-image-ota-pack
+    paths:
+      - ".github/workflows/c03-build-probe-v3.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  prove-final-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: c03-generic-android-image-ota-pack
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Execute reviewed refactor and final structural cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          python3 - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          carrier = Path('.github/workflows/c03-build-probe.yml').read_text(encoding='utf-8')
+          begin_marker = "          python3 - <<'PY'\n"
+          end_marker = "\n          PY\n\n          cargo fmt --all"
+          start = carrier.index(begin_marker) + len(begin_marker)
+          end = carrier.index(end_marker, start)
+          script = dedent(carrier[start:end])
+
+          tests_start = script.index("tests_path = Path('crates/ptah-archive-decomposition/tests/c03.rs')")
+          old_start = script.index("old = '''    assert_eq!(", tests_start)
+          marker_start = script.index("marker = '    assert_eq!(manifest.dynamic_groups", old_start)
+          replacement = "".join([
+              "import re\n",
+              "pattern = (\n",
+              "    r'\\s*assert_eq!\\(\\s*'\n",
+              "    r'compare_android_artifacts\\(&original, &structural\\)\\.level,\\s*'\n",
+              "    r'AndroidComparisonLevel::Structural\\s*'\n",
+              "    r'\\);'\n",
+              ")\n",
+              "replacement = (\n",
+              "    '\\n    let structural_comparison = compare_android_artifacts(&original, &structural);\\n'\n",
+              "    '    assert_eq!(structural_comparison.level, AndroidComparisonLevel::Structural);\\n'\n",
+              "    '    assert!(\\n'\n",
+              "    '        structural_comparison\\n'\n",
+              "    '            .differences\\n'\n",
+              "    '            .iter()\\n'\n",
+              "    '            .any(|difference| difference == \\\"component_bytes_changed\\\")\\n'\n",
+              "    '    );'\n",
+              ")\n",
+              "tests, replaced = re.subn(pattern, replacement, tests, count=1)\n",
+              "assert replaced == 1, replaced\n\n",
+          ])
+          script = script[:old_start] + replacement + script[marker_start:]
+          exec(compile(script, '<c03-refactor>', 'exec'), {})
+
+          source_path = Path('crates/ptah-archive-decomposition/src/c03.rs')
+          source = source_path.read_text(encoding='utf-8')
+
+          call_pattern = (
+              r'(let Some\(\(selected, selected_offset\)\) = select_super_slot_copy\('
+              r'[\s\S]*?&mut assembly\.limitations,\s*\))\? else \{'
+          )
+          source, replaced = __import__('re').subn(call_pattern, r'\1 else {', source, count=1)
+          assert replaced == 1, replaced
+
+          select_start = source.index('fn select_super_slot_copy(')
+          ota_start = source.index('fn inspect_ota(', select_start)
+          select_fn = dedent(r'''
+          fn select_super_slot_copy(
+              source: &[u8],
+              slot: u32,
+              primary_offset: u64,
+              backup_offset: u64,
+              geometry: &LpGeometry,
+              limits: AndroidLimits,
+              limitations: &mut Vec<String>,
+          ) -> Option<(ParsedSuperSlot, u64)> {
+              let primary = parse_super_slot(source, primary_offset, slot, geometry, limits).ok();
+              let backup = parse_super_slot(source, backup_offset, slot, geometry, limits).ok();
+              let selected = match (&primary, &backup) {
+                  (Some(primary), Some(backup)) => {
+                      if primary != backup {
+                          limitations.push(format!(
+                              "liblp metadata slot {slot} primary/backup copies disagree"
+                          ));
+                      }
+                      primary.clone()
+                  }
+                  (Some(primary), None) => {
+                      limitations.push(format!("liblp metadata slot {slot} backup copy is invalid"));
+                      primary.clone()
+                  }
+                  (None, Some(backup)) => {
+                      limitations.push(format!("liblp metadata slot {slot} primary copy is invalid"));
+                      backup.clone()
+                  }
+                  (None, None) => {
+                      limitations.push(format!("liblp metadata slot {slot} has no valid copy"));
+                      return None;
+                  }
+              };
+              let offset = if primary.is_some() {
+                  primary_offset
+              } else {
+                  backup_offset
+              };
+              Some((selected, offset))
+          }
+          ''').strip()
+          source = source[:select_start] + select_fn + '\n\n' + source[ota_start:]
+
+          ota_start = source.index('fn inspect_ota(')
+          decode_start = source.index('fn decode_ota_manifest(', ota_start)
+          ota_block = dedent(r'''
+          struct OtaEnvelope<'a> {
+              source_size: u64,
+              major_version: u64,
+              payload_data_size: u64,
+              manifest_bytes: &'a [u8],
+              components: Vec<AndroidComponent>,
+          }
+
+          fn inspect_ota(
+              source: &[u8],
+              context: &AndroidContext,
+              source_sha256: String,
+              limits: AndroidLimits,
+              provider: Option<&dyn OtaManifestProvider>,
+          ) -> Result<AndroidReport, C03Error> {
+              let envelope = parse_ota_envelope(source, limits)?;
+              let (ota_manifest, mut provider_limitations) = decode_ota_manifest(
+                  provider,
+                  envelope.manifest_bytes,
+                  envelope.major_version,
+                  envelope.payload_data_size,
+                  limits,
+              )?;
+              let mut limitations = vec![
+                  "OTA applicability/signature trust is not established by static payload parsing"
+                      .to_owned(),
+              ];
+              limitations.append(&mut provider_limitations);
+              let assessment = if ota_manifest.is_some() && limitations.len() == 1 {
+                  AndroidAssessment::Complete
+              } else {
+                  AndroidAssessment::Partial
+              };
+              Ok(seal_report(AndroidReport {
+                  source_revision_ref: context.source_revision_ref.clone(),
+                  source_sha256,
+                  source_size: envelope.source_size,
+                  kind: AndroidArtifactKind::OtaPayload,
+                  assessment,
+                  integrity: AndroidIntegrityAssessment::StructureChecked,
+                  trust: AndroidTrustAssessment::NotEstablished,
+                  components: envelope.components,
+                  dynamic_partitions: Vec::new(),
+                  dynamic_groups: Vec::new(),
+                  block_devices: Vec::new(),
+                  ota_manifest,
+                  warnings: Vec::new(),
+                  limitations,
+                  projection_sha256: String::new(),
+              }))
+          }
+
+          fn parse_ota_envelope(
+              source: &[u8],
+              limits: AndroidLimits,
+          ) -> Result<OtaEnvelope<'_>, C03Error> {
+              if source.len() < 20 {
+                  return Err(C03Error::Malformed("OTA payload header is truncated"));
+              }
+              let major_version = read_be_u64(source, 4)?;
+              if !matches!(major_version, 1 | 2) {
+                  return Err(C03Error::Malformed("unsupported OTA payload major version"));
+              }
+              let manifest_size = read_be_u64(source, 12)?;
+              if manifest_size > limits.max_manifest_bytes {
+                  return Err(C03Error::ManifestTooLarge);
+              }
+              let (manifest_offset, signature_size) = if major_version == 2 {
+                  if source.len() < 24 {
+                      return Err(C03Error::Malformed("OTA v2 header is truncated"));
+                  }
+                  (24_u64, u64::from(read_be_u32(source, 20)?))
+              } else {
+                  (20_u64, 0_u64)
+              };
+              let manifest_end = manifest_offset
+                  .checked_add(manifest_size)
+                  .ok_or(C03Error::AccountingOverflow)?;
+              let signature_end = manifest_end
+                  .checked_add(signature_size)
+                  .ok_or(C03Error::AccountingOverflow)?;
+              let source_size =
+                  u64::try_from(source.len()).map_err(|_| C03Error::AccountingOverflow)?;
+              if signature_end > source_size {
+                  return Err(C03Error::Malformed("OTA metadata exceeds source"));
+              }
+              let components = ota_envelope_components(
+                  source,
+                  manifest_offset,
+                  manifest_end,
+                  signature_end,
+                  signature_size,
+                  source_size,
+                  limits,
+              )?;
+              let start =
+                  usize::try_from(manifest_offset).map_err(|_| C03Error::AccountingOverflow)?;
+              let end = usize::try_from(manifest_end).map_err(|_| C03Error::AccountingOverflow)?;
+              let manifest_bytes = source
+                  .get(start..end)
+                  .ok_or(C03Error::Malformed("OTA manifest is out of bounds"))?;
+              let payload_data_size = source_size
+                  .checked_sub(signature_end)
+                  .ok_or(C03Error::AccountingOverflow)?;
+              Ok(OtaEnvelope {
+                  source_size,
+                  major_version,
+                  payload_data_size,
+                  manifest_bytes,
+                  components,
+              })
+          }
+
+          fn ota_envelope_components(
+              source: &[u8],
+              manifest_offset: u64,
+              manifest_end: u64,
+              signature_end: u64,
+              signature_size: u64,
+              source_size: u64,
+              limits: AndroidLimits,
+          ) -> Result<Vec<AndroidComponent>, C03Error> {
+              let mut components = Vec::new();
+              push_component(
+                  source,
+                  &mut components,
+                  AndroidComponentKind::Header,
+                  "ota.header",
+                  0,
+                  manifest_offset,
+                  limits,
+              )?;
+              push_component(
+                  source,
+                  &mut components,
+                  AndroidComponentKind::OtaManifest,
+                  "ota.manifest",
+                  manifest_offset,
+                  manifest_end,
+                  limits,
+              )?;
+              if signature_size > 0 {
+                  push_component(
+                      source,
+                      &mut components,
+                      AndroidComponentKind::OtaMetadataSignature,
+                      "ota.metadata_signature",
+                      manifest_end,
+                      signature_end,
+                      limits,
+                  )?;
+              }
+              if signature_end < source_size {
+                  push_component(
+                      source,
+                      &mut components,
+                      AndroidComponentKind::OtaPayloadData,
+                      "ota.payload_data",
+                      signature_end,
+                      source_size,
+                      limits,
+                  )?;
+              }
+              Ok(components)
+          }
+          ''').strip()
+          source = source[:ota_start] + ota_block + '\n\n' + source[decode_start:]
+          source_path.write_text(source, encoding='utf-8')
+          PY
+
+          cargo fmt --all
+          cargo test -p ptah-archive-decomposition --test c03 --locked -- --nocapture \
+            2>&1 | tee /tmp/c03-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c03-tests.txt
+          cargo clippy -p ptah-archive-decomposition --lib --test c03 --locked -- -D warnings \
+            2>&1 | tee /tmp/c03-clippy.txt
+          git diff --check
+
+      - name: Commit proven build and remove temporary carriers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/c03-build-probe.yml \
+                 .github/workflows/c03-probe-anchor-fix.yml \
+                 .github/workflows/c03-build-probe-v2.yml \
+                 .github/workflows/c03-build-probe-v3.yml
+          git add crates/ptah-archive-decomposition/src/c03.rs \
+                  crates/ptah-archive-decomposition/tests/c03.rs
+          changed="$(git diff --cached --name-only | sort)"
+          allowed="$(printf '%s\n' \
+            .github/workflows/c03-build-probe-v2.yml \
+            .github/workflows/c03-build-probe-v3.yml \
+            .github/workflows/c03-build-probe.yml \
+            .github/workflows/c03-probe-anchor-fix.yml \
+            crates/ptah-archive-decomposition/src/c03.rs \
+            crates/ptah-archive-decomposition/tests/c03.rs | sort)"
+          test "$changed" = "$allowed"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "C03 build: harden parser boundaries and OTA completeness"
+          git push origin HEAD:c03-generic-android-image-ota-pack

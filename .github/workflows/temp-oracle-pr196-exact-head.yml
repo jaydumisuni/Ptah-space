@@ -1,4 +1,4 @@
-name: Temporary Oracle PR212 Exact-Head Proof
+name: Temporary Oracle PR196 Ship Proof
 
 on:
   push:
@@ -11,90 +11,141 @@ permissions:
   contents: read
 
 env:
-  ORACLE_BASE_SHA: 88c9cc2d30e45e060e7e822225afd205ebdea746
-  ORACLE_SHA: abe8d2523df56d30fbb8d04a21063f1eb9249563
+  ORACLE_SHA: 65cdf9012524036f44cfdd7e168bc70feebcd6d3
+  ORACLE_URL: https://oracle.thetechguyds.com
 
 jobs:
-  exact-head-proof:
+  ship-proof:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - name: Prove exact PR212 head with KRATOS frozen dependencies
+      - name: Execute exact merged canonical deploy payload on KRATOS
         shell: bash
         run: |
           set -euo pipefail
           operator=/home/kratos/Oracle
           work="$(mktemp -d)"
-          trap 'rm -rf "$work"' EXIT
-
-          gh repo clone jaydumisuni/Oracle- "$work/repo" -- --no-checkout
-          git -C "$work/repo" fetch --depth 8 origin "$ORACLE_SHA" "$ORACLE_BASE_SHA"
-          git -C "$work/repo" checkout --detach "$ORACLE_SHA"
-          test "$(git -C "$work/repo" rev-parse HEAD)" = "$ORACLE_SHA"
-
-          git -C "$work/repo" diff --name-only "$ORACLE_BASE_SHA" "$ORACLE_SHA" | sort > "$work/changed.txt"
-          printf '%s\n' \
-            'scripts/run-oracle-private-deploy-live.mjs' \
-            'tests/private-deploy-live-adversarial.test.ts' \
-            'tests/private-deploy-live.test.ts' | sort > "$work/expected.txt"
-          diff -u "$work/expected.txt" "$work/changed.txt"
-          git -C "$work/repo" diff --check "$ORACLE_BASE_SHA" "$ORACLE_SHA"
+          cleanup() {
+            git -C "$operator" worktree remove --force "$work/source" >/dev/null 2>&1 || true
+            rm -rf "$work"
+          }
+          trap cleanup EXIT
 
           test -d "$operator/.git"
           git -C "$operator" fetch --no-tags origin "$ORACLE_SHA"
-          test -z "$(git -C "$operator" status --porcelain=v1 -- package.json package-lock.json)"
-          test "$(git -C "$operator" rev-parse HEAD:package-lock.json)" = "$(git -C "$operator" rev-parse "${ORACLE_SHA}:package-lock.json")"
+          git -C "$operator" worktree prune
+          git -C "$operator" worktree add --detach "$work/source" "$ORACLE_SHA"
+          test "$(git -C "$work/source" rev-parse HEAD)" = "$ORACLE_SHA"
+          test -z "$(git -C "$work/source" status --porcelain=v1)"
 
-          git -C "$operator" show HEAD:package.json > "$work/local-package.json"
-          git -C "$operator" show "${ORACLE_SHA}:package.json" > "$work/target-package.json"
-          python3 - "$work/local-package.json" "$work/target-package.json" <<'PY'
-          import json, sys
-          local=json.load(open(sys.argv[1],encoding='utf-8'))
-          target=json.load(open(sys.argv[2],encoding='utf-8'))
-          fields=(
-              'dependencies','devDependencies','optionalDependencies','peerDependencies',
-              'peerDependenciesMeta','bundledDependencies','bundleDependencies','engines',
-              'os','cpu','libc','packageManager','workspaces','overrides','config'
-          )
-          lifecycle=('preinstall','install','postinstall','prepublish','preprepare','prepare','postprepare')
-          for field in fields:
-              if local.get(field) != target.get(field):
-                  raise SystemExit(f'DEPENDENCY_FIELD_MISMATCH:{field}')
-          ls=local.get('scripts') or {}
-          ts=target.get('scripts') or {}
-          for name in lifecycle:
-              if ls.get(name) != ts.get(name):
-                  raise SystemExit(f'INSTALL_LIFECYCLE_MISMATCH:{name}')
-          print('PR212_DEPENDENCY_SEMANTICS=PASS')
-          PY
-
-          expected_wrangler="$(python3 - "$work/target-package.json" <<'PY'
-          import json, sys
-          p=json.load(open(sys.argv[1],encoding='utf-8'))
-          print(str((p.get('devDependencies') or {}).get('wrangler','')).lstrip('^~'))
-          PY
-          )"
-          actual_wrangler="$("$operator/node_modules/.bin/wrangler" --version)"
-          test -n "$expected_wrangler"
-          case "$actual_wrangler" in *"$expected_wrangler"*) ;; *) exit 1;; esac
-
-          ln -s "$operator/node_modules" "$work/repo/node_modules"
-          cd "$work/repo"
-          npm run check
-
-          node --input-type=module <<'NODE' > "$work/command.json"
+          cd "$work/source"
+          GITHUB_WORKSPACE="$work/source" \
+          ORACLE_SHA="$ORACLE_SHA" \
+          RUN_ID="${{ github.run_id }}" \
+          RUN_ATTEMPT="${{ github.run_attempt }}" \
+          node --input-type=module <<'NODE'
+          import { spawnSync } from 'node:child_process';
+          import process from 'node:process';
           import { buildOraclePrivateDeployLiveCommand } from './scripts/run-oracle-private-deploy-live.mjs';
-          process.stdout.write(JSON.stringify(buildOraclePrivateDeployLiveCommand({
-            root: process.cwd(), commitSha: process.env.ORACLE_SHA, runId: '212000002', runAttempt: '1'
-          })));
-          NODE
-          jq -r '.args.args[1]' "$work/command.json" > "$work/remote.py"
-          python3 -m py_compile "$work/remote.py"
-          grep -Fq 'INSTALL_LIFECYCLE_SCRIPTS' "$work/remote.py"
-          grep -Fq '"config"' "$work/remote.py"
-          grep -Fq 'KRATOS install lifecycle semantics do not match the frozen deploy source' "$work/remote.py"
-          grep -Fq 'KRATOS project lockfile does not match the frozen deploy source' "$work/remote.py"
-          ! grep -Fq 'npm install' "$work/remote.py"
-          ! grep -Fq 'npm ci' "$work/remote.py"
 
-          echo "PR212_EXACT_HEAD_PROOF=PASS HEAD=$ORACLE_SHA BASE=$ORACLE_BASE_SHA FILES=3 WRANGLER=$expected_wrangler"
+          const command = buildOraclePrivateDeployLiveCommand({
+            root: process.env.GITHUB_WORKSPACE,
+            commitSha: process.env.ORACLE_SHA,
+            runId: process.env.RUN_ID,
+            runAttempt: process.env.RUN_ATTEMPT,
+          });
+          if (command.targetNode !== 'kratos-hp-290-g4-microtower-pc') throw new Error('TARGET_NODE_MISMATCH');
+          if (command.action !== 'terminal_exec') throw new Error('ACTION_MISMATCH');
+          if (command.args.command !== 'python3') throw new Error('COMMAND_MISMATCH');
+          if (command.args.cwd !== '/home/kratos/Oracle') throw new Error('CWD_MISMATCH');
+          if (command.args.args?.[0] !== '-c' || command.args.args?.[2] !== process.env.ORACLE_SHA) {
+            throw new Error('PAYLOAD_PROVENANCE_MISMATCH');
+          }
+
+          const result = spawnSync(command.args.command, command.args.args, {
+            cwd: command.args.cwd,
+            encoding: 'utf8',
+            timeout: (Number(command.args.timeoutSeconds) + 30) * 1000,
+            maxBuffer: 4 * 1024 * 1024,
+          });
+          process.stdout.write(result.stdout || '');
+          process.stderr.write(result.stderr || '');
+          if (result.error) throw result.error;
+          if (result.status !== 0) throw new Error(`DEPLOY_PAYLOAD_EXIT_${result.status}`);
+
+          const lines = String(result.stdout || '').trim().split(/\r?\n/u).filter(Boolean);
+          const proof = JSON.parse(lines.at(-1));
+          if (proof.ok !== true) throw new Error('DEPLOY_PROOF_NOT_OK');
+          if (proof.deployedSha !== process.env.ORACLE_SHA) throw new Error('DEPLOY_SHA_MISMATCH');
+          if (proof.dependencyReuse !== 'exact-lock-and-package-dependency-semantics') {
+            throw new Error('DEPENDENCY_PROVENANCE_MISMATCH');
+          }
+          if (proof.accountMigrationsApplied !== true) throw new Error('ACCOUNT_MIGRATION_PROOF_MISSING');
+          console.log(`PR196_CANONICAL_PAYLOAD_DEPLOY=PASS SHA=${proof.deployedSha} VERSION=${proof.version} REVISION=${proof.deploymentRevision} WRANGLER=${proof.wranglerVersion}`);
+          NODE
+
+      - name: Prove canonical production Google-first contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          operator=/home/kratos/Oracle
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+
+          git -C "$operator" show "${ORACLE_SHA}:src/index.ts" > "$tmp/index.ts"
+          expected_version="$(sed -n 's/^const VERSION = "\([^"]*\)";.*/\1/p' "$tmp/index.ts" | head -n1)"
+          expected_revision="$(sed -n 's/^const DEPLOYMENT_REVISION = "\([^"]*\)";.*/\1/p' "$tmp/index.ts" | head -n1)"
+          test -n "$expected_version"
+          test -n "$expected_revision"
+
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent --show-error --max-time 30 \
+              "$ORACLE_URL/health?proof=${{ github.run_id }}-${{ github.run_attempt }}-$attempt" \
+              -o "$tmp/health.json"; then
+              if jq -e --arg version "$expected_version" --arg revision "$expected_revision" '
+                .ok == true and
+                .version == $version and
+                .deploymentRevision == $revision and
+                .browserProfileConfigured == true and
+                .encryptedStorageState == true and
+                .mcp == true and
+                .mcpOAuth == true and
+                .mcpOAuthProtectedResourceMetadata == "/.well-known/oauth-protected-resource" and
+                .mcpOAuthAuthorizationServerMetadata == "/.well-known/oauth-authorization-server" and
+                .liveOidcControl == true
+              ' "$tmp/health.json" >/dev/null; then
+                ok=1
+                break
+              fi
+            fi
+            sleep $((attempt * 2))
+          done
+          if test "$ok" != 1; then
+            cat "$tmp/health.json" || true
+            exit 1
+          fi
+
+          curl --fail --silent --show-error --max-time 30 \
+            "$ORACLE_URL/.well-known/oauth-protected-resource" -o "$tmp/protected.json"
+          jq -e '
+            .resource == "https://oracle.thetechguyds.com/mcp" and
+            (.authorization_servers | index("https://oracle.thetechguyds.com")) != null and
+            (.scopes_supported | index("offline_access")) != null and
+            (.scopes_supported | index("oracle.terminal.exec")) != null
+          ' "$tmp/protected.json" >/dev/null
+
+          curl --fail --silent --show-error --max-time 30 \
+            "$ORACLE_URL/api/account/google/status" -o "$tmp/google.json"
+          jq -e '.ok == true and .configured == true and (.clientId | length) > 20' "$tmp/google.json" >/dev/null
+
+          curl --fail --silent --show-error --max-time 30 "$ORACLE_URL/" -o "$tmp/root.html"
+          grep -Fq 'Continue with Google' "$tmp/root.html"
+          grep -Fq 'A customer account never inherits access to another user' "$tmp/root.html"
+          ! grep -Fq 'type="password"' "$tmp/root.html"
+          ! grep -Fq 'Create free account' "$tmp/root.html"
+          ! grep -Fq 'Sign up' "$tmp/root.html"
+          ! grep -Fq 'Oracle MCP connection key' "$tmp/root.html"
+          ! grep -Fq '/api/oracle-admin/' "$tmp/root.html"
+
+          echo "PR196_PRODUCTION_GOOGLE_FIRST_PROOF=PASS SHA=$ORACLE_SHA VERSION=$expected_version REVISION=$expected_revision"

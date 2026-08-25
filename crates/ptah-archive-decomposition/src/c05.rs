@@ -703,8 +703,8 @@ fn resolve_bundle(
     Ok(BundleResolution {
         provider_alias: Some(provider.provider_id().to_owned()),
         entries,
-        linked: complete_claim && unresolved == 0,
-        partial: !complete_claim || unresolved != 0,
+        linked: complete_claim && unresolved == 0 && limitations.is_empty(),
+        partial: !complete_claim || unresolved != 0 || !limitations.is_empty(),
         limitations,
     })
 }
@@ -770,13 +770,14 @@ fn resolve_evidence(
                 .to_owned(),
         );
     }
+    let evidence_complete = validated.complete_claim && validated.limitations.is_empty();
     if !validated.complete_claim {
         validated.limitations.push(
             "evidence Provider did not claim complete C05-supported read-only evidence".to_owned(),
         );
     }
     limitations.extend(validated.limitations.iter().cloned());
-    let correlated = validated.complete_claim
+    let correlated = evidence_complete
         && validated.level == MediatekEvidenceLevel::LayoutEvidence
         && correlation.platform_matches == Some(true)
         && correlation.storage_matches == Some(true)
@@ -786,10 +787,7 @@ fn resolve_evidence(
         evidence: Some(validated),
         correlation: Some(correlation),
         correlated,
-        partial: mismatch
-            || limitations.iter().any(|value| {
-                value.contains("did not claim complete C05-supported read-only evidence")
-            }),
+        partial: !evidence_complete || mismatch,
         limitations,
     })
 }

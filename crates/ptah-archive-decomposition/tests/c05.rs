@@ -419,6 +419,15 @@ fn incomplete_bundle_provider_claim_remains_partial() {
             .iter()
             .any(|value| value.contains("did not claim complete"))
     );
+    let mut limited_bundle = good_bundle();
+    limited_bundle.observation.limitations = vec!["fixture partial bundle semantics".to_owned()];
+    let limited_report = inspect(&source, Some(&limited_bundle), None)
+        .expect("provider limitation remains reportable");
+    assert_eq!(limited_report.assessment, MediatekAssessment::Partial);
+    assert_eq!(
+        limited_report.proof_level,
+        Some(MediatekStaticProofLevel::StructureChecked)
+    );
 }
 
 #[test]
@@ -483,6 +492,16 @@ fn contradictory_platform_storage_or_layout_evidence_reduces_truth() {
     assert_eq!(correlation.platform_matches, Some(false));
     assert_eq!(correlation.storage_matches, Some(false));
     assert_eq!(correlation.partition_names_match, Some(false));
+    let mut limited_evidence = exact_evidence();
+    limited_evidence.observation.limitations =
+        vec!["fixture partial evidence semantics".to_owned()];
+    let limited_report = inspect(&source, Some(&bundle), Some(&limited_evidence))
+        .expect("evidence limitation remains reportable");
+    assert_eq!(limited_report.assessment, MediatekAssessment::Partial);
+    assert_eq!(
+        limited_report.proof_level,
+        Some(MediatekStaticProofLevel::BundleLinked)
+    );
 }
 
 #[test]

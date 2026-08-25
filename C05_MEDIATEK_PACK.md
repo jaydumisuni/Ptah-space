@@ -119,6 +119,8 @@ Core independently:
 
 A missing bundle Provider is reportable: scatter structure remains useful, but referenced component bytes are not promoted to exact linkage.
 
+Any non-empty validated bundle Provider `limitations` list reduces the package assessment to `Partial` and blocks `BundleLinked`, even when the Provider also sets `complete_claim: true`. The raw completeness claim remains retained evidence; it is not allowed to erase an explicit partial-semantics limitation.
+
 ## Lawful MTK/META evidence boundary
 
 C05 may correlate the static scatter projection with separately supplied bounded **read-only evidence**. The evidence Provider can report only:
@@ -151,6 +153,8 @@ MediaTek USB VID `0x0E8D` / PID `0x2007` may establish transport/mode presence w
 C05 reaches `ServiceSessionEvidence` only when the Provider separately supplies the explicit service-session evidence flag. `LayoutEvidence` requires the separate layout-inventory evidence flag as well.
 
 No evidence level grants physical mutation authority.
+
+Any non-empty validated evidence Provider `limitations` list reduces the report assessment to `Partial` and blocks `EvidenceCorrelated`, even when the Provider also sets `complete_claim: true`.
 
 ## Static evidence correlation
 

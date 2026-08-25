@@ -1,5 +1,6 @@
 name: TEMP Redmi sky Global ROM download on ATHENA
 
+# Registered first, then activated by updating this file so GitHub recognizes the one-use workflow before dispatch.
 on:
   push:
     branches: [main]

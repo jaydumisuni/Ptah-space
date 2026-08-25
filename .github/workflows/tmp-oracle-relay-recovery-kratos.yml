@@ -1,4 +1,4 @@
-name: Temporary Redmi sky Global ROM locator v2 on KRATOS
+name: Temporary Redmi sky Global ROM exact-path preflight on KRATOS
 
 on:
   push:
@@ -10,28 +10,60 @@ permissions:
   contents: read
 
 jobs:
-  locate:
+  preflight:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
-      - name: Locate transferred Global archive by size and mountpoint
+      - name: Verify and inspect exact ROM path without extraction
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== DESKTOP TOP LEVEL ==='
-          find /home/kratos/Desktop -maxdepth 2 -type f -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' 2>/dev/null | sort -nr | head -n 100 || true
-          echo '=== MOUNTS ==='
-          findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS | head -n 120 || true
-          echo '=== LARGE FILES COMMON LOCAL PATHS (>5G) ==='
-          find /home /tmp /var/tmp /opt /srv -xdev -type f -size +5G \
-            -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' 2>/dev/null | sort -nr | head -n 80 || true
-          echo '=== GVFS / REMOVABLE LARGE FILES (>5G) ==='
-          for base in /run/user/1000/gvfs /media /mnt /run/media; do
-            if test -e "$base"; then
-              find "$base" -maxdepth 8 -type f -size +5G \
-                -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' 2>/dev/null | sort -nr | head -n 80 || true
-            fi
-          done
-          echo '=== RECENT LARGE FILES (>1G, HOME) ==='
-          find /home/kratos -xdev -type f -size +1G -mmin -1440 \
-            -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' 2>/dev/null | sort -nr | head -n 100 || true
+          target='/home/kratos/Desktop/redmi r12'
+          expected_md5='3334591f858477053b68f4c0e47debf0'
+
+          echo '=== TARGET ==='
+          test -d "$target"
+          printf 'path=%s\n' "$target"
+
+          echo '=== FILE INVENTORY ==='
+          find "$target" -maxdepth 2 -type f -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' | sort -nr | head -n 120
+
+          mapfile -t archives < <(find "$target" -maxdepth 2 -type f \( -iname '*.tgz' -o -iname '*.tar.gz' \) -print | sort)
+          if ((${#archives[@]} == 0)); then
+            echo 'NO_TGZ_FOUND'
+            exit 2
+          fi
+
+          archive="${archives[0]}"
+          if ((${#archives[@]} > 1)); then
+            while IFS= read -r candidate; do
+              if [[ "$(basename "$candidate")" == sky_global_images_* ]]; then archive="$candidate"; break; fi
+            done < <(printf '%s\n' "${archives[@]}")
+          fi
+
+          echo '=== SELECTED ARCHIVE ==='
+          printf 'archive=%s\n' "$archive"
+          file -b "$archive"
+          stat --printf='size_bytes=%s\nmtime=%y\n' "$archive"
+
+          actual_md5="$(md5sum "$archive" | awk '{print $1}')"
+          actual_sha256="$(sha256sum "$archive" | awk '{print $1}')"
+          printf 'md5=%s\n' "$actual_md5"
+          printf 'expected_md5=%s\n' "$expected_md5"
+          printf 'md5_matches_expected=%s\n' "$([[ "${actual_md5,,}" == "${expected_md5,,}" ]] && echo true || echo false)"
+          printf 'sha256=%s\n' "$actual_sha256"
+
+          echo '=== ARCHIVE MEMBER TABLE (HEAD) ==='
+          set +o pipefail
+          tar -tzf "$archive" | head -n 320
+          rc=${PIPESTATUS[0]}
+          set -o pipefail
+          if [[ $rc -ne 0 && $rc -ne 141 ]]; then
+            echo "tar_list_rc=$rc"
+            exit "$rc"
+          fi
+
+          if [[ "${actual_md5,,}" != "${expected_md5,,}" ]]; then
+            echo 'ROM_MD5_MISMATCH'
+            exit 3
+          fi

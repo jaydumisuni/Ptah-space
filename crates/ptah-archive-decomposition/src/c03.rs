@@ -4,7 +4,7 @@ use ptah_object_store::{
     RevisionRole, ViewSpec,
 };
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use thiserror::Error;
 
 const BOOT_MAGIC: &[u8; 8] = b"ANDROID!";
@@ -93,9 +93,9 @@ pub struct AndroidContext {
 pub enum AndroidArtifactKind {
     /// Android boot partition image.
     Boot,
-    /// Android 13+ init_boot image.
+    /// Android 13+ `init_boot` image.
     InitBoot,
-    /// Android vendor_boot image.
+    /// Android `vendor_boot` image.
     VendorBoot,
     /// Device-tree overlay table image.
     Dtbo,
@@ -103,21 +103,15 @@ pub enum AndroidArtifactKind {
     Vbmeta,
     /// Dynamic-partition super image.
     Super,
-    /// Android update_engine payload.bin.
+    /// Android `update_engine` payload.bin.
     OtaPayload,
 }
 
 /// Optional caller declaration needed when bytes alone are ambiguous.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct AndroidInspectRequest {
-    /// Required for `ANDROID!` images to distinguish boot from init_boot.
+    /// Required for `ANDROID!` images to distinguish boot from `init_boot`.
     pub declared_kind: Option<AndroidArtifactKind>,
-}
-
-impl Default for AndroidInspectRequest {
-    fn default() -> Self {
-        Self { declared_kind: None }
-    }
 }
 
 /// Truth status of one C03 structural inspection.
@@ -551,7 +545,7 @@ pub enum C03Error {
     /// Source signature is not a C03 Android artifact family.
     #[error("C03 Android artifact signature is unsupported")]
     UnsupportedArtifact,
-    /// ANDROID! framing requires explicit boot/init_boot declaration.
+    /// `ANDROID!` framing requires explicit `boot/init_boot` declaration.
     #[error("C03 ANDROID! source requires explicit boot or init_boot role")]
     BootRoleRequired,
     /// Caller-declared family disagrees with source framing.
@@ -634,7 +628,10 @@ pub fn inspect_android_artifact(
 
     if source.starts_with(BOOT_MAGIC) {
         let kind = request.declared_kind.ok_or(C03Error::BootRoleRequired)?;
-        if !matches!(kind, AndroidArtifactKind::Boot | AndroidArtifactKind::InitBoot) {
+        if !matches!(
+            kind,
+            AndroidArtifactKind::Boot | AndroidArtifactKind::InitBoot
+        ) {
             return Err(C03Error::DeclaredKindMismatch);
         }
         return inspect_boot(source, context, kind, source_sha256, limits);
@@ -687,8 +684,8 @@ pub fn materialize_android_component(
         return Err(C03Error::MaterializationTooLarge);
     }
     let start = usize::try_from(component.byte_start).map_err(|_| C03Error::AccountingOverflow)?;
-    let end = usize::try_from(component.byte_end_exclusive)
-        .map_err(|_| C03Error::AccountingOverflow)?;
+    let end =
+        usize::try_from(component.byte_end_exclusive).map_err(|_| C03Error::AccountingOverflow)?;
     let bytes = source
         .get(start..end)
         .ok_or(C03Error::SourceBindingMismatch)?
@@ -725,7 +722,9 @@ pub fn materialize_dynamic_partition(
     let partition = report
         .dynamic_partitions
         .iter()
-        .find(|partition| partition.metadata_slot == metadata_slot && partition.name == partition_name)
+        .find(|partition| {
+            partition.metadata_slot == metadata_slot && partition.name == partition_name
+        })
         .ok_or(C03Error::ChildNotFound)?;
     if partition.logical_size > limits.max_materialized_bytes {
         return Err(C03Error::MaterializationTooLarge);
@@ -772,7 +771,8 @@ pub fn materialize_dynamic_partition(
             }
         }
     }
-    if u64::try_from(bytes.len()).map_err(|_| C03Error::AccountingOverflow)? != partition.logical_size
+    if u64::try_from(bytes.len()).map_err(|_| C03Error::AccountingOverflow)?
+        != partition.logical_size
     {
         return Err(C03Error::PartitionNotMaterializable);
     }
@@ -845,16 +845,21 @@ pub fn compare_android_artifacts(left: &AndroidReport, right: &AndroidReport) ->
         differences.push("component_structure_changed".to_owned());
     }
     let component_exact = left.components == right.components;
-    let structural = differences.is_empty() || (differences.len() == 1 && !component_exact && left_shape == right_shape);
-    let level = if left.source_sha256 == right.source_sha256 && left.source_size == right.source_size {
-        AndroidComparisonLevel::ByteExact
-    } else if component_exact && differences.is_empty() {
-        AndroidComparisonLevel::ComponentExact
-    } else if structural && left.kind == right.kind {
-        AndroidComparisonLevel::Structural
-    } else {
-        AndroidComparisonLevel::Different
-    };
+    if !component_exact && left_shape == right_shape {
+        differences.push("component_bytes_changed".to_owned());
+    }
+    let structural = differences.is_empty()
+        || (differences.len() == 1 && differences[0] == "component_bytes_changed");
+    let level =
+        if left.source_sha256 == right.source_sha256 && left.source_size == right.source_size {
+            AndroidComparisonLevel::ByteExact
+        } else if component_exact && differences.is_empty() {
+            AndroidComparisonLevel::ComponentExact
+        } else if structural && left.kind == right.kind {
+            AndroidComparisonLevel::Structural
+        } else {
+            AndroidComparisonLevel::Different
+        };
     AndroidComparison {
         left_source_revision_ref: left.source_revision_ref.clone(),
         right_source_revision_ref: right.source_revision_ref.clone(),
@@ -894,189 +899,17 @@ fn inspect_boot(
     if kind == AndroidArtifactKind::InitBoot && version != 4 {
         return Err(C03Error::DeclaredKindMismatch);
     }
-    let mut components = Vec::new();
-    let mut limitations = Vec::new();
-    if version <= 2 {
+    let (components, limitations) = if version <= 2 {
         if kind != AndroidArtifactKind::Boot {
             return Err(C03Error::DeclaredKindMismatch);
         }
-        let page = u64::from(read_le_u32(source, 36)?);
-        if page < 512 || page > 65_536 || !page.is_power_of_two() {
-            return Err(C03Error::Malformed("invalid legacy boot page size"));
-        }
-        let header_size = match version {
-            0 => BOOT_V0_SIZE,
-            1 => BOOT_V1_SIZE,
-            2 => BOOT_V2_SIZE,
-            _ => unreachable!(),
-        };
-        push_component(
-            source,
-            &mut components,
-            AndroidComponentKind::Header,
-            "boot.header",
-            0,
-            header_size,
-            limits,
-        )?;
-        let kernel_size = u64::from(read_le_u32(source, 8)?);
-        let ramdisk_size = u64::from(read_le_u32(source, 16)?);
-        let second_size = u64::from(read_le_u32(source, 24)?);
-        if kernel_size == 0 || ramdisk_size == 0 {
-            return Err(C03Error::Malformed("legacy boot kernel/ramdisk is empty"));
-        }
-        let mut cursor = page;
-        cursor = push_aligned_component(
-            source,
-            &mut components,
-            AndroidComponentKind::Kernel,
-            "boot.kernel",
-            cursor,
-            kernel_size,
-            page,
-            limits,
-        )?;
-        cursor = push_aligned_component(
-            source,
-            &mut components,
-            AndroidComponentKind::Ramdisk,
-            "boot.ramdisk",
-            cursor,
-            ramdisk_size,
-            page,
-            limits,
-        )?;
-        if second_size > 0 {
-            cursor = push_aligned_component(
-                source,
-                &mut components,
-                AndroidComponentKind::SecondStage,
-                "boot.second",
-                cursor,
-                second_size,
-                page,
-                limits,
-            )?;
-        }
-        if version >= 1 {
-            let recovery_size = u64::from(read_le_u32(source, 1632)?);
-            let recovery_offset = read_le_u64(source, 1636)?;
-            if recovery_size > 0 {
-                if recovery_offset % page != 0 || recovery_offset < cursor {
-                    return Err(C03Error::Malformed("invalid recovery DTBO offset"));
-                }
-                push_component(
-                    source,
-                    &mut components,
-                    AndroidComponentKind::RecoveryDtbo,
-                    "boot.recovery_dtbo",
-                    recovery_offset,
-                    recovery_offset
-                        .checked_add(recovery_size)
-                        .ok_or(C03Error::AccountingOverflow)?,
-                    limits,
-                )?;
-                cursor = align_up(
-                    recovery_offset
-                        .checked_add(recovery_size)
-                        .ok_or(C03Error::AccountingOverflow)?,
-                    page,
-                )?;
-            }
-        }
-        if version == 2 {
-            let dtb_size = u64::from(read_le_u32(source, 1648)?);
-            if dtb_size == 0 {
-                return Err(C03Error::Malformed("boot v2 DTB is empty"));
-            }
-            let dtb_end = cursor
-                .checked_add(dtb_size)
-                .ok_or(C03Error::AccountingOverflow)?;
-            push_component(
-                source,
-                &mut components,
-                AndroidComponentKind::Dtb,
-                "boot.dtb",
-                cursor,
-                dtb_end,
-                limits,
-            )?;
-        }
+        (
+            inspect_legacy_boot_components(source, version, limits)?,
+            Vec::new(),
+        )
     } else {
-        let expected_header = if version == 3 { BOOT_V3_SIZE } else { BOOT_V4_SIZE };
-        let declared_header = u64::from(read_le_u32(source, 20)?);
-        if declared_header < expected_header || declared_header > 4096 {
-            return Err(C03Error::Malformed("invalid boot v3/v4 header size"));
-        }
-        push_component(
-            source,
-            &mut components,
-            AndroidComponentKind::Header,
-            "boot.header",
-            0,
-            declared_header,
-            limits,
-        )?;
-        let kernel_size = u64::from(read_le_u32(source, 8)?);
-        let ramdisk_size = u64::from(read_le_u32(source, 12)?);
-        if kind == AndroidArtifactKind::InitBoot {
-            if version != 4 || kernel_size != 0 || ramdisk_size == 0 {
-                return Err(C03Error::Malformed("init_boot must be v4 ramdisk-only framing"));
-            }
-        } else if kernel_size == 0 {
-            return Err(C03Error::Malformed("boot v3/v4 kernel is empty"));
-        }
-        let page = 4096_u64;
-        let mut cursor = page;
-        if kernel_size > 0 {
-            cursor = push_aligned_component(
-                source,
-                &mut components,
-                AndroidComponentKind::Kernel,
-                "boot.kernel",
-                cursor,
-                kernel_size,
-                page,
-                limits,
-            )?;
-        }
-        if ramdisk_size > 0 {
-            cursor = push_aligned_component(
-                source,
-                &mut components,
-                AndroidComponentKind::Ramdisk,
-                if kind == AndroidArtifactKind::InitBoot {
-                    "init_boot.ramdisk"
-                } else {
-                    "boot.ramdisk"
-                },
-                cursor,
-                ramdisk_size,
-                page,
-                limits,
-            )?;
-        }
-        if version == 4 {
-            let signature_size = u64::from(read_le_u32(source, 1580)?);
-            if signature_size > 0 {
-                let signature_end = cursor
-                    .checked_add(signature_size)
-                    .ok_or(C03Error::AccountingOverflow)?;
-                push_component(
-                    source,
-                    &mut components,
-                    AndroidComponentKind::BootSignature,
-                    "boot.signature",
-                    cursor,
-                    signature_end,
-                    limits,
-                )?;
-                limitations.push(
-                    "boot_signature presence is structural evidence, not device AVB trust".to_owned(),
-                );
-            }
-        }
-    }
+        inspect_modern_boot_components(source, kind, version, limits)?
+    };
     Ok(seal_report(AndroidReport {
         source_revision_ref: context.source_revision_ref.clone(),
         source_sha256,
@@ -1100,6 +933,209 @@ fn inspect_boot(
     }))
 }
 
+fn inspect_legacy_boot_components(
+    source: &[u8],
+    version: u32,
+    limits: AndroidLimits,
+) -> Result<Vec<AndroidComponent>, C03Error> {
+    let page = u64::from(read_le_u32(source, 36)?);
+    if !(512..=65_536).contains(&page) || !page.is_power_of_two() {
+        return Err(C03Error::Malformed("invalid legacy boot page size"));
+    }
+    let header_size = match version {
+        0 => BOOT_V0_SIZE,
+        1 => BOOT_V1_SIZE,
+        2 => BOOT_V2_SIZE,
+        _ => return Err(C03Error::Malformed("invalid legacy boot version")),
+    };
+    let mut components = Vec::new();
+    push_component(
+        source,
+        &mut components,
+        AndroidComponentKind::Header,
+        "boot.header",
+        0,
+        header_size,
+        limits,
+    )?;
+    let kernel_size = u64::from(read_le_u32(source, 8)?);
+    let ramdisk_size = u64::from(read_le_u32(source, 16)?);
+    let second_size = u64::from(read_le_u32(source, 24)?);
+    if kernel_size == 0 || ramdisk_size == 0 {
+        return Err(C03Error::Malformed("legacy boot kernel/ramdisk is empty"));
+    }
+    let mut cursor = push_aligned_component(
+        source,
+        &mut components,
+        AndroidComponentKind::Kernel,
+        "boot.kernel",
+        (page, kernel_size),
+        page,
+        limits,
+    )?;
+    cursor = push_aligned_component(
+        source,
+        &mut components,
+        AndroidComponentKind::Ramdisk,
+        "boot.ramdisk",
+        (cursor, ramdisk_size),
+        page,
+        limits,
+    )?;
+    if second_size > 0 {
+        cursor = push_aligned_component(
+            source,
+            &mut components,
+            AndroidComponentKind::SecondStage,
+            "boot.second",
+            (cursor, second_size),
+            page,
+            limits,
+        )?;
+    }
+    push_legacy_boot_tail(source, &mut components, version, cursor, page, limits)?;
+    Ok(components)
+}
+
+fn push_legacy_boot_tail(
+    source: &[u8],
+    components: &mut Vec<AndroidComponent>,
+    version: u32,
+    mut cursor: u64,
+    page: u64,
+    limits: AndroidLimits,
+) -> Result<(), C03Error> {
+    if version >= 1 {
+        let recovery_size = u64::from(read_le_u32(source, 1632)?);
+        let recovery_offset = read_le_u64(source, 1636)?;
+        if recovery_size > 0 {
+            if recovery_offset % page != 0 || recovery_offset < cursor {
+                return Err(C03Error::Malformed("invalid recovery DTBO offset"));
+            }
+            let recovery_end = recovery_offset
+                .checked_add(recovery_size)
+                .ok_or(C03Error::AccountingOverflow)?;
+            push_component(
+                source,
+                components,
+                AndroidComponentKind::RecoveryDtbo,
+                "boot.recovery_dtbo",
+                recovery_offset,
+                recovery_end,
+                limits,
+            )?;
+            cursor = align_up(recovery_end, page)?;
+        }
+    }
+    if version == 2 {
+        let dtb_size = u64::from(read_le_u32(source, 1648)?);
+        if dtb_size == 0 {
+            return Err(C03Error::Malformed("boot v2 DTB is empty"));
+        }
+        let dtb_end = cursor
+            .checked_add(dtb_size)
+            .ok_or(C03Error::AccountingOverflow)?;
+        push_component(
+            source,
+            components,
+            AndroidComponentKind::Dtb,
+            "boot.dtb",
+            cursor,
+            dtb_end,
+            limits,
+        )?;
+    }
+    Ok(())
+}
+
+fn inspect_modern_boot_components(
+    source: &[u8],
+    kind: AndroidArtifactKind,
+    version: u32,
+    limits: AndroidLimits,
+) -> Result<(Vec<AndroidComponent>, Vec<String>), C03Error> {
+    let expected_header = if version == 3 {
+        BOOT_V3_SIZE
+    } else {
+        BOOT_V4_SIZE
+    };
+    let declared_header = u64::from(read_le_u32(source, 20)?);
+    if declared_header < expected_header || declared_header > 4096 {
+        return Err(C03Error::Malformed("invalid boot v3/v4 header size"));
+    }
+    let mut components = Vec::new();
+    push_component(
+        source,
+        &mut components,
+        AndroidComponentKind::Header,
+        "boot.header",
+        0,
+        declared_header,
+        limits,
+    )?;
+    let kernel_size = u64::from(read_le_u32(source, 8)?);
+    let ramdisk_size = u64::from(read_le_u32(source, 12)?);
+    if kind == AndroidArtifactKind::InitBoot {
+        if version != 4 || kernel_size != 0 || ramdisk_size == 0 {
+            return Err(C03Error::Malformed(
+                "init_boot must be v4 ramdisk-only framing",
+            ));
+        }
+    } else if kernel_size == 0 {
+        return Err(C03Error::Malformed("boot v3/v4 kernel is empty"));
+    }
+    let page = 4096_u64;
+    let mut cursor = page;
+    if kernel_size > 0 {
+        cursor = push_aligned_component(
+            source,
+            &mut components,
+            AndroidComponentKind::Kernel,
+            "boot.kernel",
+            (cursor, kernel_size),
+            page,
+            limits,
+        )?;
+    }
+    if ramdisk_size > 0 {
+        cursor = push_aligned_component(
+            source,
+            &mut components,
+            AndroidComponentKind::Ramdisk,
+            if kind == AndroidArtifactKind::InitBoot {
+                "init_boot.ramdisk"
+            } else {
+                "boot.ramdisk"
+            },
+            (cursor, ramdisk_size),
+            page,
+            limits,
+        )?;
+    }
+    let mut limitations = Vec::new();
+    if version == 4 {
+        let signature_size = u64::from(read_le_u32(source, 1580)?);
+        if signature_size > 0 {
+            let signature_end = cursor
+                .checked_add(signature_size)
+                .ok_or(C03Error::AccountingOverflow)?;
+            push_component(
+                source,
+                &mut components,
+                AndroidComponentKind::BootSignature,
+                "boot.signature",
+                cursor,
+                signature_end,
+                limits,
+            )?;
+            limitations.push(
+                "boot_signature presence is structural evidence, not device AVB trust".to_owned(),
+            );
+        }
+    }
+    Ok((components, limitations))
+}
+
 fn inspect_vendor_boot(
     source: &[u8],
     context: &AndroidContext,
@@ -1114,7 +1150,7 @@ fn inspect_vendor_boot(
         return Err(C03Error::Malformed("unsupported vendor_boot version"));
     }
     let page = u64::from(read_le_u32(source, 12)?);
-    if page < 512 || page > 65_536 || !page.is_power_of_two() {
+    if !(512..=65_536).contains(&page) || !page.is_power_of_two() {
         return Err(C03Error::Malformed("invalid vendor_boot page size"));
     }
     let ramdisk_size = u64::from(read_le_u32(source, 24)?);
@@ -1141,107 +1177,35 @@ fn inspect_vendor_boot(
         declared_header,
         limits,
     )?;
-    let mut cursor = align_up(expected_header, page)?;
-    let ramdisk_start = cursor;
-    cursor = push_aligned_component(
+    let ramdisk_start = align_up(expected_header, page)?;
+    let cursor = push_aligned_component(
         source,
         &mut components,
         AndroidComponentKind::VendorRamdisk,
         "vendor_boot.ramdisk_section",
-        cursor,
-        ramdisk_size,
+        (ramdisk_start, ramdisk_size),
         page,
         limits,
     )?;
-    cursor = push_aligned_component(
+    let cursor = push_aligned_component(
         source,
         &mut components,
         AndroidComponentKind::Dtb,
         "vendor_boot.dtb",
-        cursor,
-        dtb_size,
+        (cursor, dtb_size),
         page,
         limits,
     )?;
     if version == 4 {
-        let table_size = u64::from(read_le_u32(source, 2112)?);
-        let table_count = u64::from(read_le_u32(source, 2116)?);
-        let table_entry_size = u64::from(read_le_u32(source, 2120)?);
-        let bootconfig_size = u64::from(read_le_u32(source, 2124)?);
-        if table_count > 0 {
-            if table_entry_size < VENDOR_RAMDISK_TABLE_ENTRY_V4_SIZE
-                || table_count
-                    .checked_mul(table_entry_size)
-                    .ok_or(C03Error::AccountingOverflow)?
-                    > table_size
-            {
-                return Err(C03Error::Malformed("invalid vendor ramdisk table sizing"));
-            }
-            let table_start = cursor;
-            let table_end = table_start
-                .checked_add(table_size)
-                .ok_or(C03Error::AccountingOverflow)?;
-            push_component(
-                source,
-                &mut components,
-                AndroidComponentKind::VendorRamdiskTable,
-                "vendor_boot.ramdisk_table",
-                table_start,
-                table_end,
-                limits,
-            )?;
-            for index in 0..table_count {
-                let entry = table_start
-                    .checked_add(
-                        index
-                            .checked_mul(table_entry_size)
-                            .ok_or(C03Error::AccountingOverflow)?,
-                    )
-                    .ok_or(C03Error::AccountingOverflow)?;
-                let entry_usize = usize::try_from(entry).map_err(|_| C03Error::AccountingOverflow)?;
-                let fragment_size = u64::from(read_le_u32(source, entry_usize)?);
-                let fragment_offset = u64::from(read_le_u32(source, entry_usize + 4)?);
-                let fragment_start = ramdisk_start
-                    .checked_add(fragment_offset)
-                    .ok_or(C03Error::AccountingOverflow)?;
-                let fragment_end = fragment_start
-                    .checked_add(fragment_size)
-                    .ok_or(C03Error::AccountingOverflow)?;
-                if fragment_end
-                    > ramdisk_start
-                        .checked_add(ramdisk_size)
-                        .ok_or(C03Error::AccountingOverflow)?
-                {
-                    return Err(C03Error::Malformed("vendor ramdisk fragment is out of section"));
-                }
-                push_component(
-                    source,
-                    &mut components,
-                    AndroidComponentKind::VendorRamdiskFragment,
-                    &format!("vendor_boot.ramdisk_fragment.{index}"),
-                    fragment_start,
-                    fragment_end,
-                    limits,
-                )?;
-            }
-            cursor = align_up(table_end, page)?;
-        } else if table_size != 0 {
-            return Err(C03Error::Malformed("vendor ramdisk table count/size mismatch"));
-        }
-        if bootconfig_size > 0 {
-            let end = cursor
-                .checked_add(bootconfig_size)
-                .ok_or(C03Error::AccountingOverflow)?;
-            push_component(
-                source,
-                &mut components,
-                AndroidComponentKind::Bootconfig,
-                "vendor_boot.bootconfig",
-                cursor,
-                end,
-                limits,
-            )?;
-        }
+        push_vendor_boot_v4_components(
+            source,
+            &mut components,
+            ramdisk_start,
+            ramdisk_size,
+            cursor,
+            page,
+            limits,
+        )?;
     }
     Ok(seal_report(base_report(
         source,
@@ -1252,6 +1216,100 @@ fn inspect_vendor_boot(
         AndroidIntegrityAssessment::StructureChecked,
         components,
     )?))
+}
+
+fn push_vendor_boot_v4_components(
+    source: &[u8],
+    components: &mut Vec<AndroidComponent>,
+    ramdisk_start: u64,
+    ramdisk_size: u64,
+    mut cursor: u64,
+    page: u64,
+    limits: AndroidLimits,
+) -> Result<(), C03Error> {
+    let table_size = u64::from(read_le_u32(source, 2112)?);
+    let table_count = u64::from(read_le_u32(source, 2116)?);
+    let table_entry_size = u64::from(read_le_u32(source, 2120)?);
+    let bootconfig_size = u64::from(read_le_u32(source, 2124)?);
+    if table_count > 0 {
+        if table_entry_size < VENDOR_RAMDISK_TABLE_ENTRY_V4_SIZE
+            || table_count
+                .checked_mul(table_entry_size)
+                .ok_or(C03Error::AccountingOverflow)?
+                > table_size
+        {
+            return Err(C03Error::Malformed("invalid vendor ramdisk table sizing"));
+        }
+        let table_start = cursor;
+        let table_end = table_start
+            .checked_add(table_size)
+            .ok_or(C03Error::AccountingOverflow)?;
+        push_component(
+            source,
+            components,
+            AndroidComponentKind::VendorRamdiskTable,
+            "vendor_boot.ramdisk_table",
+            table_start,
+            table_end,
+            limits,
+        )?;
+        for index in 0..table_count {
+            let entry = table_start
+                .checked_add(
+                    index
+                        .checked_mul(table_entry_size)
+                        .ok_or(C03Error::AccountingOverflow)?,
+                )
+                .ok_or(C03Error::AccountingOverflow)?;
+            let entry = usize::try_from(entry).map_err(|_| C03Error::AccountingOverflow)?;
+            let fragment_size = u64::from(read_le_u32(source, entry)?);
+            let fragment_offset = u64::from(read_le_u32(source, entry + 4)?);
+            let fragment_start = ramdisk_start
+                .checked_add(fragment_offset)
+                .ok_or(C03Error::AccountingOverflow)?;
+            let fragment_end = fragment_start
+                .checked_add(fragment_size)
+                .ok_or(C03Error::AccountingOverflow)?;
+            if fragment_end
+                > ramdisk_start
+                    .checked_add(ramdisk_size)
+                    .ok_or(C03Error::AccountingOverflow)?
+            {
+                return Err(C03Error::Malformed(
+                    "vendor ramdisk fragment is out of section",
+                ));
+            }
+            push_component(
+                source,
+                components,
+                AndroidComponentKind::VendorRamdiskFragment,
+                &format!("vendor_boot.ramdisk_fragment.{index}"),
+                fragment_start,
+                fragment_end,
+                limits,
+            )?;
+        }
+        cursor = align_up(table_end, page)?;
+    } else if table_size != 0 {
+        return Err(C03Error::Malformed(
+            "vendor ramdisk table count/size mismatch",
+        ));
+    }
+    if bootconfig_size > 0 {
+        let end = cursor
+            .checked_add(bootconfig_size)
+            .ok_or(C03Error::AccountingOverflow)?;
+        push_component(
+            source,
+            components,
+            AndroidComponentKind::Bootconfig,
+            "vendor_boot.bootconfig",
+            cursor,
+            end,
+            limits,
+        )?;
+    }
+    Ok(())
 }
 
 fn inspect_dtbo(
@@ -1305,9 +1363,14 @@ fn inspect_dtbo(
     )?;
     for index in 0..entry_count {
         let entry_offset = entries_offset
-            .checked_add(index.checked_mul(entry_size).ok_or(C03Error::AccountingOverflow)?)
+            .checked_add(
+                index
+                    .checked_mul(entry_size)
+                    .ok_or(C03Error::AccountingOverflow)?,
+            )
             .ok_or(C03Error::AccountingOverflow)?;
-        let entry_offset = usize::try_from(entry_offset).map_err(|_| C03Error::AccountingOverflow)?;
+        let entry_offset =
+            usize::try_from(entry_offset).map_err(|_| C03Error::AccountingOverflow)?;
         let dt_size = u64::from(read_be_u32(source, entry_offset)?);
         let dt_offset = u64::from(read_be_u32(source, entry_offset + 4)?);
         let dt_end = dt_offset
@@ -1370,7 +1433,9 @@ fn inspect_vbmeta(
         || descriptors_size > aux_size.saturating_sub(descriptors_offset)
         || descriptors_end > aux_end
     {
-        return Err(C03Error::Malformed("vbmeta descriptor range exceeds auxiliary block"));
+        return Err(C03Error::Malformed(
+            "vbmeta descriptor range exceeds auxiliary block",
+        ));
     }
     let mut components = Vec::new();
     push_component(
@@ -1431,23 +1496,71 @@ fn inspect_vbmeta(
     Ok(seal_report(report))
 }
 
+struct SuperGeometrySelection {
+    geometry: LpGeometry,
+    components: Vec<AndroidComponent>,
+    limitations: Vec<String>,
+}
+
+struct SuperAssembly {
+    components: Vec<AndroidComponent>,
+    partitions: Vec<AndroidDynamicPartition>,
+    groups: Vec<AndroidDynamicGroup>,
+    block_devices: Vec<AndroidBlockDevice>,
+    limitations: Vec<String>,
+}
+
 fn inspect_super(
     source: &[u8],
     context: &AndroidContext,
     source_sha256: String,
     limits: AndroidLimits,
 ) -> Result<AndroidReport, C03Error> {
-    let primary_geometry = parse_geometry(source, LP_RESERVED_BYTES).ok();
-    let backup_geometry = parse_geometry(source, LP_RESERVED_BYTES + LP_GEOMETRY_SIZE).ok();
-    let geometry = primary_geometry
+    let selection = select_super_geometry(source, limits)?;
+    let assembly = collect_super_slots(source, selection, limits)?;
+    let assessment = if assembly.limitations.is_empty() {
+        AndroidAssessment::Complete
+    } else {
+        AndroidAssessment::Partial
+    };
+    Ok(seal_report(AndroidReport {
+        source_revision_ref: context.source_revision_ref.clone(),
+        source_sha256,
+        source_size: u64::try_from(source.len()).map_err(|_| C03Error::AccountingOverflow)?,
+        kind: AndroidArtifactKind::Super,
+        assessment,
+        integrity: AndroidIntegrityAssessment::ChecksumsVerified,
+        trust: AndroidTrustAssessment::NotEstablished,
+        components: assembly.components,
+        dynamic_partitions: assembly.partitions,
+        dynamic_groups: assembly.groups,
+        block_devices: assembly.block_devices,
+        ota_manifest: None,
+        warnings: Vec::new(),
+        limitations: assembly.limitations,
+        projection_sha256: String::new(),
+    }))
+}
+
+fn select_super_geometry(
+    source: &[u8],
+    limits: AndroidLimits,
+) -> Result<SuperGeometrySelection, C03Error> {
+    let primary = parse_geometry(source, LP_RESERVED_BYTES).ok();
+    let backup = parse_geometry(source, LP_RESERVED_BYTES + LP_GEOMETRY_SIZE).ok();
+    let geometry = primary
         .clone()
-        .or_else(|| backup_geometry.clone())
-        .ok_or(C03Error::Malformed("both liblp geometry copies are invalid"))?;
+        .or_else(|| backup.clone())
+        .ok_or(C03Error::Malformed(
+            "both liblp geometry copies are invalid",
+        ))?;
     if geometry.metadata_slot_count > limits.max_metadata_slots {
-        return Err(C03Error::Malformed("liblp metadata slot count exceeds configured bound"));
+        return Err(C03Error::Malformed(
+            "liblp metadata slot count exceeds configured bound",
+        ));
     }
     let mut limitations = Vec::new();
-    if let (Some(primary), Some(backup)) = (&primary_geometry, &backup_geometry) {
+    if let (Some(primary), Some(backup)) = (&primary, &backup) {
         if primary != backup {
             limitations.push("primary and backup liblp geometry copies disagree".to_owned());
         }
@@ -1455,7 +1568,7 @@ fn inspect_super(
         limitations.push("one liblp geometry copy is invalid".to_owned());
     }
     let mut components = Vec::new();
-    if primary_geometry.is_some() {
+    if primary.is_some() {
         push_component(
             source,
             &mut components,
@@ -1466,7 +1579,7 @@ fn inspect_super(
             limits,
         )?;
     }
-    if backup_geometry.is_some() {
+    if backup.is_some() {
         push_component(
             source,
             &mut components,
@@ -1477,7 +1590,19 @@ fn inspect_super(
             limits,
         )?;
     }
+    Ok(SuperGeometrySelection {
+        geometry,
+        components,
+        limitations,
+    })
+}
 
+fn collect_super_slots(
+    source: &[u8],
+    selection: SuperGeometrySelection,
+    limits: AndroidLimits,
+) -> Result<SuperAssembly, C03Error> {
+    let geometry = selection.geometry;
     let metadata_base = LP_RESERVED_BYTES + (LP_GEOMETRY_SIZE * 2);
     let backup_base = metadata_base
         .checked_add(
@@ -1486,9 +1611,13 @@ fn inspect_super(
                 .ok_or(C03Error::AccountingOverflow)?,
         )
         .ok_or(C03Error::AccountingOverflow)?;
-    let mut dynamic_partitions = Vec::new();
-    let mut dynamic_groups = Vec::new();
-    let mut block_devices = Vec::new();
+    let mut assembly = SuperAssembly {
+        components: selection.components,
+        partitions: Vec::new(),
+        groups: Vec::new(),
+        block_devices: Vec::new(),
+        limitations: selection.limitations,
+    };
     let mut extent_total = 0_usize;
     let mut valid_slots = 0_u32;
     for slot in 0..geometry.metadata_slot_count {
@@ -1501,39 +1630,21 @@ fn inspect_super(
         let backup_offset = backup_base
             .checked_add(delta)
             .ok_or(C03Error::AccountingOverflow)?;
-        let primary = parse_super_slot(source, primary_offset, slot, &geometry, limits).ok();
-        let backup = parse_super_slot(source, backup_offset, slot, &geometry, limits).ok();
-        let selected = match (&primary, &backup) {
-            (Some(primary), Some(backup)) => {
-                if primary != backup {
-                    limitations.push(format!(
-                        "liblp metadata slot {slot} primary/backup copies disagree"
-                    ));
-                }
-                primary.clone()
-            }
-            (Some(primary), None) => {
-                limitations.push(format!("liblp metadata slot {slot} backup copy is invalid"));
-                primary.clone()
-            }
-            (None, Some(backup)) => {
-                limitations.push(format!("liblp metadata slot {slot} primary copy is invalid"));
-                backup.clone()
-            }
-            (None, None) => {
-                limitations.push(format!("liblp metadata slot {slot} has no valid copy"));
-                continue;
-            }
+        let Some((selected, selected_offset)) = select_super_slot_copy(
+            source,
+            slot,
+            primary_offset,
+            backup_offset,
+            &geometry,
+            limits,
+            &mut assembly.limitations,
+        ) else {
+            continue;
         };
         valid_slots = valid_slots.saturating_add(1);
-        let selected_offset = if primary.is_some() {
-            primary_offset
-        } else {
-            backup_offset
-        };
         push_component(
             source,
-            &mut components,
+            &mut assembly.components,
             AndroidComponentKind::SuperMetadata,
             &format!("super.metadata.slot.{slot}"),
             selected_offset,
@@ -1548,41 +1659,71 @@ fn inspect_super(
         if extent_total > limits.max_extents {
             return Err(C03Error::TooManyExtents);
         }
-        dynamic_partitions.extend(selected.partitions);
-        dynamic_groups.extend(selected.groups);
-        block_devices.extend(selected.block_devices);
-        if dynamic_partitions.len() > limits.max_dynamic_partitions {
+        assembly.partitions.extend(selected.partitions);
+        assembly.groups.extend(selected.groups);
+        assembly.block_devices.extend(selected.block_devices);
+        if assembly.partitions.len() > limits.max_dynamic_partitions {
             return Err(C03Error::TooManyPartitions);
         }
-        if dynamic_groups.len() > limits.max_dynamic_groups {
+        if assembly.groups.len() > limits.max_dynamic_groups {
             return Err(C03Error::TooManyGroups);
         }
     }
     if valid_slots == 0 {
         return Err(C03Error::Malformed("no valid liblp metadata slot"));
     }
-    let assessment = if limitations.is_empty() {
-        AndroidAssessment::Complete
-    } else {
-        AndroidAssessment::Partial
+    Ok(assembly)
+}
+
+fn select_super_slot_copy(
+    source: &[u8],
+    slot: u32,
+    primary_offset: u64,
+    backup_offset: u64,
+    geometry: &LpGeometry,
+    limits: AndroidLimits,
+    limitations: &mut Vec<String>,
+) -> Option<(ParsedSuperSlot, u64)> {
+    let primary = parse_super_slot(source, primary_offset, slot, geometry, limits).ok();
+    let backup = parse_super_slot(source, backup_offset, slot, geometry, limits).ok();
+    let selected = match (&primary, &backup) {
+        (Some(primary), Some(backup)) => {
+            if primary != backup {
+                limitations.push(format!(
+                    "liblp metadata slot {slot} primary/backup copies disagree"
+                ));
+            }
+            primary.clone()
+        }
+        (Some(primary), None) => {
+            limitations.push(format!("liblp metadata slot {slot} backup copy is invalid"));
+            primary.clone()
+        }
+        (None, Some(backup)) => {
+            limitations.push(format!(
+                "liblp metadata slot {slot} primary copy is invalid"
+            ));
+            backup.clone()
+        }
+        (None, None) => {
+            limitations.push(format!("liblp metadata slot {slot} has no valid copy"));
+            return None;
+        }
     };
-    Ok(seal_report(AndroidReport {
-        source_revision_ref: context.source_revision_ref.clone(),
-        source_sha256,
-        source_size: u64::try_from(source.len()).map_err(|_| C03Error::AccountingOverflow)?,
-        kind: AndroidArtifactKind::Super,
-        assessment,
-        integrity: AndroidIntegrityAssessment::ChecksumsVerified,
-        trust: AndroidTrustAssessment::NotEstablished,
-        components,
-        dynamic_partitions,
-        dynamic_groups,
-        block_devices,
-        ota_manifest: None,
-        warnings: Vec::new(),
-        limitations,
-        projection_sha256: String::new(),
-    }))
+    let offset = if primary.is_some() {
+        primary_offset
+    } else {
+        backup_offset
+    };
+    Some((selected, offset))
+}
+
+struct OtaEnvelope<'a> {
+    source_size: u64,
+    major_version: u64,
+    payload_data_size: u64,
+    manifest_bytes: &'a [u8],
+    components: Vec<AndroidComponent>,
 }
 
 fn inspect_ota(
@@ -1592,6 +1733,43 @@ fn inspect_ota(
     limits: AndroidLimits,
     provider: Option<&dyn OtaManifestProvider>,
 ) -> Result<AndroidReport, C03Error> {
+    let envelope = parse_ota_envelope(source, limits)?;
+    let (ota_manifest, mut provider_limitations) = decode_ota_manifest(
+        provider,
+        envelope.manifest_bytes,
+        envelope.major_version,
+        envelope.payload_data_size,
+        limits,
+    )?;
+    let mut limitations = vec![
+        "OTA applicability/signature trust is not established by static payload parsing".to_owned(),
+    ];
+    limitations.append(&mut provider_limitations);
+    let assessment = if ota_manifest.is_some() && limitations.len() == 1 {
+        AndroidAssessment::Complete
+    } else {
+        AndroidAssessment::Partial
+    };
+    Ok(seal_report(AndroidReport {
+        source_revision_ref: context.source_revision_ref.clone(),
+        source_sha256,
+        source_size: envelope.source_size,
+        kind: AndroidArtifactKind::OtaPayload,
+        assessment,
+        integrity: AndroidIntegrityAssessment::StructureChecked,
+        trust: AndroidTrustAssessment::NotEstablished,
+        components: envelope.components,
+        dynamic_partitions: Vec::new(),
+        dynamic_groups: Vec::new(),
+        block_devices: Vec::new(),
+        ota_manifest,
+        warnings: Vec::new(),
+        limitations,
+        projection_sha256: String::new(),
+    }))
+}
+
+fn parse_ota_envelope(source: &[u8], limits: AndroidLimits) -> Result<OtaEnvelope<'_>, C03Error> {
     if source.len() < 20 {
         return Err(C03Error::Malformed("OTA payload header is truncated"));
     }
@@ -1621,6 +1799,41 @@ fn inspect_ota(
     if signature_end > source_size {
         return Err(C03Error::Malformed("OTA metadata exceeds source"));
     }
+    let components = ota_envelope_components(
+        source,
+        manifest_offset,
+        manifest_end,
+        signature_end,
+        signature_size,
+        source_size,
+        limits,
+    )?;
+    let start = usize::try_from(manifest_offset).map_err(|_| C03Error::AccountingOverflow)?;
+    let end = usize::try_from(manifest_end).map_err(|_| C03Error::AccountingOverflow)?;
+    let manifest_bytes = source
+        .get(start..end)
+        .ok_or(C03Error::Malformed("OTA manifest is out of bounds"))?;
+    let payload_data_size = source_size
+        .checked_sub(signature_end)
+        .ok_or(C03Error::AccountingOverflow)?;
+    Ok(OtaEnvelope {
+        source_size,
+        major_version,
+        payload_data_size,
+        manifest_bytes,
+        components,
+    })
+}
+
+fn ota_envelope_components(
+    source: &[u8],
+    manifest_offset: u64,
+    manifest_end: u64,
+    signature_end: u64,
+    signature_size: u64,
+    source_size: u64,
+    limits: AndroidLimits,
+) -> Result<Vec<AndroidComponent>, C03Error> {
     let mut components = Vec::new();
     push_component(
         source,
@@ -1662,61 +1875,43 @@ fn inspect_ota(
             limits,
         )?;
     }
-    let manifest_start_usize =
-        usize::try_from(manifest_offset).map_err(|_| C03Error::AccountingOverflow)?;
-    let manifest_end_usize =
-        usize::try_from(manifest_end).map_err(|_| C03Error::AccountingOverflow)?;
-    let manifest_bytes = source
-        .get(manifest_start_usize..manifest_end_usize)
-        .ok_or(C03Error::Malformed("OTA manifest is out of bounds"))?;
-    let mut limitations = vec![
-        "OTA applicability/signature trust is not established by static payload parsing".to_owned(),
-    ];
-    let ota_manifest = if let Some(provider) = provider {
-        validate_string(provider.provider_id(), limits)?;
-        let observation = provider
-            .decode_manifest(manifest_bytes, major_version, limits)
-            .map_err(C03Error::OtaProvider)?;
-        validate_ota_observation(&observation, source_size - signature_end, limits)?;
-        if !observation.limitations.is_empty() || !observation.complete_claim {
-            limitations.extend(observation.limitations.clone());
-        }
-        Some(AndroidOtaManifest {
-            major_version,
-            manifest_sha256: sha256_bytes(manifest_bytes),
-            provider_alias: provider.provider_id().to_owned(),
-            block_size: observation.block_size,
-            partitions: observation.partitions,
-            dynamic_groups: observation.dynamic_groups,
-            partial_update: observation.partial_update,
-            limitations: observation.limitations,
-        })
-    } else {
-        limitations.push("no OTA manifest protobuf Provider was supplied".to_owned());
-        None
+    Ok(components)
+}
+
+fn decode_ota_manifest(
+    provider: Option<&dyn OtaManifestProvider>,
+    manifest_bytes: &[u8],
+    major_version: u64,
+    payload_data_size: u64,
+    limits: AndroidLimits,
+) -> Result<(Option<AndroidOtaManifest>, Vec<String>), C03Error> {
+    let Some(provider) = provider else {
+        return Ok((
+            None,
+            vec!["no OTA manifest protobuf Provider was supplied".to_owned()],
+        ));
     };
-    let assessment = if ota_manifest.is_some() && limitations.len() == 1 {
-        AndroidAssessment::Complete
-    } else {
-        AndroidAssessment::Partial
+    validate_string(provider.provider_id(), limits)?;
+    let observation = provider
+        .decode_manifest(manifest_bytes, major_version, limits)
+        .map_err(C03Error::OtaProvider)?;
+    validate_ota_observation(&observation, payload_data_size, limits)?;
+    let mut limitations = observation.limitations.clone();
+    if !observation.complete_claim {
+        limitations
+            .push("OTA manifest Provider did not claim complete supported semantics".to_owned());
+    }
+    let manifest = AndroidOtaManifest {
+        major_version,
+        manifest_sha256: sha256_bytes(manifest_bytes),
+        provider_alias: provider.provider_id().to_owned(),
+        block_size: observation.block_size,
+        partitions: observation.partitions,
+        dynamic_groups: observation.dynamic_groups,
+        partial_update: observation.partial_update,
+        limitations: limitations.clone(),
     };
-    Ok(seal_report(AndroidReport {
-        source_revision_ref: context.source_revision_ref.clone(),
-        source_sha256,
-        source_size,
-        kind: AndroidArtifactKind::OtaPayload,
-        assessment,
-        integrity: AndroidIntegrityAssessment::StructureChecked,
-        trust: AndroidTrustAssessment::NotEstablished,
-        components,
-        dynamic_partitions: Vec::new(),
-        dynamic_groups: Vec::new(),
-        block_devices: Vec::new(),
-        ota_manifest,
-        warnings: Vec::new(),
-        limitations,
-        projection_sha256: String::new(),
-    }))
+    Ok((Some(manifest), limitations))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1779,6 +1974,19 @@ fn parse_geometry(source: &[u8], offset: u64) -> Result<LpGeometry, C03Error> {
     })
 }
 
+struct SuperSlotTables<'a> {
+    serialized_size: usize,
+    tables: &'a [u8],
+    descriptors: [TableDescriptor; 4],
+}
+
+struct SuperSlotContext<'a> {
+    source: &'a [u8],
+    tables: &'a [u8],
+    slot: u32,
+    limits: AndroidLimits,
+}
+
 fn parse_super_slot(
     source: &[u8],
     offset: u64,
@@ -1786,9 +1994,55 @@ fn parse_super_slot(
     geometry: &LpGeometry,
     limits: AndroidLimits,
 ) -> Result<ParsedSuperSlot, C03Error> {
+    let parsed = parse_super_slot_tables(source, offset, geometry)?;
+    let descriptors = parsed.descriptors;
+    let extent_count =
+        usize::try_from(descriptors[1].num_entries).map_err(|_| C03Error::AccountingOverflow)?;
+    let group_count =
+        usize::try_from(descriptors[2].num_entries).map_err(|_| C03Error::AccountingOverflow)?;
+    let partition_count =
+        usize::try_from(descriptors[0].num_entries).map_err(|_| C03Error::AccountingOverflow)?;
+    if extent_count > limits.max_extents {
+        return Err(C03Error::TooManyExtents);
+    }
+    if group_count > limits.max_dynamic_groups {
+        return Err(C03Error::TooManyGroups);
+    }
+    if partition_count > limits.max_dynamic_partitions {
+        return Err(C03Error::TooManyPartitions);
+    }
+    let context = SuperSlotContext {
+        source,
+        tables: parsed.tables,
+        slot,
+        limits,
+    };
+    let groups = parse_super_groups(&context, descriptors[2], group_count)?;
+    let block_devices = parse_super_block_devices(&context, descriptors[3])?;
+    let extents = parse_super_extents(&context, descriptors[1], &block_devices, extent_count)?;
+    let partitions =
+        parse_super_partitions(&context, descriptors[0], &extents, &groups, partition_count)?;
+    Ok(ParsedSuperSlot {
+        serialized_size: u64::try_from(parsed.serialized_size)
+            .map_err(|_| C03Error::AccountingOverflow)?,
+        extent_count,
+        partitions,
+        groups,
+        block_devices,
+    })
+}
+
+fn parse_super_slot_tables<'a>(
+    source: &'a [u8],
+    offset: u64,
+    geometry: &LpGeometry,
+) -> Result<SuperSlotTables<'a>, C03Error> {
     let start = usize::try_from(offset).map_err(|_| C03Error::AccountingOverflow)?;
+    let prefix_end = start
+        .checked_add(LP_HEADER_V1_0_SIZE)
+        .ok_or(C03Error::AccountingOverflow)?;
     let prefix = source
-        .get(start..start.checked_add(LP_HEADER_V1_0_SIZE).ok_or(C03Error::AccountingOverflow)?)
+        .get(start..prefix_end)
         .ok_or(C03Error::Malformed("liblp metadata header is truncated"))?;
     if read_le_u32(prefix, 0)? != LP_HEADER_MAGIC {
         return Err(C03Error::Malformed("invalid liblp metadata header magic"));
@@ -1798,14 +2052,15 @@ fn parse_super_slot(
     if major != 10 || minor > 2 {
         return Err(C03Error::Malformed("unsupported liblp metadata version"));
     }
-    let header_size = usize::try_from(read_le_u32(prefix, 8)?)
-        .map_err(|_| C03Error::AccountingOverflow)?;
+    let header_size =
+        usize::try_from(read_le_u32(prefix, 8)?).map_err(|_| C03Error::AccountingOverflow)?;
     let minimum = if minor >= 2 {
         LP_HEADER_V1_2_SIZE
     } else {
         LP_HEADER_V1_0_SIZE
     };
-    if header_size < minimum || header_size > usize::try_from(geometry.metadata_max_size).unwrap_or(0)
+    if header_size < minimum
+        || header_size > usize::try_from(geometry.metadata_max_size).unwrap_or(0)
     {
         return Err(C03Error::Malformed("invalid liblp metadata header size"));
     }
@@ -1819,10 +2074,12 @@ fn parse_super_slot(
     let mut checked_header = header.to_vec();
     checked_header[12..44].fill(0);
     if sha256_raw(&checked_header).as_slice() != expected_header {
-        return Err(C03Error::Malformed("liblp metadata header checksum mismatch"));
+        return Err(C03Error::Malformed(
+            "liblp metadata header checksum mismatch",
+        ));
     }
-    let tables_size = usize::try_from(read_le_u32(header, 44)?)
-        .map_err(|_| C03Error::AccountingOverflow)?;
+    let tables_size =
+        usize::try_from(read_le_u32(header, 44)?).map_err(|_| C03Error::AccountingOverflow)?;
     let serialized_size = header_size
         .checked_add(tables_size)
         .ok_or(C03Error::AccountingOverflow)?;
@@ -1853,58 +2110,66 @@ fn parse_super_slot(
     {
         return Err(C03Error::Malformed("unsupported liblp table entry size"));
     }
-    let extent_count = usize::try_from(descriptors[1].num_entries)
-        .map_err(|_| C03Error::AccountingOverflow)?;
-    if extent_count > limits.max_extents {
-        return Err(C03Error::TooManyExtents);
-    }
-    let group_count = usize::try_from(descriptors[2].num_entries)
-        .map_err(|_| C03Error::AccountingOverflow)?;
-    if group_count > limits.max_dynamic_groups {
-        return Err(C03Error::TooManyGroups);
-    }
-    let partition_count = usize::try_from(descriptors[0].num_entries)
-        .map_err(|_| C03Error::AccountingOverflow)?;
-    if partition_count > limits.max_dynamic_partitions {
-        return Err(C03Error::TooManyPartitions);
-    }
+    Ok(SuperSlotTables {
+        serialized_size,
+        tables,
+        descriptors,
+    })
+}
 
-    let mut groups = Vec::with_capacity(group_count);
-    let mut group_names = Vec::with_capacity(group_count);
-    for index in 0..group_count {
-        let entry = table_entry(tables, descriptors[2], index)?;
-        let name = parse_lp_name(&entry[..36], limits)?;
-        let maximum_size = read_le_u64(entry, 40)?;
-        group_names.push(name.clone());
+fn parse_super_groups(
+    context: &SuperSlotContext<'_>,
+    descriptor: TableDescriptor,
+    count: usize,
+) -> Result<Vec<AndroidDynamicGroup>, C03Error> {
+    let mut groups = Vec::with_capacity(count);
+    for index in 0..count {
+        let entry = table_entry(context.tables, descriptor, index)?;
+        let name = parse_lp_name(&entry[..36], context.limits)?;
         groups.push(AndroidDynamicGroup {
-            metadata_slot: slot,
+            metadata_slot: context.slot,
             name,
-            maximum_size,
+            maximum_size: read_le_u64(entry, 40)?,
         });
     }
+    Ok(groups)
+}
 
-    let block_count = usize::try_from(descriptors[3].num_entries)
-        .map_err(|_| C03Error::AccountingOverflow)?;
-    let mut block_devices = Vec::with_capacity(block_count);
-    for index in 0..block_count {
-        let entry = table_entry(tables, descriptors[3], index)?;
-        let name = parse_lp_name(&entry[24..60], limits)?;
+fn parse_super_block_devices(
+    context: &SuperSlotContext<'_>,
+    descriptor: TableDescriptor,
+) -> Result<Vec<AndroidBlockDevice>, C03Error> {
+    let count =
+        usize::try_from(descriptor.num_entries).map_err(|_| C03Error::AccountingOverflow)?;
+    let mut devices = Vec::with_capacity(count);
+    for index in 0..count {
+        let entry = table_entry(context.tables, descriptor, index)?;
+        let name = parse_lp_name(&entry[24..60], context.limits)?;
         let first_logical_sector = read_le_u64(entry, 0)?;
         let size = read_le_u64(entry, 16)?;
-        if size == 0 || size % LP_SECTOR_SIZE != 0 || first_logical_sector >= size / LP_SECTOR_SIZE {
+        if size == 0 || size % LP_SECTOR_SIZE != 0 || first_logical_sector >= size / LP_SECTOR_SIZE
+        {
             return Err(C03Error::Malformed("invalid liblp block device"));
         }
-        block_devices.push(AndroidBlockDevice {
-            metadata_slot: slot,
+        devices.push(AndroidBlockDevice {
+            metadata_slot: context.slot,
             name,
             first_logical_sector,
             size,
         });
     }
+    Ok(devices)
+}
 
-    let mut extents = Vec::with_capacity(extent_count);
-    for index in 0..extent_count {
-        let entry = table_entry(tables, descriptors[1], index)?;
+fn parse_super_extents(
+    context: &SuperSlotContext<'_>,
+    descriptor: TableDescriptor,
+    block_devices: &[AndroidBlockDevice],
+    count: usize,
+) -> Result<Vec<AndroidDynamicExtent>, C03Error> {
+    let mut extents = Vec::with_capacity(count);
+    for index in 0..count {
+        let entry = table_entry(context.tables, descriptor, index)?;
         let num_sectors = read_le_u64(entry, 0)?;
         let target_type = read_le_u32(entry, 8)?;
         let target_data = read_le_u64(entry, 12)?;
@@ -1913,29 +2178,13 @@ fn parse_super_slot(
             return Err(C03Error::Malformed("zero-length liblp extent"));
         }
         let target = match target_type {
-            0 => {
-                let block = block_devices
-                    .get(usize::try_from(target_source).map_err(|_| C03Error::AccountingOverflow)?)
-                    .ok_or(C03Error::Malformed("liblp extent target source is invalid"))?;
-                let end_sector = target_data
-                    .checked_add(num_sectors)
-                    .ok_or(C03Error::AccountingOverflow)?;
-                if target_data < block.first_logical_sector || end_sector > block.size / LP_SECTOR_SIZE {
-                    return Err(C03Error::Malformed("liblp linear extent is out of block device"));
-                }
-                if target_source == 0 {
-                    let end = end_sector
-                        .checked_mul(LP_SECTOR_SIZE)
-                        .ok_or(C03Error::AccountingOverflow)?;
-                    if end > u64::try_from(source.len()).map_err(|_| C03Error::AccountingOverflow)? {
-                        return Err(C03Error::Malformed("liblp linear extent exceeds source image"));
-                    }
-                }
-                DynamicExtentTarget::Linear {
-                    physical_sector: target_data,
-                    block_device_index: target_source,
-                }
-            }
+            0 => parse_linear_extent_target(
+                context.source,
+                block_devices,
+                num_sectors,
+                target_data,
+                target_source,
+            )?,
             1 if target_data == 0 && target_source == 0 => DynamicExtentTarget::Zero,
             1 => return Err(C03Error::Malformed("invalid liblp zero extent fields")),
             _ => return Err(C03Error::Malformed("unsupported liblp extent target type")),
@@ -1945,32 +2194,77 @@ fn parse_super_slot(
             target,
         });
     }
+    Ok(extents)
+}
 
-    let mut partitions = Vec::with_capacity(partition_count);
+fn parse_linear_extent_target(
+    source: &[u8],
+    block_devices: &[AndroidBlockDevice],
+    num_sectors: u64,
+    physical_sector: u64,
+    block_device_index: u32,
+) -> Result<DynamicExtentTarget, C03Error> {
+    let block = block_devices
+        .get(usize::try_from(block_device_index).map_err(|_| C03Error::AccountingOverflow)?)
+        .ok_or(C03Error::Malformed("liblp extent target source is invalid"))?;
+    let end_sector = physical_sector
+        .checked_add(num_sectors)
+        .ok_or(C03Error::AccountingOverflow)?;
+    if physical_sector < block.first_logical_sector || end_sector > block.size / LP_SECTOR_SIZE {
+        return Err(C03Error::Malformed(
+            "liblp linear extent is out of block device",
+        ));
+    }
+    if block_device_index == 0 {
+        let end = end_sector
+            .checked_mul(LP_SECTOR_SIZE)
+            .ok_or(C03Error::AccountingOverflow)?;
+        if end > u64::try_from(source.len()).map_err(|_| C03Error::AccountingOverflow)? {
+            return Err(C03Error::Malformed(
+                "liblp linear extent exceeds source image",
+            ));
+        }
+    }
+    Ok(DynamicExtentTarget::Linear {
+        physical_sector,
+        block_device_index,
+    })
+}
+
+fn parse_super_partitions(
+    context: &SuperSlotContext<'_>,
+    descriptor: TableDescriptor,
+    extents: &[AndroidDynamicExtent],
+    groups: &[AndroidDynamicGroup],
+    count: usize,
+) -> Result<Vec<AndroidDynamicPartition>, C03Error> {
+    let mut partitions = Vec::with_capacity(count);
     let mut names = BTreeSet::new();
-    let mut group_totals = vec![0_u64; group_count];
-    for index in 0..partition_count {
-        let entry = table_entry(tables, descriptors[0], index)?;
-        let name = parse_lp_name(&entry[..36], limits)?;
+    let mut group_totals = vec![0_u64; groups.len()];
+    for index in 0..count {
+        let entry = table_entry(context.tables, descriptor, index)?;
+        let name = parse_lp_name(&entry[..36], context.limits)?;
         if !names.insert(name.clone()) {
             return Err(C03Error::Malformed("duplicate liblp partition name"));
         }
         let attributes = read_le_u32(entry, 36)?;
-        let first_extent = usize::try_from(read_le_u32(entry, 40)?)
-            .map_err(|_| C03Error::AccountingOverflow)?;
-        let count = usize::try_from(read_le_u32(entry, 44)?)
-            .map_err(|_| C03Error::AccountingOverflow)?;
-        let group_index = usize::try_from(read_le_u32(entry, 48)?)
-            .map_err(|_| C03Error::AccountingOverflow)?;
-        if count == 0
+        let first_extent =
+            usize::try_from(read_le_u32(entry, 40)?).map_err(|_| C03Error::AccountingOverflow)?;
+        let extent_count =
+            usize::try_from(read_le_u32(entry, 44)?).map_err(|_| C03Error::AccountingOverflow)?;
+        let group_index =
+            usize::try_from(read_le_u32(entry, 48)?).map_err(|_| C03Error::AccountingOverflow)?;
+        if extent_count == 0
             || first_extent
-                .checked_add(count)
+                .checked_add(extent_count)
                 .is_none_or(|end| end > extents.len())
             || group_index >= groups.len()
         {
-            return Err(C03Error::Malformed("invalid liblp partition extent/group index"));
+            return Err(C03Error::Malformed(
+                "invalid liblp partition extent/group index",
+            ));
         }
-        let owned = extents[first_extent..first_extent + count].to_vec();
+        let owned = extents[first_extent..first_extent + extent_count].to_vec();
         let logical_size = owned.iter().try_fold(0_u64, |total, extent| {
             total
                 .checked_add(
@@ -1985,10 +2279,10 @@ fn parse_super_slot(
             .checked_add(logical_size)
             .ok_or(C03Error::AccountingOverflow)?;
         partitions.push(AndroidDynamicPartition {
-            metadata_slot: slot,
+            metadata_slot: context.slot,
             name,
             attributes,
-            group_name: group_names[group_index].clone(),
+            group_name: groups[group_index].name.clone(),
             extents: owned,
             logical_size,
         });
@@ -1998,13 +2292,7 @@ fn parse_super_slot(
             return Err(C03Error::Malformed("liblp group maximum size exceeded"));
         }
     }
-    Ok(ParsedSuperSlot {
-        serialized_size: u64::try_from(serialized_size).map_err(|_| C03Error::AccountingOverflow)?,
-        extent_count,
-        partitions,
-        groups,
-        block_devices,
-    })
+    Ok(partitions)
 }
 
 fn parse_descriptor(header: &[u8], offset: usize) -> Result<TableDescriptor, C03Error> {
@@ -2028,9 +2316,13 @@ fn validate_table_layout(
                 usize::try_from(descriptor.entry_size).map_err(|_| C03Error::AccountingOverflow)?,
             )
             .ok_or(C03Error::AccountingOverflow)?;
-        let end = start.checked_add(length).ok_or(C03Error::AccountingOverflow)?;
+        let end = start
+            .checked_add(length)
+            .ok_or(C03Error::AccountingOverflow)?;
         if end > tables_size {
-            return Err(C03Error::Malformed("liblp table descriptor exceeds tables block"));
+            return Err(C03Error::Malformed(
+                "liblp table descriptor exceeds tables block",
+            ));
         }
         if length > 0 {
             ranges.push((start, end));
@@ -2045,7 +2337,9 @@ fn validate_table_layout(
         cursor = end;
     }
     if cursor != tables_size {
-        return Err(C03Error::Malformed("liblp table descriptors do not cover tables block"));
+        return Err(C03Error::Malformed(
+            "liblp table descriptors do not cover tables block",
+        ));
     }
     Ok(())
 }
@@ -2163,12 +2457,14 @@ fn push_aligned_component(
     components: &mut Vec<AndroidComponent>,
     kind: AndroidComponentKind,
     name: &str,
-    start: u64,
-    size: u64,
+    range: (u64, u64),
     alignment: u64,
     limits: AndroidLimits,
 ) -> Result<u64, C03Error> {
-    let end = start.checked_add(size).ok_or(C03Error::AccountingOverflow)?;
+    let (start, size) = range;
+    let end = start
+        .checked_add(size)
+        .ok_or(C03Error::AccountingOverflow)?;
     push_component(source, components, kind, name, start, end, limits)?;
     align_up(end, alignment)
 }
@@ -2186,13 +2482,17 @@ fn push_component(
         return Err(C03Error::TooManyComponents);
     }
     if end < start || end > u64::try_from(source.len()).map_err(|_| C03Error::AccountingOverflow)? {
-        return Err(C03Error::Malformed("Android component range exceeds source"));
+        return Err(C03Error::Malformed(
+            "Android component range exceeds source",
+        ));
     }
     let start_usize = usize::try_from(start).map_err(|_| C03Error::AccountingOverflow)?;
     let end_usize = usize::try_from(end).map_err(|_| C03Error::AccountingOverflow)?;
     let bytes = source
         .get(start_usize..end_usize)
-        .ok_or(C03Error::Malformed("Android component range exceeds source"))?;
+        .ok_or(C03Error::Malformed(
+            "Android component range exceeds source",
+        ))?;
     components.push(AndroidComponent {
         kind,
         name: name.to_owned(),
@@ -2286,7 +2586,10 @@ fn validate_limitations(values: &[String], limits: AndroidLimits) -> Result<(), 
 }
 
 fn parse_lp_name(bytes: &[u8], limits: AndroidLimits) -> Result<String, C03Error> {
-    let end = bytes.iter().position(|byte| *byte == 0).unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
     if end == 0 || bytes[end..].iter().any(|byte| *byte != 0) {
         return Err(C03Error::InvalidString);
     }

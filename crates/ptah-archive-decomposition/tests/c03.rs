@@ -62,22 +62,33 @@ fn boot_legacy(version: u32) -> Vec<u8> {
     }
     let mut bytes = vec![0_u8; end.max(page)];
     bytes[..8].copy_from_slice(b"ANDROID!");
-    bytes[8..12].copy_from_slice(&(kernel_size as u32).to_le_bytes());
-    bytes[16..20].copy_from_slice(&(ramdisk_size as u32).to_le_bytes());
-    bytes[24..28].copy_from_slice(&(second_size as u32).to_le_bytes());
-    bytes[36..40].copy_from_slice(&(page as u32).to_le_bytes());
+    bytes[8..12].copy_from_slice(
+        &(u32::try_from(kernel_size).expect("fixture value fits u32")).to_le_bytes(),
+    );
+    bytes[16..20].copy_from_slice(
+        &(u32::try_from(ramdisk_size).expect("fixture value fits u32")).to_le_bytes(),
+    );
+    bytes[24..28].copy_from_slice(
+        &(u32::try_from(second_size).expect("fixture value fits u32")).to_le_bytes(),
+    );
+    bytes[36..40]
+        .copy_from_slice(&(u32::try_from(page).expect("fixture value fits u32")).to_le_bytes());
     bytes[40..44].copy_from_slice(&version.to_le_bytes());
     bytes[kernel_start..kernel_start + kernel_size].fill(0x11);
     bytes[ramdisk_start..ramdisk_start + ramdisk_size].fill(0x22);
     bytes[second_start..second_start + second_size].fill(0x33);
     if version >= 1 {
-        bytes[1632..1636].copy_from_slice(&(recovery_size as u32).to_le_bytes());
+        bytes[1632..1636].copy_from_slice(
+            &(u32::try_from(recovery_size).expect("fixture value fits u32")).to_le_bytes(),
+        );
         bytes[1636..1644].copy_from_slice(&(recovery_offset as u64).to_le_bytes());
         bytes[1644..1648].copy_from_slice(&1648_u32.to_le_bytes());
         bytes[recovery_offset..recovery_offset + recovery_size].fill(0x44);
     }
     if version == 2 {
-        bytes[1648..1652].copy_from_slice(&(dtb_size as u32).to_le_bytes());
+        bytes[1648..1652].copy_from_slice(
+            &(u32::try_from(dtb_size).expect("fixture value fits u32")).to_le_bytes(),
+        );
         bytes[1652..1660].copy_from_slice(&0x8000_0000_u64.to_le_bytes());
         bytes[dtb_start..dtb_start + dtb_size].fill(0x55);
     }
@@ -88,7 +99,11 @@ fn boot_modern(version: u32, init_boot: bool) -> Vec<u8> {
     let page = 4096_usize;
     let kernel_size = if init_boot { 0_usize } else { 64 };
     let ramdisk_size = if init_boot { 64_usize } else { 32 };
-    let signature_size = if version == 4 && !init_boot { 16_usize } else { 0 };
+    let signature_size = if version == 4 && !init_boot {
+        16_usize
+    } else {
+        0
+    };
     let mut cursor = page;
     let kernel_start = cursor;
     if kernel_size > 0 {
@@ -102,13 +117,19 @@ fn boot_modern(version: u32, init_boot: bool) -> Vec<u8> {
     let end = signature_start + signature_size;
     let mut bytes = vec![0_u8; end.max(ramdisk_start + ramdisk_size).max(page)];
     bytes[..8].copy_from_slice(b"ANDROID!");
-    bytes[8..12].copy_from_slice(&(kernel_size as u32).to_le_bytes());
-    bytes[12..16].copy_from_slice(&(ramdisk_size as u32).to_le_bytes());
+    bytes[8..12].copy_from_slice(
+        &(u32::try_from(kernel_size).expect("fixture value fits u32")).to_le_bytes(),
+    );
+    bytes[12..16].copy_from_slice(
+        &(u32::try_from(ramdisk_size).expect("fixture value fits u32")).to_le_bytes(),
+    );
     let header_size = if version == 3 { 1580_u32 } else { 1584_u32 };
     bytes[20..24].copy_from_slice(&header_size.to_le_bytes());
     bytes[40..44].copy_from_slice(&version.to_le_bytes());
     if version == 4 {
-        bytes[1580..1584].copy_from_slice(&(signature_size as u32).to_le_bytes());
+        bytes[1580..1584].copy_from_slice(
+            &(u32::try_from(signature_size).expect("fixture value fits u32")).to_le_bytes(),
+        );
     }
     if kernel_size > 0 {
         bytes[kernel_start..kernel_start + kernel_size].fill(0x61);
@@ -141,17 +162,27 @@ fn vendor_boot(version: u32) -> Vec<u8> {
     let mut bytes = vec![0_u8; end];
     bytes[..8].copy_from_slice(b"VNDRBOOT");
     bytes[8..12].copy_from_slice(&version.to_le_bytes());
-    bytes[12..16].copy_from_slice(&(page as u32).to_le_bytes());
-    bytes[24..28].copy_from_slice(&(ramdisk_size as u32).to_le_bytes());
-    bytes[2096..2100].copy_from_slice(&(header_size as u32).to_le_bytes());
-    bytes[2100..2104].copy_from_slice(&(dtb_size as u32).to_le_bytes());
+    bytes[12..16]
+        .copy_from_slice(&(u32::try_from(page).expect("fixture value fits u32")).to_le_bytes());
+    bytes[24..28].copy_from_slice(
+        &(u32::try_from(ramdisk_size).expect("fixture value fits u32")).to_le_bytes(),
+    );
+    bytes[2096..2100].copy_from_slice(
+        &(u32::try_from(header_size).expect("fixture value fits u32")).to_le_bytes(),
+    );
+    bytes[2100..2104]
+        .copy_from_slice(&(u32::try_from(dtb_size).expect("fixture value fits u32")).to_le_bytes());
     bytes[ramdisk_start..ramdisk_start + ramdisk_size].fill(0x71);
     bytes[dtb_start..dtb_start + dtb_size].fill(0x72);
     if version == 4 {
-        bytes[2112..2116].copy_from_slice(&(table_size as u32).to_le_bytes());
+        bytes[2112..2116].copy_from_slice(
+            &(u32::try_from(table_size).expect("fixture value fits u32")).to_le_bytes(),
+        );
         bytes[2116..2120].copy_from_slice(&1_u32.to_le_bytes());
         bytes[2120..2124].copy_from_slice(&108_u32.to_le_bytes());
-        bytes[2124..2128].copy_from_slice(&(bootconfig_size as u32).to_le_bytes());
+        bytes[2124..2128].copy_from_slice(
+            &(u32::try_from(bootconfig_size).expect("fixture value fits u32")).to_le_bytes(),
+        );
         bytes[table_start..table_start + 4].copy_from_slice(&128_u32.to_le_bytes());
         bytes[table_start + 4..table_start + 8].copy_from_slice(&0_u32.to_le_bytes());
         bytes[table_start + 8..table_start + 12].copy_from_slice(&1_u32.to_le_bytes());
@@ -170,19 +201,28 @@ fn dtbo(version: u32) -> Vec<u8> {
     let mut bytes = vec![0_u8; total];
     for (offset, value) in [
         (0, 0xd7b7_ab1e_u32),
-        (4, total as u32),
+        (4, u32::try_from(total).expect("fixture value fits u32")),
         (8, 32_u32),
-        (12, entry_size as u32),
+        (
+            12,
+            u32::try_from(entry_size).expect("fixture value fits u32"),
+        ),
         (16, 1_u32),
-        (20, entries_offset as u32),
+        (
+            20,
+            u32::try_from(entries_offset).expect("fixture value fits u32"),
+        ),
         (24, 4096_u32),
         (28, version),
     ] {
         bytes[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
     }
-    bytes[entries_offset..entries_offset + 4].copy_from_slice(&(payload_size as u32).to_be_bytes());
-    bytes[entries_offset + 4..entries_offset + 8]
-        .copy_from_slice(&(payload_offset as u32).to_be_bytes());
+    bytes[entries_offset..entries_offset + 4].copy_from_slice(
+        &(u32::try_from(payload_size).expect("fixture value fits u32")).to_be_bytes(),
+    );
+    bytes[entries_offset + 4..entries_offset + 8].copy_from_slice(
+        &(u32::try_from(payload_offset).expect("fixture value fits u32")).to_be_bytes(),
+    );
     bytes[payload_offset..payload_offset + payload_size].fill(0x81);
     bytes
 }
@@ -257,7 +297,9 @@ fn lp_metadata(partition_name: &str) -> Vec<u8> {
     header[4..6].copy_from_slice(&10_u16.to_le_bytes());
     header[6..8].copy_from_slice(&0_u16.to_le_bytes());
     header[8..12].copy_from_slice(&128_u32.to_le_bytes());
-    header[44..48].copy_from_slice(&(tables_size as u32).to_le_bytes());
+    header[44..48].copy_from_slice(
+        &(u32::try_from(tables_size).expect("fixture value fits u32")).to_le_bytes(),
+    );
     header[48..80].copy_from_slice(&sha256_raw(&tables));
 
     for (offset, table_offset, count, entry_size) in [
@@ -280,7 +322,10 @@ fn lp_metadata(partition_name: &str) -> Vec<u8> {
 fn super_image(backup_partition_name: &str) -> Vec<u8> {
     let metadata_max = 4096_usize;
     let mut bytes = vec![0_u8; 128 * SECTOR];
-    let geometry = lp_geometry(metadata_max as u32, 1);
+    let geometry = lp_geometry(
+        u32::try_from(metadata_max).expect("fixture value fits u32"),
+        1,
+    );
     bytes[4096..4096 + 52].copy_from_slice(&geometry);
     bytes[8192..8192 + 52].copy_from_slice(&geometry);
     let primary = lp_metadata("system");
@@ -296,7 +341,9 @@ fn ota_payload(manifest_size: usize, signature_size: usize, data_size: usize) ->
     bytes[..4].copy_from_slice(b"CrAU");
     bytes[4..12].copy_from_slice(&2_u64.to_be_bytes());
     bytes[12..20].copy_from_slice(&(manifest_size as u64).to_be_bytes());
-    bytes[20..24].copy_from_slice(&(signature_size as u32).to_be_bytes());
+    bytes[20..24].copy_from_slice(
+        &(u32::try_from(signature_size).expect("fixture value fits u32")).to_be_bytes(),
+    );
     bytes[24..24 + manifest_size].fill(0xb1);
     bytes[24 + manifest_size..24 + manifest_size + signature_size].fill(0xb2);
     bytes[24 + manifest_size + signature_size..].fill(0xb3);
@@ -367,13 +414,33 @@ fn boot_v0_v1_v2_boundaries_are_exact_and_source_is_immutable() {
         assert_eq!(source, before);
         assert_eq!(report.kind, AndroidArtifactKind::Boot);
         assert_eq!(report.assessment, AndroidAssessment::Complete);
-        assert!(report.components.iter().any(|component| component.name == "boot.kernel"));
-        assert!(report.components.iter().any(|component| component.name == "boot.ramdisk"));
+        assert!(
+            report
+                .components
+                .iter()
+                .any(|component| component.name == "boot.kernel")
+        );
+        assert!(
+            report
+                .components
+                .iter()
+                .any(|component| component.name == "boot.ramdisk")
+        );
         if version >= 1 {
-            assert!(report.components.iter().any(|component| component.name == "boot.recovery_dtbo"));
+            assert!(
+                report
+                    .components
+                    .iter()
+                    .any(|component| component.name == "boot.recovery_dtbo")
+            );
         }
         if version == 2 {
-            assert!(report.components.iter().any(|component| component.name == "boot.dtb"));
+            assert!(
+                report
+                    .components
+                    .iter()
+                    .any(|component| component.name == "boot.dtb")
+            );
         }
     }
 }
@@ -389,8 +456,24 @@ fn boot_v3_v4_use_exact_4096_alignment_and_v4_signature_range() {
         None,
     )
     .expect("v3");
-    assert_eq!(report.components.iter().find(|c| c.name == "boot.kernel").unwrap().byte_start, 4096);
-    assert_eq!(report.components.iter().find(|c| c.name == "boot.ramdisk").unwrap().byte_start, 8192);
+    assert_eq!(
+        report
+            .components
+            .iter()
+            .find(|c| c.name == "boot.kernel")
+            .unwrap()
+            .byte_start,
+        4096
+    );
+    assert_eq!(
+        report
+            .components
+            .iter()
+            .find(|c| c.name == "boot.ramdisk")
+            .unwrap()
+            .byte_start,
+        8192
+    );
 
     let v4 = boot_modern(4, false);
     let report = inspect_android_artifact(
@@ -442,16 +525,23 @@ fn init_boot_requires_v4_ramdisk_only_framing() {
     )
     .expect("init_boot");
     assert_eq!(report.kind, AndroidArtifactKind::InitBoot);
-    assert!(report.components.iter().any(|c| c.name == "init_boot.ramdisk"));
+    assert!(
+        report
+            .components
+            .iter()
+            .any(|c| c.name == "init_boot.ramdisk")
+    );
     let v3 = boot_modern(3, false);
-    assert!(inspect_android_artifact(
-        &v3,
-        &context(),
-        request(AndroidArtifactKind::InitBoot),
-        AndroidLimits::default(),
-        None,
-    )
-    .is_err());
+    assert!(
+        inspect_android_artifact(
+            &v3,
+            &context(),
+            request(AndroidArtifactKind::InitBoot),
+            AndroidLimits::default(),
+            None,
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -466,8 +556,18 @@ fn vendor_boot_v3_boundaries_are_exact() {
     )
     .expect("vendor boot v3");
     assert_eq!(report.assessment, AndroidAssessment::Complete);
-    assert!(report.components.iter().any(|c| c.name == "vendor_boot.ramdisk_section"));
-    assert!(report.components.iter().any(|c| c.name == "vendor_boot.dtb"));
+    assert!(
+        report
+            .components
+            .iter()
+            .any(|c| c.name == "vendor_boot.ramdisk_section")
+    );
+    assert!(
+        report
+            .components
+            .iter()
+            .any(|c| c.name == "vendor_boot.dtb")
+    );
 }
 
 #[test]
@@ -481,9 +581,24 @@ fn vendor_boot_v4_validates_ramdisk_table_fragments_and_bootconfig() {
         None,
     )
     .expect("vendor boot v4");
-    assert!(report.components.iter().any(|c| c.name == "vendor_boot.ramdisk_table"));
-    assert!(report.components.iter().any(|c| c.name == "vendor_boot.ramdisk_fragment.0"));
-    assert!(report.components.iter().any(|c| c.name == "vendor_boot.bootconfig"));
+    assert!(
+        report
+            .components
+            .iter()
+            .any(|c| c.name == "vendor_boot.ramdisk_table")
+    );
+    assert!(
+        report
+            .components
+            .iter()
+            .any(|c| c.name == "vendor_boot.ramdisk_fragment.0")
+    );
+    assert!(
+        report
+            .components
+            .iter()
+            .any(|c| c.name == "vendor_boot.bootconfig")
+    );
 }
 
 #[test]
@@ -507,22 +622,26 @@ fn dtbo_v0_v1_and_v2_entries_are_bounded() {
 fn malformed_or_truncated_dtbo_fails_closed() {
     let mut source = dtbo(1);
     source[4..8].copy_from_slice(&10_000_u32.to_be_bytes());
-    assert!(inspect_android_artifact(
-        &source,
-        &context(),
-        request(AndroidArtifactKind::Dtbo),
-        AndroidLimits::default(),
-        None,
-    )
-    .is_err());
-    assert!(inspect_android_artifact(
-        &dtbo(1)[..20],
-        &context(),
-        request(AndroidArtifactKind::Dtbo),
-        AndroidLimits::default(),
-        None,
-    )
-    .is_err());
+    assert!(
+        inspect_android_artifact(
+            &source,
+            &context(),
+            request(AndroidArtifactKind::Dtbo),
+            AndroidLimits::default(),
+            None,
+        )
+        .is_err()
+    );
+    assert!(
+        inspect_android_artifact(
+            &dtbo(1)[..20],
+            &context(),
+            request(AndroidArtifactKind::Dtbo),
+            AndroidLimits::default(),
+            None,
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -538,23 +657,40 @@ fn vbmeta_ranges_are_exact_but_trust_is_not_established() {
     .expect("vbmeta");
     assert_eq!(report.assessment, AndroidAssessment::Partial);
     assert_eq!(report.trust, AndroidTrustAssessment::NotEstablished);
-    assert!(report.components.iter().any(|c| c.name == "vbmeta.authentication"));
-    assert!(report.components.iter().any(|c| c.name == "vbmeta.descriptors"));
-    assert!(report.limitations.iter().any(|l| l.contains("known-good key")));
+    assert!(
+        report
+            .components
+            .iter()
+            .any(|c| c.name == "vbmeta.authentication")
+    );
+    assert!(
+        report
+            .components
+            .iter()
+            .any(|c| c.name == "vbmeta.descriptors")
+    );
+    assert!(
+        report
+            .limitations
+            .iter()
+            .any(|l| l.contains("known-good key"))
+    );
 }
 
 #[test]
 fn malformed_vbmeta_auxiliary_or_descriptor_bounds_fail_closed() {
     let mut source = vbmeta();
     source[104..112].copy_from_slice(&1000_u64.to_be_bytes());
-    assert!(inspect_android_artifact(
-        &source,
-        &context(),
-        request(AndroidArtifactKind::Vbmeta),
-        AndroidLimits::default(),
-        None,
-    )
-    .is_err());
+    assert!(
+        inspect_android_artifact(
+            &source,
+            &context(),
+            request(AndroidArtifactKind::Vbmeta),
+            AndroidLimits::default(),
+            None,
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -568,7 +704,10 @@ fn valid_super_checksums_and_dynamic_partition_inventory_are_exact() {
         None,
     )
     .expect("super");
-    assert_eq!(report.integrity, AndroidIntegrityAssessment::ChecksumsVerified);
+    assert_eq!(
+        report.integrity,
+        AndroidIntegrityAssessment::ChecksumsVerified
+    );
     assert_eq!(report.assessment, AndroidAssessment::Complete);
     assert_eq!(report.dynamic_partitions.len(), 1);
     assert_eq!(report.dynamic_partitions[0].name, "system");
@@ -590,19 +729,26 @@ fn super_checksum_table_and_extent_corruption_fail_or_reduce_truth() {
     )
     .expect("backup survives");
     assert_eq!(report.assessment, AndroidAssessment::Partial);
-    assert!(report.limitations.iter().any(|l| l.contains("primary copy is invalid")));
+    assert!(
+        report
+            .limitations
+            .iter()
+            .any(|l| l.contains("primary copy is invalid"))
+    );
 
     let mut both_bad = super_image("system");
     both_bad[12288 + 12] ^= 1;
     both_bad[16384 + 12] ^= 1;
-    assert!(inspect_android_artifact(
-        &both_bad,
-        &context(),
-        request(AndroidArtifactKind::Super),
-        AndroidLimits::default(),
-        None,
-    )
-    .is_err());
+    assert!(
+        inspect_android_artifact(
+            &both_bad,
+            &context(),
+            request(AndroidArtifactKind::Super),
+            AndroidLimits::default(),
+            None,
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -627,8 +773,16 @@ fn dynamic_partition_linear_and_zero_extents_materialize_exactly() {
     )
     .expect("partition bytes");
     assert_eq!(materialized.bytes().len(), 6 * 512);
-    assert!(materialized.bytes()[..4 * 512].iter().all(|byte| *byte == 0xa5));
-    assert!(materialized.bytes()[4 * 512..].iter().all(|byte| *byte == 0));
+    assert!(
+        materialized.bytes()[..4 * 512]
+            .iter()
+            .all(|byte| *byte == 0xa5)
+    );
+    assert!(
+        materialized.bytes()[4 * 512..]
+            .iter()
+            .all(|byte| *byte == 0)
+    );
 }
 
 #[test]
@@ -644,7 +798,12 @@ fn super_primary_backup_metadata_disagreement_remains_explicit() {
     .expect("super disagreement");
     assert_eq!(report.assessment, AndroidAssessment::Partial);
     assert_eq!(report.dynamic_partitions[0].name, "system");
-    assert!(report.limitations.iter().any(|l| l.contains("copies disagree")));
+    assert!(
+        report
+            .limitations
+            .iter()
+            .any(|l| l.contains("copies disagree"))
+    );
 }
 
 #[test]
@@ -659,11 +818,26 @@ fn ota_v2_envelope_has_exact_manifest_signature_and_data_ranges() {
     )
     .expect("OTA envelope");
     assert_eq!(report.assessment, AndroidAssessment::Partial);
-    let manifest = report.components.iter().find(|c| c.name == "ota.manifest").unwrap();
+    let manifest = report
+        .components
+        .iter()
+        .find(|c| c.name == "ota.manifest")
+        .unwrap();
     assert_eq!((manifest.byte_start, manifest.byte_end_exclusive), (24, 40));
-    let signature = report.components.iter().find(|c| c.name == "ota.metadata_signature").unwrap();
-    assert_eq!((signature.byte_start, signature.byte_end_exclusive), (40, 48));
-    let data = report.components.iter().find(|c| c.name == "ota.payload_data").unwrap();
+    let signature = report
+        .components
+        .iter()
+        .find(|c| c.name == "ota.metadata_signature")
+        .unwrap();
+    assert_eq!(
+        (signature.byte_start, signature.byte_end_exclusive),
+        (40, 48)
+    );
+    let data = report
+        .components
+        .iter()
+        .find(|c| c.name == "ota.payload_data")
+        .unwrap();
     assert_eq!(data.byte_start, 48);
 }
 
@@ -671,14 +845,16 @@ fn ota_v2_envelope_has_exact_manifest_signature_and_data_ranges() {
 fn malformed_or_oversized_ota_metadata_fails_before_provider() {
     let mut source = ota_payload(16, 8, 64);
     source[12..20].copy_from_slice(&10_000_u64.to_be_bytes());
-    assert!(inspect_android_artifact(
-        &source,
-        &context(),
-        request(AndroidArtifactKind::OtaPayload),
-        AndroidLimits::default(),
-        None,
-    )
-    .is_err());
+    assert!(
+        inspect_android_artifact(
+            &source,
+            &context(),
+            request(AndroidArtifactKind::OtaPayload),
+            AndroidLimits::default(),
+            None,
+        )
+        .is_err()
+    );
 
     let source = ota_payload(16, 8, 64);
     let limits = AndroidLimits {
@@ -718,6 +894,31 @@ fn ota_provider_partition_group_and_data_relationships_are_validated() {
     assert_eq!(manifest.provider_alias, "aosp-update-metadata");
     assert_eq!(manifest.partitions[0].name, "system");
     assert_eq!(manifest.dynamic_groups[0].partition_names, vec!["system"]);
+
+    let mut incomplete_observation = ota_observation();
+    incomplete_observation.complete_claim = false;
+    incomplete_observation.limitations.clear();
+    let incomplete_provider = FixtureOtaProvider {
+        id: "aosp-update-metadata".to_owned(),
+        observation: incomplete_observation,
+        fail: false,
+    };
+    let incomplete = inspect_android_artifact(
+        &source,
+        &context(),
+        request(AndroidArtifactKind::OtaPayload),
+        AndroidLimits::default(),
+        Some(&incomplete_provider),
+    )
+    .expect("incomplete OTA manifest");
+    assert_eq!(incomplete.assessment, AndroidAssessment::Partial);
+    assert!(
+        !incomplete
+            .ota_manifest
+            .expect("manifest")
+            .limitations
+            .is_empty()
+    );
 }
 
 #[test]
@@ -779,7 +980,10 @@ fn a07_component_partition_relationship_views_and_integrity_are_source_bound() {
     .expect("kernel");
     let registration_spec = child.registration_spec(&ctx).expect("registration");
     assert_eq!(registration_spec.object_class, "android.image.component");
-    assert_eq!(registration_spec.source_refs, vec![ctx.source_revision_ref.clone()]);
+    assert_eq!(
+        registration_spec.source_refs,
+        vec![ctx.source_revision_ref.clone()]
+    );
     let registration = Registration {
         content_ref: reference("object.content"),
         object_ref: reference("object.object"),
@@ -790,7 +994,9 @@ fn a07_component_partition_relationship_views_and_integrity_are_source_bound() {
         cas_object_key: child.sha256.clone(),
         content_deduplicated: false,
     };
-    let relationship = child.relationship_spec(&ctx, &registration).expect("relationship");
+    let relationship = child
+        .relationship_spec(&ctx, &registration)
+        .expect("relationship");
     assert_eq!(relationship.relationship_type, "contains.android_child");
     assert_eq!(report.view_specs(&ctx).expect("views").len(), 3);
 
@@ -832,8 +1038,14 @@ fn comparison_and_rebuild_levels_do_not_overclaim_trust_or_bootability() {
         None,
     )
     .expect("exact");
-    assert_eq!(compare_android_artifacts(&original, &exact).level, AndroidComparisonLevel::ByteExact);
-    assert_eq!(assess_android_rebuild(&original, &exact), AndroidRebuildProofLevel::ByteExact);
+    assert_eq!(
+        compare_android_artifacts(&original, &exact).level,
+        AndroidComparisonLevel::ByteExact
+    );
+    assert_eq!(
+        assess_android_rebuild(&original, &exact),
+        AndroidRebuildProofLevel::ByteExact
+    );
 
     let mut padding_changed = original_source.clone();
     padding_changed[2000] ^= 1;
@@ -860,9 +1072,16 @@ fn comparison_and_rebuild_levels_do_not_overclaim_trust_or_bootability() {
         None,
     )
     .expect("kernel change");
+    let structural_comparison = compare_android_artifacts(&original, &structural);
     assert_eq!(
-        compare_android_artifacts(&original, &structural).level,
+        structural_comparison.level,
         AndroidComparisonLevel::Structural
+    );
+    assert!(
+        structural_comparison
+            .differences
+            .iter()
+            .any(|difference| difference == "component_bytes_changed")
     );
     assert_eq!(structural.trust, AndroidTrustAssessment::NotEstablished);
 }

@@ -1,4 +1,4 @@
-name: Temporary diagnose Oracle relay on KRATOS
+name: Temporary Redmi sky Global ROM offline preflight on KRATOS
 
 on:
   push:
@@ -10,46 +10,95 @@ permissions:
   contents: write
 
 jobs:
-  diagnose:
+  preflight:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Read recovery child state
+
+      - name: Inspect Global fastboot archive without extracting it
         shell: bash
         run: |
           set -euo pipefail
-          root="${XDG_STATE_HOME:-$HOME/.local/state}/OracleRelay"
           python3 - <<'PY'
-          import json,os,pathlib,subprocess,socket,datetime
-          root=pathlib.Path(os.environ.get('XDG_STATE_HOME',str(pathlib.Path.home()/'.local/state')))/'OracleRelay'
-          def read(p):
-              try:return json.loads(p.read_text())
-              except Exception as e:return {'missing':not p.exists(),'error':str(e)}
-          def run(args):
-              r=subprocess.run(args,text=True,capture_output=True)
-              return {'rc':r.returncode,'stdout':r.stdout[-10000:],'stderr':r.stderr[-10000:]}
-          out={
-            'schemaVersion':'oracle.recovery.kratos.diagnose.v1',
-            'host':socket.gethostname(),
-            'service':run(['systemctl','--user','show','oracle-recovery-relay.service','-p','ActiveState','-p','SubState','-p','Result','-p','MainPID','--no-pager']),
-            'supervisor':read(root/'recovery-supervisor-status.json'),
-            'relay':read(root/'repo'/'.oracle'/'relay-status.json'),
-            'runtimeGit':run(['git','-C',str(root/'repo'),'status','--porcelain=v1','--untracked-files=all']),
-            'journal':run(['journalctl','--user','-u','oracle-recovery-relay.service','-n','60','--no-pager']),
-            'completedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          import datetime, hashlib, json, os, pathlib, shutil, socket, subprocess
+
+          desktop = pathlib.Path.home() / 'Desktop'
+          expected_name = 'sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
+          expected_md5 = '3334591f858477053b68f4c0e47debf0'
+          candidates = []
+          if desktop.exists():
+              candidates.extend(desktop.rglob(expected_name))
+              if not candidates:
+                  candidates.extend(desktop.rglob('sky_global_images_*.tgz'))
+          archive = candidates[0] if candidates else None
+
+          def digest(path, algo):
+              h = hashlib.new(algo)
+              with path.open('rb') as f:
+                  while True:
+                      chunk = f.read(8 * 1024 * 1024)
+                      if not chunk:
+                          break
+                      h.update(chunk)
+              return h.hexdigest()
+
+          def run(args, timeout=60):
+              try:
+                  p = subprocess.run(args, text=True, capture_output=True, timeout=timeout, check=False)
+                  return {'rc': p.returncode, 'stdout': p.stdout[-30000:], 'stderr': p.stderr[-10000:]}
+              except Exception as e:
+                  return {'rc': -1, 'stdout': '', 'stderr': f'{type(e).__name__}: {e}'}
+
+          tools = {name: shutil.which(name) for name in [
+              'tar','7z','python3','simg2img','img2simg','lpunpack','debugfs','e2fsck',
+              'unsquashfs','brotli','avbtool','payload-dumper-go','file','md5sum','sha256sum'
+          ]}
+          out = {
+              'schema': 'ttg.redmi.sky.global-preflight.v1',
+              'host': socket.gethostname(),
+              'desktop': str(desktop),
+              'expected_name': expected_name,
+              'expected_md5': expected_md5,
+              'archive_found': archive is not None,
+              'archive': None,
+              'tools': tools,
+              'completed_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
           }
-          pathlib.Path('oracle-relay-diagnose.json').write_text(json.dumps(out,indent=2)+'\n')
+          if archive is not None:
+              size = archive.stat().st_size
+              md5 = digest(archive, 'md5')
+              sha256 = digest(archive, 'sha256')
+              listing = run(['bash','-lc', f"set +o pipefail; tar -tzf {shlex_quote(str(archive))} 2>&1 | head -n 260"], timeout=120)
+              out['archive'] = {
+                  'path': str(archive),
+                  'size_bytes': size,
+                  'md5': md5,
+                  'md5_matches_expected': md5.lower() == expected_md5.lower(),
+                  'sha256': sha256,
+                  'listing': listing,
+                  'file_type': run(['file','-b',str(archive)], timeout=20),
+              }
+          pathlib.Path('redmi-sky-global-preflight.json').write_text(json.dumps(out, indent=2) + '\n')
+
+          # Local helper intentionally defined after construction to keep all shell quoting in one place.
           PY
-      - name: Publish diagnosis
+        env:
+          PYTHONUNBUFFERED: '1'
+
+      - name: Publish preflight evidence
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add oracle-relay-diagnose.json
-          git commit -m 'recovery: publish KRATOS Oracle relay diagnosis'
-          for i in 1 2 3 4 5; do git push origin HEAD:main && exit 0; git fetch origin main; git rebase origin/main; done
+          git add redmi-sky-global-preflight.json
+          git commit -m 'proof: publish KRATOS Redmi sky Global ROM preflight'
+          for i in 1 2 3 4 5; do
+            git push origin HEAD:main && exit 0
+            git fetch origin main
+            git rebase origin/main
+          done
           exit 1

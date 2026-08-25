@@ -11,63 +11,13 @@ jobs:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 5
     steps:
-      - name: Inspect Brave Oracle extension state and desktop windows
+      - name: Inspect Brave main process and DevTools endpoints
         shell: bash
         run: |
           set -euo pipefail
-          ext_id='hoahdcllchhncnenbeplgfgmpjihakab'
-          root="$HOME/.config/BraveSoftware/Brave-Browser/Default/Local Extension Settings/$ext_id"
-          echo '=== BRAVE ORACLE STORAGE ==='
-          python3 - "$root" <<'PY'
-          import pathlib,re,sys,json
-          root=pathlib.Path(sys.argv[1])
-          out={'exists':root.exists(),'files':0,'bytes':0,'oracleSettingsMarker':False,'bridgeUrlMarker':False,'bridgeEnabledMarker':None,'oracleEnabledMarker':None,'pairingTokenMarker':False}
-          if root.exists():
-              blobs=[]
-              for p in root.iterdir():
-                  if not p.is_file(): continue
-                  try: b=p.read_bytes()
-                  except Exception: continue
-                  out['files']+=1; out['bytes']+=len(b); blobs.append(b)
-              b=b'\n'.join(blobs)
-              out['oracleSettingsMarker']=b'oracle.settings' in b
-              out['bridgeUrlMarker']=b'ws://127.0.0.1:8765/browser' in b
-              out['pairingTokenMarker']=b'pairingToken' in b
-              for k,label in [(b'bridgeEnabled','bridgeEnabledMarker'),(b'oracleEnabled','oracleEnabledMarker')]:
-                  m=re.search(k+rb'[^\r\n\x00]{0,120}?(true|false)',b,re.I)
-                  if m: out[label]=m.group(1).lower()==b'true'
-          print(json.dumps(out,separators=(',',':')))
-          PY
-
-          echo '=== X11 WINDOW TITLES ==='
-          uid="$(id -u)"; export XDG_RUNTIME_DIR="/run/user/$uid"; export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-          user_env="$(systemctl --user show-environment 2>/dev/null || true)"
-          eval "$(printf '%s\n' "$user_env" | grep -E '^(DISPLAY|XAUTHORITY)=' | sed 's/^/export /' || true)"
-          : "${DISPLAY:=:0}"; export DISPLAY
-          python3 - <<'PY'
-          import ctypes,ctypes.util,json
-          x=ctypes.CDLL(ctypes.util.find_library('X11') or 'libX11.so.6')
-          x.XOpenDisplay.argtypes=[ctypes.c_char_p]; x.XOpenDisplay.restype=ctypes.c_void_p
-          x.XDefaultRootWindow.argtypes=[ctypes.c_void_p]; x.XDefaultRootWindow.restype=ctypes.c_ulong
-          x.XQueryTree.argtypes=[ctypes.c_void_p,ctypes.c_ulong,ctypes.POINTER(ctypes.c_ulong),ctypes.POINTER(ctypes.c_ulong),ctypes.POINTER(ctypes.POINTER(ctypes.c_ulong)),ctypes.POINTER(ctypes.c_uint)]; x.XQueryTree.restype=ctypes.c_int
-          x.XFetchName.argtypes=[ctypes.c_void_p,ctypes.c_ulong,ctypes.POINTER(ctypes.c_char_p)]; x.XFetchName.restype=ctypes.c_int
-          x.XFree.argtypes=[ctypes.c_void_p]
-          d=x.XOpenDisplay(None)
-          if not d: raise SystemExit('NO_X11')
-          root=x.XDefaultRootWindow(d); rr=ctypes.c_ulong(); pr=ctypes.c_ulong(); children=ctypes.POINTER(ctypes.c_ulong)(); n=ctypes.c_uint()
-          out=[]
-          if x.XQueryTree(d,root,ctypes.byref(rr),ctypes.byref(pr),ctypes.byref(children),ctypes.byref(n)):
-              for i in range(n.value):
-                  w=children[i]; name=ctypes.c_char_p()
-                  if x.XFetchName(d,w,ctypes.byref(name)) and name.value:
-                      try: title=name.value.decode(errors='ignore')
-                      except: title=''
-                      if title: out.append({'id':int(w),'title':title})
-                      x.XFree(name)
-              if children: x.XFree(children)
-          print(json.dumps(out[-80:],separators=(',',':')))
-          PY
-
-          echo '=== BRIDGE ==='
-          curl -fsS --max-time 4 http://127.0.0.1:8765/health || true
-          echo
+          echo '=== BRAVE MAIN PROCESS COMMANDS ==='
+          ps -eo pid=,ppid=,args= | grep '/opt/brave.com/brave/brave' | grep -v grep | head -n 80 || true
+          echo '=== DEVTOOLS ACTIVE PORT FILES ==='
+          find "$HOME/.config/BraveSoftware/Brave-Browser" -maxdepth 3 -type f -name DevToolsActivePort -print -exec sed -n '1,4p' {} \; 2>/dev/null || true
+          echo '=== LISTENERS ==='
+          ss -ltnp 2>/dev/null | grep -E ':(9222|9223|5056|8765|[3-9][0-9]{4})\b' | head -n 120 || true

@@ -1,4 +1,4 @@
-name: Temporary Oracle Canonical MCP Production Deploy
+name: Temporary ATHENA Cloudflare D1 Authority Probe
 
 on:
   push:
@@ -11,73 +11,40 @@ permissions:
   contents: read
 
 jobs:
-  deploy-and-prove:
+  d1-authority:
     runs-on: [self-hosted, athena, windows, ptah]
-    timeout-minutes: 20
+    timeout-minutes: 8
     steps:
-      - name: Deploy exact Oracle merge using ATHENA Wrangler OAuth
+      - name: Prove Wrangler account and D1 read authority without exposing credentials
         shell: powershell
-        env:
-          TARGET_REPO: jaydumisuni/Oracle-
-          TARGET_SHA: b8420c076c8dd63bdd684ba8fac022d95e4f0e98
-          ORACLE_URL: https://oracle.thetechguyds.com
         run: |
           $ErrorActionPreference = 'Stop'
-          $tmp = Join-Path $env:TEMP ('oracle-mcp-deploy-' + [guid]::NewGuid().ToString('N'))
+          $oldCI = $env:CI
+          $oldActions = $env:GITHUB_ACTIONS
           try {
-            gh auth status --hostname github.com *> $null
-            if ($LASTEXITCODE -ne 0) { throw 'GH_AUTH_NOT_READY' }
-            gh repo clone $env:TARGET_REPO $tmp -- --no-checkout
-            if ($LASTEXITCODE -ne 0) { throw 'ORACLE_CLONE_FAILED' }
-            Set-Location $tmp
-            git checkout --detach $env:TARGET_SHA
-            if ($LASTEXITCODE -ne 0) { throw 'ORACLE_CHECKOUT_FAILED' }
-            if ((git rev-parse HEAD).Trim() -ne $env:TARGET_SHA) { throw 'ORACLE_SHA_MISMATCH' }
+            Remove-Item Env:CI -ErrorAction SilentlyContinue
+            Remove-Item Env:GITHUB_ACTIONS -ErrorAction SilentlyContinue
 
-            npm ci --no-audit --no-fund
-            if ($LASTEXITCODE -ne 0) { throw 'NPM_CI_FAILED' }
-            npm run check
-            if ($LASTEXITCODE -ne 0) { throw 'ORACLE_CHECK_FAILED' }
+            $who = & npx --yes 'wrangler@4.122.0' whoami 2>&1
+            $whoCode = $LASTEXITCODE
+            Write-Host ('WHOAMI_EXIT=' + $whoCode)
+            if ($whoCode -ne 0) { throw 'WRANGLER_WHOAMI_FAILED' }
 
-            $oldCI = $env:CI
-            $oldActions = $env:GITHUB_ACTIONS
-            try {
-              Remove-Item Env:CI -ErrorAction SilentlyContinue
-              Remove-Item Env:GITHUB_ACTIONS -ErrorAction SilentlyContinue
-              npx --no-install wrangler whoami *> $null
-              if ($LASTEXITCODE -ne 0) { throw 'ATHENA_WRANGLER_AUTHORITY_UNAVAILABLE' }
-              npx --no-install wrangler deploy --config wrangler.jsonc --keep-vars
-              if ($LASTEXITCODE -ne 0) { throw 'WRANGLER_DEPLOY_FAILED' }
-            }
-            finally {
-              if ($null -ne $oldCI) { $env:CI = $oldCI }
-              if ($null -ne $oldActions) { $env:GITHUB_ACTIONS = $oldActions }
+            $list = & npx --yes 'wrangler@4.122.0' d1 list --json 2>&1
+            $listCode = $LASTEXITCODE
+            Write-Host ('D1_LIST_EXIT=' + $listCode)
+            if ($listCode -ne 0) {
+              @($list) | ForEach-Object { [string]$_ } | Where-Object { $_ -notmatch '(?i)token|authorization|bearer' } | Select-Object -Last 30 | Write-Host
+              throw 'WRANGLER_D1_AUTHORITY_FAILED'
             }
 
-            $health = Invoke-RestMethod -Method Get -Uri ($env:ORACLE_URL + '/health?proof=' + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) -TimeoutSec 30
-            if ($health.ok -ne $true -or $health.version -ne '1.0.0-rc.16' -or $health.deploymentRevision -ne 'oracle-account-portal-20260819') { throw 'LIVE_HEALTH_IDENTITY_FAILED' }
-            if ($health.mcpOAuth -ne $true -or $health.oracleAccounts -ne $true -or $health.oracleGoogleLogin -ne $true) { throw 'LIVE_ACCOUNT_MCP_CAPABILITY_FAILED' }
-
-            $protected = Invoke-RestMethod -Method Get -Uri ($env:ORACLE_URL + '/.well-known/oauth-protected-resource') -TimeoutSec 30
-            if ($protected.resource -ne 'https://oracle.thetechguyds.com/mcp') { throw ('MCP_RESOURCE_WRONG ' + $protected.resource) }
-            if (@($protected.authorization_servers) -notcontains 'https://oracle.thetechguyds.com') { throw 'MCP_AUTHORITY_WRONG' }
-            if ([string]$protected.resource_documentation -notlike 'https://oracle.thetechguyds.com/*') { throw 'MCP_DOCS_ORIGIN_WRONG' }
-
-            $google = Invoke-RestMethod -Method Get -Uri ($env:ORACLE_URL + '/api/account/google/status') -TimeoutSec 30
-            if ($google.ok -ne $true -or $google.configured -ne $true) { throw 'GOOGLE_STATUS_NOT_CONFIGURED' }
-
-            $root = (Invoke-WebRequest -UseBasicParsing -Uri ($env:ORACLE_URL + '/account?proof=' + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) -TimeoutSec 30).Content
-            if ($root -notmatch 'Continue with Google') { throw 'GOOGLE_FIRST_UI_MISSING' }
-            if ($root -match 'type="password"|Create free account|Oracle MCP connection key') { throw 'LEGACY_ACCOUNT_UI_PRESENT' }
-
-            $mcp = Invoke-WebRequest -UseBasicParsing -Method Post -Uri ($env:ORACLE_URL + '/mcp') -Headers @{ 'MCP-Protocol-Version'='2025-06-18'; Accept='application/json, text/event-stream' } -ContentType 'application/json' -Body '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"oracle-production-proof","version":"1"}}}' -SkipHttpErrorCheck -TimeoutSec 30
-            if ($mcp.StatusCode -ne 401) { throw ('MCP_UNAUTH_EXPECTED_401 got=' + $mcp.StatusCode) }
-            $challenge = [string]$mcp.Headers['WWW-Authenticate']
-            if ($challenge -notmatch 'https://oracle\.thetechguyds\.com/\.well-known/oauth-protected-resource') { throw 'MCP_CHALLENGE_ORIGIN_WRONG' }
-
-            Write-Host ('ORACLE_CANONICAL_MCP_PRODUCTION=PASS SHA=' + $env:TARGET_SHA)
+            $json = (@($list) -join "`n") | ConvertFrom-Json
+            $db = @($json) | Where-Object { $_.name -eq 'oracle-accounts' -or $_.uuid -eq '28224b01-26b3-485e-84f5-1bc31b162752' } | Select-Object -First 1
+            if (-not $db) { throw 'ORACLE_D1_DATABASE_NOT_VISIBLE' }
+            Write-Host ('D1_DATABASE_VISIBLE=PASS name=' + $db.name + ' uuid=' + $db.uuid)
+            Write-Host 'ATHENA_CLOUDFLARE_D1_AUTHORITY=PASS'
           }
           finally {
-            Set-Location $env:USERPROFILE
-            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+            if ($null -ne $oldCI) { $env:CI = $oldCI }
+            if ($null -ne $oldActions) { $env:GITHUB_ACTIONS = $oldActions }
           }

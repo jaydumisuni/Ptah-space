@@ -26,15 +26,15 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Correct source-bound fixture contexts
+      - name: Apply reviewed C04 Build corrections
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path('crates/ptah-archive-decomposition/tests/c04.rs')
-          text = path.read_text(encoding='utf-8')
+          tests_path = Path('crates/ptah-archive-decomposition/tests/c04.rs')
+          text = tests_path.read_text(encoding='utf-8')
 
           start = text.index('fn standalone_im4p_exposes_exact_payload_range() {')
           end = text.index('\n#[test]', start)
@@ -72,7 +72,53 @@ jobs:
           assert old in segment
           segment = segment.replace(old, new, 1).replace('&context()', '&ctx')
           text = text[:start] + segment + text[end:]
-          path.write_text(text, encoding='utf-8')
+          tests_path.write_text(text, encoding='utf-8')
+
+          source_path = Path('crates/ptah-archive-decomposition/src/c04.rs')
+          source = source_path.read_text(encoding='utf-8')
+
+          old_call = '''    build_archive_report(
+        context,
+        kind,
+        source,
+        source_sha256,
+        limits,
+        provider.provider_id(),
+        observation,
+        manifest_provider,
+        role,
+    )
+'''
+          new_call = '''    build_archive_report_inner(ArchiveReportInput {
+        context,
+        kind,
+        source,
+        source_sha256,
+        limits,
+        provider_id: provider.provider_id(),
+        observation,
+        manifest_provider,
+        role,
+    })
+'''
+          assert source.count(old_call) == 1, source.count(old_call)
+          source = source.replace(old_call, new_call, 1)
+
+          wrapper_start = source.index('fn build_archive_report(\n')
+          inner_start = source.index('fn build_archive_report_inner(', wrapper_start)
+          source = source[:wrapper_start] + source[inner_start:]
+
+          assert source.count('let (_, wrapped) = parse_constructed(') == 1
+          source = source.replace(
+              'let (_, wrapped) = parse_constructed(',
+              'let (_, wrapped_children) = parse_constructed(',
+              1,
+          )
+          source = source.replace('if wrapped.len() != 1 || wrapped[0].tag != DER_SEQUENCE {',
+                                  'if wrapped_children.len() != 1 || wrapped_children[0].tag != DER_SEQUENCE {',
+                                  1)
+          source = source.replace('let child = wrapped[0];', 'let child = wrapped_children[0];', 1)
+          source_path.write_text(source, encoding='utf-8')
           PY
 
       - name: Prove C04 build surface

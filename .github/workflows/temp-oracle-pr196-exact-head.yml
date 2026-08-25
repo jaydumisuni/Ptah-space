@@ -1,4 +1,4 @@
-name: Temporary Oracle ATHENA Wrangler Authority Probe
+name: Temporary Oracle Canonical MCP Release Identity Proof
 
 on:
   push:
@@ -11,38 +11,50 @@ permissions:
   contents: read
 
 jobs:
-  athena-wrangler-authority:
-    runs-on: [self-hosted, athena, windows, ptah]
-    timeout-minutes: 5
+  patch-and-prove:
+    runs-on: [self-hosted, kratos, ptah]
+    timeout-minutes: 15
     steps:
-      - name: Prove existing ATHENA Wrangler OAuth authority without exposing credentials
-        shell: powershell
+      - name: Patch exact Oracle release identity and prove source
+        shell: bash
+        env:
+          TARGET_REPO: jaydumisuni/Oracle-
+          TARGET_BRANCH: fix/oracle-account-release-identity-20260825
         run: |
-          $ErrorActionPreference = 'Stop'
-          if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'NODE_NOT_AVAILABLE' }
-          if (-not (Get-Command npx -ErrorAction SilentlyContinue)) { throw 'NPX_NOT_AVAILABLE' }
-          $legacy = Join-Path $env:USERPROFILE '.wrangler\config\default.toml'
-          $modern = Join-Path $env:USERPROFILE '.wrangler'
-          Write-Host ('WRANGLER_HOME_EXISTS=' + (Test-Path -LiteralPath $modern))
-          Write-Host ('WRANGLER_LEGACY_CONFIG_EXISTS=' + (Test-Path -LiteralPath $legacy))
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
 
-          $oldCI = $env:CI
-          $oldActions = $env:GITHUB_ACTIONS
-          try {
-            Remove-Item Env:CI -ErrorAction SilentlyContinue
-            Remove-Item Env:GITHUB_ACTIONS -ErrorAction SilentlyContinue
-            $output = & npx --yes 'wrangler@4.122.0' whoami 2>&1
-            $code = $LASTEXITCODE
-          }
-          finally {
-            if ($null -ne $oldCI) { $env:CI = $oldCI }
-            if ($null -ne $oldActions) { $env:GITHUB_ACTIONS = $oldActions }
-          }
-          if ($code -ne 0) {
-            $safe = @($output) | ForEach-Object { [string]$_ } | Where-Object { $_ -notmatch '(?i)token|authorization|bearer' }
-            $safe | Select-Object -Last 30 | Write-Host
-            throw ('ATHENA_WRANGLER_AUTHORITY_UNAVAILABLE exit=' + $code)
-          }
-          $text = (@($output) -join "`n")
-          if ($text -notmatch '(?i)account|email|logged') { Write-Host 'WRANGLER_WHOAMI_COMPLETED_WITHOUT_IDENTITY_TEXT' }
-          Write-Host 'ATHENA_WRANGLER_AUTHORITY=PASS VERSION=4.122.0'
+          gh auth status --hostname github.com >/dev/null
+          gh repo clone "$TARGET_REPO" "$tmp/oracle" -- --branch "$TARGET_BRANCH" --single-branch
+          cd "$tmp/oracle"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/index.ts')
+          s = p.read_text()
+          old_v = 'const VERSION = "1.0.0-rc.15";'
+          new_v = 'const VERSION = "1.0.0-rc.16";'
+          old_r = 'const DEPLOYMENT_REVISION = "live-oidc-control-20260814";'
+          new_r = 'const DEPLOYMENT_REVISION = "oracle-account-portal-20260819";'
+          if s.count(old_v) != 1 or s.count(old_r) != 1:
+              raise SystemExit('RELEASE_IDENTITY_SOURCE_DRIFT')
+          s = s.replace(old_v, new_v).replace(old_r, new_r)
+          p.write_text(s)
+          PY
+
+          git diff -- src/index.ts tests/oracle-account-release-contract.test.ts
+          git diff --check
+
+          npm ci --no-audit --no-fund
+          npx vitest run tests/oracle-account-release-contract.test.ts tests/mcp-oauth.test.ts tests/mcp.test.ts
+          npm run check
+
+          git config user.name "THE TECH GUY"
+          git config user.email "65334711+jaydumisuni@users.noreply.github.com"
+          git add src/index.ts tests/oracle-account-release-contract.test.ts
+          git diff --cached --check
+          git commit -m "fix: align Oracle account release identity" || true
+          git push origin HEAD:"$TARGET_BRANCH"
+
+          echo "ORACLE_IDENTITY_PROOF=PASS HEAD=$(git rev-parse HEAD)"

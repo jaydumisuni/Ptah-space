@@ -1,4 +1,4 @@
-name: Temporary Oracle Canonical MCP Release Identity Proof
+name: Temporary Oracle Release Identity Exact-Head Proof
 
 on:
   push:
@@ -11,50 +11,37 @@ permissions:
   contents: read
 
 jobs:
-  patch-and-prove:
+  exact-head-proof:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 15
     steps:
-      - name: Patch exact Oracle release identity and prove source
+      - name: Prove exact Oracle candidate
         shell: bash
         env:
           TARGET_REPO: jaydumisuni/Oracle-
-          TARGET_BRANCH: fix/oracle-account-release-identity-20260825
+          TARGET_SHA: 7df1c72f62c202cc8420fbba61db86da659c17d5
+          BASE_SHA: ba386b7d99e7619425787958bddf2d05fda5ecc5
         run: |
           set -euo pipefail
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
 
           gh auth status --hostname github.com >/dev/null
-          gh repo clone "$TARGET_REPO" "$tmp/oracle" -- --branch "$TARGET_BRANCH" --single-branch
+          gh repo clone "$TARGET_REPO" "$tmp/oracle"
           cd "$tmp/oracle"
+          git checkout --detach "$TARGET_SHA"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
 
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('src/index.ts')
-          s = p.read_text()
-          old_v = 'const VERSION = "1.0.0-rc.15";'
-          new_v = 'const VERSION = "1.0.0-rc.16";'
-          old_r = 'const DEPLOYMENT_REVISION = "live-oidc-control-20260814";'
-          new_r = 'const DEPLOYMENT_REVISION = "oracle-account-portal-20260819";'
-          if s.count(old_v) != 1 or s.count(old_r) != 1:
-              raise SystemExit('RELEASE_IDENTITY_SOURCE_DRIFT')
-          s = s.replace(old_v, new_v).replace(old_r, new_r)
-          p.write_text(s)
-          PY
+          changed="$(git diff --name-only "$BASE_SHA" "$TARGET_SHA" | sort)"
+          expected=$'src/index.ts\ntests/oracle-account-release-contract.test.ts'
+          test "$changed" = "$expected"
+          git diff --check "$BASE_SHA" "$TARGET_SHA"
 
-          git diff -- src/index.ts tests/oracle-account-release-contract.test.ts
-          git diff --check
+          grep -Fq 'const VERSION = "1.0.0-rc.16";' src/index.ts
+          grep -Fq 'const DEPLOYMENT_REVISION = "oracle-account-portal-20260819";' src/index.ts
 
           npm ci --no-audit --no-fund
           npx vitest run tests/oracle-account-release-contract.test.ts tests/mcp-oauth.test.ts tests/mcp.test.ts
           npm run check
 
-          git config user.name "THE TECH GUY"
-          git config user.email "65334711+jaydumisuni@users.noreply.github.com"
-          git add src/index.ts tests/oracle-account-release-contract.test.ts
-          git diff --cached --check
-          git commit -m "fix: align Oracle account release identity" || true
-          git push origin HEAD:"$TARGET_BRANCH"
-
-          echo "ORACLE_IDENTITY_PROOF=PASS HEAD=$(git rev-parse HEAD)"
+          echo "ORACLE_RELEASE_IDENTITY_EXACT_HEAD_PROOF=PASS SHA=$TARGET_SHA"

@@ -11,47 +11,57 @@ jobs:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 5
     steps:
-      - name: Inspect existing browser and Oracle bridge
+      - name: Reopen existing signed-in Chrome profile and prove Oracle bridge
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== HOST ==='
-          hostname
-          whoami
-          echo '=== BROWSER PROCESSES ==='
-          ps -eo pid=,args= | grep -Ei 'google-chrome|chromium' | grep -v grep || true
-          echo '=== DISPLAY ENV FROM BROWSER ==='
-          pid="$(pgrep -n -f 'google-chrome|chromium' || true)"
-          if [ -n "$pid" ] && [ -r "/proc/$pid/environ" ]; then
-            tr '\0' '\n' < "/proc/$pid/environ" | grep -E '^(DISPLAY|XAUTHORITY|WAYLAND_DISPLAY|DBUS_SESSION_BUS_ADDRESS)=' || true
+          uid="$(id -u)"
+          export XDG_RUNTIME_DIR="/run/user/$uid"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+
+          echo '=== LOGIN SESSIONS ==='
+          loginctl list-sessions --no-legend || true
+          loginctl show-user "$USER" -p State -p Display -p Sessions || true
+
+          echo '=== USER MANAGER ENV ==='
+          user_env="$(systemctl --user show-environment 2>/dev/null || true)"
+          printf '%s\n' "$user_env" | grep -E '^(DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|DBUS_SESSION_BUS_ADDRESS)=' || true
+          eval "$(printf '%s\n' "$user_env" | grep -E '^(DISPLAY|WAYLAND_DISPLAY|XAUTHORITY)=' | sed 's/^/export /' || true)"
+
+          if [ -z "${DISPLAY:-}" ]; then
+            x="$(find /tmp/.X11-unix -maxdepth 1 -type s -name 'X*' -printf '%f\n' 2>/dev/null | sort | head -n1 || true)"
+            if [ -n "$x" ]; then export DISPLAY=":${x#X}"; fi
           fi
-          echo '=== ORACLE BRIDGE ==='
+          echo "DISPLAY=${DISPLAY:-} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}"
+
+          echo '=== PRE-LAUNCH ==='
+          pgrep -af 'google-chrome|chromium' || true
           curl -fsS --max-time 5 http://127.0.0.1:8765/health || true
           echo
-          echo '=== NATIVE HOST MANIFESTS ==='
-          find "$HOME/.config/google-chrome" "$HOME/.config/chromium" /etc/opt/chrome /etc/chromium 2>/dev/null -type f -name 'com.thetechguy.oracle.json' -print -exec sed -n '1,120p' {} \; || true
-          echo '=== CHROME PROFILES / EXTENSIONS ==='
-          python3 - <<'PY'
-          import json, pathlib
-          home=pathlib.Path.home()
-          for root in [home/'.config/google-chrome', home/'.config/chromium']:
-              if not root.exists():
-                  continue
-              print('ROOT', root)
-              for p in root.iterdir():
-                  pref=p/'Preferences'
-                  if not pref.is_file():
-                      continue
-                  print('PROFILE', p.name)
-                  try:
-                      data=json.loads(pref.read_text(errors='ignore'))
-                  except Exception as e:
-                      print('PREF_ERROR', type(e).__name__)
-                      continue
-                  settings=((data.get('extensions') or {}).get('settings') or {})
-                  for ext_id, cfg in settings.items():
-                      path=str(cfg.get('path') or '')
-                      state=cfg.get('state')
-                      if 'oracle' in path.lower() or path or state:
-                          print('EXT', ext_id, 'state=', state, 'path=', path, 'from_webstore=', cfg.get('from_webstore'))
-          PY
+
+          chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          test -n "$chrome"
+          echo "CHROME=$chrome"
+
+          if ! pgrep -f 'google-chrome|chromium' >/dev/null; then
+            nohup "$chrome" --profile-directory=Default --new-window 'https://chatgpt.com/' >"$RUNNER_TEMP/kratos-chatgpt-chrome.log" 2>&1 </dev/null &
+          else
+            "$chrome" --profile-directory=Default --new-tab 'https://chatgpt.com/' >/dev/null 2>&1 || true
+          fi
+
+          for i in $(seq 1 30); do
+            sleep 1
+            if curl -fsS --max-time 2 http://127.0.0.1:8765/health >"$RUNNER_TEMP/bridge-health.json" 2>/dev/null; then
+              if python3 -c "import json; d=json.load(open('$RUNNER_TEMP/bridge-health.json')); raise SystemExit(0 if d.get('browserConnected') else 1)"; then
+                break
+              fi
+            fi
+          done
+
+          echo '=== POST-LAUNCH PROCESSES ==='
+          pgrep -af 'google-chrome|chromium' || true
+          echo '=== CHROME LOG ==='
+          sed -n '1,120p' "$RUNNER_TEMP/kratos-chatgpt-chrome.log" 2>/dev/null || true
+          echo '=== BRIDGE HEALTH ==='
+          cat "$RUNNER_TEMP/bridge-health.json" 2>/dev/null || curl -fsS --max-time 5 http://127.0.0.1:8765/health || true
+          echo

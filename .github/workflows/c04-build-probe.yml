@@ -26,6 +26,55 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
+      - name: Correct source-bound fixture contexts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('crates/ptah-archive-decomposition/tests/c04.rs')
+          text = path.read_text(encoding='utf-8')
+
+          start = text.index('fn standalone_im4p_exposes_exact_payload_range() {')
+          end = text.index('\n#[test]', start)
+          segment = text[start:end]
+          segment = segment.replace(
+              '    let source = im4p(b"exact-payload");\n',
+              '    let source = im4p(b"exact-payload");\n    let ctx = context();\n',
+              1,
+          ).replace('&context()', '&ctx')
+          text = text[:start] + segment + text[end:]
+
+          start = text.index('fn exact_child_and_archive_materialization_are_source_bound() {')
+          end = text.index('\n#[test]', start)
+          segment = text[start:end]
+          segment = segment.replace(
+              '    let source = zip_source();\n',
+              '    let source = zip_source();\n    let ctx = context();\n',
+              1,
+          )
+          old = (
+              '    let report = inspect_archive(AppleArchiveRole::Ipsw, Some(&archive), None)\n'
+              '        .expect("archive report");'
+          )
+          new = (
+              '    let report = inspect_apple_firmware(\n'
+              '        &source,\n'
+              '        &ctx,\n'
+              '        archive_request(AppleArchiveRole::Ipsw),\n'
+              '        AppleFirmwareLimits::default(),\n'
+              '        Some(&archive),\n'
+              '        None,\n'
+              '    )\n'
+              '    .expect("archive report");'
+          )
+          assert old in segment
+          segment = segment.replace(old, new, 1).replace('&context()', '&ctx')
+          text = text[:start] + segment + text[end:]
+          path.write_text(text, encoding='utf-8')
+          PY
+
       - name: Prove C04 build surface
         shell: bash
         run: |
@@ -53,8 +102,5 @@ jobs:
             crates/ptah-archive-decomposition/src/c04.rs \
             crates/ptah-archive-decomposition/tests/c04.rs \
             .github/workflows/c04-build-probe.yml
-          if git diff --cached --quiet; then
-            exit 0
-          fi
           git commit -m 'C04 build: prove Apple firmware core and corpus'
           git push origin HEAD:c04-apple-ipsw-ota-img4-pack

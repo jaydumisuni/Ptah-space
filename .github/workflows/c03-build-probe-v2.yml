@@ -1,0 +1,97 @@
+name: C03 in-memory refactor proof
+
+on:
+  push:
+    branches:
+      - c03-generic-android-image-ota-pack
+    paths:
+      - ".github/workflows/c03-build-probe-v2.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  prove-refactor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: c03-generic-android-image-ota-pack
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Execute reviewed refactor with whitespace-agnostic test rewrite
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          python3 - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          carrier = Path('.github/workflows/c03-build-probe.yml').read_text(encoding='utf-8')
+          begin_marker = "          python3 - <<'PY'\n"
+          end_marker = "\n          PY\n\n          cargo fmt --all"
+          start = carrier.index(begin_marker) + len(begin_marker)
+          end = carrier.index(end_marker, start)
+          script = dedent(carrier[start:end])
+
+          tests_start = script.index("tests_path = Path('crates/ptah-archive-decomposition/tests/c03.rs')")
+          old_start = script.index("old = '''    assert_eq!(", tests_start)
+          marker_start = script.index("marker = '    assert_eq!(manifest.dynamic_groups", old_start)
+          replacement = "".join([
+              "import re\n",
+              "pattern = (\n",
+              "    r'\\s*assert_eq!\\(\\s*'\n",
+              "    r'compare_android_artifacts\\(&original, &structural\\)\\.level,\\s*'\n",
+              "    r'AndroidComparisonLevel::Structural\\s*'\n",
+              "    r'\\);'\n",
+              ")\n",
+              "replacement = (\n",
+              "    '\\n    let structural_comparison = compare_android_artifacts(&original, &structural);\\n'\n",
+              "    '    assert_eq!(structural_comparison.level, AndroidComparisonLevel::Structural);\\n'\n",
+              "    '    assert!(\\n'\n",
+              "    '        structural_comparison\\n'\n",
+              "    '            .differences\\n'\n",
+              "    '            .iter()\\n'\n",
+              "    '            .any(|difference| difference == \\\"component_bytes_changed\\\")\\n'\n",
+              "    '    );'\n",
+              ")\n",
+              "tests, replaced = re.subn(pattern, replacement, tests, count=1)\n",
+              "assert replaced == 1, replaced\n\n",
+          ])
+          script = script[:old_start] + replacement + script[marker_start:]
+          exec(compile(script, '<c03-refactor>', 'exec'), {})
+          PY
+
+          cargo fmt --all
+          cargo test -p ptah-archive-decomposition --test c03 --locked -- --nocapture \
+            2>&1 | tee /tmp/c03-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c03-tests.txt
+          cargo clippy -p ptah-archive-decomposition --lib --test c03 --locked -- -D warnings \
+            2>&1 | tee /tmp/c03-clippy.txt
+          git diff --check
+
+      - name: Commit proven refactor and remove all carriers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/c03-build-probe.yml \
+                 .github/workflows/c03-probe-anchor-fix.yml \
+                 .github/workflows/c03-build-probe-v2.yml
+          git add crates/ptah-archive-decomposition/src/c03.rs \
+                  crates/ptah-archive-decomposition/tests/c03.rs
+          changed="$(git diff --cached --name-only | sort)"
+          allowed="$(printf '%s\n' \
+            .github/workflows/c03-build-probe-v2.yml \
+            .github/workflows/c03-build-probe.yml \
+            .github/workflows/c03-probe-anchor-fix.yml \
+            crates/ptah-archive-decomposition/src/c03.rs \
+            crates/ptah-archive-decomposition/tests/c03.rs | sort)"
+          test "$changed" = "$allowed"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "C03 build: harden parser boundaries and OTA completeness"
+          git push origin HEAD:c03-generic-android-image-ota-pack

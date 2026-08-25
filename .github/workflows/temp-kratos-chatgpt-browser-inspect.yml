@@ -1,6 +1,6 @@
-name: TEMP KRATOS Redmi sky CN active-region mapping
+name: TEMP KRATOS Redmi sky CN cust/GMS chain mapping
 
-# activation: v2
+# activation: v3
 on:
   push:
     branches: [main]
@@ -15,7 +15,7 @@ jobs:
     runs-on: [self-hosted, kratos, linux, x64, physical, ptah]
     timeout-minutes: 10
     steps:
-      - name: Map active regional consumers read-only
+      - name: Trace cust boot chain and built-in GMS hooks read-only
         shell: bash
         run: |
           set -euo pipefail
@@ -30,28 +30,28 @@ jobs:
           echo '=== HOST ROUTES BEFORE ==='
           ip route show default || true
 
-          echo '=== LOCALE / REGION ==='
-          "$ADB" shell 'for k in persist.sys.locale ro.product.locale ro.product.locale.language ro.product.locale.region ro.miui.region ro.miui.cust_variant ro.product.mod_device ro.build.product; do printf "%s=" "$k"; getprop "$k"; done; printf "system_locales="; settings get system system_locales 2>/dev/null; printf "user_setup_complete="; settings get secure user_setup_complete 2>/dev/null'
+          echo '=== CUST / OPCUST BOOT SCRIPTS ==='
+          "$ADB" shell 'for p in /system_ext/etc/init/init.miui.cust.rc /product/etc/init/init.miui.opconfig.rc /vendor/etc/opcust_exist.sh; do if [ -f "$p" ]; then echo "--- $p"; cat "$p" 2>/dev/null | head -n 260; fi; done'
 
-          echo '=== SEARCH / ASSISTANT DEFAULTS ==='
-          "$ADB" shell 'printf "assistant="; settings get secure assistant 2>/dev/null; printf "voice_interaction_service="; settings get secure voice_interaction_service 2>/dev/null; printf "search_global_search_activity="; settings get secure search_global_search_activity 2>/dev/null; echo "-- GLOBAL_SEARCH"; cmd package query-activities -a android.search.action.GLOBAL_SEARCH --brief 2>/dev/null | head -n 40; echo "-- WEB_SEARCH"; cmd package query-activities -a android.intent.action.WEB_SEARCH --brief 2>/dev/null | head -n 40; echo "-- ASSIST"; cmd package query-activities -a android.intent.action.ASSIST --brief 2>/dev/null | head -n 40'
+          echo '=== CUST / REGION PROPERTIES ALL ==='
+          "$ADB" shell 'getprop | grep -Ei "cust|region|operator|carrier|opconfig|gms|google|locale|mod_device" | head -n 260 || true'
 
-          echo '=== RELEVANT PACKAGE PATHS ==='
-          "$ADB" shell 'for p in com.android.quicksearchbox com.xiaomi.market com.miui.voiceassist com.miui.miservice com.google.android.gms com.google.android.gsf com.android.vending com.google.android.configupdater com.google.android.ext.shared; do echo "-- $p"; pm path "$p" 2>/dev/null || true; pm list packages -s "$p" 2>/dev/null || true; done'
+          echo '=== GMS CN PRIVILEGED PERMISSION DECLARATIONS ==='
+          "$ADB" shell 'p=/system_ext/etc/permissions/privapp-permissions-gms-cn-system-ext.xml; if [ -f "$p" ]; then cat "$p" 2>/dev/null | head -n 320; fi'
 
-          echo '=== ACTIVE OVERLAYS FILTERED ==='
-          "$ADB" shell 'cmd overlay list --user 0 2>/dev/null | grep -Ei "miui|xiaomi|region|cn|china|google|gms|search|market|locale|telecom" | head -n 220 || true'
+          echo '=== ALL INSTALLED / KNOWN GOOGLE-NAMESPACE PACKAGES ==='
+          "$ADB" shell 'pm list packages -f 2>/dev/null | grep -E "package:.*(com\.google\.|com\.android\.vending)" | sort | head -n 260 || true'
 
-          echo '=== REGION-RELEVANT CONFIG FILENAMES OUTSIDE /cust ==='
-          "$ADB" shell 'for root in /product/etc /system_ext/etc /vendor/etc /odm/etc; do [ -d "$root" ] || continue; echo "-- $root"; find "$root" -maxdepth 3 -type f 2>/dev/null | grep -Ei "google|gms|region|cust|china|/cn[._/-]|miui|xiaomi|preload|overlay|search|market" | sort | head -n 180; done'
+          echo '=== GOOGLE-RELATED SYSTEM PACKAGE PATHS FROM PACKAGE MANAGER ==='
+          "$ADB" shell 'pm list packages -s -f 2>/dev/null | grep -Ei "google|gms|vending|phonesky" | sort | head -n 260 || true'
 
-          echo '=== GOOGLE / GMS TEXT REFERENCES IN SMALL CONFIGS ==='
-          "$ADB" shell 'for root in /product/etc/permissions /product/etc/sysconfig /system_ext/etc/permissions /system_ext/etc/sysconfig; do [ -d "$root" ] || continue; find "$root" -maxdepth 2 -type f -size -262144c 2>/dev/null | sort | while IFS= read -r p; do m=$(grep -a -i -E "com\.google|google\.android|gms|phonesky|vending" "$p" 2>/dev/null | head -n 8); if [ -n "$m" ]; then echo "--- $p"; printf "%s\n" "$m"; fi; done; done'
+          echo '=== GMS OVERLAYS WITH STATUS ==='
+          "$ADB" shell 'cmd overlay list --user 0 2>/dev/null | grep -Ei "gms|google" | head -n 220 || true'
 
-          echo '=== CN SKU SIGNED PRELOAD MANIFEST SUMMARY ==='
-          "$ADB" shell 'p=/cust/cust/cn_chinatelecom/sign_customized_applist; if [ -f "$p" ]; then printf "line_count="; wc -l < "$p"; printf "byte_count="; wc -c < "$p"; cut -d" " -f1 "$p" | head -n 80; fi'
+          echo '=== REGION/CUST INIT REFERENCES ACROSS SMALL RC/SH FILES ==='
+          "$ADB" shell 'for root in /system_ext/etc/init /product/etc/init /vendor/etc; do [ -d "$root" ] || continue; find "$root" -maxdepth 2 -type f \( -name "*.rc" -o -name "*.sh" \) -size -262144c 2>/dev/null | sort | while IFS= read -r p; do m=$(grep -a -i -E "cust_variant|miui\.region|/cust|opcust|operator|ro\.product\.locale|gms|google" "$p" 2>/dev/null | head -n 18); if [ -n "$m" ]; then echo "--- $p"; printf "%s\n" "$m"; fi; done; done'
 
           echo '=== POST-PROBE ==='
           "$ADB" get-state
           ip route show default || true
-          echo 'TTG_REDMI_CN_ACTIVE_REGION_MAP=PASS'
+          echo 'TTG_REDMI_CN_CUST_GMS_CHAIN=PASS'

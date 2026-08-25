@@ -1,4 +1,4 @@
-name: Temporary Redmi sky Global ROM exact-path preflight on KRATOS
+name: Temporary Redmi sky Global ROM opaque-file preflight on KRATOS
 
 on:
   push:
@@ -12,55 +12,45 @@ permissions:
 jobs:
   preflight:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
-      - name: Verify and inspect exact ROM path without extraction
+      - name: Verify opaque transferred ROM payload read-only
         shell: bash
         run: |
           set -euo pipefail
-          target='/home/kratos/Desktop/redmi r12'
+          payload='/home/kratos/Desktop/redmi r12/BIT85A4.tmp'
           expected_md5='3334591f858477053b68f4c0e47debf0'
 
-          echo '=== TARGET ==='
-          test -d "$target"
-          printf 'path=%s\n' "$target"
+          test -f "$payload"
+          echo '=== PAYLOAD ==='
+          printf 'path=%s\n' "$payload"
+          stat --printf='size_bytes=%s\nmtime=%y\n' "$payload"
+          file -b "$payload"
+          printf 'magic_hex='
+          od -An -tx1 -N32 "$payload" | tr -d ' \n'
+          echo
 
-          echo '=== FILE INVENTORY ==='
-          find "$target" -maxdepth 2 -type f -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' | sort -nr | head -n 120
-
-          mapfile -t archives < <(find "$target" -maxdepth 2 -type f \( -iname '*.tgz' -o -iname '*.tar.gz' \) -print | sort)
-          if ((${#archives[@]} == 0)); then
-            echo 'NO_TGZ_FOUND'
-            exit 2
-          fi
-
-          archive="${archives[0]}"
-          if ((${#archives[@]} > 1)); then
-            while IFS= read -r candidate; do
-              if [[ "$(basename "$candidate")" == sky_global_images_* ]]; then archive="$candidate"; break; fi
-            done < <(printf '%s\n' "${archives[@]}")
-          fi
-
-          echo '=== SELECTED ARCHIVE ==='
-          printf 'archive=%s\n' "$archive"
-          file -b "$archive"
-          stat --printf='size_bytes=%s\nmtime=%y\n' "$archive"
-
-          actual_md5="$(md5sum "$archive" | awk '{print $1}')"
-          actual_sha256="$(sha256sum "$archive" | awk '{print $1}')"
+          echo '=== HASHES ==='
+          actual_md5="$(md5sum "$payload" | awk '{print $1}')"
+          actual_sha256="$(sha256sum "$payload" | awk '{print $1}')"
           printf 'md5=%s\n' "$actual_md5"
           printf 'expected_md5=%s\n' "$expected_md5"
           printf 'md5_matches_expected=%s\n' "$([[ "${actual_md5,,}" == "${expected_md5,,}" ]] && echo true || echo false)"
           printf 'sha256=%s\n' "$actual_sha256"
 
-          echo '=== ARCHIVE MEMBER TABLE (HEAD) ==='
-          set +o pipefail
-          tar -tzf "$archive" | head -n 320
-          rc=${PIPESTATUS[0]}
-          set -o pipefail
-          if [[ $rc -ne 0 && $rc -ne 141 ]]; then
-            echo "tar_list_rc=$rc"
-            exit "$rc"
+          echo '=== FORMAT PROBES ==='
+          gzip -t "$payload" && echo 'gzip_test=PASS' || echo 'gzip_test=FAIL'
+
+          echo '=== TAR MEMBER TABLE (HEAD) ==='
+          if tar -tzf "$payload" >/dev/null 2>&1; then
+            set +o pipefail
+            tar -tzf "$payload" | head -n 360
+            rc=${PIPESTATUS[0]}
+            set -o pipefail
+            [[ $rc -eq 0 || $rc -eq 141 ]]
+            echo 'tar_gzip_listing=PASS'
+          else
+            echo 'tar_gzip_listing=FAIL'
           fi
 
           if [[ "${actual_md5,,}" != "${expected_md5,,}" ]]; then

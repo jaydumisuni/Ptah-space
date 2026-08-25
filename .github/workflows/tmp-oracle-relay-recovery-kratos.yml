@@ -1,4 +1,4 @@
-name: Temporary Redmi sky Global ROM opaque-file preflight on KRATOS
+name: Temporary Redmi sky Global ROM resume preflight on KRATOS
 
 on:
   push:
@@ -12,48 +12,44 @@ permissions:
 jobs:
   preflight:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
-      - name: Verify opaque transferred ROM payload read-only
+      - name: Prove official CDN range semantics and local prefix
         shell: bash
         run: |
           set -euo pipefail
           payload='/home/kratos/Desktop/redmi r12/BIT85A4.tmp'
-          expected_md5='3334591f858477053b68f4c0e47debf0'
-
+          url='https://bigota.d.miui.com/OS2.0.9.0.VMWMIXM/sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
           test -f "$payload"
-          echo '=== PAYLOAD ==='
-          printf 'path=%s\n' "$payload"
-          stat --printf='size_bytes=%s\nmtime=%y\n' "$payload"
-          file -b "$payload"
-          printf 'magic_hex='
-          od -An -tx1 -N32 "$payload" | tr -d ' \n'
-          echo
 
-          echo '=== HASHES ==='
-          actual_md5="$(md5sum "$payload" | awk '{print $1}')"
-          actual_sha256="$(sha256sum "$payload" | awk '{print $1}')"
-          printf 'md5=%s\n' "$actual_md5"
-          printf 'expected_md5=%s\n' "$expected_md5"
-          printf 'md5_matches_expected=%s\n' "$([[ "${actual_md5,,}" == "${expected_md5,,}" ]] && echo true || echo false)"
-          printf 'sha256=%s\n' "$actual_sha256"
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
 
-          echo '=== FORMAT PROBES ==='
-          gzip -t "$payload" && echo 'gzip_test=PASS' || echo 'gzip_test=FAIL'
+          echo '=== LOCAL ==='
+          local_size="$(stat -c %s "$payload")"
+          printf 'local_size=%s\n' "$local_size"
 
-          echo '=== TAR MEMBER TABLE (HEAD) ==='
-          if tar -tzf "$payload" >/dev/null 2>&1; then
-            set +o pipefail
-            tar -tzf "$payload" | head -n 360
-            rc=${PIPESTATUS[0]}
-            set -o pipefail
-            [[ $rc -eq 0 || $rc -eq 141 ]]
-            echo 'tar_gzip_listing=PASS'
+          echo '=== CDN RANGE 0-0 ==='
+          curl -fLsS --connect-timeout 20 --max-time 90 -r 0-0 -D "$work/headers.txt" -o "$work/byte0.bin" "$url"
+          cat "$work/headers.txt"
+          printf 'received_bytes=%s\n' "$(stat -c %s "$work/byte0.bin")"
+
+          total="$(awk 'BEGIN{IGNORECASE=1} /^content-range:/ {gsub("\r",""); n=split($0,a,"/"); print a[n]}' "$work/headers.txt" | tail -n1)"
+          printf 'remote_total_size=%s\n' "$total"
+          if [[ "$total" =~ ^[0-9]+$ ]]; then
+            printf 'missing_bytes=%s\n' "$(( total - local_size ))"
           else
-            echo 'tar_gzip_listing=FAIL'
+            echo 'remote_total_size=UNKNOWN'
           fi
 
-          if [[ "${actual_md5,,}" != "${expected_md5,,}" ]]; then
-            echo 'ROM_MD5_MISMATCH'
-            exit 3
-          fi
+          echo '=== PREFIX SAMPLE COMPARISON (1 MiB) ==='
+          dd if="$payload" of="$work/local-prefix.bin" bs=1M count=1 status=none
+          curl -fLsS --connect-timeout 20 --max-time 90 -r 0-1048575 -o "$work/remote-prefix.bin" "$url"
+          local_prefix_sha="$(sha256sum "$work/local-prefix.bin" | awk '{print $1}')"
+          remote_prefix_sha="$(sha256sum "$work/remote-prefix.bin" | awk '{print $1}')"
+          printf 'local_prefix_sha256=%s\n' "$local_prefix_sha"
+          printf 'remote_prefix_sha256=%s\n' "$remote_prefix_sha"
+          printf 'prefix_match=%s\n' "$([[ "$local_prefix_sha" == "$remote_prefix_sha" ]] && echo true || echo false)"
+
+          test "$local_prefix_sha" = "$remote_prefix_sha"
+          test "$total" -gt "$local_size"

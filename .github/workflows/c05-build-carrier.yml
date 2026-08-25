@@ -1,0 +1,99 @@
+name: Temporary C05 guarded build carrier
+
+on:
+  pull_request:
+    paths:
+      - "C05_MEDIATEK_PACK.md"
+      - "crates/ptah-archive-decomposition/Cargo.toml"
+      - "crates/ptah-archive-decomposition/src/lib.rs"
+      - "crates/ptah-archive-decomposition/src/c05.rs"
+      - "crates/ptah-archive-decomposition/tests/c05.rs"
+      - ".github/workflows/c05-mediatek-pack.yml"
+      - ".github/workflows/c05-build-carrier.yml"
+
+permissions:
+  contents: write
+
+env:
+  PTAH_C05_BASE_SHA: 3b9bcb02c8221d0fc2b0be833c491ac445120b4b
+  CARGO_TERM_COLOR: always
+
+jobs:
+  guarded-build:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'c05-mediatek-pack'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out C05 branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: c05-mediatek-pack
+          fetch-depth: 0
+
+      - name: Guard exact base and temporary seven-file build surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$PTAH_C05_BASE_SHA" HEAD)" = "$PTAH_C05_BASE_SHA"
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          files = subprocess.check_output(
+              ["git", "diff", "--name-only", os.environ["PTAH_C05_BASE_SHA"], "HEAD"],
+              text=True,
+          ).splitlines()
+          allowed = {
+              "C05_MEDIATEK_PACK.md",
+              "crates/ptah-archive-decomposition/Cargo.toml",
+              "crates/ptah-archive-decomposition/src/lib.rs",
+              "crates/ptah-archive-decomposition/src/c05.rs",
+              "crates/ptah-archive-decomposition/tests/c05.rs",
+              ".github/workflows/c05-mediatek-pack.yml",
+              ".github/workflows/c05-build-carrier.yml",
+          }
+          unexpected = sorted(set(files).difference(allowed))
+          missing = sorted(allowed.difference(files))
+          assert not unexpected, f"temporary C05 scope drift: {unexpected}"
+          assert not missing, f"temporary C05 surface missing: {missing}"
+          PY
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+
+      - name: Format, test and lint C05 before permanent candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          cargo test -p ptah-archive-decomposition --test c05 --locked -- --nocapture \
+            2>&1 | tee /tmp/c05-build-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c05-build-tests.txt
+          cargo clippy -p ptah-archive-decomposition --lib --test c05 --locked -- -D warnings
+
+      - name: Commit only formatted six-file candidate and remove carrier
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/c05-build-carrier.yml
+          git add \
+            C05_MEDIATEK_PACK.md \
+            crates/ptah-archive-decomposition/Cargo.toml \
+            crates/ptah-archive-decomposition/src/lib.rs \
+            crates/ptah-archive-decomposition/src/c05.rs \
+            crates/ptah-archive-decomposition/tests/c05.rs \
+            .github/workflows/c05-mediatek-pack.yml \
+            .github/workflows/c05-build-carrier.yml
+          git diff --cached --check
+          git config user.name "THE TECH GUY"
+          git config user.email "65334711+jaydumisuni@users.noreply.github.com"
+          git commit -m "Format and prove C05 MediaTek build surface"
+          git push origin HEAD:c05-mediatek-pack

@@ -1,4 +1,4 @@
-name: Temporary Oracle Release Identity Exact-Head Proof
+name: Temporary Oracle Canonical MCP Production Deploy
 
 on:
   push:
@@ -11,37 +11,73 @@ permissions:
   contents: read
 
 jobs:
-  exact-head-proof:
-    runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 15
+  deploy-and-prove:
+    runs-on: [self-hosted, athena, windows, ptah]
+    timeout-minutes: 20
     steps:
-      - name: Prove exact Oracle candidate
-        shell: bash
+      - name: Deploy exact Oracle merge using ATHENA Wrangler OAuth
+        shell: powershell
         env:
           TARGET_REPO: jaydumisuni/Oracle-
-          TARGET_SHA: 7df1c72f62c202cc8420fbba61db86da659c17d5
-          BASE_SHA: ba386b7d99e7619425787958bddf2d05fda5ecc5
+          TARGET_SHA: b8420c076c8dd63bdd684ba8fac022d95e4f0e98
+          ORACLE_URL: https://oracle.thetechguyds.com
         run: |
-          set -euo pipefail
-          tmp="$(mktemp -d)"
-          trap 'rm -rf "$tmp"' EXIT
+          $ErrorActionPreference = 'Stop'
+          $tmp = Join-Path $env:TEMP ('oracle-mcp-deploy-' + [guid]::NewGuid().ToString('N'))
+          try {
+            gh auth status --hostname github.com *> $null
+            if ($LASTEXITCODE -ne 0) { throw 'GH_AUTH_NOT_READY' }
+            gh repo clone $env:TARGET_REPO $tmp -- --no-checkout
+            if ($LASTEXITCODE -ne 0) { throw 'ORACLE_CLONE_FAILED' }
+            Set-Location $tmp
+            git checkout --detach $env:TARGET_SHA
+            if ($LASTEXITCODE -ne 0) { throw 'ORACLE_CHECKOUT_FAILED' }
+            if ((git rev-parse HEAD).Trim() -ne $env:TARGET_SHA) { throw 'ORACLE_SHA_MISMATCH' }
 
-          gh auth status --hostname github.com >/dev/null
-          gh repo clone "$TARGET_REPO" "$tmp/oracle"
-          cd "$tmp/oracle"
-          git checkout --detach "$TARGET_SHA"
-          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+            npm ci --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { throw 'NPM_CI_FAILED' }
+            npm run check
+            if ($LASTEXITCODE -ne 0) { throw 'ORACLE_CHECK_FAILED' }
 
-          changed="$(git diff --name-only "$BASE_SHA" "$TARGET_SHA" | sort)"
-          expected=$'src/index.ts\ntests/oracle-account-release-contract.test.ts'
-          test "$changed" = "$expected"
-          git diff --check "$BASE_SHA" "$TARGET_SHA"
+            $oldCI = $env:CI
+            $oldActions = $env:GITHUB_ACTIONS
+            try {
+              Remove-Item Env:CI -ErrorAction SilentlyContinue
+              Remove-Item Env:GITHUB_ACTIONS -ErrorAction SilentlyContinue
+              npx --no-install wrangler whoami *> $null
+              if ($LASTEXITCODE -ne 0) { throw 'ATHENA_WRANGLER_AUTHORITY_UNAVAILABLE' }
+              npx --no-install wrangler deploy --config wrangler.jsonc --keep-vars
+              if ($LASTEXITCODE -ne 0) { throw 'WRANGLER_DEPLOY_FAILED' }
+            }
+            finally {
+              if ($null -ne $oldCI) { $env:CI = $oldCI }
+              if ($null -ne $oldActions) { $env:GITHUB_ACTIONS = $oldActions }
+            }
 
-          grep -Fq 'const VERSION = "1.0.0-rc.16";' src/index.ts
-          grep -Fq 'const DEPLOYMENT_REVISION = "oracle-account-portal-20260819";' src/index.ts
+            $health = Invoke-RestMethod -Method Get -Uri ($env:ORACLE_URL + '/health?proof=' + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) -TimeoutSec 30
+            if ($health.ok -ne $true -or $health.version -ne '1.0.0-rc.16' -or $health.deploymentRevision -ne 'oracle-account-portal-20260819') { throw 'LIVE_HEALTH_IDENTITY_FAILED' }
+            if ($health.mcpOAuth -ne $true -or $health.oracleAccounts -ne $true -or $health.oracleGoogleLogin -ne $true) { throw 'LIVE_ACCOUNT_MCP_CAPABILITY_FAILED' }
 
-          npm ci --no-audit --no-fund
-          npx vitest run tests/oracle-account-release-contract.test.ts tests/mcp-oauth.test.ts tests/mcp.test.ts
-          npm run check
+            $protected = Invoke-RestMethod -Method Get -Uri ($env:ORACLE_URL + '/.well-known/oauth-protected-resource') -TimeoutSec 30
+            if ($protected.resource -ne 'https://oracle.thetechguyds.com/mcp') { throw ('MCP_RESOURCE_WRONG ' + $protected.resource) }
+            if (@($protected.authorization_servers) -notcontains 'https://oracle.thetechguyds.com') { throw 'MCP_AUTHORITY_WRONG' }
+            if ([string]$protected.resource_documentation -notlike 'https://oracle.thetechguyds.com/*') { throw 'MCP_DOCS_ORIGIN_WRONG' }
 
-          echo "ORACLE_RELEASE_IDENTITY_EXACT_HEAD_PROOF=PASS SHA=$TARGET_SHA"
+            $google = Invoke-RestMethod -Method Get -Uri ($env:ORACLE_URL + '/api/account/google/status') -TimeoutSec 30
+            if ($google.ok -ne $true -or $google.configured -ne $true) { throw 'GOOGLE_STATUS_NOT_CONFIGURED' }
+
+            $root = (Invoke-WebRequest -UseBasicParsing -Uri ($env:ORACLE_URL + '/account?proof=' + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) -TimeoutSec 30).Content
+            if ($root -notmatch 'Continue with Google') { throw 'GOOGLE_FIRST_UI_MISSING' }
+            if ($root -match 'type="password"|Create free account|Oracle MCP connection key') { throw 'LEGACY_ACCOUNT_UI_PRESENT' }
+
+            $mcp = Invoke-WebRequest -UseBasicParsing -Method Post -Uri ($env:ORACLE_URL + '/mcp') -Headers @{ 'MCP-Protocol-Version'='2025-06-18'; Accept='application/json, text/event-stream' } -ContentType 'application/json' -Body '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"oracle-production-proof","version":"1"}}}' -SkipHttpErrorCheck -TimeoutSec 30
+            if ($mcp.StatusCode -ne 401) { throw ('MCP_UNAUTH_EXPECTED_401 got=' + $mcp.StatusCode) }
+            $challenge = [string]$mcp.Headers['WWW-Authenticate']
+            if ($challenge -notmatch 'https://oracle\.thetechguyds\.com/\.well-known/oauth-protected-resource') { throw 'MCP_CHALLENGE_ORIGIN_WRONG' }
+
+            Write-Host ('ORACLE_CANONICAL_MCP_PRODUCTION=PASS SHA=' + $env:TARGET_SHA)
+          }
+          finally {
+            Set-Location $env:USERPROFILE
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+          }

@@ -1,6 +1,6 @@
-name: TEMP KRATOS Redmi sky CN cust/GMS chain mapping
+name: TEMP KRATOS Redmi sky CN preinstall/GMS staging map
 
-# activation: v3
+# activation: v4
 on:
   push:
     branches: [main]
@@ -15,7 +15,7 @@ jobs:
     runs-on: [self-hosted, kratos, linux, x64, physical, ptah]
     timeout-minutes: 10
     steps:
-      - name: Trace cust boot chain and built-in GMS hooks read-only
+      - name: Map preinstall-to-data and GMS staging capability read-only
         shell: bash
         run: |
           set -euo pipefail
@@ -30,28 +30,28 @@ jobs:
           echo '=== HOST ROUTES BEFORE ==='
           ip route show default || true
 
-          echo '=== CUST / OPCUST BOOT SCRIPTS ==='
-          "$ADB" shell 'for p in /system_ext/etc/init/init.miui.cust.rc /product/etc/init/init.miui.opconfig.rc /vendor/etc/opcust_exist.sh; do if [ -f "$p" ]; then echo "--- $p"; cat "$p" 2>/dev/null | head -n 260; fi; done'
+          echo '=== PREINSTALL / GOOGLE PROPERTIES ==='
+          "$ADB" shell 'for k in ro.miui.preinstall_to_data ro.miui.cust_erofs ro.miui.has_cust_partition ro.miui.build.region ro.miui.region ro.miui.cust_variant ro.com.google.clientidbase ro.com.google.clientidbase.ms ro.com.google.gmsversion ro.setupwizard.mode; do printf "%s=" "$k"; getprop "$k"; done; getprop | grep -E "^\[ro\.com\.google\.|^\[ro\.setupwizard|^\[ro\.miui\.preinstall" | sort || true'
 
-          echo '=== CUST / REGION PROPERTIES ALL ==='
-          "$ADB" shell 'getprop | grep -Ei "cust|region|operator|carrier|opconfig|gms|google|locale|mod_device" | head -n 260 || true'
+          echo '=== /data/preinstall METADATA ONLY ==='
+          "$ADB" shell 'if [ -e /data/preinstall ]; then ls -ld /data/preinstall 2>/dev/null || true; find /data/preinstall -maxdepth 3 -type f 2>/dev/null | while IFS= read -r p; do s=$(wc -c < "$p" 2>/dev/null || echo 0); printf "%s|%s\n" "$p" "$s"; done | sort | head -n 180; else echo NOT_PRESENT; fi'
 
-          echo '=== GMS CN PRIVILEGED PERMISSION DECLARATIONS ==='
-          "$ADB" shell 'p=/system_ext/etc/permissions/privapp-permissions-gms-cn-system-ext.xml; if [ -f "$p" ]; then cat "$p" 2>/dev/null | head -n 320; fi'
+          echo '=== CORE GMS KNOWN INCLUDING UNINSTALLED ==='
+          "$ADB" shell 'pm list packages -u -f 2>/dev/null | grep -E "=(com\.google\.android\.gms|com\.google\.android\.gsf|com\.android\.vending)$" || true; for p in com.google.android.gms com.google.android.gsf com.android.vending; do echo "-- $p"; dumpsys package "$p" 2>/dev/null | grep -E "^(Package \[|  codePath=|  resourcePath=|  versionName=|  pkgFlags=|    User 0:)" | head -n 40 || true; done'
 
-          echo '=== ALL INSTALLED / KNOWN GOOGLE-NAMESPACE PACKAGES ==='
-          "$ADB" shell 'pm list packages -f 2>/dev/null | grep -E "package:.*(com\.google\.|com\.android\.vending)" | sort | head -n 260 || true'
+          echo '=== GOOGLE / GMS FEATURE DECLARATIONS ==='
+          "$ADB" shell 'pm list features 2>/dev/null | grep -Ei "google|gms|play|webview|setupwizard" | sort | head -n 180 || true'
 
-          echo '=== GOOGLE-RELATED SYSTEM PACKAGE PATHS FROM PACKAGE MANAGER ==='
-          "$ADB" shell 'pm list packages -s -f 2>/dev/null | grep -Ei "google|gms|vending|phonesky" | sort | head -n 260 || true'
+          echo '=== GMS PRIVAPP PACKAGE DECLARATIONS ==='
+          "$ADB" shell 'for root in /product/etc/permissions /product/etc/sysconfig /system_ext/etc/permissions /system_ext/etc/sysconfig; do [ -d "$root" ] || continue; find "$root" -maxdepth 2 -type f -size -524288c 2>/dev/null | sort | while IFS= read -r p; do m=$(grep -a -E "package=\"(com\.google\.|com\.android\.vending)|package name=\"(com\.google\.|com\.android\.vending)" "$p" 2>/dev/null | head -n 30); if [ -n "$m" ]; then echo "--- $p"; printf "%s\n" "$m"; fi; done; done'
 
-          echo '=== GMS OVERLAYS WITH STATUS ==='
-          "$ADB" shell 'cmd overlay list --user 0 2>/dev/null | grep -Ei "gms|google" | head -n 220 || true'
+          echo '=== SETUP / PROVISIONING PACKAGES ==='
+          "$ADB" shell 'pm list packages -u -f 2>/dev/null | grep -Ei "setupwizard|provision|provisioning|google.*setup|miui.*provision" | sort | head -n 160 || true'
 
-          echo '=== REGION/CUST INIT REFERENCES ACROSS SMALL RC/SH FILES ==='
-          "$ADB" shell 'for root in /system_ext/etc/init /product/etc/init /vendor/etc; do [ -d "$root" ] || continue; find "$root" -maxdepth 2 -type f \( -name "*.rc" -o -name "*.sh" \) -size -262144c 2>/dev/null | sort | while IFS= read -r p; do m=$(grep -a -i -E "cust_variant|miui\.region|/cust|opcust|operator|ro\.product\.locale|gms|google" "$p" 2>/dev/null | head -n 18); if [ -n "$m" ]; then echo "--- $p"; printf "%s\n" "$m"; fi; done; done'
+          echo '=== CUST DATA KEEPER / XIAOMI MOUNT CUST REFERENCES ==='
+          "$ADB" shell 'for root in /system_ext/etc/init /product/etc/init; do [ -d "$root" ] || continue; grep -R -n -E "cust_data_keeper|xiaomi_mount_cust|preinstall_to_data|/data/preinstall" "$root" 2>/dev/null | head -n 180 || true; done'
 
           echo '=== POST-PROBE ==='
           "$ADB" get-state
           ip route show default || true
-          echo 'TTG_REDMI_CN_CUST_GMS_CHAIN=PASS'
+          echo 'TTG_REDMI_CN_PREINSTALL_GMS_MAP=PASS'

@@ -1,4 +1,4 @@
-name: Temporary Redmi sky Global ROM locator on KRATOS
+name: Temporary Redmi sky Global ROM locator v2 on KRATOS
 
 on:
   push:
@@ -12,23 +12,26 @@ permissions:
 jobs:
   locate:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
-      - name: Locate Global fastboot archive across KRATOS desktops and mounts
+      - name: Locate transferred Global archive by size and mountpoint
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== IDENTITY ==='
-          id
-          printf 'HOME=%s\n' "$HOME"
-          echo '=== USER HOMES ==='
-          getent passwd | awk -F: '$6 ~ /^\/home\// {print $1 "\t" $6}' || true
-          echo '=== DESKTOP DIRECTORIES ==='
-          find /home /root -maxdepth 3 -type d \( -iname Desktop -o -iname desktop \) -print 2>/dev/null | sort -u || true
-          echo '=== EXACT / SKY ARCHIVE CANDIDATES ==='
-          find /home /root /mnt /media /run/media -maxdepth 7 -type f \
-            \( -name 'sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz' -o -name 'sky_global_images_*.tgz' \) \
-            -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' 2>/dev/null | sort -k3 | head -n 40 || true
-          echo '=== LARGE TGZ ON DESKTOP-LIKE PATHS ==='
-          find /home /root /mnt /media /run/media -maxdepth 7 -type f -name '*.tgz' -size +1G \
-            -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' 2>/dev/null | grep -Ei '/desktop/|/Desktop/' | sort -k3 | head -n 40 || true
+          echo '=== DESKTOP TOP LEVEL ==='
+          find /home/kratos/Desktop -maxdepth 2 -type f -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' 2>/dev/null | sort -nr | head -n 100 || true
+          echo '=== MOUNTS ==='
+          findmnt -rn -o TARGET,SOURCE,FSTYPE,OPTIONS | head -n 120 || true
+          echo '=== LARGE FILES COMMON LOCAL PATHS (>5G) ==='
+          find /home /tmp /var/tmp /opt /srv -xdev -type f -size +5G \
+            -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' 2>/dev/null | sort -nr | head -n 80 || true
+          echo '=== GVFS / REMOVABLE LARGE FILES (>5G) ==='
+          for base in /run/user/1000/gvfs /media /mnt /run/media; do
+            if test -e "$base"; then
+              find "$base" -maxdepth 8 -type f -size +5G \
+                -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' 2>/dev/null | sort -nr | head -n 80 || true
+            fi
+          done
+          echo '=== RECENT LARGE FILES (>1G, HOME) ==='
+          find /home/kratos -xdev -type f -size +1G -mmin -1440 \
+            -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' 2>/dev/null | sort -nr | head -n 100 || true

@@ -1,4 +1,4 @@
-name: TEMP ATHENA Redmi ROM progress and external-volume inspection
+name: TEMP ATHENA Xiaomi ROM mirror benchmark
 
 on:
   push:
@@ -10,69 +10,50 @@ permissions:
   contents: read
 
 jobs:
-  inspect:
+  probe:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Report BITS progress and attached storage read-only
+      - name: Benchmark official Xiaomi mirrors without modifying BITS job
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          $name = 'sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
+          $rel = "OS2.0.9.0.VMWMIXM/$name"
+          $start = 142606336
+          $end = $start + 4194304 - 1
           $bitsName = 'TTG Redmi sky Global OS2.0.9.0'
-          $dir = 'C:\Users\ATHENA 2.0\Desktop\redmi r12'
 
-          Write-Output '=== BITS ==='
+          Write-Output '=== CURRENT BITS ==='
           $job = Get-BitsTransfer -Name $bitsName -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($job) {
-            $pct = if ([int64]$job.BytesTotal -gt 0) { [math]::Round(([double]$job.BytesTransferred / [double]$job.BytesTotal) * 100, 3) } else { 0 }
-            [ordered]@{
-              state=[string]$job.JobState
-              bytesTransferred=[int64]$job.BytesTransferred
-              bytesTotal=[int64]$job.BytesTotal
-              percent=$pct
-              source=($job.FileList | Select-Object -First 1 -ExpandProperty RemoteName)
-              destination=($job.FileList | Select-Object -First 1 -ExpandProperty LocalName)
-            } | ConvertTo-Json -Compress
-          } else {
-            Write-Output '{"state":"NO_BITS_JOB"}'
+            $pct = [math]::Round(([double]$job.BytesTransferred / [double]$job.BytesTotal) * 100, 3)
+            [ordered]@{state=[string]$job.JobState;bytesTransferred=[int64]$job.BytesTransferred;bytesTotal=[int64]$job.BytesTotal;percent=$pct} | ConvertTo-Json -Compress
           }
 
-          Write-Output '=== DESTINATION DIRECTORY ==='
-          if (Test-Path -LiteralPath $dir) {
-            Get-ChildItem -LiteralPath $dir -Force | Select-Object Name,Length,LastWriteTime,Attributes | ConvertTo-Json -Compress
-          } else {
-            Write-Output 'DESTINATION_DIRECTORY_MISSING'
+          Write-Output '=== TOOLS ==='
+          foreach ($tool in @('curl.exe','aria2c.exe','wget.exe')) {
+            $cmd = Get-Command $tool -ErrorAction SilentlyContinue
+            [ordered]@{tool=$tool;path=if($cmd){$cmd.Source}else{$null}} | ConvertTo-Json -Compress
           }
 
-          Write-Output '=== LOGICAL VOLUMES ==='
-          Get-CimInstance Win32_LogicalDisk | Sort-Object DeviceID | ForEach-Object {
-            [ordered]@{
-              drive=$_.DeviceID
-              label=$_.VolumeName
-              driveType=[int]$_.DriveType
-              fileSystem=$_.FileSystem
-              sizeBytes=[int64]$_.Size
-              freeBytes=[int64]$_.FreeSpace
-            }
-          } | ConvertTo-Json -Compress
-
-          Write-Output '=== DISK/PARTITION MAPPING ==='
-          $rows = @()
-          Get-Partition -ErrorAction SilentlyContinue | Where-Object DriveLetter | ForEach-Object {
-            $p = $_
-            $d = $p | Get-Disk -ErrorAction SilentlyContinue
-            $v = Get-Volume -DriveLetter $p.DriveLetter -ErrorAction SilentlyContinue
-            $rows += [ordered]@{
-              drive=([string]$p.DriveLetter + ':')
-              label=[string]$v.FileSystemLabel
-              fileSystem=[string]$v.FileSystem
-              diskNumber=[int]$p.DiskNumber
-              diskFriendlyName=[string]$d.FriendlyName
-              busType=[string]$d.BusType
-              partitionSize=[int64]$p.Size
-              diskSize=[int64]$d.Size
-              isBoot=[bool]$d.IsBoot
-              isSystem=[bool]$d.IsSystem
+          Write-Output '=== 4 MiB RANGE BENCHMARK ==='
+          $urls = @(
+            "https://bigota.d.miui.com/$rel",
+            "https://cdnorg.d.miui.com/$rel",
+            "https://hugeota.d.miui.com/$rel"
+          )
+          foreach ($url in $urls) {
+            $tmp = Join-Path $env:TEMP ([guid]::NewGuid().ToString() + '.bin')
+            try {
+              $sw = [Diagnostics.Stopwatch]::StartNew()
+              & curl.exe -L --fail --silent --show-error --connect-timeout 15 --max-time 75 --range "$start-$end" --output $tmp $url
+              $code = $LASTEXITCODE
+              $sw.Stop()
+              $size = if(Test-Path $tmp){(Get-Item $tmp).Length}else{0}
+              $speed = if($sw.Elapsed.TotalSeconds -gt 0){[math]::Round($size/$sw.Elapsed.TotalSeconds,0)}else{0}
+              [ordered]@{url=$url;exitCode=$code;bytes=[int64]$size;seconds=[math]::Round($sw.Elapsed.TotalSeconds,3);bytesPerSecond=[int64]$speed} | ConvertTo-Json -Compress
+            } finally {
+              Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
             }
           }
-          $rows | Sort-Object drive | ConvertTo-Json -Compress

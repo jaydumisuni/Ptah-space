@@ -1,4 +1,4 @@
-name: TEMP KRATOS ChatGPT Browser Inspect
+name: TEMP Oracle MCP Production Deploy
 
 on:
   push:
@@ -7,120 +7,67 @@ on:
       - '.github/workflows/temp-kratos-chatgpt-browser-inspect.yml'
 
 jobs:
-  inspect:
-    runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 5
+  deploy:
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 20
     steps:
-      - name: Pair current Brave Oracle extension and prove bridge
-        shell: bash
+      - name: Deploy frozen Oracle MCP release from ATHENA
+        shell: powershell
         run: |
-          set -euo pipefail
-          uid="$(id -u)"
-          export XDG_RUNTIME_DIR="/run/user/$uid"
-          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-          user_env="$(systemctl --user show-environment 2>/dev/null || true)"
-          eval "$(printf '%s\n' "$user_env" | grep -E '^(DISPLAY|XAUTHORITY)=' | sed 's/^/export /' || true)"
-          : "${DISPLAY:=:0}"; export DISPLAY
+          $ErrorActionPreference = 'Stop'
+          $sha = 'b8420c076c8dd63bdd684ba8fac022d95e4f0e98'
+          $root = Join-Path $env:RUNNER_TEMP ('oracle-mcp-production-' + $env:GITHUB_RUN_ID)
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          git -c core.autocrlf=false clone --quiet --no-checkout https://github.com/jaydumisuni/Oracle-.git $root
+          Set-Location $root
+          git -c core.autocrlf=false checkout --quiet --detach $sha
+          if ((git rev-parse HEAD).Trim() -ne $sha) { throw 'ORACLE_SHA_MISMATCH' }
+          git config core.autocrlf false
+          git reset --hard $sha | Out-Null
+          Write-Host ('ORACLE_SHA=' + $sha)
+          npm ci --silent
+          npm run check
 
-          token_path="$HOME/.local/state/OracleBrowserBridge/agent-token.txt"
-          token="$(tr -d '\r\n' < "$token_path")"
-          [[ "$token" =~ ^[0-9A-Fa-f]{64}$ ]] || { echo TOKEN_FORMAT_UNEXPECTED; exit 42; }
-          ext_id='hoahdcllchhncnenbeplgfgmpjihakab'
-          options_url="chrome-extension://$ext_id/options/index.html"
+          $raw = (& .\node_modules\.bin\wrangler.cmd auth token --json 2>$null | Out-String).Trim()
+          if (-not $raw) { throw 'WRANGLER_AUTH_TOKEN_EMPTY' }
+          $auth = $raw | ConvertFrom-Json
+          $token = $auth.token
+          if (-not $token) { $token = $auth.access_token }
+          if (-not $token) { $token = $auth.accessToken }
+          if (-not $token -or $token.Length -lt 20) { throw 'WRANGLER_AUTH_TOKEN_INVALID' }
+          $env:CLOUDFLARE_API_TOKEN = $token
+          try {
+            $d1 = (& .\node_modules\.bin\wrangler.cmd d1 list --json 2>$null | Out-String) | ConvertFrom-Json
+            if (-not ($d1 | Where-Object { $_.uuid -eq '7a7b4a7a-3d1e-4af3-96fc-00ee703b5b8d' -or $_.name -eq 'oracle-accounts-db' })) { throw 'ORACLE_D1_BINDING_NOT_VISIBLE' }
+            Write-Host 'D1_AUTHORITY=PASS'
+            & .\node_modules\.bin\wrangler.cmd deploy --keep-vars
+            if ($LASTEXITCODE -ne 0) { throw ('WRANGLER_DEPLOY_FAILED_' + $LASTEXITCODE) }
+          } finally {
+            Remove-Item Env:CLOUDFLARE_API_TOKEN -ErrorAction SilentlyContinue
+            $token = $null; $auth = $null; $raw = $null
+          }
 
-          ORACLE_LOCAL_PAIRING_TOKEN="$token" ORACLE_OPTIONS_URL="$options_url" python3 - <<'PY'
-          import ctypes,ctypes.util,os,time
-          X=ctypes.CDLL(ctypes.util.find_library('X11') or 'libX11.so.6')
-          T=ctypes.CDLL(ctypes.util.find_library('Xtst') or 'libXtst.so.6')
-          class XClassHint(ctypes.Structure):
-              _fields_=[('res_name',ctypes.c_char_p),('res_class',ctypes.c_char_p)]
-          X.XOpenDisplay.argtypes=[ctypes.c_char_p]; X.XOpenDisplay.restype=ctypes.c_void_p
-          X.XDefaultRootWindow.argtypes=[ctypes.c_void_p]; X.XDefaultRootWindow.restype=ctypes.c_ulong
-          X.XQueryTree.argtypes=[ctypes.c_void_p,ctypes.c_ulong,ctypes.POINTER(ctypes.c_ulong),ctypes.POINTER(ctypes.c_ulong),ctypes.POINTER(ctypes.POINTER(ctypes.c_ulong)),ctypes.POINTER(ctypes.c_uint)]; X.XQueryTree.restype=ctypes.c_int
-          X.XGetClassHint.argtypes=[ctypes.c_void_p,ctypes.c_ulong,ctypes.POINTER(XClassHint)]; X.XGetClassHint.restype=ctypes.c_int
-          X.XGetGeometry.argtypes=[ctypes.c_void_p,ctypes.c_ulong,ctypes.POINTER(ctypes.c_ulong),ctypes.POINTER(ctypes.c_int),ctypes.POINTER(ctypes.c_int),ctypes.POINTER(ctypes.c_uint),ctypes.POINTER(ctypes.c_uint),ctypes.POINTER(ctypes.c_uint),ctypes.POINTER(ctypes.c_uint)]; X.XGetGeometry.restype=ctypes.c_int
-          X.XRaiseWindow.argtypes=[ctypes.c_void_p,ctypes.c_ulong]
-          X.XSetInputFocus.argtypes=[ctypes.c_void_p,ctypes.c_ulong,ctypes.c_int,ctypes.c_ulong]
-          X.XGetInputFocus.argtypes=[ctypes.c_void_p,ctypes.POINTER(ctypes.c_ulong),ctypes.POINTER(ctypes.c_int)]
-          X.XStringToKeysym.argtypes=[ctypes.c_char_p]; X.XStringToKeysym.restype=ctypes.c_ulong
-          X.XKeysymToKeycode.argtypes=[ctypes.c_void_p,ctypes.c_ulong]; X.XKeysymToKeycode.restype=ctypes.c_ubyte
-          X.XFlush.argtypes=[ctypes.c_void_p]
-          X.XFree.argtypes=[ctypes.c_void_p]
-          T.XTestFakeKeyEvent.argtypes=[ctypes.c_void_p,ctypes.c_uint,ctypes.c_int,ctypes.c_ulong]
-          d=X.XOpenDisplay(None)
-          if not d: raise SystemExit('X11_DISPLAY_OPEN_FAILED')
-          root=X.XDefaultRootWindow(d)
-          seen=set(); brave=[]
-          def children(w):
-              rr=ctypes.c_ulong(); pr=ctypes.c_ulong(); ch=ctypes.POINTER(ctypes.c_ulong)(); n=ctypes.c_uint()
-              if not X.XQueryTree(d,w,ctypes.byref(rr),ctypes.byref(pr),ctypes.byref(ch),ctypes.byref(n)): return []
-              vals=[ch[i] for i in range(n.value)] if ch else []
-              if ch: X.XFree(ch)
-              return vals
-          def walk(w,depth=0):
-              if w in seen or depth>4: return
-              seen.add(w)
-              hint=XClassHint()
-              if X.XGetClassHint(d,w,ctypes.byref(hint)):
-                  rn=(hint.res_name or b'').decode(errors='ignore'); rc=(hint.res_class or b'').decode(errors='ignore')
-                  if hint.res_name: X.XFree(hint.res_name)
-                  if hint.res_class: X.XFree(hint.res_class)
-                  if 'brave' in (rn+' '+rc).lower():
-                      gr=ctypes.c_ulong(); xx=ctypes.c_int(); yy=ctypes.c_int(); ww=ctypes.c_uint(); hh=ctypes.c_uint(); bw=ctypes.c_uint(); dep=ctypes.c_uint()
-                      area=0
-                      if X.XGetGeometry(d,w,ctypes.byref(gr),ctypes.byref(xx),ctypes.byref(yy),ctypes.byref(ww),ctypes.byref(hh),ctypes.byref(bw),ctypes.byref(dep)): area=int(ww.value)*int(hh.value)
-                      brave.append((area,int(w),rn,rc))
-              for c in children(w): walk(c,depth+1)
-          walk(root)
-          if not brave: raise SystemExit('BRAVE_X11_CLIENT_NOT_FOUND')
-          brave.sort(reverse=True)
-          area,w,rn,rc=brave[0]
-          print(f'BRAVE_X11_WINDOW={w} AREA={area} CLASS={rn}/{rc}')
-          X.XRaiseWindow(d,w); X.XSetInputFocus(d,w,1,0); X.XFlush(d); time.sleep(.5)
-          focus=ctypes.c_ulong(); revert=ctypes.c_int(); X.XGetInputFocus(d,ctypes.byref(focus),ctypes.byref(revert))
-          print(f'FOCUS_WINDOW={int(focus.value)}')
-          def keycode(name):
-              ks=X.XStringToKeysym(name.encode()); kc=X.XKeysymToKeycode(d,ks)
-              if not kc: raise RuntimeError('NO_KEYCODE:'+name)
-              return kc
-          def ev(name,down): T.XTestFakeKeyEvent(d,keycode(name),1 if down else 0,0); X.XFlush(d); time.sleep(.018)
-          def tap(name): ev(name,True); ev(name,False)
-          def combo(mod,key): ev(mod,True); tap(key); ev(mod,False)
-          def text(s):
-              special={':':('Shift_L','semicolon'),'/':(None,'slash'),'-':(None,'minus'),'.':(None,'period')}
-              for ch in s:
-                  if ch in special:
-                      mod,k=special[ch]
-                      if mod: ev(mod,True)
-                      tap(k)
-                      if mod: ev(mod,False)
-                  else: tap(ch.lower())
-          combo('Control_L','l'); text(os.environ['ORACLE_OPTIONS_URL']); tap('Return'); time.sleep(3)
-          # From the omnibox, F6 transfers focus into web content. The options page
-          # has one tab-stop for the radio group, so five Tabs lands on Pairing token.
-          tap('F6'); time.sleep(.4)
-          for _ in range(5): tap('Tab'); time.sleep(.09)
-          combo('Control_L','a'); text(os.environ['ORACLE_LOCAL_PAIRING_TOKEN'].lower())
-          tap('Tab'); tap('Return'); X.XFlush(d); time.sleep(1)
-          print('BRAVE_ORACLE_RECONNECT_SENT=true')
-          PY
-          unset token ORACLE_LOCAL_PAIRING_TOKEN ORACLE_OPTIONS_URL || true
+          Start-Sleep -Seconds 5
+          $health = Invoke-RestMethod -Method Get -Uri 'https://oracle.thetechguyds.com/health' -TimeoutSec 30
+          if (-not $health.ok -or $health.version -ne '1.0.0-rc.16' -or $health.deploymentRevision -ne 'oracle-account-portal-20260819' -or -not $health.mcp -or -not $health.mcpOAuth) { throw ('HEALTH_CONTRACT_FAILED ' + ($health | ConvertTo-Json -Compress)) }
+          Write-Host 'HEALTH=PASS'
 
-          connected=0
-          for i in $(seq 1 25); do
-            sleep 1
-            curl -fsS --max-time 2 http://127.0.0.1:8765/health >"$RUNNER_TEMP/bridge-health.json" 2>/dev/null || true
-            if [ -s "$RUNNER_TEMP/bridge-health.json" ] && python3 -c "import json; d=json.load(open('$RUNNER_TEMP/bridge-health.json')); raise SystemExit(0 if d.get('browserConnected') else 1)"; then connected=1; break; fi
-          done
-          echo '=== BRIDGE HEALTH ==='
-          cat "$RUNNER_TEMP/bridge-health.json" 2>/dev/null || true
-          echo
-          echo '=== BRAVE EXTENSION STORE AFTER ==='
-          python3 - <<'PY'
-          import pathlib,json
-          root=pathlib.Path.home()/'.config/BraveSoftware/Brave-Browser/Default/Local Extension Settings/hoahdcllchhncnenbeplgfgmpjihakab'
-          b=b'\n'.join(p.read_bytes() for p in root.iterdir() if p.is_file()) if root.exists() else b''
-          print(json.dumps({'bytes':len(b),'oracleSettingsMarker':b'oracle.settings' in b,'bridgeUrlMarker':b'ws://127.0.0.1:8765/browser' in b,'pairingTokenMarker':b'pairingToken' in b},separators=(',',':')))
-          PY
-          echo "BROWSER_BRIDGE_CONNECTED=$connected"
-          test "$connected" = 1
+          $resource = Invoke-RestMethod -Method Get -Uri 'https://oracle.thetechguyds.com/.well-known/oauth-protected-resource' -TimeoutSec 30
+          if ([string]$resource.resource -ne 'https://oracle.thetechguyds.com/mcp') { throw ('RESOURCE_ORIGIN_MISMATCH_' + [string]$resource.resource) }
+          Write-Host 'OAUTH_RESOURCE=PASS'
+
+          $google = Invoke-RestMethod -Method Get -Uri 'https://oracle.thetechguyds.com/api/account/google/status' -TimeoutSec 30
+          if (-not $google.configured) { throw 'GOOGLE_ACCOUNT_NOT_CONFIGURED' }
+          Write-Host 'GOOGLE_STATUS=PASS'
+
+          try {
+            Invoke-WebRequest -Method Post -Uri 'https://oracle.thetechguyds.com/mcp' -ContentType 'application/json' -Headers @{ 'Accept'='application/json, text/event-stream'; 'MCP-Protocol-Version'='2025-06-18' } -Body '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ttg-production-proof","version":"1"}}}' -TimeoutSec 30 -ErrorAction Stop | Out-Null
+            throw 'MCP_UNAUTHENTICATED_INITIALIZE_UNEXPECTEDLY_SUCCEEDED'
+          } catch {
+            $resp = $_.Exception.Response
+            if (-not $resp -or [int]$resp.StatusCode -ne 401) { throw }
+            $challenge = [string]$resp.Headers['WWW-Authenticate']
+            if ($challenge -notmatch 'oracle\.thetechguyds\.com') { throw ('MCP_CHALLENGE_ORIGIN_MISMATCH_' + $challenge) }
+            Write-Host 'MCP_UNAUTH_CHALLENGE=PASS'
+          }
+          Write-Host 'ORACLE_MCP_PRODUCTION_DEPLOY=PASS'

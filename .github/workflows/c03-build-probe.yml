@@ -1,0 +1,76 @@
+name: C03 guarded build probe
+
+on:
+  push:
+    branches:
+      - c03-generic-android-image-ota-pack
+    paths:
+      - ".github/workflows/c03-build-probe.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  prove-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: c03-generic-android-image-ota-pack
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply exact comparison evidence correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('crates/ptah-archive-decomposition/src/c03.rs')
+          source = path.read_text(encoding='utf-8')
+          old = '''    let component_exact = left.components == right.components;
+              let structural = differences.is_empty() || (differences.len() == 1 && !component_exact && left_shape == right_shape);
+          '''
+          if old not in source:
+              old = '''    let component_exact = left.components == right.components;
+    let structural = differences.is_empty() || (differences.len() == 1 && !component_exact && left_shape == right_shape);
+'''
+          assert source.count(old) == 1, source.count(old)
+          new = '''    let component_exact = left.components == right.components;
+    if !component_exact && left_shape == right_shape {
+        differences.push("component_bytes_changed".to_owned());
+    }
+    let structural = differences.is_empty()
+        || (differences.len() == 1 && differences[0] == "component_bytes_changed");
+'''
+          source = source.replace(old, new, 1)
+          path.write_text(source, encoding='utf-8')
+          PY
+
+          cargo fmt --all
+          cargo test -p ptah-archive-decomposition --test c03 --locked -- --nocapture \
+            2>&1 | tee /tmp/c03-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c03-tests.txt
+          cargo clippy -p ptah-archive-decomposition --lib --test c03 --locked -- -D warnings \
+            2>&1 | tee /tmp/c03-clippy.txt
+          git diff --check
+
+      - name: Commit correction and self-delete
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/c03-build-probe.yml
+          git add crates/ptah-archive-decomposition/src/c03.rs
+          changed="$(git diff --cached --name-only | sort)"
+          allowed="$(printf '%s\n' \
+            .github/workflows/c03-build-probe.yml \
+            crates/ptah-archive-decomposition/src/c03.rs | sort)"
+          test "$changed" = "$allowed"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "C03 build: record component byte differences"
+          git push origin HEAD:c03-generic-android-image-ota-pack

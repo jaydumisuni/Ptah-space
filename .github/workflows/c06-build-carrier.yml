@@ -1,5 +1,5 @@
 name: TEMP C06 build carrier
-# carrier revision 2: binary payload transport
+# carrier revision 3: pull-request execution path
 
 on:
   push:
@@ -7,6 +7,12 @@ on:
       - c06-unisoc-qualcomm-packs
     paths:
       - ".github/workflows/c06-build-carrier.yml"
+  pull_request:
+    branches:
+      - proof/c06-accepted-c05-base-20260825
+    paths:
+      - ".github/workflows/c06-build-carrier.yml"
+      - ".ttg/c06-candidate.tar.gz"
   workflow_dispatch:
 
 permissions:
@@ -14,6 +20,7 @@ permissions:
 
 env:
   PTAH_C06_BASE_SHA: 170b91195fa5e68ae15a8a9c26b9cf677fd78224
+  PTAH_C06_TARGET_BRANCH: c06-unisoc-qualcomm-packs
   PTAH_C06_PAYLOAD_SHA256: 2119c94940fe9c424b3963fce6f3a5153413f9aa3d751ffa745f567882c890f2
   CARGO_TERM_COLOR: always
 
@@ -22,9 +29,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-      - name: Check out carrier branch
+      - name: Check out exact carrier head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Recover immutable C06 candidate payload
@@ -76,5 +84,5 @@ jobs:
           test "$(printf '%s\n' "$files" | sed '/^$/d' | wc -l)" -eq 6
           test "$(git rev-list --count "$PTAH_C06_BASE_SHA..$candidate")" -eq 1
           git diff --check "$PTAH_C06_BASE_SHA" "$candidate"
-          git push --force origin "$candidate:$GITHUB_REF_NAME"
+          git push --force origin "$candidate:refs/heads/$PTAH_C06_TARGET_BRANCH"
           echo "C06_CANDIDATE=$candidate"

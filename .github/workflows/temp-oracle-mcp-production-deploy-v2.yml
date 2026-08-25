@@ -1,5 +1,6 @@
 name: TEMP ATHENA Redmi sky Global ROM download carrier
 
+# Status checkpoint 2026-08-25T18:20+02:00. This carrier is intentionally retained only until BITS completes.
 on:
   push:
     branches: [main]

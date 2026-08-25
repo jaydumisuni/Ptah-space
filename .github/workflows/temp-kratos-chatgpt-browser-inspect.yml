@@ -1,6 +1,6 @@
-name: TEMP KRATOS Redmi sky partition-region topology map
+name: TEMP KRATOS Redmi sky mi_ext/pangu provenance map
 
-# activation: v5
+# activation: v6
 on:
   push:
     branches: [main]
@@ -15,7 +15,7 @@ jobs:
     runs-on: [self-hosted, kratos, linux, x64, physical, ptah]
     timeout-minutes: 10
     steps:
-      - name: Map partition fingerprints and regional concentration read-only
+      - name: Map mi_ext and pangu overlay provenance read-only
         shell: bash
         run: |
           set -euo pipefail
@@ -30,28 +30,31 @@ jobs:
           echo '=== HOST ROUTES BEFORE ==='
           ip route show default || true
 
-          echo '=== PARTITION BUILD FINGERPRINTS ==='
-          "$ADB" shell 'for k in ro.build.fingerprint ro.system.build.fingerprint ro.product.build.fingerprint ro.system_ext.build.fingerprint ro.vendor.build.fingerprint ro.odm.build.fingerprint ro.bootimage.build.fingerprint; do printf "%s=" "$k"; getprop "$k"; done'
+          echo '=== MI_EXT / PANGU MOUNTS ==='
+          "$ADB" shell 'mount 2>/dev/null | grep -E "mi_ext|pangu" | head -n 180 || true; echo --; cat /proc/mounts 2>/dev/null | grep -E "mi_ext|pangu" | head -n 180 || true'
 
-          echo '=== PARTITION BUILD INCREMENTALS ==='
-          "$ADB" shell 'for p in system product system_ext vendor odm bootimage; do for s in version.incremental version.release security_patch date.utc; do k="ro.${p}.build.${s}"; printf "%s=" "$k"; getprop "$k"; done; done'
+          echo '=== BLOCK / PROP IDENTITY ==='
+          "$ADB" shell 'ls -l /dev/block/by-name 2>/dev/null | grep -Ei "mi_ext|pangu|cust|opcust|super" | head -n 160 || true; getprop | grep -Ei "mi_ext|pangu" | sort | head -n 160 || true'
 
-          echo '=== PRODUCT IDENTITY BY PARTITION ==='
-          "$ADB" shell 'for p in system product system_ext vendor odm; do for s in brand name device manufacturer model; do k="ro.product.${p}.${s}"; printf "%s=" "$k"; getprop "$k"; done; done'
+          echo '=== MI_EXT TOP LEVEL ==='
+          "$ADB" shell 'if [ -d /mnt/vendor/mi_ext ]; then find /mnt/vendor/mi_ext -maxdepth 3 -type d 2>/dev/null | sort | head -n 280; else echo MI_EXT_NOT_MOUNTED; fi'
 
-          echo '=== REGION / MIUI PROPERTIES BY SOURCE ==='
-          "$ADB" shell 'getprop | grep -E "^\[ro\.(product\.|vendor\.|system\.|system_ext\.|odm\.)?miui\.|^\[ro\.miui\." | sort | head -n 320 || true'
+          echo '=== MI_EXT REGION/GOOGLE/CN FILES ==='
+          "$ADB" shell 'if [ -d /mnt/vendor/mi_ext ]; then find /mnt/vendor/mi_ext -maxdepth 5 -type f 2>/dev/null | grep -Ei "google|gms|vending|phonesky|setup|region|cust|china|/cn[._/-]|miui|xiaomi|preload|market|search|voice" | sort | head -n 360; fi'
 
-          echo '=== KEY MOUNTS ==='
-          "$ADB" shell 'mount 2>/dev/null | grep -E " on /(system|product|system_ext|vendor|odm|cust|opconfig)( |/)" | head -n 120 || true; echo --; cat /proc/mounts 2>/dev/null | grep -E " /(system|product|system_ext|vendor|odm|cust|opconfig)( |/)" | head -n 120 || true'
+          echo '=== MI_EXT APK INVENTORY ==='
+          "$ADB" shell 'if [ -d /mnt/vendor/mi_ext ]; then find /mnt/vendor/mi_ext -maxdepth 6 -type f -name "*.apk" 2>/dev/null | sort | head -n 320; fi'
 
-          echo '=== BLOCK DEVICE NAMES ==='
-          "$ADB" shell 'ls -l /dev/block/by-name 2>/dev/null | grep -E " (super|cust|opcust|product|system|system_ext|vendor|odm)(_[ab])?$" | head -n 120 || true'
+          echo '=== MI_EXT CONFIG TEXT REFERENCES ==='
+          "$ADB" shell 'if [ -d /mnt/vendor/mi_ext ]; then find /mnt/vendor/mi_ext -maxdepth 6 -type f -size -524288c 2>/dev/null | sort | while IFS= read -r p; do m=$(grep -a -i -E "com\.google\.android\.gms|com\.google\.android\.gsf|com\.android\.vending|cn_chinatelecom|ro\.miui\.region|romRegion|currentSku|preload" "$p" 2>/dev/null | head -n 12); if [ -n "$m" ]; then echo "--- $p"; printf "%s\n" "$m"; fi; done; fi'
 
-          echo '=== DYNAMIC PARTITION SUMMARY ==='
-          "$ADB" shell 'if command -v lpdump >/dev/null 2>&1; then lpdump 2>/dev/null | grep -E "^(Metadata version|Metadata size|Metadata max size|Metadata slot count|Partition name:|Group name:|Group maximum size:|Block device table:)" | head -n 260; else echo lpdump_unavailable; fi'
+          echo '=== PANGU TOP LEVEL / APK INVENTORY ==='
+          "$ADB" shell 'if [ -d /product/pangu ]; then find /product/pangu -maxdepth 4 -type d 2>/dev/null | sort | head -n 220; echo --APKS--; find /product/pangu -maxdepth 7 -type f -name "*.apk" 2>/dev/null | sort | head -n 260; else echo PANGU_NOT_PRESENT; fi'
+
+          echo '=== SOURCE COUNTS ==='
+          "$ADB" shell 'for root in /mnt/vendor/mi_ext /product/pangu /cust; do if [ -d "$root" ]; then printf "%s files=" "$root"; find "$root" -type f 2>/dev/null | wc -l; printf "%s apks=" "$root"; find "$root" -type f -name "*.apk" 2>/dev/null | wc -l; fi; done'
 
           echo '=== POST-PROBE ==='
           "$ADB" get-state
           ip route show default || true
-          echo 'TTG_REDMI_PARTITION_REGION_TOPOLOGY=PASS'
+          echo 'TTG_REDMI_MI_EXT_PANGU_PROVENANCE=PASS'

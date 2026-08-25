@@ -57,68 +57,66 @@ jobs:
           tests_path = Path("crates/ptah-archive-decomposition/tests/c05.rs")
           contract_path = Path("C05_MEDIATEK_PACK.md")
 
+          def replace_once(text, old, new, label):
+              if text.count(old) != 1:
+                  raise SystemExit(f"{label} anchor mismatch: {text.count(old)}")
+              return text.replace(old, new, 1)
+
+          def insert_before_test_end(text, fn_name, next_fn_name, block):
+              start_marker = f"fn {fn_name}() {{"
+              next_marker = f"\n#[test]\nfn {next_fn_name}() {{"
+              start = text.find(start_marker)
+              if start < 0:
+                  raise SystemExit(f"missing test function: {fn_name}")
+              end = text.find(next_marker, start)
+              if end < 0:
+                  raise SystemExit(f"missing next test boundary: {next_fn_name}")
+              section = text[start:end]
+              close = section.rfind("\n}")
+              if close < 0 or section[close + 2:].strip():
+                  raise SystemExit(f"ambiguous test close: {fn_name}")
+              absolute = start + close
+              return text[:absolute] + "\n" + block.rstrip() + text[absolute:]
+
           source = source_path.read_text(encoding="utf-8")
-
-          old = (
+          source = replace_once(
+              source,
               "        linked: complete_claim && unresolved == 0,\n"
-              "        partial: !complete_claim || unresolved != 0,\n"
-          )
-          new = (
+              "        partial: !complete_claim || unresolved != 0,\n",
               "        linked: complete_claim && unresolved == 0 && limitations.is_empty(),\n"
-              "        partial: !complete_claim || unresolved != 0 || !limitations.is_empty(),\n"
+              "        partial: !complete_claim || unresolved != 0 || !limitations.is_empty(),\n",
+              "bundle resolution",
           )
-          if source.count(old) != 1:
-              raise SystemExit("bundle resolution anchor mismatch")
-          source = source.replace(old, new, 1)
-
-          old = "    if !validated.complete_claim {\n"
-          new = (
+          source = replace_once(
+              source,
+              "    if !validated.complete_claim {\n",
               "    let evidence_complete = validated.complete_claim && validated.limitations.is_empty();\n"
-              "    if !validated.complete_claim {\n"
+              "    if !validated.complete_claim {\n",
+              "evidence completeness",
           )
-          if source.count(old) != 1:
-              raise SystemExit("evidence completeness anchor mismatch")
-          source = source.replace(old, new, 1)
-
-          old = "    let correlated = validated.complete_claim\n"
-          new = "    let correlated = evidence_complete\n"
-          if source.count(old) != 1:
-              raise SystemExit("evidence correlation anchor mismatch")
-          source = source.replace(old, new, 1)
-
-          old = (
+          source = replace_once(
+              source,
+              "    let correlated = validated.complete_claim\n",
+              "    let correlated = evidence_complete\n",
+              "evidence correlation",
+          )
+          source = replace_once(
+              source,
               "        partial: mismatch\n"
               "            || limitations.iter().any(|value| {\n"
               "                value.contains(\"did not claim complete C05-supported read-only evidence\")\n"
-              "            }),\n"
+              "            }),\n",
+              "        partial: !evidence_complete || mismatch,\n",
+              "evidence partial",
           )
-          new = "        partial: !evidence_complete || mismatch,\n"
-          if source.count(old) != 1:
-              raise SystemExit("evidence partial anchor mismatch")
-          source = source.replace(old, new, 1)
           source_path.write_text(source, encoding="utf-8")
 
           tests = tests_path.read_text(encoding="utf-8")
-          bundle_anchor = '''    assert!(
-              report
-                  .limitations
-                  .iter()
-                  .any(|value| value.contains("did not claim complete"))
-          );
-          }
-          
-          #[test]
-          fn lawful_read_only_layout_evidence_can_be_correlated_exactly() {
-          '''
-          bundle_anchor = bundle_anchor.replace("          ", "")
-          bundle_replacement = '''    assert!(
-              report
-                  .limitations
-                  .iter()
-                  .any(|value| value.contains("did not claim complete"))
-          );
-
-              let mut limited_bundle = good_bundle();
+          tests = insert_before_test_end(
+              tests,
+              "incomplete_bundle_provider_claim_remains_partial",
+              "lawful_read_only_layout_evidence_can_be_correlated_exactly",
+              '''    let mut limited_bundle = good_bundle();
               limited_bundle.observation.limitations =
                   vec!["fixture partial bundle semantics".to_owned()];
               let limited_report = inspect(&source, Some(&limited_bundle), None)
@@ -127,29 +125,13 @@ jobs:
               assert_eq!(
                   limited_report.proof_level,
                   Some(MediatekStaticProofLevel::StructureChecked)
-              );
-          }
-          
-          #[test]
-          fn lawful_read_only_layout_evidence_can_be_correlated_exactly() {
-          '''.replace("          ", "")
-          if tests.count(bundle_anchor) != 1:
-              raise SystemExit("bundle test anchor mismatch")
-          tests = tests.replace(bundle_anchor, bundle_replacement, 1)
-
-          evidence_anchor = '''    assert_eq!(correlation.platform_matches, Some(false));
-              assert_eq!(correlation.storage_matches, Some(false));
-              assert_eq!(correlation.partition_names_match, Some(false));
-          }
-          
-          #[test]
-          fn scatter_is_download_metadata_never_establishes_write_trust() {
-          '''.replace("          ", "")
-          evidence_replacement = '''    assert_eq!(correlation.platform_matches, Some(false));
-              assert_eq!(correlation.storage_matches, Some(false));
-              assert_eq!(correlation.partition_names_match, Some(false));
-
-              let mut limited_evidence = exact_evidence();
+              );'''.replace("              ", ""),
+          )
+          tests = insert_before_test_end(
+              tests,
+              "contradictory_platform_storage_or_layout_evidence_reduces_truth",
+              "scatter_is_download_metadata_never_establishes_write_trust",
+              '''    let mut limited_evidence = exact_evidence();
               limited_evidence.observation.limitations =
                   vec!["fixture partial evidence semantics".to_owned()];
               let limited_report = inspect(&source, Some(&bundle), Some(&limited_evidence))
@@ -158,15 +140,8 @@ jobs:
               assert_eq!(
                   limited_report.proof_level,
                   Some(MediatekStaticProofLevel::BundleLinked)
-              );
-          }
-          
-          #[test]
-          fn scatter_is_download_metadata_never_establishes_write_trust() {
-          '''.replace("          ", "")
-          if tests.count(evidence_anchor) != 1:
-              raise SystemExit("evidence test anchor mismatch")
-          tests = tests.replace(evidence_anchor, evidence_replacement, 1)
+              );'''.replace("              ", ""),
+          )
           tests_path.write_text(tests, encoding="utf-8")
 
           contract = contract_path.read_text(encoding="utf-8")
@@ -174,25 +149,26 @@ jobs:
               "A missing bundle Provider is reportable: scatter structure remains useful, but "
               "referenced component bytes are not promoted to exact linkage.\n"
           )
-          bundle_insert = bundle_anchor + (
-              "\nAny non-empty validated bundle Provider `limitations` list reduces the package "
-              "assessment to `Partial` and blocks `BundleLinked`, even when the Provider also sets "
-              "`complete_claim: true`. The raw completeness claim remains retained evidence; it is "
-              "not allowed to erase an explicit partial-semantics limitation.\n"
+          contract = replace_once(
+              contract,
+              bundle_anchor,
+              bundle_anchor
+              + "\nAny non-empty validated bundle Provider `limitations` list reduces the package "
+                "assessment to `Partial` and blocks `BundleLinked`, even when the Provider also sets "
+                "`complete_claim: true`. The raw completeness claim remains retained evidence; it is "
+                "not allowed to erase an explicit partial-semantics limitation.\n",
+              "bundle contract",
           )
-          if contract.count(bundle_anchor) != 1:
-              raise SystemExit("bundle contract anchor mismatch")
-          contract = contract.replace(bundle_anchor, bundle_insert, 1)
-
           evidence_anchor = "No evidence level grants physical mutation authority.\n"
-          evidence_insert = evidence_anchor + (
-              "\nAny non-empty validated evidence Provider `limitations` list reduces the report "
-              "assessment to `Partial` and blocks `EvidenceCorrelated`, even when the Provider also "
-              "sets `complete_claim: true`.\n"
+          contract = replace_once(
+              contract,
+              evidence_anchor,
+              evidence_anchor
+              + "\nAny non-empty validated evidence Provider `limitations` list reduces the report "
+                "assessment to `Partial` and blocks `EvidenceCorrelated`, even when the Provider also "
+                "sets `complete_claim: true`.\n",
+              "evidence contract",
           )
-          if contract.count(evidence_anchor) != 1:
-              raise SystemExit("evidence contract anchor mismatch")
-          contract = contract.replace(evidence_anchor, evidence_insert, 1)
           contract_path.write_text(contract, encoding="utf-8")
           PY
 

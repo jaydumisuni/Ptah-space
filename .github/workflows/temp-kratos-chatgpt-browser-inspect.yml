@@ -1,4 +1,4 @@
-name: TEMP KRATOS Oracle extension ChatGPT inspect
+name: TEMP KRATOS Redmi sky CN selector mapping
 
 on:
   push:
@@ -6,45 +6,47 @@ on:
     paths:
       - '.github/workflows/temp-kratos-chatgpt-browser-inspect.yml'
 
+permissions:
+  contents: read
+
 jobs:
   inspect:
     runs-on: [self-hosted, kratos, linux, x64, physical, ptah]
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Inspect existing ChatGPT session through Oracle extension bridge
+      - name: Map CN customization selector read-only
         shell: bash
         run: |
           set -euo pipefail
-          bridge='http://127.0.0.1:8765'
-          token_file="$HOME/.local/state/OracleBrowserBridge/agent-token.txt"
-          test -s "$token_file"
-          token="$(cat "$token_file")"
-          test "${#token}" -ge 20
+          ADB="$(command -v adb || true)"
+          if [[ -z "$ADB" && -x /home/kratos/.local/share/mibu-platform-tools/current/platform-tools/adb ]]; then
+            ADB=/home/kratos/.local/share/mibu-platform-tools/current/platform-tools/adb
+          fi
+          test -x "$ADB"
 
-          echo '=== EXTENSION BRIDGE HEALTH ==='
-          health="$(curl -fsS --max-time 5 "$bridge/health")"
-          printf '%s\n' "$health"
-          python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True; assert d.get("browserConnected") is True, d' <<<"$health"
+          echo '=== HOST NETWORK (READ ONLY) ==='
+          ip route show default || true
 
-          command() {
-            local body="$1"
-            curl -fsS --max-time 30 -H "Authorization: Bearer $token" -H 'Content-Type: application/json' --data "$body" "$bridge/command"
-          }
+          echo '=== ADB ==='
+          "$ADB" start-server >/dev/null
+          "$ADB" get-state
+          "$ADB" devices -l
 
-          echo '=== TABS ==='
-          tabs="$(command '{"command":{"type":"getTabs"},"approved":false,"timeoutMs":20000}')"
-          printf '%s\n' "$tabs" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"ok":d.get("ok"),"tabs":[{"id":x.get("id"),"title":x.get("title"),"url":x.get("url"),"active":x.get("active")} for x in d.get("tabs",[])]},indent=2))'
+          echo '=== REGIONAL PROPERTIES ==='
+          "$ADB" shell 'for k in ro.product.device ro.product.model ro.build.version.incremental ro.build.version.release ro.miui.region ro.miui.cust_variant ro.miui.ui.version.name ro.boot.verifiedbootstate ro.boot.flash.locked ro.boot.vbmeta.device_state; do printf "%s=" "$k"; getprop "$k"; done'
 
-          chat_tab="$(printf '%s\n' "$tabs" | python3 -c 'import json,sys; d=json.load(sys.stdin); ts=d.get("tabs",[]); ms=[x for x in ts if "chatgpt.com" in str(x.get("url","")).lower() or "chat.openai.com" in str(x.get("url","")).lower()]; print(ms[0].get("id","") if ms else "")')"
-          test -n "$chat_tab"
-          echo "CHATGPT_TAB_ID=$chat_tab"
+          echo '=== CUST ROOT ==='
+          "$ADB" shell 'ls -la /cust 2>/dev/null; echo ---; find /cust -maxdepth 2 -type f 2>/dev/null | sort | head -n 220'
 
-          echo '=== CHATGPT SEMANTIC OBSERVATION ==='
-          body="$(python3 - "$chat_tab" <<'PY'
-import json,sys
-print(json.dumps({"command":{"type":"observe","tabId":int(sys.argv[1]),"options":{"accessibility":False,"domSnapshot":False,"screenshot":False}},"approved":False,"timeoutMs":30000}))
-PY
-)"
-          obs="$(command "$body")"
-          printf '%s\n' "$obs" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True,d; o=d.get("observation") or {}; p=o.get("page") or {}; out={"ok":True,"tab":o.get("tab"),"authority":o.get("authority"),"visibility":o.get("visibility"),"page":{"url":p.get("url"),"title":p.get("title"),"text":str(p.get("text") or "")[:12000],"headings":p.get("headings",[])[:80],"elements":p.get("elements",[])[:200]}}; print(json.dumps(out,indent=2))'
-          echo 'ORACLE_EXTENSION_CHATGPT_INSPECT=PASS'
+          echo '=== SELECTOR FILES / VALUES ==='
+          "$ADB" shell 'for p in /cust/cust_variant /cust/etc/business.prop /cust/etc/cust_apps_request_config /cust/etc/cust_apps_config /cust/etc/customized_applist /cust/etc/customized_channellist; do if [ -f "$p" ]; then echo "--- $p"; cat "$p" 2>/dev/null | head -n 220; fi; done'
+
+          echo '=== SELECTOR REFERENCES UNDER /cust ==='
+          "$ADB" shell 'find /cust -maxdepth 5 -type f -size -262144c 2>/dev/null | sort | while IFS= read -r p; do m=$(grep -a -i -E "cn_chinatelecom|VMWCNXM|currentSku|cust_variant|ro\.miui\.region|region=|google|gms|preload|customized" "$p" 2>/dev/null | head -n 20); if [ -n "$m" ]; then echo "--- $p"; printf "%s\n" "$m"; fi; done'
+
+          echo '=== CUST DIRECTORY TOPOLOGY ==='
+          "$ADB" shell 'find /cust -maxdepth 3 -type d 2>/dev/null | sort | head -n 260'
+
+          echo '=== POST-PROBE ADB / HOST ROUTE ==='
+          "$ADB" get-state
+          ip route show default || true

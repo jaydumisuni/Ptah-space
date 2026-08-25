@@ -1,0 +1,53 @@
+name: Temporary Oracle relay recovery on KRATOS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tmp-oracle-relay-recovery-kratos.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    runs-on: [self-hosted, kratos, ptah]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Restore Oracle relay and prove local browser bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          unit=oracle-recovery-relay.service
+          systemctl --user daemon-reload
+          if ! systemctl --user cat "$unit" >/dev/null 2>&1; then
+            cd /home/kratos/Oracle
+            bash scripts/install-oracle-recovery-relay-systemd-user.sh
+          else
+            systemctl --user restart "$unit"
+          fi
+          sleep 5
+          active="$(systemctl --user is-active "$unit")"
+          test "$active" = active
+          state="$(systemctl --user show "$unit" -p ActiveState -p SubState -p Result -p MainPID --no-pager | tr '\n' ';')"
+          bridge_http="$(curl -sS -o /tmp/oracle-bridge-health.json -w '%{http_code}' --max-time 10 http://127.0.0.1:8765/health || true)"
+          printf '{"schemaVersion":"oracle.recovery.kratos.v1","ok":true,"host":"%s","relay":"%s","browserBridgeHttp":"%s","completedAt":"%s"}\n' "$(hostname)" "$state" "$bridge_http" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > oracle-relay-recovery-result.json
+
+      - name: Publish recovery proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add oracle-relay-recovery-result.json
+          git commit -m 'recovery: prove KRATOS Oracle relay restored'
+          for i in 1 2 3 4 5; do
+            git push origin HEAD:main && exit 0
+            git fetch origin main
+            git rebase origin/main
+          done
+          exit 1

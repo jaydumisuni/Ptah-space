@@ -1,13 +1,10 @@
 name: TEMP C06 build carrier
-# disposable base-side trigger for PR execution
+# disposable base-side trigger; product history never inherits this workflow
 
 on:
   pull_request:
     branches:
       - temp/c06-carrier-base-20260825
-    paths:
-      - ".github/workflows/c06-build-carrier.yml"
-      - ".ttg/c06-candidate.tar.gz"
   workflow_dispatch:
 
 permissions:
@@ -16,7 +13,9 @@ permissions:
 env:
   PTAH_C06_BASE_SHA: 170b91195fa5e68ae15a8a9c26b9cf677fd78224
   PTAH_C06_TARGET_BRANCH: c06-unisoc-qualcomm-packs
+  PTAH_C06_PAYLOAD_COMMIT: 2b196a9a2fe2c6dbff0c6d73c2cba289d24eb0e0
   PTAH_C06_PAYLOAD_SHA256: 2119c94940fe9c424b3963fce6f3a5153413f9aa3d751ffa745f567882c890f2
+  PTAH_C06_PAYLOAD_SIZE: 24637
   CARGO_TERM_COLOR: always
 
 jobs:
@@ -30,12 +29,30 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Recover immutable C06 candidate payload
+      - name: Recover immutable C06 candidate from Git history
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s  %s\n' "$PTAH_C06_PAYLOAD_SHA256" .ttg/c06-candidate.tar.gz | sha256sum -c -
-          tar -xzf .ttg/c06-candidate.tar.gz -C "$GITHUB_WORKSPACE"
+          test "$(git rev-parse "$PTAH_C06_PAYLOAD_COMMIT^{commit}")" = "$PTAH_C06_PAYLOAD_COMMIT"
+          git show "$PTAH_C06_PAYLOAD_COMMIT:.github/workflows/c06-build-carrier.yml" > /tmp/c06-origin-carrier.yml
+          python3 - <<'PY'
+          from pathlib import Path
+
+          text = Path('/tmp/c06-origin-carrier.yml').read_text(encoding='utf-8')
+          marker = "cat > /tmp/c06-candidate.tar.gz.b64 <<'PAYLOAD'\n"
+          if marker not in text:
+              raise SystemExit('frozen C06 payload marker missing')
+          payload = text.split(marker, 1)[1].split('\nPAYLOAD', 1)[0].strip()
+          if len(payload) != 32852:
+              raise SystemExit(f'frozen C06 base64 length mismatch: {len(payload)}')
+          Path('/tmp/c06-candidate.tar.gz.b64').write_text(payload + '\n', encoding='ascii')
+          PY
+          base64 --decode /tmp/c06-candidate.tar.gz.b64 > /tmp/c06-candidate.tar.gz
+          test "$(stat -c '%s' /tmp/c06-candidate.tar.gz)" = "$PTAH_C06_PAYLOAD_SIZE"
+          printf '%s  %s\n' "$PTAH_C06_PAYLOAD_SHA256" /tmp/c06-candidate.tar.gz | sha256sum -c -
+          tar -tzf /tmp/c06-candidate.tar.gz | sort | tee /tmp/c06-payload-files.txt
+          test "$(wc -l < /tmp/c06-payload-files.txt)" -eq 6
+          tar -xzf /tmp/c06-candidate.tar.gz -C "$GITHUB_WORKSPACE"
 
       - name: Build and review C06 candidate
         shell: bash
@@ -43,6 +60,8 @@ jobs:
           set -euo pipefail
           rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
           rustup default 1.97.1
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
           cargo fmt --all
           cargo fmt --all -- --check
           cargo test -p ptah-archive-decomposition --test c06 --locked -- --nocapture
@@ -50,17 +69,23 @@ jobs:
           python3 - <<'PY'
           import re
           from pathlib import Path
+
           source = Path('crates/ptah-archive-decomposition/src/c06.rs').read_text(encoding='utf-8')
           tests = Path('crates/ptah-archive-decomposition/tests/c06.rs').read_text(encoding='utf-8')
           assert len(re.findall(r'^#\[test\]$', tests, re.M)) == 20
           public_functions = re.findall(r'\bpub\s+fn\s+([A-Za-z0-9_]+)', source)
-          forbidden = re.compile(r'(?:^|_)(?:write|erase|flash|reset|reboot|unlock|relock|repartition|execute|upload_fdl|load_fdl|load_programmer|sahara|firehose_command|raw_xml|raw_command|memory_write|rpmb|efuse|nv)(?:_|$)')
+          forbidden = re.compile(
+              r'(?:^|_)(?:write|erase|flash|reset|reboot|unlock|relock|repartition|execute|'
+              r'upload_fdl|load_fdl|load_programmer|sahara|firehose_command|raw_xml|raw_command|'
+              r'memory_write|rpmb|efuse|nv)(?:_|$)'
+          )
           offenders = sorted(name for name in public_functions if forbidden.search(name))
           assert not offenders, f'C06 mutation API surfaced: {offenders}'
           assert 'C06TrustAssessment::NotEstablished' in source
           assert 'contains.unisoc_pac_component' in source
           assert 'references.qualcomm_firmware_component' in source
           print('C06 static authority review: PASS')
+          print(f'public_functions={public_functions}')
           PY
 
       - name: Publish one clean C06 candidate commit over accepted C05
@@ -73,11 +98,24 @@ jobs:
           tree="$(git write-tree)"
           git config user.name 'THE TECH GUY'
           git config user.email '65334711+jaydumisuni@users.noreply.github.com'
-          candidate="$(printf '%s\n\n%s\n' 'Build C06 Unisoc and Qualcomm static packs' 'Exact PAC/FDL and MBN/ELF/Firehose/XML static evidence boundaries over accepted C05.' | git commit-tree "$tree" -p "$PTAH_C06_BASE_SHA")"
+          candidate="$(printf '%s\n\n%s\n' \
+            'Build C06 Unisoc and Qualcomm static packs' \
+            'Exact PAC/FDL and MBN/ELF/Firehose/XML static evidence boundaries over accepted C05.' \
+            | git commit-tree "$tree" -p "$PTAH_C06_BASE_SHA")"
           files="$(git diff --name-only "$PTAH_C06_BASE_SHA" "$candidate")"
           printf '%s\n' "$files"
-          test "$(printf '%s\n' "$files" | sed '/^$/d' | wc -l)" -eq 6
+          expected="$(cat <<'EOF'
+.github/workflows/c06-unisoc-qualcomm-packs.yml
+C06_UNISOC_QUALCOMM_PACKS.md
+crates/ptah-archive-decomposition/Cargo.toml
+crates/ptah-archive-decomposition/src/c06.rs
+crates/ptah-archive-decomposition/src/lib.rs
+crates/ptah-archive-decomposition/tests/c06.rs
+EOF
+          )"
+          test "$files" = "$expected"
           test "$(git rev-list --count "$PTAH_C06_BASE_SHA..$candidate")" -eq 1
+          test "$(git rev-parse "$candidate^")" = "$PTAH_C06_BASE_SHA"
           git diff --check "$PTAH_C06_BASE_SHA" "$candidate"
           git push --force origin "$candidate:refs/heads/$PTAH_C06_TARGET_BRANCH"
           echo "C06_CANDIDATE=$candidate"

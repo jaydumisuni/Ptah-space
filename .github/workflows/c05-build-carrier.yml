@@ -71,6 +71,7 @@ jobs:
           root = Path("crates/ptah-archive-decomposition")
           lib_path = root / "src/lib.rs"
           c05_path = root / "src/c05.rs"
+          tests_path = root / "tests/c05.rs"
 
           def backtick_doc_terms(text: str) -> str:
               rendered = []
@@ -84,6 +85,15 @@ jobs:
 
           lib_text = backtick_doc_terms(lib_path.read_text(encoding="utf-8"))
           lib_path.write_text(lib_text, encoding="utf-8")
+
+          tests_text = backtick_doc_terms(tests_path.read_text(encoding="utf-8"))
+          if tests_text.count('br#"') != 2:
+              raise SystemExit("C05 raw byte-string opening anchor mismatch")
+          if tests_text.count('"#\n    .to_vec()') != 2:
+              raise SystemExit("C05 raw byte-string closing anchor mismatch")
+          tests_text = tests_text.replace('br#"', 'br"')
+          tests_text = tests_text.replace('"#\n    .to_vec()', '"\n    .to_vec()')
+          tests_path.write_text(tests_text, encoding="utf-8")
 
           text = backtick_doc_terms(c05_path.read_text(encoding="utf-8"))
 

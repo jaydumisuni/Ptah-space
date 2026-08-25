@@ -1,0 +1,261 @@
+name: Temporary C05 review correction carrier
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/c05-review-fix-carrier.yml"
+      - "C05_MEDIATEK_PACK.md"
+      - "crates/ptah-archive-decomposition/src/c05.rs"
+      - "crates/ptah-archive-decomposition/tests/c05.rs"
+
+permissions:
+  contents: write
+
+env:
+  PTAH_C05_BASE_SHA: 3b9bcb02c8221d0fc2b0be833c491ac445120b4b
+  PTAH_C05_REVIEW_BASE_SHA: f3bc442c9df572a989e3e2536e5952e8af877783
+  CARGO_TERM_COLOR: always
+
+jobs:
+  guarded-review-correction:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'c05-mediatek-pack'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out C05 branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: c05-mediatek-pack
+          fetch-depth: 0
+
+      - name: Guard reviewed base and carrier-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$PTAH_C05_REVIEW_BASE_SHA" HEAD)" = "$PTAH_C05_REVIEW_BASE_SHA"
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          files = subprocess.check_output(
+              ["git", "diff", "--name-only", os.environ["PTAH_C05_REVIEW_BASE_SHA"], "HEAD"],
+              text=True,
+          ).splitlines()
+          assert files == [".github/workflows/c05-review-fix-carrier.yml"], files
+          PY
+
+      - name: Apply reviewed provider-limitation truth correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source_path = Path("crates/ptah-archive-decomposition/src/c05.rs")
+          tests_path = Path("crates/ptah-archive-decomposition/tests/c05.rs")
+          contract_path = Path("C05_MEDIATEK_PACK.md")
+
+          source = source_path.read_text(encoding="utf-8")
+          old_bundle = '''    Ok(BundleResolution {
+              provider_alias: Some(provider.provider_id().to_owned()),
+              entries,
+              linked: complete_claim && unresolved == 0,
+              partial: !complete_claim || unresolved != 0,
+              limitations,
+          })
+          '''.replace("          ", "")
+          new_bundle = '''    let linked = complete_claim && unresolved == 0 && limitations.is_empty();
+          Ok(BundleResolution {
+              provider_alias: Some(provider.provider_id().to_owned()),
+              entries,
+              linked,
+              partial: !linked,
+              limitations,
+          })
+          '''.replace("          ", "")
+          if source.count(old_bundle) != 1:
+              raise SystemExit("bundle resolution anchor mismatch")
+          source = source.replace(old_bundle, new_bundle, 1)
+
+          old_evidence = '''    if !validated.complete_claim {
+              validated.limitations.push(
+                  "evidence Provider did not claim complete C05-supported read-only evidence".to_owned(),
+              );
+          }
+          limitations.extend(validated.limitations.iter().cloned());
+          let correlated = validated.complete_claim
+              && validated.level == MediatekEvidenceLevel::LayoutEvidence
+              && correlation.platform_matches == Some(true)
+              && correlation.storage_matches == Some(true)
+              && correlation.partition_names_match == Some(true)
+              && !mismatch;
+          Ok(EvidenceResolution {
+              evidence: Some(validated),
+              correlation: Some(correlation),
+              correlated,
+              partial: mismatch
+                  || limitations.iter().any(|value| {
+                      value.contains("did not claim complete C05-supported read-only evidence")
+                  }),
+              limitations,
+          })
+          '''.replace("          ", "")
+          new_evidence = '''    let evidence_complete = validated.complete_claim && validated.limitations.is_empty();
+          if !validated.complete_claim {
+              validated.limitations.push(
+                  "evidence Provider did not claim complete C05-supported read-only evidence".to_owned(),
+              );
+          }
+          limitations.extend(validated.limitations.iter().cloned());
+          let correlated = evidence_complete
+              && validated.level == MediatekEvidenceLevel::LayoutEvidence
+              && correlation.platform_matches == Some(true)
+              && correlation.storage_matches == Some(true)
+              && correlation.partition_names_match == Some(true)
+              && !mismatch;
+          Ok(EvidenceResolution {
+              evidence: Some(validated),
+              correlation: Some(correlation),
+              correlated,
+              partial: !evidence_complete || mismatch,
+              limitations,
+          })
+          '''.replace("          ", "")
+          if source.count(old_evidence) != 1:
+              raise SystemExit("evidence resolution anchor mismatch")
+          source = source.replace(old_evidence, new_evidence, 1)
+          source_path.write_text(source, encoding="utf-8")
+
+          tests = tests_path.read_text(encoding="utf-8")
+          old_bundle_test = '''    assert!(
+              report
+                  .limitations
+                  .iter()
+                  .any(|value| value.contains("did not claim complete"))
+          );
+          }
+          
+          #[test]
+          fn lawful_read_only_layout_evidence_can_be_correlated_exactly() {
+          '''.replace("          ", "")
+          new_bundle_test = '''    assert!(
+              report
+                  .limitations
+                  .iter()
+                  .any(|value| value.contains("did not claim complete"))
+          );
+
+          let mut limited_bundle = good_bundle();
+          limited_bundle.observation.limitations = vec!["fixture partial bundle semantics".to_owned()];
+          let limited_report = inspect(&source, Some(&limited_bundle), None)
+              .expect("provider limitation remains reportable");
+          assert_eq!(limited_report.assessment, MediatekAssessment::Partial);
+          assert_eq!(
+              limited_report.proof_level,
+              Some(MediatekStaticProofLevel::StructureChecked)
+          );
+          }
+          
+          #[test]
+          fn lawful_read_only_layout_evidence_can_be_correlated_exactly() {
+          '''.replace("          ", "")
+          if tests.count(old_bundle_test) != 1:
+              raise SystemExit("bundle test anchor mismatch")
+          tests = tests.replace(old_bundle_test, new_bundle_test, 1)
+
+          old_evidence_test = '''    assert_eq!(correlation.platform_matches, Some(false));
+              assert_eq!(correlation.storage_matches, Some(false));
+              assert_eq!(correlation.partition_names_match, Some(false));
+          }
+          
+          #[test]
+          fn scatter_is_download_metadata_never_establishes_write_trust() {
+          '''.replace("          ", "")
+          new_evidence_test = '''    assert_eq!(correlation.platform_matches, Some(false));
+              assert_eq!(correlation.storage_matches, Some(false));
+              assert_eq!(correlation.partition_names_match, Some(false));
+
+              let mut limited_evidence = exact_evidence();
+              limited_evidence.observation.limitations =
+                  vec!["fixture partial evidence semantics".to_owned()];
+              let limited_report = inspect(&source, Some(&bundle), Some(&limited_evidence))
+                  .expect("evidence limitation remains reportable");
+              assert_eq!(limited_report.assessment, MediatekAssessment::Partial);
+              assert_eq!(
+                  limited_report.proof_level,
+                  Some(MediatekStaticProofLevel::BundleLinked)
+              );
+          }
+          
+          #[test]
+          fn scatter_is_download_metadata_never_establishes_write_trust() {
+          '''.replace("          ", "")
+          if tests.count(old_evidence_test) != 1:
+              raise SystemExit("evidence test anchor mismatch")
+          tests = tests.replace(old_evidence_test, new_evidence_test, 1)
+          tests_path.write_text(tests, encoding="utf-8")
+
+          contract = contract_path.read_text(encoding="utf-8")
+          bundle_anchor = (
+              "A missing bundle Provider is reportable: scatter structure remains useful, but "
+              "referenced component bytes are not promoted to exact linkage.\n"
+          )
+          bundle_insert = bundle_anchor + (
+              "\nAny non-empty validated bundle Provider `limitations` list reduces the package "
+              "assessment to `Partial` and blocks `BundleLinked`, even when the Provider also sets "
+              "`complete_claim: true`. The raw completeness claim remains retained evidence; it is "
+              "not allowed to erase an explicit partial-semantics limitation.\n"
+          )
+          if contract.count(bundle_anchor) != 1:
+              raise SystemExit("bundle contract anchor mismatch")
+          contract = contract.replace(bundle_anchor, bundle_insert, 1)
+
+          evidence_anchor = "No evidence level grants physical mutation authority.\n"
+          evidence_insert = evidence_anchor + (
+              "\nAny non-empty validated evidence Provider `limitations` list reduces the report "
+              "assessment to `Partial` and blocks `EvidenceCorrelated`, even when the Provider also "
+              "sets `complete_claim: true`.\n"
+          )
+          if contract.count(evidence_anchor) != 1:
+              raise SystemExit("evidence contract anchor mismatch")
+          contract = contract.replace(evidence_anchor, evidence_insert, 1)
+          contract_path.write_text(contract, encoding="utf-8")
+          PY
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+
+      - name: Prove corrected 20-case C05 Build surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          git diff --check "$PTAH_C05_BASE_SHA"
+          cargo test -p ptah-archive-decomposition --test c05 --locked -- --nocapture \
+            2>&1 | tee /tmp/c05-review-fix-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c05-review-fix-tests.txt
+          cargo clippy -p ptah-archive-decomposition --lib --test c05 --locked -- -D warnings
+
+      - name: Commit only corrected permanent C05 surface and delete carrier
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/c05-review-fix-carrier.yml
+          git add \
+            C05_MEDIATEK_PACK.md \
+            crates/ptah-archive-decomposition/src/c05.rs \
+            crates/ptah-archive-decomposition/tests/c05.rs \
+            .github/workflows/c05-review-fix-carrier.yml
+          git diff --cached --check
+          git config user.name "THE TECH GUY"
+          git config user.email "65334711+jaydumisuni@users.noreply.github.com"
+          git commit -m "Correct C05 provider limitation truth"
+          git push origin HEAD:c05-mediatek-pack

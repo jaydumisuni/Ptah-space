@@ -1,0 +1,1 @@
+Trigger the registered ATHENA self-hosted one-use workflow to start or resume the official Redmi sky Global HyperOS archive download into C:\Users\ATHENA 2.0\Desktop\redmi r12. No device action is performed.

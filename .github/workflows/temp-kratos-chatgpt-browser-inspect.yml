@@ -11,64 +11,77 @@ jobs:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 5
     steps:
-      - name: Pair existing Oracle extension using X11 without new packages
+      - name: Inspect Brave-first Oracle and ChatGPT state
         shell: bash
         run: |
           set -euo pipefail
-          uid="$(id -u)"
-          export XDG_RUNTIME_DIR="/run/user/$uid"
-          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-          user_env="$(systemctl --user show-environment 2>/dev/null || true)"
-          eval "$(printf '%s\n' "$user_env" | grep -E '^(DISPLAY|WAYLAND_DISPLAY|XAUTHORITY)=' | sed 's/^/export /' || true)"
-          : "${DISPLAY:=:0}"; export DISPLAY
-          token_path="$HOME/.local/state/OracleBrowserBridge/agent-token.txt"
-          test -s "$token_path"
-          token="$(tr -d '\r\n' < "$token_path")"
-          if [[ ! "$token" =~ ^[0-9A-Fa-f]{64}$ ]]; then echo 'TOKEN_FORMAT_UNEXPECTED'; exit 42; fi
-          echo 'TOKEN_FORMAT=hex64'
-          chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)"
-          ext_id='hoahdcllchhncnenbeplgfgmpjihakab'
-          "$chrome" --profile-directory=Default --new-tab "chrome-extension://$ext_id/options/index.html" >/dev/null 2>&1 || true
-          sleep 3
+          echo '=== BRAVE BINARY / PROCESSES ==='
+          command -v brave-browser || command -v brave-browser-stable || command -v brave || true
+          pgrep -a -u "$USER" -f 'brave-browser|/brave ' || true
 
-          ORACLE_LOCAL_PAIRING_TOKEN="$token" python3 - <<'PY'
-          import ctypes,ctypes.util,os,time
-          x11=ctypes.CDLL(ctypes.util.find_library('X11') or 'libX11.so.6')
-          xtst=ctypes.CDLL(ctypes.util.find_library('Xtst') or 'libXtst.so.6')
-          x11.XOpenDisplay.argtypes=[ctypes.c_char_p]; x11.XOpenDisplay.restype=ctypes.c_void_p
-          x11.XStringToKeysym.argtypes=[ctypes.c_char_p]; x11.XStringToKeysym.restype=ctypes.c_ulong
-          x11.XKeysymToKeycode.argtypes=[ctypes.c_void_p,ctypes.c_ulong]; x11.XKeysymToKeycode.restype=ctypes.c_ubyte
-          x11.XFlush.argtypes=[ctypes.c_void_p]
-          xtst.XTestFakeKeyEvent.argtypes=[ctypes.c_void_p,ctypes.c_uint,ctypes.c_int,ctypes.c_ulong]
-          d=x11.XOpenDisplay(None)
-          if not d: raise SystemExit('X11_DISPLAY_OPEN_FAILED')
-          def code(name):
-              ks=x11.XStringToKeysym(name.encode())
-              kc=x11.XKeysymToKeycode(d,ks)
-              if not kc: raise RuntimeError('NO_KEYCODE:'+name)
-              return kc
-          def ev(name,down):
-              xtst.XTestFakeKeyEvent(d,code(name),1 if down else 0,0); x11.XFlush(d); time.sleep(.025)
-          def tap(name): ev(name,True); ev(name,False)
-          def combo(mod,key): ev(mod,True); tap(key); ev(mod,False)
-          # Force a deterministic focus transition: omnibox -> web content.
-          combo('Control_L','l'); time.sleep(.2); tap('F6'); time.sleep(.4)
-          for _ in range(5): tap('Tab'); time.sleep(.08)
-          combo('Control_L','a')
-          for ch in os.environ['ORACLE_LOCAL_PAIRING_TOKEN'].lower(): tap(ch)
-          tap('Tab'); tap('Return')
-          x11.XFlush(d); time.sleep(1)
-          print('X11_OPTIONS_RECONNECT_SENT=true')
+          echo '=== BRAVE PROFILE METADATA ==='
+          python3 - <<'PY'
+          import json,pathlib
+          root=pathlib.Path.home()/'.config/BraveSoftware/Brave-Browser'
+          out={'rootExists':root.exists(),'profiles':[],'lastUsed':None}
+          ls=root/'Local State'
+          if ls.is_file():
+              try:
+                  data=json.loads(ls.read_text(errors='ignore'))
+                  out['lastUsed']=((data.get('profile') or {}).get('last_used'))
+              except Exception as e:
+                  out['localStateError']=type(e).__name__
+          if root.exists():
+              for p in root.iterdir():
+                  pref=p/'Preferences'
+                  if not pref.is_file(): continue
+                  item={'profile':p.name,'oracleExtensions':[]}
+                  try:
+                      data=json.loads(pref.read_text(errors='ignore'))
+                      settings=((data.get('extensions') or {}).get('settings') or {})
+                      for ext_id,cfg in settings.items():
+                          path=str(cfg.get('path') or '')
+                          if 'oracle' in path.lower() or ext_id in ['hoahdcllchhncnenbeplgfgmpjihakab','efkgbmhecofigogmpbeppjfdhabljkjp']:
+                              item['oracleExtensions'].append({'id':ext_id,'path':path,'state':cfg.get('state'),'fromWebstore':cfg.get('from_webstore'),'location':cfg.get('location')})
+                  except Exception as e:
+                      item['prefError']=type(e).__name__
+                  out['profiles'].append(item)
+          print(json.dumps(out,separators=(',',':')))
           PY
-          unset token ORACLE_LOCAL_PAIRING_TOKEN || true
 
-          connected=0
-          for i in $(seq 1 20); do
-            sleep 1
-            curl -fsS --max-time 2 http://127.0.0.1:8765/health >"$RUNNER_TEMP/bridge-health.json" 2>/dev/null || true
-            if [ -s "$RUNNER_TEMP/bridge-health.json" ] && python3 -c "import json; d=json.load(open('$RUNNER_TEMP/bridge-health.json')); raise SystemExit(0 if d.get('browserConnected') else 1)"; then connected=1; break; fi
+          echo '=== CHATGPT PROFILE EVIDENCE (NO COOKIE VALUES) ==='
+          python3 - <<'PY'
+          import pathlib,sqlite3,shutil,tempfile,json
+          root=pathlib.Path.home()/'.config/BraveSoftware/Brave-Browser'
+          out=[]
+          for p in root.iterdir() if root.exists() else []:
+              if not (p/'Preferences').is_file(): continue
+              item={'profile':p.name,'historyMatches':0,'cookieNames':[]}
+              hist=p/'History'
+              if hist.is_file():
+                  try:
+                      t=pathlib.Path(tempfile.mkstemp(prefix='brave-history-')[1]); shutil.copy2(hist,t)
+                      db=sqlite3.connect(t)
+                      item['historyMatches']=db.execute("select count(*) from urls where url like '%chatgpt.com%' or url like '%chat.openai.com%'").fetchone()[0]
+                      item['recentChatgpt']=db.execute("select url,title,last_visit_time from urls where url like '%chatgpt.com%' or url like '%chat.openai.com%' order by last_visit_time desc limit 5").fetchall()
+                      db.close(); t.unlink(missing_ok=True)
+                  except Exception as e: item['historyError']=type(e).__name__
+              ck=p/'Network'/'Cookies'
+              if ck.is_file():
+                  try:
+                      t=pathlib.Path(tempfile.mkstemp(prefix='brave-cookies-')[1]); shutil.copy2(ck,t)
+                      db=sqlite3.connect(t)
+                      rows=db.execute("select distinct name from cookies where host_key like '%chatgpt.com' or host_key like '%openai.com' order by name limit 30").fetchall()
+                      item['cookieNames']=[r[0] for r in rows]
+                      db.close(); t.unlink(missing_ok=True)
+                  except Exception as e: item['cookieError']=type(e).__name__
+              out.append(item)
+          print(json.dumps(out,separators=(',',':')))
+          PY
+
+          echo '=== LOCAL BROWSER SERVICES ==='
+          for u in 'http://127.0.0.1:9222/' 'http://127.0.0.1:9222/json/version' 'http://127.0.0.1:9222/json/list' 'http://127.0.0.1:5056/health' 'http://127.0.0.1:8765/health'; do
+            echo "URL=$u"
+            curl -fsS --max-time 4 "$u" 2>/dev/null | head -c 5000 || echo 'UNREACHABLE'
+            echo
           done
-          cat "$RUNNER_TEMP/bridge-health.json" 2>/dev/null || true
-          echo
-          echo "BROWSER_BRIDGE_CONNECTED=$connected"
-          test "$connected" = 1

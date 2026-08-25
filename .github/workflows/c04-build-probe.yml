@@ -1,0 +1,60 @@
+name: C04 build probe
+
+on:
+  push:
+    branches:
+      - c04-apple-ipsw-ota-img4-pack
+    paths:
+      - "C04_APPLE_IPSW_OTA_IMG4_PACK.md"
+      - "crates/ptah-archive-decomposition/Cargo.toml"
+      - "crates/ptah-archive-decomposition/src/lib.rs"
+      - "crates/ptah-archive-decomposition/src/c04.rs"
+      - "crates/ptah-archive-decomposition/tests/c04.rs"
+      - ".github/workflows/c04-build-probe.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  prove-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: c04-apple-ipsw-ota-img4-pack
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Prove C04 build surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          cargo fmt --all
+          cargo test -p ptah-archive-decomposition --test c04 --locked -- --nocapture \
+            2>&1 | tee /tmp/c04-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c04-tests.txt
+          cargo clippy -p ptah-archive-decomposition --lib --test c04 --locked -- -D warnings \
+            2>&1 | tee /tmp/c04-clippy.txt
+          git diff --check
+
+      - name: Commit proven formatting and remove carrier
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/c04-build-probe.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add C04_APPLE_IPSW_OTA_IMG4_PACK.md \
+            crates/ptah-archive-decomposition/Cargo.toml \
+            crates/ptah-archive-decomposition/src/lib.rs \
+            crates/ptah-archive-decomposition/src/c04.rs \
+            crates/ptah-archive-decomposition/tests/c04.rs \
+            .github/workflows/c04-build-probe.yml
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m 'C04 build: prove Apple firmware core and corpus'
+          git push origin HEAD:c04-apple-ipsw-ota-img4-pack

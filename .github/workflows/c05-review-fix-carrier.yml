@@ -58,78 +58,48 @@ jobs:
           contract_path = Path("C05_MEDIATEK_PACK.md")
 
           source = source_path.read_text(encoding="utf-8")
-          old_bundle = '''    Ok(BundleResolution {
-              provider_alias: Some(provider.provider_id().to_owned()),
-              entries,
-              linked: complete_claim && unresolved == 0,
-              partial: !complete_claim || unresolved != 0,
-              limitations,
-          })
-          '''.replace("          ", "")
-          new_bundle = '''    let linked = complete_claim && unresolved == 0 && limitations.is_empty();
-          Ok(BundleResolution {
-              provider_alias: Some(provider.provider_id().to_owned()),
-              entries,
-              linked,
-              partial: !linked,
-              limitations,
-          })
-          '''.replace("          ", "")
-          if source.count(old_bundle) != 1:
-              raise SystemExit("bundle resolution anchor mismatch")
-          source = source.replace(old_bundle, new_bundle, 1)
 
-          old_evidence = '''    if !validated.complete_claim {
-              validated.limitations.push(
-                  "evidence Provider did not claim complete C05-supported read-only evidence".to_owned(),
-              );
-          }
-          limitations.extend(validated.limitations.iter().cloned());
-          let correlated = validated.complete_claim
-              && validated.level == MediatekEvidenceLevel::LayoutEvidence
-              && correlation.platform_matches == Some(true)
-              && correlation.storage_matches == Some(true)
-              && correlation.partition_names_match == Some(true)
-              && !mismatch;
-          Ok(EvidenceResolution {
-              evidence: Some(validated),
-              correlation: Some(correlation),
-              correlated,
-              partial: mismatch
-                  || limitations.iter().any(|value| {
-                      value.contains("did not claim complete C05-supported read-only evidence")
-                  }),
-              limitations,
-          })
-          '''.replace("          ", "")
-          new_evidence = '''    let evidence_complete = validated.complete_claim && validated.limitations.is_empty();
-          if !validated.complete_claim {
-              validated.limitations.push(
-                  "evidence Provider did not claim complete C05-supported read-only evidence".to_owned(),
-              );
-          }
-          limitations.extend(validated.limitations.iter().cloned());
-          let correlated = evidence_complete
-              && validated.level == MediatekEvidenceLevel::LayoutEvidence
-              && correlation.platform_matches == Some(true)
-              && correlation.storage_matches == Some(true)
-              && correlation.partition_names_match == Some(true)
-              && !mismatch;
-          Ok(EvidenceResolution {
-              evidence: Some(validated),
-              correlation: Some(correlation),
-              correlated,
-              partial: !evidence_complete || mismatch,
-              limitations,
-          })
-          '''.replace("          ", "")
-          if source.count(old_evidence) != 1:
-              raise SystemExit("evidence resolution anchor mismatch")
-          source = source.replace(old_evidence, new_evidence, 1)
+          old = (
+              "        linked: complete_claim && unresolved == 0,\n"
+              "        partial: !complete_claim || unresolved != 0,\n"
+          )
+          new = (
+              "        linked: complete_claim && unresolved == 0 && limitations.is_empty(),\n"
+              "        partial: !complete_claim || unresolved != 0 || !limitations.is_empty(),\n"
+          )
+          if source.count(old) != 1:
+              raise SystemExit("bundle resolution anchor mismatch")
+          source = source.replace(old, new, 1)
+
+          old = "    if !validated.complete_claim {\n"
+          new = (
+              "    let evidence_complete = validated.complete_claim && validated.limitations.is_empty();\n"
+              "    if !validated.complete_claim {\n"
+          )
+          if source.count(old) != 1:
+              raise SystemExit("evidence completeness anchor mismatch")
+          source = source.replace(old, new, 1)
+
+          old = "    let correlated = validated.complete_claim\n"
+          new = "    let correlated = evidence_complete\n"
+          if source.count(old) != 1:
+              raise SystemExit("evidence correlation anchor mismatch")
+          source = source.replace(old, new, 1)
+
+          old = (
+              "        partial: mismatch\n"
+              "            || limitations.iter().any(|value| {\n"
+              "                value.contains(\"did not claim complete C05-supported read-only evidence\")\n"
+              "            }),\n"
+          )
+          new = "        partial: !evidence_complete || mismatch,\n"
+          if source.count(old) != 1:
+              raise SystemExit("evidence partial anchor mismatch")
+          source = source.replace(old, new, 1)
           source_path.write_text(source, encoding="utf-8")
 
           tests = tests_path.read_text(encoding="utf-8")
-          old_bundle_test = '''    assert!(
+          bundle_anchor = '''    assert!(
               report
                   .limitations
                   .iter()
@@ -139,33 +109,35 @@ jobs:
           
           #[test]
           fn lawful_read_only_layout_evidence_can_be_correlated_exactly() {
-          '''.replace("          ", "")
-          new_bundle_test = '''    assert!(
+          '''
+          bundle_anchor = bundle_anchor.replace("          ", "")
+          bundle_replacement = '''    assert!(
               report
                   .limitations
                   .iter()
                   .any(|value| value.contains("did not claim complete"))
           );
 
-          let mut limited_bundle = good_bundle();
-          limited_bundle.observation.limitations = vec!["fixture partial bundle semantics".to_owned()];
-          let limited_report = inspect(&source, Some(&limited_bundle), None)
-              .expect("provider limitation remains reportable");
-          assert_eq!(limited_report.assessment, MediatekAssessment::Partial);
-          assert_eq!(
-              limited_report.proof_level,
-              Some(MediatekStaticProofLevel::StructureChecked)
-          );
+              let mut limited_bundle = good_bundle();
+              limited_bundle.observation.limitations =
+                  vec!["fixture partial bundle semantics".to_owned()];
+              let limited_report = inspect(&source, Some(&limited_bundle), None)
+                  .expect("provider limitation remains reportable");
+              assert_eq!(limited_report.assessment, MediatekAssessment::Partial);
+              assert_eq!(
+                  limited_report.proof_level,
+                  Some(MediatekStaticProofLevel::StructureChecked)
+              );
           }
           
           #[test]
           fn lawful_read_only_layout_evidence_can_be_correlated_exactly() {
           '''.replace("          ", "")
-          if tests.count(old_bundle_test) != 1:
+          if tests.count(bundle_anchor) != 1:
               raise SystemExit("bundle test anchor mismatch")
-          tests = tests.replace(old_bundle_test, new_bundle_test, 1)
+          tests = tests.replace(bundle_anchor, bundle_replacement, 1)
 
-          old_evidence_test = '''    assert_eq!(correlation.platform_matches, Some(false));
+          evidence_anchor = '''    assert_eq!(correlation.platform_matches, Some(false));
               assert_eq!(correlation.storage_matches, Some(false));
               assert_eq!(correlation.partition_names_match, Some(false));
           }
@@ -173,7 +145,7 @@ jobs:
           #[test]
           fn scatter_is_download_metadata_never_establishes_write_trust() {
           '''.replace("          ", "")
-          new_evidence_test = '''    assert_eq!(correlation.platform_matches, Some(false));
+          evidence_replacement = '''    assert_eq!(correlation.platform_matches, Some(false));
               assert_eq!(correlation.storage_matches, Some(false));
               assert_eq!(correlation.partition_names_match, Some(false));
 
@@ -192,9 +164,9 @@ jobs:
           #[test]
           fn scatter_is_download_metadata_never_establishes_write_trust() {
           '''.replace("          ", "")
-          if tests.count(old_evidence_test) != 1:
+          if tests.count(evidence_anchor) != 1:
               raise SystemExit("evidence test anchor mismatch")
-          tests = tests.replace(old_evidence_test, new_evidence_test, 1)
+          tests = tests.replace(evidence_anchor, evidence_replacement, 1)
           tests_path.write_text(tests, encoding="utf-8")
 
           contract = contract_path.read_text(encoding="utf-8")

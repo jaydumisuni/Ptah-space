@@ -1,4 +1,4 @@
-name: Temporary Redmi sky ROM deterministic recovery on KRATOS
+name: Temporary Redmi sky CN selector mapping on KRATOS
 
 on:
   push:
@@ -10,107 +10,43 @@ permissions:
   contents: read
 
 jobs:
-  recover:
+  map-selector:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 240
+    timeout-minutes: 10
     steps:
-      - name: Verify prefix, discard zero tail, and resume official ROM
+      - name: Map CN customization selector read-only
         shell: bash
         run: |
           set -euo pipefail
-          dir='/home/kratos/Desktop/redmi r12'
-          payload="$dir/BIT85A4.tmp"
-          final="$dir/sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz"
-          url='https://cdnorg.d.miui.com/OS2.0.9.0.VMWMIXM/sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
-          expected_md5='3334591f858477053b68f4c0e47debf0'
-          expected_size=7949886711
-          safe_offset=142606336
-          sample_len=1048576
-
-          mkdir -p "$dir"
-          if [[ -f "$final" ]]; then
-            echo 'final_file_already_exists=true'
-            actual="$(md5sum "$final" | awk '{print $1}')"
-            printf 'final_md5=%s\n' "$actual"
-            test "$actual" = "$expected_md5"
-            gzip -t "$final"
-            exit 0
+          ADB="$(command -v adb || true)"
+          if [[ -z "$ADB" && -x /home/kratos/.local/share/mibu-platform-tools/current/platform-tools/adb ]]; then
+            ADB=/home/kratos/.local/share/mibu-platform-tools/current/platform-tools/adb
           fi
-          test -f "$payload"
+          test -x "$ADB"
 
-          work="$(mktemp -d)"
-          trap 'rm -rf "$work"' EXIT
+          echo '=== HOST NETWORK (READ ONLY) ==='
+          ip route show default || true
 
-          echo '=== REMOTE IDENTITY ==='
-          curl -fLsS --connect-timeout 15 --max-time 45 -r 0-0 -D "$work/h.txt" -o "$work/b0" "$url"
-          grep -iE '^(HTTP/|Content-Range:|Content-Length:|ETag:|Last-Modified:|Accept-Ranges:)' "$work/h.txt" || true
-          remote_size="$(grep -i '^Content-Range:' "$work/h.txt" | tail -n1 | sed -E 's#.*\/([0-9]+).*#\1#' | tr -d '\r')"
-          printf 'remote_size=%s\n' "$remote_size"
-          test "$remote_size" = "$expected_size"
+          echo '=== ADB ==='
+          "$ADB" start-server >/dev/null
+          "$ADB" get-state
+          "$ADB" devices -l
 
-          echo '=== SAFE PREFIX VERIFICATION ==='
-          local_size="$(stat -c %s "$payload")"
-          printf 'local_size_before=%s\n' "$local_size"
-          test "$local_size" -ge $((safe_offset + sample_len))
-          dd if="$payload" of="$work/local.bin" bs=1 skip="$safe_offset" count="$sample_len" status=none
-          curl -fLsS --connect-timeout 15 --max-time 90 \
-            -r "$safe_offset-$((safe_offset + sample_len - 1))" \
-            -o "$work/remote.bin" "$url"
-          local_sha="$(sha256sum "$work/local.bin" | awk '{print $1}')"
-          remote_sha="$(sha256sum "$work/remote.bin" | awk '{print $1}')"
-          printf 'local_safe_sample_sha256=%s\n' "$local_sha"
-          printf 'remote_safe_sample_sha256=%s\n' "$remote_sha"
-          test "$local_sha" = "$remote_sha"
+          echo '=== REGIONAL PROPERTIES ==='
+          "$ADB" shell 'for k in ro.product.device ro.product.model ro.build.version.incremental ro.build.version.release ro.miui.region ro.miui.cust_variant ro.miui.ui.version.name ro.boot.verifiedbootstate ro.boot.flash.locked ro.boot.vbmeta.device_state; do printf "%s=" "$k"; getprop "$k"; done'
 
-          echo '=== NORMALIZE PARTIAL FILE ==='
-          # The failed browser transfer preallocated the final length with a zero-filled tail.
-          # On first recovery, discard everything after a remote-verified prefix. On a later
-          # retry, keep any contiguous bytes aria2 already appended beyond safe_offset.
-          if [[ "$local_size" -eq "$expected_size" ]]; then
-            current_md5="$(md5sum "$payload" | awk '{print $1}')"
-            if [[ "$current_md5" != "$expected_md5" ]]; then
-              truncate -s "$safe_offset" "$payload"
-              echo "truncated_to=$safe_offset"
-            fi
-          fi
-          normalized_size="$(stat -c %s "$payload")"
-          printf 'normalized_size=%s\n' "$normalized_size"
-          test "$normalized_size" -le "$expected_size"
-          test "$normalized_size" -ge "$safe_offset"
+          echo '=== CUST ROOT ==='
+          "$ADB" shell 'ls -la /cust 2>/dev/null; echo ---; find /cust -maxdepth 2 -type f 2>/dev/null | sort | head -n 220'
 
-          echo '=== ARIA2 RESUME ==='
-          aria2c \
-            --continue=true \
-            --auto-file-renaming=false \
-            --allow-overwrite=true \
-            --file-allocation=none \
-            --max-connection-per-server=16 \
-            --split=16 \
-            --min-split-size=1M \
-            --connect-timeout=20 \
-            --timeout=60 \
-            --max-tries=20 \
-            --retry-wait=5 \
-            --summary-interval=30 \
-            --console-log-level=notice \
-            --check-integrity=true \
-            --checksum="md5=$expected_md5" \
-            --dir="$dir" \
-            --out='BIT85A4.tmp' \
-            "$url"
+          echo '=== SELECTOR FILES / VALUES ==='
+          "$ADB" shell 'for p in /cust/cust_variant /cust/etc/business.prop /cust/etc/cust_apps_request_config /cust/etc/cust_apps_config /cust/etc/customized_applist /cust/etc/customized_channellist; do if [ -f "$p" ]; then echo "--- $p"; cat "$p" 2>/dev/null | head -n 220; fi; done'
 
-          echo '=== FINAL PROOF ==='
-          actual_size="$(stat -c %s "$payload")"
-          actual_md5="$(md5sum "$payload" | awk '{print $1}')"
-          actual_sha256="$(sha256sum "$payload" | awk '{print $1}')"
-          printf 'size=%s\n' "$actual_size"
-          printf 'md5=%s\n' "$actual_md5"
-          printf 'sha256=%s\n' "$actual_sha256"
-          test "$actual_size" -eq "$expected_size"
-          test "$actual_md5" = "$expected_md5"
-          gzip -t "$payload"
-          echo 'gzip_test=PASS'
+          echo '=== SELECTOR REFERENCES UNDER /cust ==='
+          "$ADB" shell 'find /cust -maxdepth 5 -type f -size -262144c 2>/dev/null | sort | while IFS= read -r p; do m=$(grep -a -i -E "cn_chinatelecom|VMWCNXM|currentSku|cust_variant|ro\.miui\.region|region=|google|gms|preload|customized" "$p" 2>/dev/null | head -n 20); if [ -n "$m" ]; then echo "--- $p"; printf "%s\n" "$m"; fi; done'
 
-          mv -- "$payload" "$final"
-          rm -f -- "$payload.aria2" "$final.aria2"
-          printf 'final_path=%s\n' "$final"
+          echo '=== CUST DIRECTORY TOPOLOGY ==='
+          "$ADB" shell 'find /cust -maxdepth 3 -type d 2>/dev/null | sort | head -n 260'
+
+          echo '=== POST-PROBE ADB / HOST ROUTE ==='
+          "$ADB" get-state
+          ip route show default || true

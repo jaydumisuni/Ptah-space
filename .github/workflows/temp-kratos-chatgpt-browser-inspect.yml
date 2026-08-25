@@ -1,6 +1,6 @@
-name: TEMP KRATOS Redmi sky mi_ext direct map
+name: TEMP KRATOS X-Ray PR31 physical proof
 
-# activation: v7
+# activation: v8
 on:
   push:
     branches: [main]
@@ -11,44 +11,86 @@ permissions:
   contents: read
 
 jobs:
-  inspect:
+  proof:
     runs-on: [self-hosted, kratos, linux, x64, physical, ptah]
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
-      - name: Inventory accessible mi_ext logical partition read-only
+      - name: Prove Xiaomi-aware X-Ray branch against live Redmi read-only
         shell: bash
         run: |
           set -euo pipefail
-          ADB="$(command -v adb || true)"
-          if [[ -z "$ADB" && -x /home/kratos/.local/share/mibu-platform-tools/current/platform-tools/adb ]]; then
-            ADB=/home/kratos/.local/share/mibu-platform-tools/current/platform-tools/adb
-          fi
-          test -x "$ADB"
-          "$ADB" start-server >/dev/null
-          "$ADB" get-state
+          export PATH="/home/kratos/.local/share/mibu-platform-tools/current/platform-tools:$PATH"
+          work=/tmp/ttg-xray-pr31-live-proof
+          rm -rf "$work"
 
-          echo '=== HOST ROUTES BEFORE ==='
+          echo '=== SAFETY PRECHECK ==='
+          adb start-server >/dev/null
+          adb get-state
           ip route show default || true
 
-          echo '=== MI_EXT ACCESS / MOUNT ==='
-          "$ADB" shell 'ls -ld /mi_ext /mnt/vendor/mi_ext 2>&1 || true; mount 2>/dev/null | grep " on /mi_ext " || true; getprop | grep "partition.mi_ext" | sort || true'
+          echo '=== CHECKOUT ==='
+          git clone --quiet --depth 1 --branch feature/xiaomi-cust-selector-evidence \
+            https://github.com/jaydumisuni/TTG-Device-X-Ray.git "$work"
+          git -C "$work" rev-parse HEAD
 
-          echo '=== MI_EXT TOPOLOGY ==='
-          "$ADB" shell 'if [ -d /mi_ext ]; then find /mi_ext -maxdepth 4 -type d 2>/dev/null | sort | head -n 340; else echo MI_EXT_INACCESSIBLE; fi'
+          echo '=== LIVE XIAOMI REGIONAL PROBE ==='
+          PYTHONPATH="$work/src" python3 - <<'PY'
+          import json
+          from collections import Counter
 
-          echo '=== MI_EXT APK INVENTORY ==='
-          "$ADB" shell 'if [ -d /mi_ext ]; then find /mi_ext -maxdepth 8 -type f -name "*.apk" 2>/dev/null | sort | head -n 420; fi'
+          from ttg_device_xray.command import CommandRunner
+          from ttg_device_xray.platform_tools import PlatformToolsRunner
+          from ttg_device_xray.transports.xiaomi_regional_manifest import XiaomiRegionalManifestProbe
 
-          echo '=== MI_EXT REGION / GMS / PRELOAD FILES ==='
-          "$ADB" shell 'if [ -d /mi_ext ]; then find /mi_ext -maxdepth 8 -type f 2>/dev/null | grep -Ei "google|gms|vending|phonesky|setup|region|cust|china|/cn[._/-]|miui|xiaomi|preload|market|search|voice|opcust" | sort | head -n 480; fi'
+          runner = CommandRunner()
+          platform_tools = PlatformToolsRunner(runner)
+          observations = XiaomiRegionalManifestProbe(platform_tools).probe()
+          connected = [item for item in observations if item.connected]
+          if len(connected) != 1:
+              raise SystemExit(f'EXPECTED_ONE_CONNECTED_OBSERVATION:{len(connected)}')
+          observation = connected[0]
+          caps = observation.capabilities
+          selector = caps.get('xiaomi_customization_selector', {})
+          mi_ext = caps.get('xiaomi_mi_ext', {})
+          files = caps.get('customization_file_manifest', [])
+          partitions = Counter(item.get('partition', '') for item in files if isinstance(item, dict))
+          manifest = caps.get('firmware_regional_manifest', {})
+          summary = {
+              'schema': caps.get('regional_manifest_schema'),
+              'region': observation.identifiers.get('region'),
+              'cust_variant': selector.get('cust_variant'),
+              'selector_consistent': selector.get('consistency', {}).get('consistent'),
+              'preload_packages': len(selector.get('preload_policy', {}).get('packages', [])),
+              'mi_ext_present': mi_ext.get('present'),
+              'mi_ext_verified': mi_ext.get('partition.mi_ext.verified'),
+              'mi_ext_hash_alg': mi_ext.get('partition.mi_ext.verified.hash_alg'),
+              'mi_ext_root_digest': mi_ext.get('partition.mi_ext.verified.root_digest'),
+              'customization_file_count': len(files),
+              'files_by_partition': dict(sorted(partitions.items())),
+              'mi_ext_manifest_files': sum(1 for item in files if item.get('partition') == 'mi_ext'),
+              'manifest_has_selector': 'xiaomi_customization_selector' in manifest,
+              'manifest_has_mi_ext': 'xiaomi_mi_ext' in manifest,
+              'manifest_sha256': caps.get('firmware_regional_manifest_sha256'),
+              'warnings': observation.warnings,
+          }
+          print(json.dumps(summary, indent=2, sort_keys=True))
 
-          echo '=== MI_EXT SMALL CONFIG REFERENCES ==='
-          "$ADB" shell 'if [ -d /mi_ext ]; then find /mi_ext -maxdepth 8 -type f -size -524288c 2>/dev/null | sort | while IFS= read -r p; do m=$(grep -a -i -E "com\.google\.android\.gms|com\.google\.android\.gsf|com\.android\.vending|cn_chinatelecom|ro\.miui\.(region|build\.region|cust_variant)|romRegion|currentSku|preload|google" "$p" 2>/dev/null | head -n 16); if [ -n "$m" ]; then echo "--- $p"; printf "%s\n" "$m"; fi; done; fi'
+          assert summary['schema'] == 'ttg.xray.android-regional-manifest.v3'
+          assert summary['region'] == 'CN'
+          assert summary['cust_variant'] == 'cn_chinatelecom'
+          assert summary['selector_consistent'] is True
+          assert summary['preload_packages'] == 12
+          assert summary['mi_ext_present'] is True
+          assert summary['mi_ext_verified'] == '2'
+          assert summary['mi_ext_hash_alg'] == 'sha256'
+          assert len(str(summary['mi_ext_root_digest'])) == 64
+          assert summary['mi_ext_manifest_files'] > 0
+          assert summary['manifest_has_selector'] is True
+          assert summary['manifest_has_mi_ext'] is True
+          assert len(str(summary['manifest_sha256'])) == 64
+          PY
 
-          echo '=== MI_EXT COUNTS ==='
-          "$ADB" shell 'if [ -d /mi_ext ]; then printf "files="; find /mi_ext -type f 2>/dev/null | wc -l; printf "apks="; find /mi_ext -type f -name "*.apk" 2>/dev/null | wc -l; printf "xml="; find /mi_ext -type f -name "*.xml" 2>/dev/null | wc -l; fi'
-
-          echo '=== POST-PROBE ==='
-          "$ADB" get-state
+          echo '=== SAFETY POSTCHECK ==='
+          adb get-state
           ip route show default || true
-          echo 'TTG_REDMI_MI_EXT_DIRECT_MAP=PASS'
+          echo 'TTG_XRAY_PR31_PHYSICAL_PROOF=PASS'

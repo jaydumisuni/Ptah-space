@@ -1,4 +1,4 @@
-name: Temporary Oracle PR211 Exact-Head Proof
+name: Temporary Oracle PR212 Exact-Head Proof
 
 on:
   push:
@@ -11,36 +11,90 @@ permissions:
   contents: read
 
 env:
-  ORACLE_BASE_SHA: fdd4d58b327f1373ed6f19a17589f7c60c755966
-  ORACLE_SHA: 3fd551ca5548d10a8ed70294b6fb375440468bd3
-  EXTENSION_TEST_BLOB: 1ec3b29d214277eef8799f2700c4de2c152a8677
-  DEPLOY_TEST_BLOB: e02418cb1385c221399986667f6e59fe4d4c0b36
+  ORACLE_BASE_SHA: 88c9cc2d30e45e060e7e822225afd205ebdea746
+  ORACLE_SHA: abe8d2523df56d30fbb8d04a21063f1eb9249563
 
 jobs:
   exact-head-proof:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
-      - name: Review and prove exact PR211 head
+      - name: Prove exact PR212 head with KRATOS frozen dependencies
         shell: bash
         run: |
           set -euo pipefail
+          operator=/home/kratos/Oracle
           work="$(mktemp -d)"
           trap 'rm -rf "$work"' EXIT
+
           gh repo clone jaydumisuni/Oracle- "$work/repo" -- --no-checkout
-          git -C "$work/repo" fetch --depth 2 origin "$ORACLE_SHA" "$ORACLE_BASE_SHA"
+          git -C "$work/repo" fetch --depth 8 origin "$ORACLE_SHA" "$ORACLE_BASE_SHA"
           git -C "$work/repo" checkout --detach "$ORACLE_SHA"
           test "$(git -C "$work/repo" rev-parse HEAD)" = "$ORACLE_SHA"
-          test "$(git -C "$work/repo" rev-parse 'HEAD:tests/extension-repo-update-installer.test.ts')" = "$EXTENSION_TEST_BLOB"
-          test "$(git -C "$work/repo" rev-parse 'HEAD:tests/private-deploy-live.test.ts')" = "$DEPLOY_TEST_BLOB"
-          git -C "$work/repo" diff --name-only "$ORACLE_BASE_SHA" "$ORACLE_SHA" > "$work/changed.txt"
-          printf '%s\n' 'tests/extension-repo-update-installer.test.ts' 'tests/private-deploy-live.test.ts' > "$work/expected.txt"
-          sort -o "$work/changed.txt" "$work/changed.txt"
-          sort -o "$work/expected.txt" "$work/expected.txt"
+
+          git -C "$work/repo" diff --name-only "$ORACLE_BASE_SHA" "$ORACLE_SHA" | sort > "$work/changed.txt"
+          printf '%s\n' \
+            'scripts/run-oracle-private-deploy-live.mjs' \
+            'tests/private-deploy-live-adversarial.test.ts' \
+            'tests/private-deploy-live.test.ts' | sort > "$work/expected.txt"
           diff -u "$work/expected.txt" "$work/changed.txt"
-          test "$(git -C "$work/repo" diff --numstat "$ORACLE_BASE_SHA" "$ORACLE_SHA" | awk '{a+=$1;d+=$2} END{print a":"d}')" = '2:2'
+          git -C "$work/repo" diff --check "$ORACLE_BASE_SHA" "$ORACLE_SHA"
+
+          test -d "$operator/.git"
+          git -C "$operator" fetch --no-tags origin "$ORACLE_SHA"
+          test -z "$(git -C "$operator" status --porcelain=v1 -- package.json package-lock.json)"
+          test "$(git -C "$operator" rev-parse HEAD:package-lock.json)" = "$(git -C "$operator" rev-parse "${ORACLE_SHA}:package-lock.json")"
+
+          git -C "$operator" show HEAD:package.json > "$work/local-package.json"
+          git -C "$operator" show "${ORACLE_SHA}:package.json" > "$work/target-package.json"
+          python3 - "$work/local-package.json" "$work/target-package.json" <<'PY'
+          import json, sys
+          local=json.load(open(sys.argv[1],encoding='utf-8'))
+          target=json.load(open(sys.argv[2],encoding='utf-8'))
+          fields=(
+              'dependencies','devDependencies','optionalDependencies','peerDependencies',
+              'peerDependenciesMeta','bundledDependencies','bundleDependencies','engines',
+              'os','cpu','libc','packageManager','workspaces','overrides','config'
+          )
+          lifecycle=('preinstall','install','postinstall','prepublish','preprepare','prepare','postprepare')
+          for field in fields:
+              if local.get(field) != target.get(field):
+                  raise SystemExit(f'DEPENDENCY_FIELD_MISMATCH:{field}')
+          ls=local.get('scripts') or {}
+          ts=target.get('scripts') or {}
+          for name in lifecycle:
+              if ls.get(name) != ts.get(name):
+                  raise SystemExit(f'INSTALL_LIFECYCLE_MISMATCH:{name}')
+          print('PR212_DEPENDENCY_SEMANTICS=PASS')
+          PY
+
+          expected_wrangler="$(python3 - "$work/target-package.json" <<'PY'
+          import json, sys
+          p=json.load(open(sys.argv[1],encoding='utf-8'))
+          print(str((p.get('devDependencies') or {}).get('wrangler','')).lstrip('^~'))
+          PY
+          )"
+          actual_wrangler="$("$operator/node_modules/.bin/wrangler" --version)"
+          test -n "$expected_wrangler"
+          case "$actual_wrangler" in *"$expected_wrangler"*) ;; *) exit 1;; esac
+
+          ln -s "$operator/node_modules" "$work/repo/node_modules"
           cd "$work/repo"
-          npm ci --ignore-scripts --no-audit --no-fund >/dev/null
           npm run check
-          git diff --check "$ORACLE_BASE_SHA" "$ORACLE_SHA"
-          echo "PR211_EXACT_HEAD_PROOF=PASS HEAD=$ORACLE_SHA BASE=$ORACLE_BASE_SHA FILES=2 DELTA=2:2"
+
+          node --input-type=module <<'NODE' > "$work/command.json"
+          import { buildOraclePrivateDeployLiveCommand } from './scripts/run-oracle-private-deploy-live.mjs';
+          process.stdout.write(JSON.stringify(buildOraclePrivateDeployLiveCommand({
+            root: process.cwd(), commitSha: process.env.ORACLE_SHA, runId: '212000002', runAttempt: '1'
+          })));
+          NODE
+          jq -r '.args.args[1]' "$work/command.json" > "$work/remote.py"
+          python3 -m py_compile "$work/remote.py"
+          grep -Fq 'INSTALL_LIFECYCLE_SCRIPTS' "$work/remote.py"
+          grep -Fq '"config"' "$work/remote.py"
+          grep -Fq 'KRATOS install lifecycle semantics do not match the frozen deploy source' "$work/remote.py"
+          grep -Fq 'KRATOS project lockfile does not match the frozen deploy source' "$work/remote.py"
+          ! grep -Fq 'npm install' "$work/remote.py"
+          ! grep -Fq 'npm ci' "$work/remote.py"
+
+          echo "PR212_EXACT_HEAD_PROOF=PASS HEAD=$ORACLE_SHA BASE=$ORACLE_BASE_SHA FILES=3 WRANGLER=$expected_wrangler"

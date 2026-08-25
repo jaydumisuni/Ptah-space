@@ -1,6 +1,5 @@
-name: TEMP ATHENA Redmi sky Global ROM download carrier
+name: TEMP ATHENA Redmi sky Global ROM local verification carrier
 
-# Status checkpoint 2026-08-25T18:20+02:00. This carrier is intentionally retained only until BITS completes.
 on:
   push:
     branches: [main]
@@ -11,40 +10,41 @@ permissions:
   contents: read
 
 jobs:
-  download:
+  verify:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
-      - name: Start or resume official sky Global ROM BITS transfer
+      - name: Verify existing ATHENA ROM locally without network
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $dir = 'C:\Users\ATHENA 2.0\Desktop\redmi r12'
-          $file = 'sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
-          $url = 'https://bigota.d.miui.com/OS2.0.9.0.VMWMIXM/sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
-          $name = 'TTG Redmi sky Global OS2.0.9.0'
-          $expectedMd5 = '3334591f858477053b68f4c0e47debf0'
-          New-Item -ItemType Directory -Force -Path $dir | Out-Null
-          $dest = Join-Path $dir $file
+          $expected = '3334591f858477053b68f4c0e47debf0'
+          $expectedSize = 7949886711
+          $bitsName = 'TTG Redmi sky Global OS2.0.9.0'
 
-          $job = Get-BitsTransfer -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
+          $job = Get-BitsTransfer -Name $bitsName -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($job) {
-            if ($job.JobState -in @('Error','TransientError')) {
-              Resume-BitsTransfer -BitsJob $job -Asynchronous | Out-Null
-              Start-Sleep -Seconds 2
-              $job = Get-BitsTransfer -Id $job.Id
+            [ordered]@{
+              phase='bits-status'
+              state=[string]$job.JobState
+              bytesTransferred=[int64]$job.BytesTransferred
+              bytesTotal=[int64]$job.BytesTotal
+            } | ConvertTo-Json -Compress
+            if ($job.JobState -eq 'Transferred') {
+              Complete-BitsTransfer -BitsJob $job
             }
-            [ordered]@{ok=$true;action='existing-bits-job';jobId=[string]$job.Id;state=[string]$job.JobState;bytesTransferred=[int64]$job.BytesTransferred;bytesTotal=[int64]$job.BytesTotal;destination=$dest;expectedMd5=$expectedMd5} | ConvertTo-Json -Compress
-            exit 0
           }
 
-          if (Test-Path -LiteralPath $dest) {
-            $size = (Get-Item -LiteralPath $dest).Length
-            [ordered]@{ok=$true;action='file-already-present';state='LOCAL_FILE_PRESENT';bytesTransferred=[int64]$size;bytesTotal=[int64]$size;destination=$dest;expectedMd5=$expectedMd5} | ConvertTo-Json -Compress
-            exit 0
-          }
+          $files = Get-ChildItem -LiteralPath $dir -File | Sort-Object Length -Descending
+          if (-not $files) { throw 'NO_FILES_IN_REDMI_R12' }
+          $f = $files | Where-Object { $_.Name -like 'sky_global_images_*' } | Select-Object -First 1
+          if (-not $f) { $f = $files | Select-Object -First 1 }
 
-          $job = Start-BitsTransfer -Source $url -Destination $dest -DisplayName $name -Description 'Official Xiaomi sky Global HyperOS fastboot archive for offline CN-vs-Global analysis' -Priority Foreground -TransferType Download -Asynchronous
-          Start-Sleep -Seconds 8
-          $job = Get-BitsTransfer -Id $job.Id
-          [ordered]@{ok=$true;action='bits-started';jobId=[string]$job.Id;state=[string]$job.JobState;bytesTransferred=[int64]$job.BytesTransferred;bytesTotal=[int64]$job.BytesTotal;destination=$dest;expectedMd5=$expectedMd5} | ConvertTo-Json -Compress
+          [ordered]@{phase='selected';host=$env:COMPUTERNAME;path=$f.FullName;name=$f.Name;sizeBytes=[int64]$f.Length;expectedSize=[int64]$expectedSize;sizeMatches=([int64]$f.Length -eq [int64]$expectedSize)} | ConvertTo-Json -Compress
+
+          $md5 = (Get-FileHash -LiteralPath $f.FullName -Algorithm MD5).Hash.ToLowerInvariant()
+          [ordered]@{phase='md5-complete';md5=$md5;expectedMd5=$expected;md5Matches=($md5 -eq $expected)} | ConvertTo-Json -Compress
+
+          if ($f.Length -ne $expectedSize) { throw 'ATHENA_ROM_SIZE_MISMATCH' }
+          if ($md5 -ne $expected) { throw 'ATHENA_ROM_MD5_MISMATCH' }

@@ -1,0 +1,243 @@
+name: C03 generic Android image OTA pack exact-head proof
+
+on:
+  pull_request:
+    paths:
+      - "C03_GENERIC_ANDROID_IMAGE_OTA_PACK.md"
+      - "crates/ptah-archive-decomposition/Cargo.toml"
+      - "crates/ptah-archive-decomposition/src/lib.rs"
+      - "crates/ptah-archive-decomposition/src/c03.rs"
+      - "crates/ptah-archive-decomposition/tests/c03.rs"
+      - ".github/workflows/c03-generic-android-image-ota-pack.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PTAH_PR_BASE: ${{ github.event.pull_request.base.sha }}
+  PTAH_C03_BASE_SHA: 2d07a514dcff6fb740d2c5a81b073a46620cb3fd
+  CARGO_TERM_COLOR: always
+
+jobs:
+  c03-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact C03 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Lock accepted C02 base and six-file C03 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+          if [ -n "${PTAH_PR_BASE:-}" ]; then
+            test "$PTAH_PR_BASE" = "$PTAH_C03_BASE_SHA"
+          fi
+          test "$(git merge-base "$PTAH_C03_BASE_SHA" "$PTAH_EXACT_SHA")" = "$PTAH_C03_BASE_SHA"
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["PTAH_C03_BASE_SHA"]
+          head = os.environ["PTAH_EXACT_SHA"]
+          files = subprocess.check_output(
+              ["git", "diff", "--name-only", base, head], text=True
+          ).splitlines()
+          allowed = {
+              "C03_GENERIC_ANDROID_IMAGE_OTA_PACK.md",
+              "crates/ptah-archive-decomposition/Cargo.toml",
+              "crates/ptah-archive-decomposition/src/lib.rs",
+              "crates/ptah-archive-decomposition/src/c03.rs",
+              "crates/ptah-archive-decomposition/tests/c03.rs",
+              ".github/workflows/c03-generic-android-image-ota-pack.yml",
+          }
+          unexpected = sorted(set(files).difference(allowed))
+          missing = sorted(allowed.difference(files))
+          assert not unexpected, f"C03 scope drift: {unexpected}"
+          assert not missing, f"C03 required surface missing: {missing}"
+          PY
+          git diff --check "$PTAH_C03_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/c03
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          rustc -Vv | tee /tmp/c03/rustc-version.txt
+          cargo -V | tee /tmp/c03/cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$PTAH_EXACT_SHA" > /tmp/c03/exact-head.txt
+          cat /etc/os-release > /tmp/c03/host-os-release.txt
+
+      - name: Prove formatting and 20-case C03 acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ptah-archive-decomposition --test c03 --locked -- --nocapture \
+            2>&1 | tee /tmp/c03/c03-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c03/c03-tests.txt
+
+      - name: Prove C03 surface with strict Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ptah-archive-decomposition --lib --test c03 --locked -- -D warnings \
+            2>&1 | tee /tmp/c03/c03-clippy.txt
+
+      - name: Re-prove inherited C02 filesystem semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test c02 --locked -- --nocapture \
+            2>&1 | tee /tmp/c03/c02-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c03/c02-tests.txt
+
+      - name: Re-prove inherited C01 disk foundations
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test c01 --locked -- --nocapture \
+            2>&1 | tee /tmp/c03/c01-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c03/c01-tests.txt
+
+      - name: Re-prove inherited B02 decomposition semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b02 --locked -- --nocapture \
+            2>&1 | tee /tmp/c03/b02-tests.txt
+
+      - name: Re-prove inherited B05 executable and package semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b05 --locked -- --nocapture \
+            2>&1 | tee /tmp/c03/b05-tests.txt
+          grep -Eq 'test result: ok\. 15 passed; 0 failed;' /tmp/c03/b05-tests.txt
+
+      - name: Re-prove inherited B07 Object World search semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b07 --locked -- --nocapture \
+            2>&1 | tee /tmp/c03/b07-tests.txt
+          grep -Eq 'test result: ok\. 14 passed; 0 failed;' /tmp/c03/b07-tests.txt
+          cargo test -p ptah-archive-decomposition --lib b07::tests --locked -- --nocapture \
+            2>&1 | tee /tmp/c03/b07-boundary-tests.txt
+          grep -Eq 'test result: ok\. 2 passed; 0 failed;' /tmp/c03/b07-boundary-tests.txt
+
+      - name: Re-prove full locked workspace at exact C03 head
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture \
+            2>&1 | tee /tmp/c03/workspace-tests.txt
+
+      - name: Write exact-head C03 proof manifest
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cp C03_GENERIC_ANDROID_IMAGE_OTA_PACK.md /tmp/c03/acceptance-contract.md
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('/tmp/c03')
+          required = [
+              'exact-head.txt',
+              'host-os-release.txt',
+              'rustc-version.txt',
+              'cargo-version.txt',
+              'c03-tests.txt',
+              'c03-clippy.txt',
+              'c02-tests.txt',
+              'c01-tests.txt',
+              'b02-tests.txt',
+              'b05-tests.txt',
+              'b07-tests.txt',
+              'b07-boundary-tests.txt',
+              'workspace-tests.txt',
+              'acceptance-contract.md',
+          ]
+          files = {}
+          for name in required:
+              path = root / name
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f'missing C03 proof report: {name}')
+              files[name] = {
+                  'size_bytes': path.stat().st_size,
+                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+              }
+          head = (root / 'exact-head.txt').read_text(encoding='utf-8').strip()
+          if head != os.environ['PTAH_EXACT_SHA']:
+              raise SystemExit('C03 proof head mismatch')
+          manifest = {
+              'schema_version': '0.1.0',
+              'record_type': 'ptah.c03.generic_android_image_ota_exact_head_proof',
+              'status': 'pass',
+              'implementation_commit': head,
+              'accepted_base_commit': os.environ['PTAH_C03_BASE_SHA'],
+              'workflow_run_id': int(os.environ['RUN_ID']),
+              'workflow_run_attempt': int(os.environ['RUN_ATTEMPT']),
+              'c03_acceptance_test_count': 20,
+              'boot_vendor_boot_init_boot_dtbo_vbmeta_inspection_proven': True,
+              'android_boot_role_ambiguity_fails_closed': True,
+              'vbmeta_parse_does_not_establish_avb_trust': True,
+              'super_geometry_and_metadata_checksums_verified': True,
+              'dynamic_partition_linear_zero_materialization_proven': True,
+              'ota_envelope_bounded_and_source_bound': True,
+              'ota_manifest_provider_output_validated_as_untrusted': True,
+              'ota_incomplete_provider_claim_reduces_truth': True,
+              'comparison_levels_proven': True,
+              'rebuild_levels_do_not_claim_bootability_or_signature_trust': True,
+              'source_bytes_immutable': True,
+              'component_partition_manifest_relationship_plans_proven': True,
+              'inherited_c02_reproven': True,
+              'inherited_c01_reproven': True,
+              'inherited_b02_reproven': True,
+              'inherited_b05_reproven': True,
+              'inherited_b07_reproven': True,
+              'files': files,
+          }
+          rendered = json.dumps(manifest, indent=2, sort_keys=True) + '\n'
+          (root / 'proof-manifest.json').write_text(rendered, encoding='utf-8')
+          digest = hashlib.sha256(rendered.encode()).hexdigest()
+          (root / 'proof-manifest.sha256').write_text(
+              f'{digest}  proof-manifest.json\n', encoding='utf-8'
+          )
+          print(rendered, end='')
+          PY
+          cd /tmp/c03
+          sha256sum -c proof-manifest.sha256
+
+      - name: Confirm exact clean C03 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Retain C03 proof bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: c03-generic-android-image-ota-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/c03/
+          if-no-files-found: error
+          retention-days: 90

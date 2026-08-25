@@ -6,7 +6,7 @@
 //! provenance, coverage truth, detector disagreement, progressive decomposition truth, passive
 //! interpretation, derived source-bound search, C01 immutable disk normalization/partition
 //! interpretation, C02 filesystem Provider validation/materialization, C03 Android image/OTA static
-//! inspection, C04 Apple firmware archive/IMG4 static inspection, C05 MediaTek scatter/bundle static
+//! inspection, C04 Apple firmware archive/IMG4 static inspection, C05 `MediaTek` scatter/bundle static
 //! inspection plus bounded read-only MTK/META evidence correlation and explicit proof levels, plus
 //! canonical registration plans through the A07/A03 boundaries. Derived projections never replace
 //! canonical source truth.
@@ -61,7 +61,7 @@ pub use b07::{
 pub use c01::{
     C01Error, DiskImageComparison, DiskImageContext, DiskImageFormat, DiskImageLimits,
     DiskImageReport, NormalizedDiskImage, PartitionEntry, PartitionLayoutKind,
-    PartitionLayoutRange, PartitionMaterialization, PartitionMapAssessment, PartitionTableKind,
+    PartitionLayoutRange, PartitionMapAssessment, PartitionMaterialization, PartitionTableKind,
     PartitionTableRange, SourceCoverageKind, SourceCoverageRange, compare_disk_images,
     encode_android_sparse, inspect_partition_map, materialize_partition, normalize_disk_image,
 };
@@ -95,11 +95,11 @@ pub use c04::{
 };
 pub use c05::{
     C05Error, MediatekAssessment, MediatekBundleEntry, MediatekBundleEntryObservation,
-    MediatekBundleObservation, MediatekBundleProvider, MediatekComparison,
-    MediatekComparisonLevel, MediatekContext, MediatekEvidence, MediatekEvidenceCorrelation,
-    MediatekEvidenceLevel, MediatekEvidenceObservation, MediatekEvidenceProvider, MediatekLimits,
-    MediatekMaterialization, MediatekMode, MediatekPartition, MediatekPartitionRange,
-    MediatekReport, MediatekStaticProofLevel, MediatekTrustAssessment, assess_mediatek_rebuild,
+    MediatekBundleObservation, MediatekBundleProvider, MediatekComparison, MediatekComparisonLevel,
+    MediatekContext, MediatekEvidence, MediatekEvidenceCorrelation, MediatekEvidenceLevel,
+    MediatekEvidenceObservation, MediatekEvidenceProvider, MediatekLimits, MediatekMaterialization,
+    MediatekMode, MediatekPartition, MediatekPartitionRange, MediatekReport,
+    MediatekStaticProofLevel, MediatekTrustAssessment, assess_mediatek_rebuild,
     compare_mediatek_packages, inspect_mediatek_package, materialize_mediatek_component,
 };
 pub use model::{

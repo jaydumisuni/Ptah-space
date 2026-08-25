@@ -92,7 +92,7 @@ pub enum MediatekStaticProofLevel {
     ByteExact,
 }
 
-/// One exact inclusive/exclusive MediaTek partition range.
+/// One exact inclusive/exclusive `MediaTek` partition range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MediatekPartitionRange {
     /// Inclusive byte start.
@@ -101,7 +101,7 @@ pub struct MediatekPartitionRange {
     pub end_exclusive: u64,
 }
 
-/// One validated MediaTek scatter partition relationship.
+/// One validated `MediaTek` scatter partition relationship.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediatekPartition {
     /// Scatter partition index token such as `SYS0`.
@@ -139,7 +139,7 @@ pub struct MediatekBundleEntryObservation {
     pub expected_sha256: String,
 }
 
-/// Bounded MediaTek bundle inventory returned by a replaceable Provider.
+/// Bounded `MediaTek` bundle inventory returned by a replaceable Provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediatekBundleObservation {
     /// Exact recovered sibling entries.
@@ -150,7 +150,7 @@ pub struct MediatekBundleObservation {
     pub limitations: Vec<String>,
 }
 
-/// Replaceable MediaTek package/bundle boundary.
+/// Replaceable `MediaTek` package/bundle boundary.
 pub trait MediatekBundleProvider: Send + Sync {
     /// Stable backend-local Provider alias/evidence identifier.
     fn provider_id(&self) -> &str;
@@ -186,10 +186,10 @@ impl MediatekBundleEntry {
     }
 }
 
-/// MediaTek transport/service mode observed by a lawful evidence Facility.
+/// `MediaTek` transport/service mode observed by a lawful evidence Facility.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MediatekMode {
-    /// BootROM mode.
+    /// `BootROM` mode.
     Brom,
     /// Preloader mode.
     Preloader,
@@ -363,7 +363,7 @@ impl MediatekReport {
     }
 }
 
-/// Exact recovered MediaTek sibling component bytes.
+/// Exact recovered `MediaTek` sibling component bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediatekMaterialization {
     /// Canonical referenced component path.
@@ -563,7 +563,7 @@ pub enum C05Error {
     RegistrationMismatch,
 }
 
-/// Inspect one immutable MediaTek scatter source plus optional sibling bundle/read-only evidence.
+/// Inspect one immutable `MediaTek` scatter source plus optional sibling bundle/read-only evidence.
 ///
 /// # Errors
 /// Fails closed for malformed scatter grammar, Provider output, paths, digests, bounds or
@@ -583,122 +583,39 @@ pub fn inspect_mediatek_package(
     }
     let text = str::from_utf8(source).map_err(|_| C05Error::InvalidUtf8)?;
     let parsed = parse_scatter(text, limits)?;
+    let ParsedScatter {
+        config_version,
+        platform,
+        storage,
+        mut partitions,
+    } = parsed;
     let source_sha256 = sha256_bytes(source);
-
-    let referenced_paths: BTreeSet<String> = parsed
-        .partitions
+    let referenced_paths: BTreeSet<String> = partitions
         .iter()
         .filter_map(|partition| partition.file_name.clone())
         .collect();
-    let mut assessment = MediatekAssessment::Complete;
-    let mut limitations = Vec::new();
-    let warnings = Vec::new();
 
-    let (bundle_provider_alias, bundle_entries, bundle_linked) = if referenced_paths.is_empty() {
-        (None, Vec::new(), true)
-    } else if let Some(provider) = bundle_provider {
-        validate_string(provider.provider_id(), limits)?;
-        let observation = provider
-            .inspect_bundle(source, limits)
-            .map_err(C05Error::BundleProvider)?;
-        let (entries, complete_claim, mut provider_limitations) =
-            validate_bundle_observation(observation, limits)?;
-        let entry_map: BTreeMap<&str, &MediatekBundleEntry> = entries
-            .iter()
-            .map(|entry| (entry.path.as_str(), entry))
-            .collect();
-        let unresolved: Vec<String> = referenced_paths
-            .iter()
-            .filter(|path| !entry_map.contains_key(path.as_str()))
-            .cloned()
-            .collect();
-        if !complete_claim {
-            assessment = MediatekAssessment::Partial;
-            provider_limitations.push(
-                "bundle Provider did not claim complete C05-supported inventory".to_owned(),
-            );
-        }
-        if !unresolved.is_empty() {
-            assessment = MediatekAssessment::Partial;
-            provider_limitations.push(format!(
-                "{} scatter-referenced bundle component(s) unresolved",
-                unresolved.len()
-            ));
-        }
-        limitations.append(&mut provider_limitations);
-        (
-            Some(provider.provider_id().to_owned()),
-            entries,
-            complete_claim && unresolved.is_empty(),
-        )
+    let bundle = resolve_bundle(source, &referenced_paths, bundle_provider, limits)?;
+    link_partition_components(&mut partitions, &bundle.entries);
+    let evidence = resolve_evidence(
+        source,
+        &platform,
+        &storage,
+        &partitions,
+        evidence_provider,
+        limits,
+    )?;
+
+    let assessment = if bundle.partial || evidence.partial {
+        MediatekAssessment::Partial
     } else {
-        assessment = MediatekAssessment::Partial;
-        limitations.push(
-            "scatter references sibling components but no MediaTek bundle Provider was supplied"
-                .to_owned(),
-        );
-        (None, Vec::new(), false)
+        MediatekAssessment::Complete
     };
-
-    let entry_map: BTreeMap<&str, &MediatekBundleEntry> = bundle_entries
-        .iter()
-        .map(|entry| (entry.path.as_str(), entry))
-        .collect();
-    let mut partitions = parsed.partitions;
-    for partition in &mut partitions {
-        if let Some(entry) = partition
-            .file_name
-            .as_deref()
-            .and_then(|file_name| entry_map.get(file_name).copied())
-        {
-            partition.linked_component_size = Some(entry.byte_size);
-            partition.linked_component_sha256 = Some(entry.sha256.clone());
-        }
-    }
-
-    let (evidence, evidence_correlation, evidence_correlated) = if let Some(provider) = evidence_provider {
-        validate_string(provider.provider_id(), limits)?;
-        let observation = provider
-            .inspect_evidence(source, limits)
-            .map_err(C05Error::EvidenceProvider)?;
-        let mut validated = validate_evidence_observation(
-            observation,
-            provider.provider_id(),
-            limits,
-        )?;
-        let correlation = correlate_evidence(&parsed.platform, &parsed.storage, &partitions, &validated);
-        let any_mismatch = matches!(correlation.platform_matches, Some(false))
-            || matches!(correlation.storage_matches, Some(false))
-            || matches!(correlation.partition_names_match, Some(false));
-        if any_mismatch {
-            assessment = MediatekAssessment::Partial;
-            limitations.push(
-                "supplied lawful MTK/META evidence contradicts scatter platform/storage/layout claims"
-                    .to_owned(),
-            );
-        }
-        if !validated.complete_claim {
-            assessment = MediatekAssessment::Partial;
-            validated.limitations.push(
-                "evidence Provider did not claim complete C05-supported read-only evidence"
-                    .to_owned(),
-            );
-        }
-        limitations.extend(validated.limitations.iter().cloned());
-        let strong_correlation = validated.complete_claim
-            && validated.level == MediatekEvidenceLevel::LayoutEvidence
-            && correlation.platform_matches == Some(true)
-            && correlation.storage_matches == Some(true)
-            && correlation.partition_names_match == Some(true)
-            && !any_mismatch;
-        (Some(validated), Some(correlation), strong_correlation)
-    } else {
-        (None, None, false)
-    };
-
-    let proof_level = if bundle_linked && evidence_correlated {
+    let mut limitations = bundle.limitations;
+    limitations.extend(evidence.limitations);
+    let proof_level = if bundle.linked && evidence.correlated {
         Some(MediatekStaticProofLevel::EvidenceCorrelated)
-    } else if bundle_linked && !referenced_paths.is_empty() {
+    } else if bundle.linked && !referenced_paths.is_empty() {
         Some(MediatekStaticProofLevel::BundleLinked)
     } else {
         Some(MediatekStaticProofLevel::StructureChecked)
@@ -708,21 +625,173 @@ pub fn inspect_mediatek_package(
         source_revision_ref: context.source_revision_ref.clone(),
         source_sha256,
         source_size,
-        config_version: parsed.config_version,
-        platform: parsed.platform,
-        storage: parsed.storage,
+        config_version,
+        platform,
+        storage,
         assessment,
         trust: MediatekTrustAssessment::NotEstablished,
         proof_level,
-        bundle_provider_alias,
-        bundle_entries,
+        bundle_provider_alias: bundle.provider_alias,
+        bundle_entries: bundle.entries,
         partitions,
-        evidence,
-        evidence_correlation,
-        warnings,
+        evidence: evidence.evidence,
+        evidence_correlation: evidence.correlation,
+        warnings: Vec::new(),
         limitations,
         projection_sha256: String::new(),
     }))
+}
+
+struct BundleResolution {
+    provider_alias: Option<String>,
+    entries: Vec<MediatekBundleEntry>,
+    linked: bool,
+    partial: bool,
+    limitations: Vec<String>,
+}
+
+fn resolve_bundle(
+    source: &[u8],
+    referenced_paths: &BTreeSet<String>,
+    bundle_provider: Option<&dyn MediatekBundleProvider>,
+    limits: MediatekLimits,
+) -> Result<BundleResolution, C05Error> {
+    if referenced_paths.is_empty() {
+        return Ok(BundleResolution {
+            provider_alias: None,
+            entries: Vec::new(),
+            linked: true,
+            partial: false,
+            limitations: Vec::new(),
+        });
+    }
+    let Some(provider) = bundle_provider else {
+        return Ok(BundleResolution {
+            provider_alias: None,
+            entries: Vec::new(),
+            linked: false,
+            partial: true,
+            limitations: vec![
+      "scatter references sibling components but no MediaTek bundle Provider was supplied"
+.to_owned(),
+  ],
+        });
+    };
+    validate_string(provider.provider_id(), limits)?;
+    let observation = provider
+        .inspect_bundle(source, limits)
+        .map_err(C05Error::BundleProvider)?;
+    let (entries, complete_claim, mut limitations) =
+        validate_bundle_observation(observation, limits)?;
+    let entry_map: BTreeMap<&str, &MediatekBundleEntry> = entries
+        .iter()
+        .map(|entry| (entry.path.as_str(), entry))
+        .collect();
+    let unresolved = referenced_paths
+        .iter()
+        .filter(|path| !entry_map.contains_key(path.as_str()))
+        .count();
+    if !complete_claim {
+        limitations
+            .push("bundle Provider did not claim complete C05-supported inventory".to_owned());
+    }
+    if unresolved != 0 {
+        limitations.push(format!(
+            "{unresolved} scatter-referenced bundle component(s) unresolved"
+        ));
+    }
+    Ok(BundleResolution {
+        provider_alias: Some(provider.provider_id().to_owned()),
+        entries,
+        linked: complete_claim && unresolved == 0,
+        partial: !complete_claim || unresolved != 0,
+        limitations,
+    })
+}
+
+fn link_partition_components(
+    partitions: &mut [MediatekPartition],
+    entries: &[MediatekBundleEntry],
+) {
+    let entry_map: BTreeMap<&str, &MediatekBundleEntry> = entries
+        .iter()
+        .map(|entry| (entry.path.as_str(), entry))
+        .collect();
+    for partition in partitions {
+        if let Some(entry) = partition
+            .file_name
+            .as_deref()
+            .and_then(|file_name| entry_map.get(file_name).copied())
+        {
+            partition.linked_component_size = Some(entry.byte_size);
+            partition.linked_component_sha256 = Some(entry.sha256.clone());
+        }
+    }
+}
+
+struct EvidenceResolution {
+    evidence: Option<MediatekEvidence>,
+    correlation: Option<MediatekEvidenceCorrelation>,
+    correlated: bool,
+    partial: bool,
+    limitations: Vec<String>,
+}
+
+fn resolve_evidence(
+    source: &[u8],
+    platform: &str,
+    storage: &str,
+    partitions: &[MediatekPartition],
+    evidence_provider: Option<&dyn MediatekEvidenceProvider>,
+    limits: MediatekLimits,
+) -> Result<EvidenceResolution, C05Error> {
+    let Some(provider) = evidence_provider else {
+        return Ok(EvidenceResolution {
+            evidence: None,
+            correlation: None,
+            correlated: false,
+            partial: false,
+            limitations: Vec::new(),
+        });
+    };
+    validate_string(provider.provider_id(), limits)?;
+    let observation = provider
+        .inspect_evidence(source, limits)
+        .map_err(C05Error::EvidenceProvider)?;
+    let mut validated = validate_evidence_observation(observation, provider.provider_id(), limits)?;
+    let correlation = correlate_evidence(platform, storage, partitions, &validated);
+    let mismatch = matches!(correlation.platform_matches, Some(false))
+        || matches!(correlation.storage_matches, Some(false))
+        || matches!(correlation.partition_names_match, Some(false));
+    let mut limitations = Vec::new();
+    if mismatch {
+        limitations.push(
+            "supplied lawful MTK/META evidence contradicts scatter platform/storage/layout claims"
+                .to_owned(),
+        );
+    }
+    if !validated.complete_claim {
+        validated.limitations.push(
+            "evidence Provider did not claim complete C05-supported read-only evidence".to_owned(),
+        );
+    }
+    limitations.extend(validated.limitations.iter().cloned());
+    let correlated = validated.complete_claim
+        && validated.level == MediatekEvidenceLevel::LayoutEvidence
+        && correlation.platform_matches == Some(true)
+        && correlation.storage_matches == Some(true)
+        && correlation.partition_names_match == Some(true)
+        && !mismatch;
+    Ok(EvidenceResolution {
+        evidence: Some(validated),
+        correlation: Some(correlation),
+        correlated,
+        partial: mismatch
+            || limitations.iter().any(|value| {
+                value.contains("did not claim complete C05-supported read-only evidence")
+            }),
+        limitations,
+    })
 }
 
 /// Materialize one exact bundle component referenced by the scatter source.
@@ -765,7 +834,10 @@ pub fn materialize_mediatek_component(
 
 /// Compare two sealed C05 reports without manufacturing device-write compatibility.
 #[must_use]
-pub fn compare_mediatek_packages(left: &MediatekReport, right: &MediatekReport) -> MediatekComparison {
+pub fn compare_mediatek_packages(
+    left: &MediatekReport,
+    right: &MediatekReport,
+) -> MediatekComparison {
     let mut differences = Vec::new();
     let left_shape = report_shape(left);
     let right_shape = report_shape(right);
@@ -818,11 +890,17 @@ struct ParsedScatter {
     partitions: Vec<MediatekPartition>,
 }
 
+#[derive(Debug)]
+enum PartitionFileName {
+    Absent,
+    Path(String),
+}
+
 #[derive(Debug, Default)]
 struct PartitionBuilder {
     partition_index: Option<String>,
     partition_name: Option<String>,
-    file_name: Option<Option<String>>,
+    file_name: Option<PartitionFileName>,
     is_download: Option<bool>,
     image_type: Option<String>,
     linear_start_addr: Option<u64>,
@@ -860,96 +938,32 @@ fn parse_scatter(text: &str, limits: MediatekLimits) -> Result<ParsedScatter, C0
                 return Err(C05Error::TooManyPartitions);
             }
             let mut builder = PartitionBuilder::default();
-            let value = clean_value(value);
             set_partition_string(
                 &mut builder.partition_index,
                 &mut builder.seen_keys,
                 "partition_index",
-                value,
+                clean_value(value),
                 limits,
             )?;
             current = Some(builder);
             continue;
         }
-
         let Some((raw_key, raw_value)) = line.split_once(':') else {
             continue;
         };
         let key = raw_key.trim().trim_start_matches('-').trim();
         let value = clean_value(raw_value);
         if let Some(builder) = current.as_mut() {
-            match key {
-                "partition_name" => set_partition_string(
-                    &mut builder.partition_name,
-                    &mut builder.seen_keys,
-                    "partition_name",
-                    value,
-                    limits,
-                )?,
-                "file_name" => {
-                    mark_partition_key(&mut builder.seen_keys, "file_name")?;
-                    if value.eq_ignore_ascii_case("NONE") {
-                        builder.file_name = Some(None);
-                    } else {
-                        validate_bundle_path(value, limits)?;
-                        builder.file_name = Some(Some(value.to_owned()));
-                    }
-                }
-                "is_download" => {
-                    mark_partition_key(&mut builder.seen_keys, "is_download")?;
-                    builder.is_download = Some(parse_bool(value)?);
-                }
-                "type" => set_partition_string(
-                    &mut builder.image_type,
-                    &mut builder.seen_keys,
-                    "type",
-                    value,
-                    limits,
-                )?,
-                "linear_start_addr" => {
-                    mark_partition_key(&mut builder.seen_keys, "linear_start_addr")?;
-                    builder.linear_start_addr = Some(parse_u64(value)?);
-                }
-                "physical_start_addr" => {
-                    mark_partition_key(&mut builder.seen_keys, "physical_start_addr")?;
-                    builder.physical_start_addr = Some(parse_u64(value)?);
-                }
-                "partition_size" => {
-                    mark_partition_key(&mut builder.seen_keys, "partition_size")?;
-                    builder.partition_size = Some(parse_u64(value)?);
-                }
-                "region" => set_partition_string(
-                    &mut builder.region,
-                    &mut builder.seen_keys,
-                    "region",
-                    value,
-                    limits,
-                )?,
-                "storage" => set_partition_string(
-                    &mut builder.storage,
-                    &mut builder.seen_keys,
-                    "storage",
-                    value,
-                    limits,
-                )?,
-                _ => {}
-            }
+            parse_partition_field(builder, key, value, limits)?;
         } else {
-            match key {
-                "config_version" if config_version.is_none() => {
-                    validate_string(value, limits)?;
-                    config_version = Some(value.to_owned());
-                }
-                "platform" if platform.is_none() => {
-                    validate_string(value, limits)?;
-                    platform = Some(value.to_owned());
-                }
-                "storage" if storage.is_none() => {
-                    validate_string(value, limits)?;
-                    storage = Some(value.to_owned());
-                }
-                _ => {}
-            }
+            parse_scatter_header_field(
+                &mut config_version,
+                &mut platform,
+                &mut storage,
+                key,
+                value,
+                limits,
+            )?;
         }
     }
     if let Some(builder) = current.take() {
@@ -967,6 +981,96 @@ fn parse_scatter(text: &str, limits: MediatekLimits) -> Result<ParsedScatter, C0
         storage,
         partitions,
     })
+}
+
+fn parse_partition_field(
+    builder: &mut PartitionBuilder,
+    key: &str,
+    value: &str,
+    limits: MediatekLimits,
+) -> Result<(), C05Error> {
+    match key {
+        "partition_name" => set_partition_string(
+            &mut builder.partition_name,
+            &mut builder.seen_keys,
+            "partition_name",
+            value,
+            limits,
+        ),
+        "file_name" => {
+            mark_partition_key(&mut builder.seen_keys, "file_name")?;
+            if value.eq_ignore_ascii_case("NONE") {
+                builder.file_name = Some(PartitionFileName::Absent);
+            } else {
+                validate_bundle_path(value, limits)?;
+                builder.file_name = Some(PartitionFileName::Path(value.to_owned()));
+            }
+            Ok(())
+        }
+        "is_download" => {
+            mark_partition_key(&mut builder.seen_keys, "is_download")?;
+            builder.is_download = Some(parse_bool(value)?);
+            Ok(())
+        }
+        "type" => set_partition_string(
+            &mut builder.image_type,
+            &mut builder.seen_keys,
+            "type",
+            value,
+            limits,
+        ),
+        "linear_start_addr" => {
+            mark_partition_key(&mut builder.seen_keys, "linear_start_addr")?;
+            builder.linear_start_addr = Some(parse_u64(value)?);
+            Ok(())
+        }
+        "physical_start_addr" => {
+            mark_partition_key(&mut builder.seen_keys, "physical_start_addr")?;
+            builder.physical_start_addr = Some(parse_u64(value)?);
+            Ok(())
+        }
+        "partition_size" => {
+            mark_partition_key(&mut builder.seen_keys, "partition_size")?;
+            builder.partition_size = Some(parse_u64(value)?);
+            Ok(())
+        }
+        "region" => set_partition_string(
+            &mut builder.region,
+            &mut builder.seen_keys,
+            "region",
+            value,
+            limits,
+        ),
+        "storage" => set_partition_string(
+            &mut builder.storage,
+            &mut builder.seen_keys,
+            "storage",
+            value,
+            limits,
+        ),
+        _ => Ok(()),
+    }
+}
+
+fn parse_scatter_header_field(
+    config_version: &mut Option<String>,
+    platform: &mut Option<String>,
+    storage: &mut Option<String>,
+    key: &str,
+    value: &str,
+    limits: MediatekLimits,
+) -> Result<(), C05Error> {
+    let target = match key {
+        "config_version" if config_version.is_none() => Some(config_version),
+        "platform" if platform.is_none() => Some(platform),
+        "storage" if storage.is_none() => Some(storage),
+        _ => None,
+    };
+    if let Some(target) = target {
+        validate_string(value, limits)?;
+        *target = Some(value.to_owned());
+    }
+    Ok(())
 }
 
 fn clean_value(raw: &str) -> &str {
@@ -1014,7 +1118,10 @@ fn push_partition(
     }
     let partition_index = builder.partition_index.ok_or(C05Error::InvalidScatter)?;
     let partition_name = builder.partition_name.ok_or(C05Error::InvalidScatter)?;
-    let file_name = builder.file_name.ok_or(C05Error::InvalidScatter)?;
+    let file_name = match builder.file_name.ok_or(C05Error::InvalidScatter)? {
+        PartitionFileName::Absent => None,
+        PartitionFileName::Path(path) => Some(path),
+    };
     let is_download = builder.is_download.ok_or(C05Error::InvalidScatter)?;
     let image_type = builder.image_type.ok_or(C05Error::InvalidScatter)?;
     let linear_start = builder.linear_start_addr.ok_or(C05Error::InvalidScatter)?;
@@ -1406,10 +1513,7 @@ fn report_projection_digest(report: &MediatekReport) -> String {
     hash_guard_text(&mut hasher, &format!("{:?}", report.assessment));
     hash_guard_text(&mut hasher, &format!("{:?}", report.trust));
     hash_guard_text(&mut hasher, &format!("{:?}", report.proof_level));
-    hash_guard_text(
-        &mut hasher,
-        &format!("{:?}", report.bundle_provider_alias),
-    );
+    hash_guard_text(&mut hasher, &format!("{:?}", report.bundle_provider_alias));
     for entry in &report.bundle_entries {
         hash_guard_text(&mut hasher, &entry.path);
         hasher.update(entry.byte_size.to_le_bytes());
@@ -1417,10 +1521,7 @@ fn report_projection_digest(report: &MediatekReport) -> String {
     }
     hash_guard_text(&mut hasher, &format!("{:?}", report.partitions));
     hash_guard_text(&mut hasher, &format!("{:?}", report.evidence));
-    hash_guard_text(
-        &mut hasher,
-        &format!("{:?}", report.evidence_correlation),
-    );
+    hash_guard_text(&mut hasher, &format!("{:?}", report.evidence_correlation));
     hash_guard_text(&mut hasher, &format!("{:?}", report.warnings));
     hash_guard_text(&mut hasher, &format!("{:?}", report.limitations));
     format!("{:x}", hasher.finalize())

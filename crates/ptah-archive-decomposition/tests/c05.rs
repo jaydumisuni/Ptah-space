@@ -1,4 +1,4 @@
-//! C05 MediaTek scatter/bundle/read-only evidence acceptance corpus.
+//! C05 `MediaTek` scatter/bundle/read-only evidence acceptance corpus.
 
 use ptah_archive_decomposition::{
     C05Error, MediatekAssessment, MediatekBundleEntryObservation, MediatekBundleObservation,
@@ -36,7 +36,7 @@ fn sha256(bytes: &[u8]) -> String {
 }
 
 fn scatter() -> Vec<u8> {
-    br#"############################################################################################################
+    br"############################################################################################################
 - general: MTK_PLATFORM_CFG
   info:
     - config_version: V1.1.2
@@ -65,12 +65,12 @@ fn scatter() -> Vec<u8> {
   partition_size: 0x2000
   region: EMMC_USER
   storage: HW_STORAGE_EMMC
-"#
+"
     .to_vec()
 }
 
 fn no_component_scatter() -> Vec<u8> {
-    br#"- general: MTK_PLATFORM_CFG
+    br"- general: MTK_PLATFORM_CFG
   info:
     - config_version: V1.1.2
       platform: MT6789
@@ -85,7 +85,7 @@ fn no_component_scatter() -> Vec<u8> {
   partition_size: 0x100
   region: EMMC_USER
   storage: HW_STORAGE_EMMC
-"#
+"
     .to_vec()
 }
 
@@ -298,8 +298,7 @@ fn entry_byte_string_and_line_limits_fail_closed() {
         ..MediatekLimits::default()
     };
     assert_eq!(
-        inspect_mediatek_package(&source, &ctx, limits, None, None)
-            .expect_err("string bound"),
+        inspect_mediatek_package(&source, &ctx, limits, None, None).expect_err("string bound"),
         C05Error::InvalidString
     );
 
@@ -308,8 +307,7 @@ fn entry_byte_string_and_line_limits_fail_closed() {
         ..MediatekLimits::default()
     };
     assert_eq!(
-        inspect_mediatek_package(&source, &ctx, limits, None, None)
-            .expect_err("line bound"),
+        inspect_mediatek_package(&source, &ctx, limits, None, None).expect_err("line bound"),
         C05Error::TooManyLines
     );
 }
@@ -338,7 +336,11 @@ fn invalid_or_negative_numeric_fields_are_rejected() {
     let text = String::from_utf8(scatter()).expect("fixture UTF-8");
     for bad in ["-1", "0xGG"] {
         let source = text
-            .replacen("linear_start_addr: 0x0", &format!("linear_start_addr: {bad}"), 1)
+            .replacen(
+                "linear_start_addr: 0x0",
+                &format!("linear_start_addr: {bad}"),
+                1,
+            )
             .into_bytes();
         assert_eq!(
             inspect(&source, None, None).expect_err("invalid numeric field"),
@@ -351,7 +353,11 @@ fn invalid_or_negative_numeric_fields_are_rejected() {
 fn partition_range_overflow_is_rejected() {
     let text = String::from_utf8(scatter()).expect("fixture UTF-8");
     let source = text
-        .replacen("linear_start_addr: 0x0", "linear_start_addr: 0xfffffffffffffff0", 1)
+        .replacen(
+            "linear_start_addr: 0x0",
+            "linear_start_addr: 0xfffffffffffffff0",
+            1,
+        )
         .replacen("partition_size: 0x1000", "partition_size: 0x100", 1)
         .into_bytes();
     assert_eq!(
@@ -378,17 +384,21 @@ fn duplicate_partition_index_or_name_is_rejected() {
 #[test]
 fn missing_scatter_referenced_component_reduces_truth() {
     let source = scatter();
-    let bundle = FixtureBundleProvider::complete(vec![bundle_entry(
-        "preloader.bin",
-        b"preloader-exact",
-    )]);
-    let report = inspect(&source, Some(&bundle), None).expect("missing component remains reportable");
+    let bundle =
+        FixtureBundleProvider::complete(vec![bundle_entry("preloader.bin", b"preloader-exact")]);
+    let report =
+        inspect(&source, Some(&bundle), None).expect("missing component remains reportable");
     assert_eq!(report.assessment, MediatekAssessment::Partial);
     assert_eq!(
         report.proof_level,
         Some(MediatekStaticProofLevel::StructureChecked)
     );
-    assert!(report.limitations.iter().any(|value| value.contains("unresolved")));
+    assert!(
+        report
+            .limitations
+            .iter()
+            .any(|value| value.contains("unresolved"))
+    );
 }
 
 #[test]
@@ -396,7 +406,8 @@ fn incomplete_bundle_provider_claim_remains_partial() {
     let source = scatter();
     let mut bundle = good_bundle();
     bundle.observation.complete_claim = false;
-    let report = inspect(&source, Some(&bundle), None).expect("incomplete claim remains reportable");
+    let report =
+        inspect(&source, Some(&bundle), None).expect("incomplete claim remains reportable");
     assert_eq!(report.assessment, MediatekAssessment::Partial);
     assert_eq!(
         report.proof_level,
@@ -415,7 +426,8 @@ fn lawful_read_only_layout_evidence_can_be_correlated_exactly() {
     let source = scatter();
     let bundle = good_bundle();
     let evidence = exact_evidence();
-    let report = inspect(&source, Some(&bundle), Some(&evidence)).expect("exact evidence correlation");
+    let report =
+        inspect(&source, Some(&bundle), Some(&evidence)).expect("exact evidence correlation");
     assert_eq!(report.assessment, MediatekAssessment::Complete);
     assert_eq!(
         report.proof_level,
@@ -460,7 +472,8 @@ fn contradictory_platform_storage_or_layout_evidence_reduces_truth() {
     evidence.observation.platform = Some("MT9999".to_owned());
     evidence.observation.storage = Some("UFS".to_owned());
     evidence.observation.partition_names = vec!["boot".to_owned()];
-    let report = inspect(&source, Some(&bundle), Some(&evidence)).expect("mismatch remains reportable");
+    let report =
+        inspect(&source, Some(&bundle), Some(&evidence)).expect("mismatch remains reportable");
     assert_eq!(report.assessment, MediatekAssessment::Partial);
     assert_eq!(
         report.proof_level,
@@ -500,7 +513,9 @@ fn report_mutation_and_source_mismatch_fail_before_reuse() {
     .expect("valid report");
     report.assessment = MediatekAssessment::Inconclusive;
     assert_eq!(
-        report.view_specs(&ctx).expect_err("mutated report cannot produce views"),
+        report
+            .view_specs(&ctx)
+            .expect_err("mutated report cannot produce views"),
         C05Error::ReportIntegrityMismatch
     );
 
@@ -550,9 +565,18 @@ fn registration_relationship_and_view_plans_retain_exact_evidence() {
     .expect("exact component");
     assert_eq!(child.bytes(), b"boot-exact");
     let registration_spec = child.registration_spec(&ctx).expect("registration plan");
-    assert_eq!(registration_spec.source_refs, vec![ctx.source_revision_ref.clone()]);
-    assert_eq!(registration_spec.production.attempt_ref, ctx.production.attempt_ref);
-    assert_eq!(registration_spec.expected_sha256, Some(child.sha256.clone()));
+    assert_eq!(
+        registration_spec.source_refs,
+        vec![ctx.source_revision_ref.clone()]
+    );
+    assert_eq!(
+        registration_spec.production.attempt_ref,
+        ctx.production.attempt_ref
+    );
+    assert_eq!(
+        registration_spec.expected_sha256,
+        Some(child.sha256.clone())
+    );
 
     let registration = Registration {
         content_ref: reference("object.content"),
@@ -567,8 +591,14 @@ fn registration_relationship_and_view_plans_retain_exact_evidence() {
     let relationship = child
         .relationship_spec(&ctx, &registration)
         .expect("relationship plan");
-    assert_eq!(relationship.subject_refs, vec![ctx.source_revision_ref.clone()]);
-    assert_eq!(relationship.production.attempt_ref, ctx.production.attempt_ref);
+    assert_eq!(
+        relationship.subject_refs,
+        vec![ctx.source_revision_ref.clone()]
+    );
+    assert_eq!(
+        relationship.production.attempt_ref,
+        ctx.production.attempt_ref
+    );
     assert_eq!(
         relationship.relationship_type,
         "references.mediatek_firmware_component"
@@ -596,8 +626,8 @@ fn comparison_levels_distinguish_structure_components_and_exact_scatter_bytes() 
 
     let mut source_component_exact = source_a.clone();
     source_component_exact.extend_from_slice(b"# ignored-tail\n");
-    let component_exact = inspect(&source_component_exact, Some(&bundle_a), None)
-        .expect("component exact");
+    let component_exact =
+        inspect(&source_component_exact, Some(&bundle_a), None).expect("component exact");
     assert_eq!(
         compare_mediatek_packages(&left, &component_exact).level,
         MediatekComparisonLevel::ComponentExact

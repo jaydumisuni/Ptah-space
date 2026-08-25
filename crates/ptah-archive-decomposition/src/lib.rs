@@ -1,12 +1,13 @@
 #![forbid(unsafe_code)]
-//! A12 deterministic archive decomposition plus B02–B07 Object World and C01–C02 firmware foundations.
+//! A12 deterministic archive decomposition plus B02–B07 Object World and C01–C03 firmware foundations.
 //!
 //! Parser backends, type detectors, document, media, executable/package and filesystem Providers are
 //! untrusted mechanical facilities. This crate owns path canonicalization, recursive resource budgets,
 //! provenance, coverage truth, detector disagreement, progressive decomposition truth, passive
 //! interpretation, derived source-bound search, C01 immutable disk normalization/partition
-//! interpretation, C02 filesystem Provider validation/materialization, and canonical registration plans
-//! through the A07/A03 boundaries. Derived projections never replace canonical source truth.
+//! interpretation, C02 filesystem Provider validation/materialization, C03 Android image/OTA static
+//! inspection and proof levels, and canonical registration plans through the A07/A03 boundaries.
+//! Derived projections never replace canonical source truth.
 
 mod b02;
 mod b03;
@@ -16,6 +17,7 @@ mod b05;
 mod b07;
 mod c01;
 mod c02;
+mod c03;
 mod model;
 mod persist;
 mod policy;
@@ -66,6 +68,16 @@ pub use c02::{
     FilesystemLimits, FilesystemProvider, FilesystemProviderAlias, FilesystemReport,
     ProviderFilesystemObservation, detect_filesystem, inspect_filesystem,
     materialize_filesystem_file,
+};
+pub use c03::{
+    AndroidArtifactKind, AndroidAssessment, AndroidBlockDevice, AndroidComparison,
+    AndroidComparisonLevel, AndroidComponent, AndroidComponentKind, AndroidContext,
+    AndroidDynamicExtent, AndroidDynamicGroup, AndroidDynamicPartition, AndroidInspectRequest,
+    AndroidIntegrityAssessment, AndroidLimits, AndroidMaterialization, AndroidOtaManifest,
+    AndroidRebuildProofLevel, AndroidReport, AndroidTrustAssessment, C03Error, DynamicExtentTarget,
+    OtaDynamicGroup, OtaManifestObservation, OtaManifestProvider, OtaOperationRange,
+    OtaPartitionUpdate, assess_android_rebuild, compare_android_artifacts, inspect_android_artifact,
+    materialize_android_component, materialize_dynamic_partition,
 };
 pub use model::{
     ArchiveBackend, BackendIdentity, DecompositionBudget, DecompositionClock, DecompositionOutcome,

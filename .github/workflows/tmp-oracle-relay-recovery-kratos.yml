@@ -18,24 +18,32 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore Oracle relay and prove local browser bridge
+      - name: Inspect Oracle recovery supervisor and child relay
         shell: bash
         run: |
           set -euo pipefail
           unit=oracle-recovery-relay.service
           systemctl --user daemon-reload
-          if ! systemctl --user cat "$unit" >/dev/null 2>&1; then
-            cd /home/kratos/Oracle
-            bash scripts/install-oracle-recovery-relay-systemd-user.sh
-          else
-            systemctl --user restart "$unit"
-          fi
-          sleep 5
+          systemctl --user restart "$unit"
+          sleep 8
           active="$(systemctl --user is-active "$unit")"
           test "$active" = active
           state="$(systemctl --user show "$unit" -p ActiveState -p SubState -p Result -p MainPID --no-pager | tr '\n' ';')"
-          bridge_http="$(curl -sS -o /tmp/oracle-bridge-health.json -w '%{http_code}' --max-time 10 http://127.0.0.1:8765/health || true)"
-          printf '{"schemaVersion":"oracle.recovery.kratos.v1","ok":true,"host":"%s","relay":"%s","browserBridgeHttp":"%s","completedAt":"%s"}\n' "$(hostname)" "$state" "$bridge_http" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > oracle-relay-recovery-result.json
+          state_root="${XDG_STATE_HOME:-$HOME/.local/state}/OracleRelay"
+          supervisor_status='{}'
+          relay_status='{}'
+          if test -f "$state_root/recovery-supervisor-status.json"; then supervisor_status="$(cat "$state_root/recovery-supervisor-status.json")"; fi
+          if test -f "$state_root/repo/.oracle/relay-status.json"; then relay_status="$(cat "$state_root/repo/.oracle/relay-status.json")"; fi
+          journal="$(journalctl --user -u "$unit" -n 40 --no-pager 2>&1 | tail -c 12000)"
+          bridge="$(curl -fsS --max-time 10 http://127.0.0.1:8765/health || printf '{}')"
+          SUPERVISOR_STATUS="$supervisor_status" RELAY_STATUS="$relay_status" JOURNAL="$journal" BRIDGE="$bridge" STATE="$state" python3 - <<'PY'
+          import json,os,socket,datetime
+          def j(name):
+              try:return json.loads(os.environ.get(name,'{}'))
+              except:return {'raw':os.environ.get(name,'')[:12000]}
+          out={'schemaVersion':'oracle.recovery.kratos.child.v1','ok':True,'host':socket.gethostname(),'service':os.environ['STATE'],'supervisor':j('SUPERVISOR_STATUS'),'relay':j('RELAY_STATUS'),'browserBridge':j('BRIDGE'),'journal':os.environ.get('JOURNAL','')[-12000:],'completedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          open('oracle-relay-recovery-result.json','w').write(json.dumps(out,indent=2)+'\n')
+          PY
 
       - name: Publish recovery proof
         shell: bash
@@ -44,7 +52,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add oracle-relay-recovery-result.json
-          git commit -m 'recovery: prove KRATOS Oracle relay restored'
+          git commit -m 'recovery: publish KRATOS Oracle relay child state'
           for i in 1 2 3 4 5; do
             git push origin HEAD:main && exit 0
             git fetch origin main

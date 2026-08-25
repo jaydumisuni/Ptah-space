@@ -23,7 +23,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import datetime, hashlib, json, os, pathlib, shutil, socket, subprocess
+          import datetime, hashlib, json, pathlib, shlex, shutil, socket, subprocess
 
           desktop = pathlib.Path.home() / 'Desktop'
           expected_name = 'sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
@@ -71,7 +71,8 @@ jobs:
               size = archive.stat().st_size
               md5 = digest(archive, 'md5')
               sha256 = digest(archive, 'sha256')
-              listing = run(['bash','-lc', f"set +o pipefail; tar -tzf {shlex_quote(str(archive))} 2>&1 | head -n 260"], timeout=120)
+              quoted = shlex.quote(str(archive))
+              listing = run(['bash','-lc', f'set +o pipefail; tar -tzf {quoted} 2>&1 | head -n 260'], timeout=120)
               out['archive'] = {
                   'path': str(archive),
                   'size_bytes': size,
@@ -82,11 +83,7 @@ jobs:
                   'file_type': run(['file','-b',str(archive)], timeout=20),
               }
           pathlib.Path('redmi-sky-global-preflight.json').write_text(json.dumps(out, indent=2) + '\n')
-
-          # Local helper intentionally defined after construction to keep all shell quoting in one place.
           PY
-        env:
-          PYTHONUNBUFFERED: '1'
 
       - name: Publish preflight evidence
         shell: bash

@@ -1,8 +1,8 @@
 # C05 — MediaTek Pack
 
-**Programme:** C — Device and firmware understanding  
-**Status:** implementation candidate  
-**Accepted base:** `3b9bcb02c8221d0fc2b0be833c491ac445120b4b` (merged C04)  
+**Programme:** C — Device and firmware understanding
+**Status:** implementation candidate
+**Accepted base:** `3b9bcb02c8221d0fc2b0be833c491ac445120b4b` (merged C04)
 **Dependencies:** C01 immutable disk/partition foundations; C02 read-only filesystem semantics
 
 ## Purpose

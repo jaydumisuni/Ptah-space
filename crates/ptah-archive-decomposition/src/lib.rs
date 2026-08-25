@@ -76,8 +76,8 @@ pub use c03::{
     AndroidIntegrityAssessment, AndroidLimits, AndroidMaterialization, AndroidOtaManifest,
     AndroidRebuildProofLevel, AndroidReport, AndroidTrustAssessment, C03Error, DynamicExtentTarget,
     OtaDynamicGroup, OtaManifestObservation, OtaManifestProvider, OtaOperationRange,
-    OtaPartitionUpdate, assess_android_rebuild, compare_android_artifacts, inspect_android_artifact,
-    materialize_android_component, materialize_dynamic_partition,
+    OtaPartitionUpdate, assess_android_rebuild, compare_android_artifacts,
+    inspect_android_artifact, materialize_android_component, materialize_dynamic_partition,
 };
 pub use model::{
     ArchiveBackend, BackendIdentity, DecompositionBudget, DecompositionClock, DecompositionOutcome,

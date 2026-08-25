@@ -1,13 +1,14 @@
 #![forbid(unsafe_code)]
-//! A12 deterministic archive decomposition plus B02–B07 Object World and C01–C03 firmware foundations.
+//! A12 deterministic archive decomposition plus B02–B07 Object World and C01–C04 firmware foundations.
 //!
 //! Parser backends, type detectors, document, media, executable/package and filesystem Providers are
 //! untrusted mechanical facilities. This crate owns path canonicalization, recursive resource budgets,
 //! provenance, coverage truth, detector disagreement, progressive decomposition truth, passive
 //! interpretation, derived source-bound search, C01 immutable disk normalization/partition
 //! interpretation, C02 filesystem Provider validation/materialization, C03 Android image/OTA static
-//! inspection and proof levels, and canonical registration plans through the A07/A03 boundaries.
-//! Derived projections never replace canonical source truth.
+//! inspection, C04 Apple firmware archive/IMG4 static inspection and explicit proof levels, plus
+//! canonical registration plans through the A07/A03 boundaries. Derived projections never replace
+//! canonical source truth.
 
 mod b02;
 mod b03;
@@ -18,6 +19,7 @@ mod b07;
 mod c01;
 mod c02;
 mod c03;
+mod c04;
 mod model;
 mod persist;
 mod policy;
@@ -78,6 +80,16 @@ pub use c03::{
     OtaDynamicGroup, OtaManifestObservation, OtaManifestProvider, OtaOperationRange,
     OtaPartitionUpdate, assess_android_rebuild, compare_android_artifacts,
     inspect_android_artifact, materialize_android_component, materialize_dynamic_partition,
+};
+pub use c04::{
+    AppleArchiveEntry, AppleArchiveEntryObservation, AppleArchiveObservation, AppleArchiveProvider,
+    AppleArchiveRole, AppleAssessment, AppleComparison, AppleComparisonLevel, AppleDerComponent,
+    AppleDerComponentKind, AppleFirmwareArtifactKind, AppleFirmwareContext, AppleFirmwareLimits,
+    AppleFirmwareReport, AppleInspectRequest, AppleManifest, AppleManifestComponent,
+    AppleManifestComponentObservation, AppleManifestObservation, AppleManifestProvider,
+    AppleMaterialization, AppleStaticProofLevel, AppleTrustAssessment, C04Error,
+    assess_apple_rebuild, compare_apple_firmware, inspect_apple_firmware,
+    materialize_apple_archive_entry, materialize_apple_der_component,
 };
 pub use model::{
     ArchiveBackend, BackendIdentity, DecompositionBudget, DecompositionClock, DecompositionOutcome,

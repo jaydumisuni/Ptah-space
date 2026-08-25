@@ -68,3 +68,7 @@ path = "tests/c02.rs"
 [[test]]
 name = "c03"
 path = "tests/c03.rs"
+
+[[test]]
+name = "c04"
+path = "tests/c04.rs"

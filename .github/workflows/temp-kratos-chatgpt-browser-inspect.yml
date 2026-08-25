@@ -11,57 +11,47 @@ jobs:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 5
     steps:
-      - name: Reopen existing signed-in Chrome profile and prove Oracle bridge
+      - name: Launch existing signed-in Chrome profile in user session
         shell: bash
         run: |
           set -euo pipefail
           uid="$(id -u)"
           export XDG_RUNTIME_DIR="/run/user/$uid"
           export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-
-          echo '=== LOGIN SESSIONS ==='
-          loginctl list-sessions --no-legend || true
-          loginctl show-user "$USER" -p State -p Display -p Sessions || true
-
-          echo '=== USER MANAGER ENV ==='
           user_env="$(systemctl --user show-environment 2>/dev/null || true)"
-          printf '%s\n' "$user_env" | grep -E '^(DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|DBUS_SESSION_BUS_ADDRESS)=' || true
           eval "$(printf '%s\n' "$user_env" | grep -E '^(DISPLAY|WAYLAND_DISPLAY|XAUTHORITY)=' | sed 's/^/export /' || true)"
+          if [ -z "${DISPLAY:-}" ]; then export DISPLAY=:0; fi
+          chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)"
 
-          if [ -z "${DISPLAY:-}" ]; then
-            x="$(find /tmp/.X11-unix -maxdepth 1 -type s -name 'X*' -printf '%f\n' 2>/dev/null | sort | head -n1 || true)"
-            if [ -n "$x" ]; then export DISPLAY=":${x#X}"; fi
-          fi
-          echo "DISPLAY=${DISPLAY:-} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}"
+          echo "DISPLAY=$DISPLAY XAUTHORITY=${XAUTHORITY:-} CHROME=$chrome"
+          systemctl --user stop oracle-chatgpt-browser.service >/dev/null 2>&1 || true
+          systemctl --user reset-failed oracle-chatgpt-browser.service >/dev/null 2>&1 || true
 
-          echo '=== PRE-LAUNCH ==='
-          pgrep -af 'google-chrome|chromium' || true
-          curl -fsS --max-time 5 http://127.0.0.1:8765/health || true
-          echo
-
-          chrome="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
-          test -n "$chrome"
-          echo "CHROME=$chrome"
-
-          if ! pgrep -f 'google-chrome|chromium' >/dev/null; then
-            nohup "$chrome" --profile-directory=Default --new-window 'https://chatgpt.com/' >"$RUNNER_TEMP/kratos-chatgpt-chrome.log" 2>&1 </dev/null &
+          if ! pgrep -u "$USER" -f '/opt/google/chrome/chrome|google-chrome|chromium' >/dev/null; then
+            args=(systemd-run --user --unit=oracle-chatgpt-browser --collect --property=TimeoutStopSec=5)
+            args+=(--setenv="DISPLAY=$DISPLAY")
+            args+=(--setenv="DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS")
+            if [ -n "${XAUTHORITY:-}" ]; then args+=(--setenv="XAUTHORITY=$XAUTHORITY"); fi
+            "${args[@]}" "$chrome" --profile-directory=Default --new-window 'https://chatgpt.com/'
           else
             "$chrome" --profile-directory=Default --new-tab 'https://chatgpt.com/' >/dev/null 2>&1 || true
           fi
 
-          for i in $(seq 1 30); do
+          connected=0
+          for i in $(seq 1 40); do
             sleep 1
-            if curl -fsS --max-time 2 http://127.0.0.1:8765/health >"$RUNNER_TEMP/bridge-health.json" 2>/dev/null; then
-              if python3 -c "import json; d=json.load(open('$RUNNER_TEMP/bridge-health.json')); raise SystemExit(0 if d.get('browserConnected') else 1)"; then
-                break
-              fi
+            curl -fsS --max-time 2 http://127.0.0.1:8765/health >"$RUNNER_TEMP/bridge-health.json" 2>/dev/null || true
+            if [ -s "$RUNNER_TEMP/bridge-health.json" ]; then
+              if python3 -c "import json; d=json.load(open('$RUNNER_TEMP/bridge-health.json')); raise SystemExit(0 if d.get('browserConnected') else 1)"; then connected=1; break; fi
             fi
+            if ! pgrep -u "$USER" -f '/opt/google/chrome/chrome|google-chrome|chromium' >/dev/null; then break; fi
           done
 
-          echo '=== POST-LAUNCH PROCESSES ==='
-          pgrep -af 'google-chrome|chromium' || true
-          echo '=== CHROME LOG ==='
-          sed -n '1,120p' "$RUNNER_TEMP/kratos-chatgpt-chrome.log" 2>/dev/null || true
+          echo '=== USER SERVICE ==='
+          systemctl --user --no-pager --full status oracle-chatgpt-browser.service || true
+          echo '=== BROWSER PROCESSES ==='
+          pgrep -a -u "$USER" -f '/opt/google/chrome/chrome|google-chrome|chromium' || true
           echo '=== BRIDGE HEALTH ==='
           cat "$RUNNER_TEMP/bridge-health.json" 2>/dev/null || curl -fsS --max-time 5 http://127.0.0.1:8765/health || true
           echo
+          echo "BROWSER_BRIDGE_CONNECTED=$connected"

@@ -1,0 +1,76 @@
+name: TEMP Redmi sky Global ROM download on ATHENA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/temp-redmi-sky-global-rom-download.yml"
+      - "proof/tmp-trigger-redmi-sky-global-rom-download-*.txt"
+
+permissions:
+  contents: read
+
+jobs:
+  start-download:
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 5
+    steps:
+      - name: Start or resume official sky Global ROM BITS transfer
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = 'C:\Users\ATHENA 2.0\Desktop\redmi r12'
+          $file = 'sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
+          $url = 'https://bigota.d.miui.com/OS2.0.9.0.VMWMIXM/sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
+          $name = 'TTG Redmi sky Global OS2.0.9.0'
+          $expectedMd5 = '3334591f858477053b68f4c0e47debf0'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $dest = Join-Path $dir $file
+
+          $job = Get-BitsTransfer -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($job) {
+            if ($job.JobState -in @('Error','TransientError')) {
+              Resume-BitsTransfer -BitsJob $job -Asynchronous | Out-Null
+              Start-Sleep -Seconds 2
+              $job = Get-BitsTransfer -Id $job.Id
+            }
+            [ordered]@{
+              ok = $true
+              action = 'existing-bits-job'
+              jobId = [string]$job.Id
+              state = [string]$job.JobState
+              bytesTransferred = [int64]$job.BytesTransferred
+              bytesTotal = [int64]$job.BytesTotal
+              destination = $dest
+              expectedMd5 = $expectedMd5
+            } | ConvertTo-Json -Compress
+            exit 0
+          }
+
+          if (Test-Path -LiteralPath $dest) {
+            $size = (Get-Item -LiteralPath $dest).Length
+            [ordered]@{
+              ok = $true
+              action = 'file-already-present'
+              state = 'LOCAL_FILE_PRESENT'
+              bytesTransferred = [int64]$size
+              bytesTotal = [int64]$size
+              destination = $dest
+              expectedMd5 = $expectedMd5
+            } | ConvertTo-Json -Compress
+            exit 0
+          }
+
+          $job = Start-BitsTransfer -Source $url -Destination $dest -DisplayName $name -Description 'Official Xiaomi sky Global HyperOS fastboot archive for offline CN-vs-Global analysis' -Priority Foreground -TransferType Download -Asynchronous
+          Start-Sleep -Seconds 8
+          $job = Get-BitsTransfer -Id $job.Id
+          [ordered]@{
+            ok = $true
+            action = 'bits-started'
+            jobId = [string]$job.Id
+            state = [string]$job.JobState
+            bytesTransferred = [int64]$job.BytesTransferred
+            bytesTotal = [int64]$job.BytesTotal
+            destination = $dest
+            expectedMd5 = $expectedMd5
+          } | ConvertTo-Json -Compress

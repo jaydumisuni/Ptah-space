@@ -1,5 +1,5 @@
-# activate: updater gate deep-read 2026-08-26T19:03Z
-name: Temporary Redmi updater region-gate deep read on KRATOS
+# activate: mi_ext region feature map 2026-08-26T19:05Z
+name: Temporary Redmi mi_ext regional feature map on KRATOS
 
 on:
   push:
@@ -13,9 +13,9 @@ permissions:
 jobs:
   probe:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
-      - name: Inspect updater APK, SKU parser, and cust gate read-only
+      - name: Map active region feature policy read-only
         shell: bash
         run: |
           set -euo pipefail
@@ -23,53 +23,28 @@ jobs:
           "$ADB" start-server >/dev/null 2>&1 || true
           test "$("$ADB" get-state 2>/dev/null | tail -n1)" = device
 
-          echo '=== EXACT REGION STATE ==='
-          "$ADB" shell 'for k in ro.boot.hwc ro.boot.vbmeta.device_state ro.miui.region ro.vendor.miui.region ro.miui.build.region ro.miui.cust_variant ro.vendor.miui.cust_variant ro.miui.business.version ro.product.device ro.product.mod_device ro.build.version.incremental; do printf "%s=" "$k"; getprop "$k"; done'
+          echo '=== REGION / COTA PROPS ==='
+          "$ADB" shell 'for k in ro.miui.region ro.miui.build.region ro.miui.customized.region ro.miui.cust_variant ro.product.locale ro.product.locale.region ro.product.mod_device ro.miui.gota persist.sys.cota.carrier persist.sys.cota.package persist.sys.cota.partition; do printf "%s=" "$k"; getprop "$k"; done'
 
-          echo '=== CUST PROP MATRIX ==='
-          "$ADB" shell 'for f in /system_ext/cust/*/cust.prop; do echo "--- $f ---"; cat "$f" 2>/dev/null | head -n 200; done' 2>&1 | head -n 1800
+          echo '=== CUST FEATURE TREE ==='
+          "$ADB" shell 'find /mi_ext/product/etc/cust_features /mi_ext/product/opcust -maxdepth 4 -type f -name "cust_features.xml" -print 2>/dev/null | sort' | head -n 400
 
-          echo '=== MIUI CUST / UPDATER INIT ==='
-          for f in /system_ext/etc/init/init.miui.cust.rc /system_ext/etc/init/miupdater.rc; do
+          echo '=== GENERIC + CN FEATURE FILES ==='
+          for f in \
+            /mi_ext/product/etc/cust_features/cust_features.xml \
+            /mi_ext/product/etc/cust_features/cn/cust_features.xml \
+            /mi_ext/product/opcust/xm/cust_features.xml \
+            /mi_ext/product/opcust/xm/cn/cust_features.xml; do
             echo "--- $f ---"
-            "$ADB" shell "cat $f 2>/dev/null" | head -n 500 || true
+            "$ADB" shell "cat $f 2>/dev/null" | head -n 1200 || true
           done
 
-          echo '=== OTA CERT / SKU PARSER FILES ==='
-          "$ADB" shell 'ls -lZ /system/etc/security/otacerts.zip /system_ext/lib64/libskuparser_cpp.so /system_ext/lib64/libskuparser_ffi.so /product/pangu/system/etc/ota_skip_apps 2>&1' || true
-          echo '--- ota_skip_apps ---'
-          "$ADB" shell 'cat /product/pangu/system/etc/ota_skip_apps 2>/dev/null' | head -n 300 || true
+          echo '=== GOOGLE / REGION / STORE / SEARCH FEATURE HITS ==='
+          "$ADB" shell 'grep -RniE "(google|gms|gsf|phonesky|play.?store|market|search|assistant|voice|region|carrier|global|china|cn)" /mi_ext/product/etc/cust_features /mi_ext/product/opcust 2>/dev/null | head -n 1600' || true
 
-          work="$(mktemp -d)"
-          trap 'rm -rf "$work"' EXIT
+          echo '=== CURRENT PACKAGE POLICY RELEVANT TO GLOBALIZATION ==='
+          "$ADB" shell 'pm list packages -f -u | grep -Ei "(google|gms|gsf|phonesky|market|search|assistant|voiceassist|browser|appstore)" | sort' | head -n 500 || true
 
-          echo '=== PULL UPDATER APK ==='
-          updater=/product/app/Updater/Updater.apk
-          "$ADB" shell "ls -lZ $updater" 2>&1
-          "$ADB" pull "$updater" "$work/Updater.apk" >/dev/null
-          file "$work/Updater.apk"
-          sha256sum "$work/Updater.apk"
-
-          echo '=== APK STRUCTURE ==='
-          unzip -Z1 "$work/Updater.apk" | grep -E '^(AndroidManifest.xml|resources\.arsc|classes[0-9]*\.dex|lib/|assets/|res/raw/)' | head -n 500
-
-          echo '=== REGION / SKU / PACKAGE VALIDATION STRINGS ==='
-          for member in $(unzip -Z1 "$work/Updater.apk" | grep -E '^(classes[0-9]*\.dex|resources\.arsc)$'); do
-            echo "### $member"
-            unzip -p "$work/Updater.apk" "$member" 2>/dev/null \
-              | strings -a \
-              | grep -Ei '(CNXM|MIXM|EUXM|INXM|TWXM|RUXM|TRXM|IDXM|region|cust[_A-Za-z]*variant|currentSku|romRegion|mod[_A-Za-z]*device|device[_ -]?mismatch|version[_ -]?mismatch|rollback|anti.?rollback|verify|signature|signed|package[_ -]?invalid|update package|recovery|ota|pre-device|pre-build|post-build|post-timestamp|spl-downgrade|downgrade|build fingerprint|incremental|sku)' \
-              | sort -u | head -n 1800
-          done
-
-          echo '=== SKU PARSER STRINGS ==='
-          for lib in /system_ext/lib64/libskuparser_cpp.so /system_ext/lib64/libskuparser_ffi.so; do
-            base="$(basename "$lib")"
-            "$ADB" pull "$lib" "$work/$base" >/dev/null 2>&1 || continue
-            echo "### $base"
-            strings -a "$work/$base" | grep -Ei '(region|cust|variant|sku|prop|carrier|hwc|mod_device|product|cn|global|operator)' | sort -u | head -n 900
-          done
-
-          echo '=== POST-PROBE SAFETY ==='
+          echo '=== POST-PROBE ==='
           echo "adb_state_after=$("$ADB" get-state 2>/dev/null | tail -n1)"
           ip route show default | head -n 10 || true

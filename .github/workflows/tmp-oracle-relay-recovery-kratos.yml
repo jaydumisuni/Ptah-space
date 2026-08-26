@@ -1,5 +1,5 @@
-# activate: mi_ext region feature map 2026-08-26T19:05Z
-name: Temporary Redmi mi_ext regional feature map on KRATOS
+# activate: verify external Redmi Global ROM on KRATOS 2026-08-27
+name: Temporary verify Redmi Global ROM from external USB on KRATOS
 
 on:
   push:
@@ -11,40 +11,76 @@ permissions:
   contents: read
 
 jobs:
-  probe:
+  verify:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
-      - name: Map active region feature policy read-only
+      - name: Locate and verify external-drive ROM without touching Redmi
         shell: bash
         run: |
           set -euo pipefail
-          ADB=/home/kratos/.local/share/mibu-platform-tools/current/platform-tools/adb
-          "$ADB" start-server >/dev/null 2>&1 || true
-          test "$("$ADB" get-state 2>/dev/null | tail -n1)" = device
+          expected_name='sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
+          expected_size=7949886711
+          expected_md5='3334591f858477053b68f4c0e47debf0'
 
-          echo '=== REGION / COTA PROPS ==='
-          "$ADB" shell 'for k in ro.miui.region ro.miui.build.region ro.miui.customized.region ro.miui.cust_variant ro.product.locale ro.product.locale.region ro.product.mod_device ro.miui.gota persist.sys.cota.carrier persist.sys.cota.package persist.sys.cota.partition; do printf "%s=" "$k"; getprop "$k"; done'
+          echo '=== BLOCK DEVICES ==='
+          lsblk -o NAME,PATH,TRAN,LABEL,FSTYPE,SIZE,FSAVAIL,MOUNTPOINTS
 
-          echo '=== CUST FEATURE TREE ==='
-          "$ADB" shell 'find /mi_ext/product/etc/cust_features /mi_ext/product/opcust -maxdepth 4 -type f -name "cust_features.xml" -print 2>/dev/null | sort' | head -n 400
+          echo '=== FIND USB EXFAT VOLUME ==='
+          dev="$(lsblk -rno PATH,LABEL,FSTYPE,TRAN | awk '$2=="Untitled" && tolower($3)=="exfat" {print $1; exit}')"
+          if [[ -z "$dev" ]]; then
+            dev="$(lsblk -rno PATH,LABEL,FSTYPE,TRAN | awk 'tolower($3)=="exfat" && $4=="usb" {print $1; exit}')"
+          fi
+          [[ -n "$dev" ]] || { echo 'EXTERNAL_USB_EXFAT_NOT_FOUND'; exit 2; }
+          printf 'device=%s\n' "$dev"
 
-          echo '=== GENERIC + CN FEATURE FILES ==='
-          for f in \
-            /mi_ext/product/etc/cust_features/cust_features.xml \
-            /mi_ext/product/etc/cust_features/cn/cust_features.xml \
-            /mi_ext/product/opcust/xm/cust_features.xml \
-            /mi_ext/product/opcust/xm/cn/cust_features.xml; do
-            echo "--- $f ---"
-            "$ADB" shell "cat $f 2>/dev/null" | head -n 1200 || true
-          done
+          mountpoint="$(lsblk -rno MOUNTPOINTS "$dev" | awk 'NF {print; exit}')"
+          if [[ -z "$mountpoint" ]]; then
+            echo 'volume_not_mounted=true'
+            if command -v udisksctl >/dev/null 2>&1; then
+              out="$(udisksctl mount -b "$dev" -o ro 2>&1)" || { echo "$out"; exit 3; }
+              echo "$out"
+              mountpoint="$(lsblk -rno MOUNTPOINTS "$dev" | awk 'NF {print; exit}')"
+            fi
+          fi
+          [[ -n "$mountpoint" ]] || { echo 'EXTERNAL_USB_NOT_MOUNTED'; exit 4; }
+          printf 'mountpoint=%s\n' "$mountpoint"
+          findmnt -T "$mountpoint" || true
 
-          echo '=== GOOGLE / REGION / STORE / SEARCH FEATURE HITS ==='
-          "$ADB" shell 'grep -RniE "(google|gms|gsf|phonesky|play.?store|market|search|assistant|voice|region|carrier|global|china|cn)" /mi_ext/product/etc/cust_features /mi_ext/product/opcust 2>/dev/null | head -n 1600' || true
+          echo '=== ROM CANDIDATES ==='
+          find "$mountpoint" -maxdepth 4 -type f \( -iname '*.tgz' -o -iname '*.tar.gz' -o -size +7G \) \
+            -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' 2>/dev/null | sort -nr | head -n 50
 
-          echo '=== CURRENT PACKAGE POLICY RELEVANT TO GLOBALIZATION ==='
-          "$ADB" shell 'pm list packages -f -u | grep -Ei "(google|gms|gsf|phonesky|market|search|assistant|voiceassist|browser|appstore)" | sort' | head -n 500 || true
+          rom="$(find "$mountpoint" -maxdepth 4 -type f -name "$expected_name" -print -quit 2>/dev/null || true)"
+          if [[ -z "$rom" ]]; then
+            rom="$(find "$mountpoint" -maxdepth 4 -type f -size +7G -print 2>/dev/null | head -n 1 || true)"
+          fi
+          [[ -n "$rom" ]] || { echo 'ROM_FILE_NOT_FOUND'; exit 5; }
+          printf 'selected_rom=%s\n' "$rom"
 
-          echo '=== POST-PROBE ==='
-          echo "adb_state_after=$("$ADB" get-state 2>/dev/null | tail -n1)"
-          ip route show default | head -n 10 || true
+          echo '=== SIZE ==='
+          actual_size="$(stat -c %s "$rom")"
+          printf 'actual_size=%s\nexpected_size=%s\n' "$actual_size" "$expected_size"
+          [[ "$actual_size" -eq "$expected_size" ]] || { echo 'SIZE_MISMATCH'; exit 6; }
+
+          echo '=== HASHES ==='
+          actual_md5="$(md5sum "$rom" | awk '{print $1}')"
+          actual_sha256="$(sha256sum "$rom" | awk '{print $1}')"
+          printf 'md5=%s\nexpected_md5=%s\nsha256=%s\n' "$actual_md5" "$expected_md5" "$actual_sha256"
+          [[ "${actual_md5,,}" == "${expected_md5,,}" ]] || { echo 'MD5_MISMATCH'; exit 7; }
+
+          echo '=== GZIP INTEGRITY ==='
+          gzip -t "$rom"
+          echo 'gzip_test=PASS'
+
+          echo '=== ARCHIVE MEMBER TABLE HEAD ==='
+          set +o pipefail
+          tar -tzf "$rom" | head -n 160
+          tar_rc=${PIPESTATUS[0]}
+          set -o pipefail
+          if [[ $tar_rc -ne 0 && $tar_rc -ne 141 ]]; then
+            echo "tar_list_rc=$tar_rc"
+            exit 8
+          fi
+          echo 'tar_listing=PASS'
+          echo 'ROM_ACCEPTANCE=PASS'

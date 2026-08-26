@@ -1,5 +1,5 @@
-# activate: chat workaround 2026-08-26T18:52Z
-name: Temporary Redmi updater region-gate evidence on KRATOS
+# activate: updater gate deep-read 2026-08-26T19:03Z
+name: Temporary Redmi updater region-gate deep read on KRATOS
 
 on:
   push:
@@ -15,79 +15,61 @@ jobs:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 20
     steps:
-      - name: Recover Xiaomi updater/recovery region-gate evidence read-only
+      - name: Inspect updater APK, SKU parser, and cust gate read-only
         shell: bash
         run: |
-          set +e
-          ADB="$(command -v adb 2>/dev/null)"
-          if [[ -z "$ADB" && -x /home/kratos/.local/share/mibu-platform-tools/current/platform-tools/adb ]]; then
-            ADB=/home/kratos/.local/share/mibu-platform-tools/current/platform-tools/adb
-          fi
-          echo "ADB=$ADB"
-          if [[ -z "$ADB" ]]; then echo 'ADB_NOT_FOUND'; exit 2; fi
-          "$ADB" start-server >/dev/null 2>&1
-          state="$("$ADB" get-state 2>/dev/null | tail -n1)"
-          echo "adb_state_before=$state"
-          if [[ "$state" != device ]]; then exit 3; fi
+          set -euo pipefail
+          ADB=/home/kratos/.local/share/mibu-platform-tools/current/platform-tools/adb
+          "$ADB" start-server >/dev/null 2>&1 || true
+          test "$("$ADB" get-state 2>/dev/null | tail -n1)" = device
 
-          echo '=== HOST TOOLS ==='
-          for x in aapt aapt2 apkanalyzer apksigner jadx apktool unzip zipinfo strings dexdump baksmali; do
-            printf '%s=' "$x"; command -v "$x" || true
+          echo '=== EXACT REGION STATE ==='
+          "$ADB" shell 'for k in ro.boot.hwc ro.boot.vbmeta.device_state ro.miui.region ro.vendor.miui.region ro.miui.build.region ro.miui.cust_variant ro.vendor.miui.cust_variant ro.miui.business.version ro.product.device ro.product.mod_device ro.build.version.incremental; do printf "%s=" "$k"; getprop "$k"; done'
+
+          echo '=== CUST PROP MATRIX ==='
+          "$ADB" shell 'for f in /system_ext/cust/*/cust.prop; do echo "--- $f ---"; cat "$f" 2>/dev/null | head -n 200; done' 2>&1 | head -n 1800
+
+          echo '=== MIUI CUST / UPDATER INIT ==='
+          for f in /system_ext/etc/init/init.miui.cust.rc /system_ext/etc/init/miupdater.rc; do
+            echo "--- $f ---"
+            "$ADB" shell "cat $f 2>/dev/null" | head -n 500 || true
           done
 
-          echo '=== REGION / DEVICE / UPDATE PROPERTIES ==='
-          "$ADB" shell 'getprop | grep -Ei "(ro\.miui|ro\.vendor\.miui|ro\.product|ro\.build|ro\.boot|ro\.hardware|persist\.sys|persist\.vendor)" | grep -Ei "(region|cust|variant|mod_device|device|product|fingerprint|description|incremental|release|sku|hwc|version|build)" | sort' 2>&1
+          echo '=== OTA CERT / SKU PARSER FILES ==='
+          "$ADB" shell 'ls -lZ /system/etc/security/otacerts.zip /system_ext/lib64/libskuparser_cpp.so /system_ext/lib64/libskuparser_ffi.so /product/pangu/system/etc/ota_skip_apps 2>&1' || true
+          echo '--- ota_skip_apps ---'
+          "$ADB" shell 'cat /product/pangu/system/etc/ota_skip_apps 2>/dev/null' | head -n 300 || true
 
-          echo '=== UPDATE / OTA / RECOVERY PACKAGE CANDIDATES ==='
-          "$ADB" shell 'pm list packages -f -u | grep -Ei "(updat|ota|recovery|miui)" | sort' 2>&1
-
-          echo '=== KNOWN UPDATER PACKAGE DETAILS ==='
-          for pkg in com.android.updater com.miui.updater com.xiaomi.updater com.miui.miservice; do
-            echo "--- $pkg ---"
-            "$ADB" shell "pm path $pkg" 2>&1
-            "$ADB" shell "dumpsys package $pkg | head -n 500" 2>&1
-          done
-
-          echo '=== UPDATE ENGINE / RECOVERY FILES ==='
-          "$ADB" shell 'for p in /system/bin/update_engine /system/bin/update_verifier /system/bin/recovery /system/etc/update_engine.conf /vendor/etc/update_engine.conf /metadata/ota /data/ota_package /cache/recovery; do printf "--- %s ---\n" "$p"; ls -ldZ "$p" 2>&1 || true; if [ -f "$p" ]; then head -n 120 "$p" 2>/dev/null || true; fi; done' 2>&1
-
-          echo '=== BOUNDED UPDATE/OTA CONFIG INVENTORY ==='
-          "$ADB" shell 'find /system /system_ext /product /mi_ext /vendor /odm /cust -maxdepth 5 -type f 2>/dev/null | grep -Ei "/([^/]*(update|updater|ota|recovery|region|cust|sku)[^/]*)$" | head -n 700' 2>&1
-
-          echo '=== UPDATER APK OFFLINE ANALYSIS ==='
           work="$(mktemp -d)"
-          updater_path="$("$ADB" shell 'pm path com.android.updater 2>/dev/null' 2>/dev/null | tr -d '\r' | sed -n '1s/^package://p')"
-          printf 'updater_device_path=%s\n' "$updater_path"
-          if [[ -n "$updater_path" ]]; then
-            "$ADB" pull "$updater_path" "$work/updater.apk" >/dev/null 2>&1
-            pull_rc=$?
-            echo "updater_pull_rc=$pull_rc"
-            if [[ $pull_rc -eq 0 ]]; then
-              file "$work/updater.apk" 2>&1
-              sha256sum "$work/updater.apk" 2>&1
-              echo '--- ZIP MEMBERS ---'
-              unzip -l "$work/updater.apk" 2>&1 | head -n 320
-              echo '--- SIGNING CERT ---'
-              if command -v apksigner >/dev/null 2>&1; then apksigner verify --print-certs "$work/updater.apk" 2>&1 | head -n 160; fi
-              echo '--- MANIFEST ---'
-              if command -v apkanalyzer >/dev/null 2>&1; then
-                apkanalyzer manifest print "$work/updater.apk" 2>&1 | head -n 420
-              elif command -v aapt2 >/dev/null 2>&1; then
-                aapt2 dump xmltree "$work/updater.apk" --file AndroidManifest.xml 2>&1 | head -n 420
-              elif command -v aapt >/dev/null 2>&1; then
-                aapt dump xmltree "$work/updater.apk" AndroidManifest.xml 2>&1 | head -n 420
-              fi
-              echo '--- REGION/DEVICE/VERIFY STRINGS FROM DEX/RESOURCES ---'
-              for member in $(unzip -Z1 "$work/updater.apk" 2>/dev/null | grep -E '^(classes[0-9]*\.dex|resources\.arsc)$'); do
-                echo "### $member"
-                unzip -p "$work/updater.apk" "$member" 2>/dev/null | strings -a | grep -Ei '(CNXM|MIXM|EUXM|INXM|region|cust_variant|custVariant|currentSku|romRegion|mod_device|modDevice|device mismatch|version mismatch|rollback|anti.?rollback|verify|signature|signed|package.*invalid|update package|recovery|ota|build fingerprint|incremental|pre-device|pre-build|post-build)' | sort -u | head -n 1200
-              done
-            fi
-          fi
-          rm -rf "$work"
+          trap 'rm -rf "$work"' EXIT
+
+          echo '=== PULL UPDATER APK ==='
+          updater=/product/app/Updater/Updater.apk
+          "$ADB" shell "ls -lZ $updater" 2>&1
+          "$ADB" pull "$updater" "$work/Updater.apk" >/dev/null
+          file "$work/Updater.apk"
+          sha256sum "$work/Updater.apk"
+
+          echo '=== APK STRUCTURE ==='
+          unzip -Z1 "$work/Updater.apk" | grep -E '^(AndroidManifest.xml|resources\.arsc|classes[0-9]*\.dex|lib/|assets/|res/raw/)' | head -n 500
+
+          echo '=== REGION / SKU / PACKAGE VALIDATION STRINGS ==='
+          for member in $(unzip -Z1 "$work/Updater.apk" | grep -E '^(classes[0-9]*\.dex|resources\.arsc)$'); do
+            echo "### $member"
+            unzip -p "$work/Updater.apk" "$member" 2>/dev/null \
+              | strings -a \
+              | grep -Ei '(CNXM|MIXM|EUXM|INXM|TWXM|RUXM|TRXM|IDXM|region|cust[_A-Za-z]*variant|currentSku|romRegion|mod[_A-Za-z]*device|device[_ -]?mismatch|version[_ -]?mismatch|rollback|anti.?rollback|verify|signature|signed|package[_ -]?invalid|update package|recovery|ota|pre-device|pre-build|post-build|post-timestamp|spl-downgrade|downgrade|build fingerprint|incremental|sku)' \
+              | sort -u | head -n 1800
+          done
+
+          echo '=== SKU PARSER STRINGS ==='
+          for lib in /system_ext/lib64/libskuparser_cpp.so /system_ext/lib64/libskuparser_ffi.so; do
+            base="$(basename "$lib")"
+            "$ADB" pull "$lib" "$work/$base" >/dev/null 2>&1 || continue
+            echo "### $base"
+            strings -a "$work/$base" | grep -Ei '(region|cust|variant|sku|prop|carrier|hwc|mod_device|product|cn|global|operator)' | sort -u | head -n 900
+          done
 
           echo '=== POST-PROBE SAFETY ==='
-          after="$("$ADB" get-state 2>/dev/null | tail -n1)"
-          echo "adb_state_after=$after"
+          echo "adb_state_after=$("$ADB" get-state 2>/dev/null | tail -n1)"
           ip route show default | head -n 10 || true
-          [[ "$after" == device ]]

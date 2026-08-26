@@ -1,5 +1,5 @@
-# activate: inspect Global cust.img read-only 2026-08-27
-name: Temporary inspect Redmi Global cust image on KRATOS
+# activate: diagnose Global cust.raw read-only loop/mount 2026-08-27
+name: Temporary diagnose Redmi Global cust image on KRATOS
 
 on:
   push:
@@ -11,130 +11,99 @@ permissions:
   contents: read
 
 jobs:
-  inspect:
+  diagnose:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
-      - name: Unsparse and mount Global cust image read-only
+      - name: Diagnose raw cust filesystem and read-only loop mount
         shell: bash
         run: |
-          set -euo pipefail
+          set -u
           work='/home/kratos/Desktop/redmi-global-analysis/OS2.0.9.0.VMWMIXM'
-          sparse="$work/cust.img"
           raw="$work/cust.raw.img"
-          [[ -f "$sparse" ]] || { echo 'CUST_SPARSE_MISSING'; exit 2; }
-
-          echo '=== UNSPARSE CUST ==='
-          python3 - "$sparse" "$raw" <<'PY'
-          import os, struct, sys
-          src, dst = sys.argv[1:3]
-          SPARSE_MAGIC=0xED26FF3A
-          RAW=0xCAC1; FILL=0xCAC2; DONT=0xCAC3; CRC=0xCAC4
-          with open(src,'rb') as fi:
-              hdr=fi.read(28)
-              if len(hdr)!=28: raise SystemExit('short sparse header')
-              magic,major,minor,file_hdr_sz,chunk_hdr_sz,blk_sz,total_blks,total_chunks,checksum=struct.unpack('<IHHHHIIII',hdr)
-              if magic!=SPARSE_MAGIC or major!=1: raise SystemExit(f'unsupported sparse image magic={magic:#x} major={major}')
-              if file_hdr_sz>28: fi.seek(file_hdr_sz-28,1)
-              print(f'blk_size={blk_sz} total_blocks={total_blks} total_chunks={total_chunks} logical_size={total_blks*blk_sz}')
-              out_pos=0
-              with open(dst,'wb') as fo:
-                  for idx in range(total_chunks):
-                      ch=fi.read(chunk_hdr_sz)
-                      if len(ch)!=chunk_hdr_sz: raise SystemExit(f'short chunk header {idx}')
-                      ctype,reserved,chunk_sz,total_sz=struct.unpack('<HHII',ch[:12])
-                      payload=total_sz-chunk_hdr_sz
-                      logical=chunk_sz*blk_sz
-                      if ctype==RAW:
-                          if payload!=logical: raise SystemExit(f'raw size mismatch chunk {idx}')
-                          remaining=logical
-                          while remaining:
-                              b=fi.read(min(8*1024*1024,remaining))
-                              if not b: raise SystemExit(f'short raw chunk {idx}')
-                              fo.write(b); remaining-=len(b)
-                      elif ctype==FILL:
-                          if payload!=4: raise SystemExit(f'fill size mismatch chunk {idx}')
-                          pat=fi.read(4)
-                          unit=pat*(1024*1024//4)
-                          remaining=logical
-                          while remaining:
-                              b=unit[:min(len(unit),remaining)]
-                              fo.write(b); remaining-=len(b)
-                      elif ctype==DONT:
-                          if payload: fi.seek(payload,1)
-                          fo.seek(logical,1)
-                      elif ctype==CRC:
-                          if payload!=4: raise SystemExit(f'crc size mismatch chunk {idx}')
-                          fi.seek(4,1)
-                          if logical: fo.seek(logical,1)
-                      else:
-                          raise SystemExit(f'unknown chunk type {ctype:#x} at {idx}')
-                      out_pos += logical
-                  fo.truncate(total_blks*blk_sz)
-              print(f'output={dst} size={os.path.getsize(dst)}')
-          PY
-
-          echo '=== RAW TYPE ==='
-          file "$raw"
-          stat --printf='size=%s blocks512=%b\n' "$raw"
-
-          echo '=== LOOP/MOUNT READ ONLY ==='
+          sparse="$work/cust.img"
           loop=''
+
           cleanup() {
             set +e
-            if [[ -n "${loop:-}" ]]; then
-              udisksctl unmount -b "$loop" >/dev/null 2>&1 || true
-              udisksctl loop-delete -b "$loop" >/dev/null 2>&1 || true
+            if [[ -n "${loop:-}" && -b "$loop" ]]; then
+              echo '=== CLEANUP ==='
+              udisksctl unmount -b "$loop" 2>&1 || true
+              udisksctl loop-delete -b "$loop" 2>&1 || true
             fi
           }
           trap cleanup EXIT
-          setup="$(udisksctl loop-setup -r -f "$raw")"
-          echo "$setup"
-          loop="$(sed -n 's/.* as \([^.]\+\).*/\1/p' <<<"$setup" | head -n1)"
-          [[ -b "$loop" ]] || { echo "LOOP_PARSE_FAILED:$loop"; exit 3; }
-          mout="$(udisksctl mount -b "$loop" -o ro)"
-          echo "$mout"
-          mnt="$(lsblk -rno MOUNTPOINTS "$loop" | awk 'NF {print; exit}')"
-          [[ -d "$mnt" ]] || { echo 'CUST_MOUNT_FAILED'; exit 4; }
-          printf 'cust_mount=%s\n' "$mnt"
-          findmnt -T "$mnt" || true
 
-          echo '=== GLOBAL CUST TOP LEVEL ==='
-          find "$mnt" -maxdepth 2 -printf '%y\t%p\n' 2>/dev/null | sort | head -n 500
+          echo '=== INPUTS ==='
+          ls -lh "$sparse" "$raw" 2>&1 || true
+          stat --printf='raw_size=%s raw_blocks512=%b mode=%A owner=%U:%G\n' "$raw" 2>&1 || true
+          file "$sparse" "$raw" 2>&1 || true
+          printf 'raw_magic64='
+          od -An -tx1 -N64 "$raw" 2>/dev/null | tr -d ' \n' || true
+          echo
 
-          echo '=== SELECTOR / BUSINESS FILES ==='
-          for rel in \
-            cust_variant \
-            etc/business.prop \
-            etc/cust_apps_request_config \
-            etc/cust_apps_config \
-            cust/cust_apps_request_config \
-            cust/cust_apps_config; do
-            f="$mnt/$rel"
-            if [[ -f "$f" ]]; then
-              echo "--- /$rel ---"
-              sed -n '1,500p' "$f"
-            fi
+          echo '=== FILESYSTEM SIGNATURE PROBES ==='
+          command -v blkid || true
+          command -v losetup || true
+          command -v udisksctl || true
+          blkid -p "$raw" 2>&1 || true
+          file -s "$raw" 2>&1 || true
+
+          echo '=== EXISTING LOOP REFERENCES ==='
+          if command -v losetup >/dev/null 2>&1; then
+            losetup -j "$raw" 2>&1 || true
+          fi
+          for p in /sys/block/loop*/loop/backing_file; do
+            [[ -r "$p" ]] || continue
+            printf '%s=' "$p"
+            cat "$p" 2>/dev/null || true
           done
 
-          echo '=== PRELOAD/APPLICATION TREE ==='
-          find "$mnt" -maxdepth 5 -type f 2>/dev/null | grep -Ei '/(app|priv-app|customized|preload|partner)/|\.apk$' | sort | head -n 1200 || true
+          echo '=== UDISKS LOOP SETUP READ ONLY ==='
+          set +e
+          setup_out="$(udisksctl loop-setup -r -f "$raw" 2>&1)"
+          setup_rc=$?
+          set -e
+          printf 'loop_setup_rc=%s\n%s\n' "$setup_rc" "$setup_out"
 
-          echo '=== REGION / GOOGLE HITS ==='
-          grep -RniE '(global|mixm|region|cust_variant|currentSku|romRegion|google|gms|gsf|phonesky|play.?store|market|baidu|douyin|alipay|weibo|tencent)' "$mnt"/etc "$mnt"/cust 2>/dev/null | head -n 1500 || true
+          echo '=== LOOP INVENTORY AFTER SETUP ==='
+          lsblk -o NAME,PATH,TYPE,FSTYPE,FSVER,SIZE,RO,LABEL,MOUNTPOINTS 2>&1 || true
+          if command -v losetup >/dev/null 2>&1; then
+            losetup -a 2>&1 | tail -n 100 || true
+            loop="$(losetup -j "$raw" 2>/dev/null | sed -n '1s/:.*//p')"
+          fi
+          if [[ -z "$loop" ]]; then
+            loop="$(find /sys/block -maxdepth 3 -path '/sys/block/loop*/loop/backing_file' -type f -readable -print0 2>/dev/null | while IFS= read -r -d '' p; do b="$(cat "$p" 2>/dev/null || true)"; [[ "$b" == "$raw" ]] && { basename "$(dirname "$(dirname "$p")")"; break; }; done)"
+            [[ -n "$loop" && "$loop" != /dev/* ]] && loop="/dev/$loop"
+          fi
+          printf 'resolved_loop=%s\n' "$loop"
 
-          echo '=== FILE COUNT BY FIRST DIRECTORY ==='
-          python3 - "$mnt" <<'PY'
-          from collections import Counter
-          from pathlib import Path
-          import sys
-          root=Path(sys.argv[1]); c=Counter()
-          for p in root.rglob('*'):
-              try:
-                  if p.is_file():
-                      rel=p.relative_to(root)
-                      c[rel.parts[0] if rel.parts else '.'] += 1
-              except OSError:
-                  pass
-          print(dict(sorted(c.items())))
-          PY
+          if [[ -z "$loop" || ! -b "$loop" ]]; then
+            echo 'DIAG_RESULT=LOOP_SETUP_FAILED_OR_UNRESOLVED'
+            exit 0
+          fi
+
+          echo '=== LOOP FILESYSTEM PROBES ==='
+          file -s "$loop" 2>&1 || true
+          blkid -p "$loop" 2>&1 || true
+          cat "/sys/class/block/$(basename "$loop")/ro" 2>/dev/null | sed 's/^/kernel_ro=/' || true
+
+          echo '=== UDISKS MOUNT READ ONLY ==='
+          set +e
+          mount_out="$(udisksctl mount -b "$loop" -o ro 2>&1)"
+          mount_rc=$?
+          set -e
+          printf 'mount_rc=%s\n%s\n' "$mount_rc" "$mount_out"
+          sleep 1
+          mnt="$(lsblk -rno MOUNTPOINTS "$loop" 2>/dev/null | awk 'NF {print; exit}')"
+          printf 'resolved_mountpoint=%s\n' "$mnt"
+          if [[ -n "$mnt" && -d "$mnt" ]]; then
+            findmnt -T "$mnt" 2>&1 || true
+            echo '=== READ-ONLY TOP LEVEL ==='
+            find "$mnt" -maxdepth 2 -printf '%y\t%p\n' 2>/dev/null | sort | head -n 300 || true
+            echo 'DIAG_RESULT=MOUNTED_READ_ONLY'
+          else
+            echo '=== KERNEL FILESYSTEM SUPPORT ==='
+            cat /proc/filesystems 2>/dev/null || true
+            echo 'DIAG_RESULT=MOUNT_FAILED'
+          fi

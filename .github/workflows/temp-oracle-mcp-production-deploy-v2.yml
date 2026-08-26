@@ -1,4 +1,4 @@
-name: TEMP ATHENA Redmi Global ROM external-drive download
+name: TEMP ATHENA Redmi Global ROM completion verification
 
 on:
   push:
@@ -10,93 +10,65 @@ permissions:
   contents: read
 
 jobs:
-  start:
+  verify:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
-      - name: Start persistent official Xiaomi ROM download to external USB drive
+      - name: Finalize BITS and verify external-drive ROM
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
 
           $fileName = 'sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
-          $url = "https://cdnorg.d.miui.com/OS2.0.9.0.VMWMIXM/$fileName"
           $expectedSize = [int64]7949886711
           $expectedMd5 = '3334591f858477053b68f4c0e47debf0'
-          $destDir = 'E:\redmi r12'
-          $dest = Join-Path $destDir $fileName
-          $newBitsName = 'TTG Redmi sky Global OS2.0.9.0 External'
-          $oldBitsName = 'TTG Redmi sky Global OS2.0.9.0'
+          $dest = "E:\redmi r12\$fileName"
+          $bitsName = 'TTG Redmi sky Global OS2.0.9.0 External'
 
-          Write-Output '=== EXTERNAL DRIVE PROOF ==='
+          Write-Output '=== EXTERNAL DRIVE ==='
           $partition = Get-Partition -DriveLetter E -ErrorAction Stop
           $disk = $partition | Get-Disk -ErrorAction Stop
           $volume = Get-Volume -DriveLetter E -ErrorAction Stop
-          [ordered]@{
-            drive='E:'
-            label=[string]$volume.FileSystemLabel
-            fileSystem=[string]$volume.FileSystem
-            busType=[string]$disk.BusType
-            diskFriendlyName=[string]$disk.FriendlyName
-            diskSize=[int64]$disk.Size
-            freeBytes=[int64]$volume.SizeRemaining
-          } | ConvertTo-Json -Compress
+          [ordered]@{drive='E:';label=[string]$volume.FileSystemLabel;busType=[string]$disk.BusType;freeBytes=[int64]$volume.SizeRemaining} | ConvertTo-Json -Compress
+          if ([string]$disk.BusType -ne 'USB') { throw 'E: is not the expected USB drive' }
 
-          if ([string]$disk.BusType -ne 'USB') { throw "E: is not the expected USB external drive (BusType=$($disk.BusType))" }
-          if ([int64]$volume.SizeRemaining -lt 10000000000) { throw 'E: has less than 10 GB free' }
+          Write-Output '=== BITS STATE ==='
+          $job = Get-BitsTransfer -Name $bitsName -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($job) {
+            $pct = if ([int64]$job.BytesTotal -gt 0) { [math]::Round(([double]$job.BytesTransferred / [double]$job.BytesTotal) * 100, 4) } else { 0 }
+            [ordered]@{state=[string]$job.JobState;bytesTransferred=[int64]$job.BytesTransferred;bytesTotal=[int64]$job.BytesTotal;percent=$pct;destination=($job.FileList | Select-Object -First 1 -ExpandProperty LocalName)} | ConvertTo-Json -Compress
 
-          New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-
-          Write-Output '=== OLD DESKTOP JOB ==='
-          $oldJob = Get-BitsTransfer -Name $oldBitsName -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($oldJob) {
-            if ($oldJob.JobState -in @('Transferring','Connecting','Queued')) {
-              Suspend-BitsTransfer -BitsJob $oldJob
-              $oldJob = Get-BitsTransfer -Name $oldBitsName -ErrorAction SilentlyContinue | Select-Object -First 1
-            }
-            [ordered]@{
-              state=[string]$oldJob.JobState
-              bytesTransferred=[int64]$oldJob.BytesTransferred
-              bytesTotal=[int64]$oldJob.BytesTotal
-              destination=($oldJob.FileList | Select-Object -First 1 -ExpandProperty LocalName)
-            } | ConvertTo-Json -Compress
-          } else {
-            Write-Output '{"state":"NO_OLD_JOB"}'
-          }
-
-          Write-Output '=== EXTERNAL DOWNLOAD ==='
-          if (Test-Path -LiteralPath $dest) {
-            $existing = Get-Item -LiteralPath $dest
-            if ([int64]$existing.Length -eq $expectedSize) {
-              $md5 = (Get-FileHash -LiteralPath $dest -Algorithm MD5).Hash.ToLowerInvariant()
-              [ordered]@{state='FILE_ALREADY_COMPLETE';path=$dest;size=[int64]$existing.Length;md5=$md5;expectedMd5=$expectedMd5} | ConvertTo-Json -Compress
-              if ($md5 -ne $expectedMd5) { throw 'Existing external-drive file has expected size but wrong MD5' }
+            if ($job.JobState -eq 'Transferred') {
+              Write-Output '=== COMPLETE BITS ==='
+              Complete-BitsTransfer -BitsJob $job
+              Write-Output 'complete_bits_transfer=PASS'
+            } elseif ($job.JobState -in @('Transferring','Connecting','Queued','Suspended','TransientError')) {
+              Write-Output 'download_complete=false'
               exit 0
+            } elseif ($job.JobState -eq 'Error') {
+              throw "BITS error: $($job.ErrorDescription)"
             }
-            throw "Unexpected existing partial file at destination: $dest ($($existing.Length) bytes)"
+          } else {
+            Write-Output '{"state":"NO_BITS_JOB"}'
           }
 
-          $job = Get-BitsTransfer -Name $newBitsName -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $job) {
-            $job = Start-BitsTransfer -Source $url -Destination $dest -DisplayName $newBitsName -Description "Official Xiaomi Redmi sky Global ROM; expected MD5 $expectedMd5" -Priority Foreground -Asynchronous
-          } elseif ($job.JobState -eq 'Suspended') {
-            Resume-BitsTransfer -BitsJob $job
-          } elseif ($job.JobState -eq 'Error' -or $job.JobState -eq 'TransientError') {
-            Resume-BitsTransfer -BitsJob $job
+          Write-Output '=== FILE PROOF ==='
+          if (-not (Test-Path -LiteralPath $dest)) { throw "Final file not found: $dest" }
+          $item = Get-Item -LiteralPath $dest
+          $md5 = (Get-FileHash -LiteralPath $dest -Algorithm MD5).Hash.ToLowerInvariant()
+          $sha256 = (Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash.ToLowerInvariant()
+          [ordered]@{path=$dest;size=[int64]$item.Length;expectedSize=$expectedSize;md5=$md5;expectedMd5=$expectedMd5;sha256=$sha256;sizeMatch=([int64]$item.Length -eq $expectedSize);md5Match=($md5 -eq $expectedMd5)} | ConvertTo-Json -Compress
+          if ([int64]$item.Length -ne $expectedSize) { throw 'Final ROM size mismatch' }
+          if ($md5 -ne $expectedMd5) { throw 'Final ROM MD5 mismatch' }
+
+          Write-Output '=== ARCHIVE INTEGRITY ==='
+          $tar = Get-Command tar.exe -ErrorAction SilentlyContinue
+          if ($tar) {
+            & $tar.Source -tzf $dest *> $null
+            if ($LASTEXITCODE -ne 0) { throw "tar gzip integrity/listing failed with exit $LASTEXITCODE" }
+            Write-Output 'tar_gzip_integrity=PASS'
+          } else {
+            Write-Output 'tar_gzip_integrity=NOT_RUN_NO_TAR'
           }
 
-          Start-Sleep -Seconds 12
-          $job = Get-BitsTransfer -Name $newBitsName -ErrorAction Stop | Select-Object -First 1
-          $pct = if ([int64]$job.BytesTotal -gt 0) { [math]::Round(([double]$job.BytesTransferred / [double]$job.BytesTotal) * 100, 4) } else { 0 }
-          [ordered]@{
-            state=[string]$job.JobState
-            bytesTransferred=[int64]$job.BytesTransferred
-            bytesTotal=[int64]$job.BytesTotal
-            percent=$pct
-            source=($job.FileList | Select-Object -First 1 -ExpandProperty RemoteName)
-            destination=($job.FileList | Select-Object -First 1 -ExpandProperty LocalName)
-            expectedSize=$expectedSize
-            expectedMd5=$expectedMd5
-          } | ConvertTo-Json -Compress
-
-          if ($job.JobState -eq 'Error') { throw "BITS external download entered Error state: $($job.ErrorDescription)" }
+          Write-Output 'ROM_VERIFIED=true'

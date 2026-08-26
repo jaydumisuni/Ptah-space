@@ -1,0 +1,84 @@
+name: Temporary C08 contract whitespace carrier
+
+on:
+  push:
+    branches: [temp-c08-kratos-review-carrier]
+    paths:
+      - '.github/workflows/temp-c08-doc-whitespace-carrier.yml'
+
+permissions:
+  contents: write
+
+env:
+  EXPECTED_C08_HEAD: 0b78021a1600f2c845e39725ab07c8d164575672
+  C08_BRANCH: c08-device-identity-transport
+
+jobs:
+  correct:
+    runs-on: [self-hosted, kratos, ptah]
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact C08 proof head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.EXPECTED_C08_HEAD }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fence exact remote head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_C08_HEAD"
+          test -z "$(git status --porcelain)"
+          remote_head="$(git ls-remote origin "refs/heads/$C08_BRANCH" | awk '{print $1}')"
+          test "$remote_head" = "$EXPECTED_C08_HEAD"
+
+      - name: Correct exactly four reviewed Markdown whitespace findings
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('C08_DEVICE_IDENTITY_TRANSPORT.md')
+          text = path.read_text(encoding='utf-8')
+          prefixes = [
+              '**Programme:** C — Firmware and Device',
+              '**Status:** implementation candidate',
+              '**Accepted construction base:** `ae7a9c9c939db03df55f97ebb3edffd68216197b`',
+              '**Roadmap dependencies:** A04, A06, A07, A13',
+          ]
+          for prefix in prefixes:
+              old = prefix + '  \n'
+              new = prefix + '\n'
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected exactly one reviewed whitespace line: {prefix!r}')
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+          print('C08_CONTRACT_TRAILING_WHITESPACE_CORRECTIONS=4')
+          PY
+          mapfile -t changed < <(git status --porcelain | sed 's/^...//')
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = 'C08_DEVICE_IDENTITY_TRANSPORT.md'
+          git diff --check
+          test "$(git diff --numstat | awk '{print $1 ":" $2}')" = '4:4'
+
+      - name: Publish correction under exact branch-head lease
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_head="$(git ls-remote origin "refs/heads/$C08_BRANCH" | awk '{print $1}')"
+          test "$remote_head" = "$EXPECTED_C08_HEAD"
+          git config user.name 'THE TECH GUY'
+          git config user.email '65334711+jaydumisuni@users.noreply.github.com'
+          git add C08_DEVICE_IDENTITY_TRANSPORT.md
+          git diff --cached --check
+          test "$(git diff --cached --name-only)" = 'C08_DEVICE_IDENTITY_TRANSPORT.md'
+          git commit -m 'C08 review: remove contract trailing whitespace'
+          new_head="$(git rev-parse HEAD)"
+          remote_head="$(git ls-remote origin "refs/heads/$C08_BRANCH" | awk '{print $1}')"
+          test "$remote_head" = "$EXPECTED_C08_HEAD"
+          git push origin "HEAD:refs/heads/$C08_BRANCH"
+          published="$(git ls-remote origin "refs/heads/$C08_BRANCH" | awk '{print $1}')"
+          test "$published" = "$new_head"
+          printf 'C08_CONTRACT_CORRECTED_HEAD=%s\n' "$published"

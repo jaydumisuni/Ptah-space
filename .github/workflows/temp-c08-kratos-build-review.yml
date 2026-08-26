@@ -39,20 +39,51 @@ jobs:
           printf 'C08_SOURCE_HEAD=%s\n' "$EXPECTED_C08_HEAD"
           printf 'C08_REMOTE_HEAD=%s\n' "$remote_head"
 
-      - name: Bind pinned Rust toolchain
+      - name: Bind installed pinned Rust 1.97.1 toolchain
         shell: bash
         run: |
           set -euo pipefail
-          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
-          rustc +1.97.1 -Vv
-          cargo +1.97.1 -V
-          rustc +1.97.1 -V | grep -q '^rustc 1.97.1 '
-          cargo +1.97.1 -V | grep -q '^cargo 1.97.1 '
+          echo "PATH_BEFORE=$PATH"
+          command -v rustc || true
+          command -v cargo || true
+          command -v rustup || true
+
+          mapfile -t rustcs < <(
+            {
+              find "$HOME" -maxdepth 9 -type f -name rustc -perm -u+x -print 2>/dev/null || true
+              find /opt /usr/local -maxdepth 9 -type f -name rustc -perm -u+x -print 2>/dev/null || true
+              command -v rustc 2>/dev/null || true
+            } | awk 'NF && !seen[$0]++'
+          )
+          printf 'RUSTC_CANDIDATES\n'
+          printf '%s\n' "${rustcs[@]}"
+
+          selected=''
+          for rustc_path in "${rustcs[@]}"; do
+            bin="$(dirname "$rustc_path")"
+            [[ -x "$bin/cargo" && -x "$bin/rustfmt" && -x "$bin/cargo-clippy" && -x "$bin/clippy-driver" ]] || continue
+            version="$($rustc_path -V 2>/dev/null || true)"
+            if [[ "$version" == rustc\ 1.97.1\ * ]]; then
+              selected="$bin"
+              break
+            fi
+          done
+          test -n "$selected"
+          echo "C08_RUST_BIN=$selected"
+          echo "$selected" >> "$GITHUB_PATH"
+          "$selected/rustc" -Vv
+          "$selected/cargo" -V
+          "$selected/rustfmt" -V
+          "$selected/cargo-clippy" -V
+          "$selected/rustc" -V | grep -q '^rustc 1.97.1 '
+          "$selected/cargo" -V | grep -q '^cargo 1.97.1 '
 
       - name: Apply only known Review correction and exact lock delta
         shell: bash
         run: |
           set -euo pipefail
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
           mkdir -p /tmp/c08-review
           cp Cargo.lock /tmp/c08-review/Cargo.lock.before
           python3 - <<'PY'
@@ -65,12 +96,11 @@ jobs:
                   encoding='utf-8',
               )
           PY
-          cargo +1.97.1 check -p ptah-device-runtime
-          cargo +1.97.1 fmt --all
+          cargo check -p ptah-device-runtime
+          cargo fmt --all
 
           python3 - <<'PY'
           import tomllib
-          from pathlib import Path
 
           def packages(path):
               with open(path, 'rb') as fh:
@@ -113,10 +143,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.97.1 fmt --all -- --check
-          cargo +1.97.1 test -p ptah-device-runtime --test c08 --locked -- --nocapture 2>&1 | tee /tmp/c08-review/c08-tests.txt
+          cargo fmt --all -- --check
+          cargo test -p ptah-device-runtime --test c08 --locked -- --nocapture 2>&1 | tee /tmp/c08-review/c08-tests.txt
           grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c08-review/c08-tests.txt
-          cargo +1.97.1 clippy -p ptah-device-runtime --lib --test c08 --locked -- -D warnings 2>&1 | tee /tmp/c08-review/c08-clippy.txt
+          cargo clippy -p ptah-device-runtime --lib --test c08 --locked -- -D warnings 2>&1 | tee /tmp/c08-review/c08-clippy.txt
 
       - name: Prove C08 authority boundary statically
         shell: bash
@@ -147,7 +177,7 @@ jobs:
         run: |
           set -euo pipefail
           for target in c06 c05 c04 c03 c02 c01; do
-            cargo +1.97.1 test -p ptah-archive-decomposition --test "$target" --locked -- --nocapture 2>&1 | tee "/tmp/c08-review/${target}.txt"
+            cargo test -p ptah-archive-decomposition --test "$target" --locked -- --nocapture 2>&1 | tee "/tmp/c08-review/${target}.txt"
             grep -Eq 'test result: ok\. 20 passed; 0 failed;' "/tmp/c08-review/${target}.txt"
           done
 
@@ -155,20 +185,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.97.1 test -p ptah-archive-decomposition --test b02 --locked -- --nocapture
-          cargo +1.97.1 test -p ptah-archive-decomposition --test b05 --locked -- --nocapture 2>&1 | tee /tmp/c08-review/b05.txt
+          cargo test -p ptah-archive-decomposition --test b02 --locked -- --nocapture
+          cargo test -p ptah-archive-decomposition --test b05 --locked -- --nocapture 2>&1 | tee /tmp/c08-review/b05.txt
           grep -Eq 'test result: ok\. 15 passed; 0 failed;' /tmp/c08-review/b05.txt
-          cargo +1.97.1 test -p ptah-archive-decomposition --test b07 --locked -- --nocapture 2>&1 | tee /tmp/c08-review/b07.txt
+          cargo test -p ptah-archive-decomposition --test b07 --locked -- --nocapture 2>&1 | tee /tmp/c08-review/b07.txt
           grep -Eq 'test result: ok\. 14 passed; 0 failed;' /tmp/c08-review/b07.txt
-          cargo +1.97.1 test -p ptah-archive-decomposition --lib b07::tests --locked -- --nocapture 2>&1 | tee /tmp/c08-review/b07-boundary.txt
+          cargo test -p ptah-archive-decomposition --lib b07::tests --locked -- --nocapture 2>&1 | tee /tmp/c08-review/b07-boundary.txt
           grep -Eq 'test result: ok\. 2 passed; 0 failed;' /tmp/c08-review/b07-boundary.txt
-          cargo +1.97.1 test -p ptah-checkpoint --test a13 --locked -- --nocapture
+          cargo test -p ptah-checkpoint --test a13 --locked -- --nocapture
 
       - name: Re-prove full locked workspace
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.97.1 test --workspace --locked -- --nocapture
+          cargo test --workspace --locked -- --nocapture
 
       - name: Publish reviewed delta under exact branch-head lease
         shell: bash

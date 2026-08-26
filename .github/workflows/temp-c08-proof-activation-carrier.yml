@@ -1,0 +1,84 @@
+name: Temporary C08 permanent proof activation carrier
+
+on:
+  push:
+    branches: [temp-c08-kratos-review-carrier]
+    paths:
+      - '.github/workflows/temp-c08-proof-activation-carrier.yml'
+
+permissions:
+  contents: write
+
+env:
+  EXPECTED_C08_HEAD: 8a1dfa4f4b623f927b0dca087445ce7192bd764b
+  C08_BRANCH: c08-device-identity-transport
+  C08_BASE: ae7a9c9c939db03df55f97ebb3edffd68216197b
+
+jobs:
+  activate:
+    runs-on: [self-hosted, kratos, ptah]
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact frozen C08 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.EXPECTED_C08_HEAD }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fence frozen candidate and remote branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_C08_HEAD"
+          test -z "$(git status --porcelain)"
+          remote_head="$(git ls-remote origin "refs/heads/$C08_BRANCH" | awk '{print $1}')"
+          test "$remote_head" = "$EXPECTED_C08_HEAD"
+          test "$(git merge-base "$C08_BASE" "$EXPECTED_C08_HEAD")" = "$C08_BASE"
+          printf 'C08_ACTIVATION_SOURCE_HEAD=%s\n' "$EXPECTED_C08_HEAD"
+
+      - name: Apply and review permanent proof activation only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show origin/temp-c08-kratos-review-carrier:.github/c08-proof-activation-fix.py > /tmp/c08-proof-activation-fix.py
+          python3 /tmp/c08-proof-activation-fix.py
+          mapfile -t changed < <(git status --porcelain | sed 's/^...//')
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = '.github/workflows/c08-device-identity-transport.yml'
+          git diff --check
+          grep -Fq 'push:' .github/workflows/c08-device-identity-transport.yml
+          grep -Fq 'c08-device-identity-transport' .github/workflows/c08-device-identity-transport.yml
+          grep -Fq 'git fetch --no-tags origin main' .github/workflows/c08-device-identity-transport.yml
+          grep -Fq 'proof-base.txt' .github/workflows/c08-device-identity-transport.yml
+          grep -Fq "'proof_base_commit': proof_base" .github/workflows/c08-device-identity-transport.yml
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('.github/workflows/c08-device-identity-transport.yml').read_text(encoding='utf-8')
+          assert text.count('  push:\n') == 1
+          assert text.count('  pull_request:\n') == 1
+          assert text.count('  workflow_dispatch:\n') == 1
+          assert text.count('git fetch --no-tags origin main') == 1
+          assert text.count('proof-base.txt') >= 2
+          print('C08_PROOF_ACTIVATION_STATIC_REVIEW=PASS')
+          PY
+
+      - name: Publish activation under exact branch-head lease
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_head="$(git ls-remote origin "refs/heads/$C08_BRANCH" | awk '{print $1}')"
+          test "$remote_head" = "$EXPECTED_C08_HEAD"
+          git config user.name 'THE TECH GUY'
+          git config user.email '65334711+jaydumisuni@users.noreply.github.com'
+          git add .github/workflows/c08-device-identity-transport.yml
+          test "$(git diff --cached --name-only)" = '.github/workflows/c08-device-identity-transport.yml'
+          git diff --cached --check
+          git commit -m 'C08 proof: activate exact-head branch proving'
+          new_head="$(git rev-parse HEAD)"
+          remote_head="$(git ls-remote origin "refs/heads/$C08_BRANCH" | awk '{print $1}')"
+          test "$remote_head" = "$EXPECTED_C08_HEAD"
+          git push origin "HEAD:refs/heads/$C08_BRANCH"
+          published="$(git ls-remote origin "refs/heads/$C08_BRANCH" | awk '{print $1}')"
+          test "$published" = "$new_head"
+          printf 'C08_PROOF_ACTIVATION_HEAD=%s\n' "$published"

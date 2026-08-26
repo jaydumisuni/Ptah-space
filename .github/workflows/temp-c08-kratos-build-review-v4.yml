@@ -1,0 +1,160 @@
+name: Temporary C08 final KRATOS review v4
+
+on:
+  push:
+    branches: [temp-c08-kratos-review-carrier]
+    paths:
+      - '.github/workflows/temp-c08-kratos-build-review-v4.yml'
+
+permissions:
+  contents: write
+
+env:
+  EXPECTED_C08_HEAD: fd5ffdf14f8a70315d56c428c4db3e64bb61ee6f
+  C08_BRANCH: c08-device-identity-transport
+  C08_BASE: ae7a9c9c939db03df55f97ebb3edffd68216197b
+  RUST_BIN: /home/kratos/.rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin
+  CARGO_TERM_COLOR: always
+
+jobs:
+  review:
+    runs-on: [self-hosted, kratos, ptah]
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact C08 source head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.EXPECTED_C08_HEAD }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fence exact source and bind proven Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_C08_HEAD"
+          test -z "$(git status --porcelain)"
+          remote_head="$(git ls-remote origin "refs/heads/$C08_BRANCH" | awk '{print $1}')"
+          test "$remote_head" = "$EXPECTED_C08_HEAD"
+          test "$(git merge-base "$C08_BASE" "$EXPECTED_C08_HEAD")" = "$C08_BASE"
+          for tool in rustc cargo rustfmt cargo-clippy clippy-driver; do test -x "$RUST_BIN/$tool"; done
+          "$RUST_BIN/rustc" -V | grep -q '^rustc 1.97.1 '
+          "$RUST_BIN/cargo" -V | grep -q '^cargo 1.97.1 '
+          echo "$RUST_BIN" >> "$GITHUB_PATH"
+          printf 'C08_SOURCE_HEAD=%s\nC08_RUST_BIN=%s\n' "$EXPECTED_C08_HEAD" "$RUST_BIN"
+
+      - name: Apply reviewed corrections and exact lock delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/c08-review
+          cp Cargo.lock /tmp/c08-review/Cargo.lock.before
+          git show origin/temp-c08-kratos-review-carrier:.github/c08-review-structural-fix.py > /tmp/c08-review/structural-fix.py
+          git show origin/temp-c08-kratos-review-carrier:.github/c08-review-borrow-fix.py > /tmp/c08-review/borrow-fix.py
+          python3 /tmp/c08-review/structural-fix.py
+          python3 /tmp/c08-review/borrow-fix.py
+          cargo check -p ptah-device-runtime
+          cargo fmt --all
+          python3 - <<'PY'
+          import tomllib
+          def packages(path):
+              with open(path, 'rb') as fh:
+                  data = tomllib.load(fh)
+              return {(p['name'], p['version'], p.get('source')): p for p in data.get('package', [])}
+          before = packages('/tmp/c08-review/Cargo.lock.before')
+          after = packages('Cargo.lock')
+          removed = set(before) - set(after)
+          added = set(after) - set(before)
+          changed = {k for k in set(before) & set(after) if before[k] != after[k]}
+          assert not removed, f'lock packages removed: {sorted(removed)}'
+          assert not changed, f'existing lock packages changed: {sorted(changed)}'
+          assert added == {('ptah-device-runtime', '0.0.0-phase0c', None)}, f'unexpected additions: {sorted(added)}'
+          print('C08_LOCK_DELTA=EXACT_LOCAL_PACKAGE_ONLY')
+          PY
+          mapfile -t changed < <(git status --porcelain | sed 's/^...//')
+          printf 'REVIEW_CHANGED_FILES\n'; printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 3
+          printf '%s\n' "${changed[@]}" | grep -Fxq 'Cargo.lock'
+          printf '%s\n' "${changed[@]}" | grep -Fxq 'crates/ptah-device-runtime/src/lib.rs'
+          printf '%s\n' "${changed[@]}" | grep -Fxq 'crates/ptah-device-runtime/tests/c08.rs'
+          for path in "${changed[@]}"; do
+            case "$path" in
+              Cargo.lock|crates/ptah-device-runtime/src/lib.rs|crates/ptah-device-runtime/tests/c08.rs) ;;
+              *) echo "unexpected Review mutation: $path" >&2; exit 1 ;;
+            esac
+          done
+          git diff --check
+
+      - name: Prove C08 acceptance strict Clippy and authority boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ptah-device-runtime --test c08 --locked -- --nocapture 2>&1 | tee /tmp/c08-review/c08-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c08-review/c08-tests.txt
+          cargo clippy -p ptah-device-runtime --lib --test c08 --locked -- -D warnings 2>&1 | tee /tmp/c08-review/c08-clippy.txt
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          source = Path('crates/ptah-device-runtime/src/lib.rs').read_text(encoding='utf-8')
+          tests = Path('crates/ptah-device-runtime/tests/c08.rs').read_text(encoding='utf-8')
+          assert len(re.findall(r'^#\[test\]$', tests, re.M)) == 20
+          for token in ('AmbiguousIdentity','AmbiguousAlias','StaleProviderGeneration','StaleConnectionEpoch','StaleFence','AheadFence','MutationOutsideC08','OperationAuthority::ReadOnly','physical_authority_ref','backend_aliases'):
+              assert token in source, token
+          public_functions = re.findall(r'\bpub\s+fn\s+([A-Za-z0-9_]+)', source)
+          forbidden = re.compile(r'(?:^|_)(?:write|erase|flash|repartition|unlock|relock|protected_nv|payload_execute|execute_payload|raw_command)(?:_|$)')
+          offenders = sorted(name for name in public_functions if forbidden.search(name))
+          assert not offenders, f'C08 mutation executor surfaced: {offenders}'
+          assert '#[allow(clippy::' not in source
+          assert 'pub fn reconcile(\n        &mut self,\n        observation: &TransportObservation,' in source
+          print('C08_STATIC_AUTHORITY_BOUNDARY=PASS')
+          PY
+
+      - name: Re-prove inherited C06 through C01
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in c06 c05 c04 c03 c02 c01; do
+            cargo test -p ptah-archive-decomposition --test "$target" --locked -- --nocapture 2>&1 | tee "/tmp/c08-review/${target}.txt"
+            grep -Eq 'test result: ok\. 20 passed; 0 failed;' "/tmp/c08-review/${target}.txt"
+          done
+
+      - name: Re-prove inherited B02 B05 B07 and A13
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b02 --locked -- --nocapture
+          cargo test -p ptah-archive-decomposition --test b05 --locked -- --nocapture 2>&1 | tee /tmp/c08-review/b05.txt
+          grep -Eq 'test result: ok\. 15 passed; 0 failed;' /tmp/c08-review/b05.txt
+          cargo test -p ptah-archive-decomposition --test b07 --locked -- --nocapture 2>&1 | tee /tmp/c08-review/b07.txt
+          grep -Eq 'test result: ok\. 14 passed; 0 failed;' /tmp/c08-review/b07.txt
+          cargo test -p ptah-archive-decomposition --lib b07::tests --locked -- --nocapture 2>&1 | tee /tmp/c08-review/b07-boundary.txt
+          grep -Eq 'test result: ok\. 2 passed; 0 failed;' /tmp/c08-review/b07-boundary.txt
+          cargo test -p ptah-checkpoint --test a13 --locked -- --nocapture
+
+      - name: Re-prove full locked workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture
+
+      - name: Publish reviewed delta under exact branch-head lease
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_head="$(git ls-remote origin "refs/heads/$C08_BRANCH" | awk '{print $1}')"
+          test "$remote_head" = "$EXPECTED_C08_HEAD"
+          git config user.name 'THE TECH GUY'
+          git config user.email '65334711+jaydumisuni@users.noreply.github.com'
+          git add Cargo.lock crates/ptah-device-runtime/src/lib.rs crates/ptah-device-runtime/tests/c08.rs
+          git diff --cached --check
+          test "$(git diff --cached --name-only | wc -l)" -eq 3
+          git commit -m 'C08 review: resolve strict lint and lockfile findings'
+          new_head="$(git rev-parse HEAD)"
+          test "$new_head" != "$EXPECTED_C08_HEAD"
+          remote_head="$(git ls-remote origin "refs/heads/$C08_BRANCH" | awk '{print $1}')"
+          test "$remote_head" = "$EXPECTED_C08_HEAD"
+          git push origin "HEAD:refs/heads/$C08_BRANCH"
+          published="$(git ls-remote origin "refs/heads/$C08_BRANCH" | awk '{print $1}')"
+          test "$published" = "$new_head"
+          printf 'C08_REVIEW_PUBLISHED_HEAD=%s\n' "$published"

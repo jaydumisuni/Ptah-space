@@ -1,0 +1,296 @@
+name: C06 Unisoc and Qualcomm packs exact-head proof
+
+on:
+  pull_request:
+    paths:
+      - "C06_UNISOC_QUALCOMM_PACKS.md"
+      - "crates/ptah-archive-decomposition/Cargo.toml"
+      - "crates/ptah-archive-decomposition/src/lib.rs"
+      - "crates/ptah-archive-decomposition/src/c06.rs"
+      - "crates/ptah-archive-decomposition/tests/c06.rs"
+      - ".github/workflows/c06-unisoc-qualcomm-packs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PTAH_PR_BASE: ${{ github.event.pull_request.base.sha }}
+  PTAH_C06_BASE_SHA: 170b91195fa5e68ae15a8a9c26b9cf677fd78224
+  CARGO_TERM_COLOR: always
+
+jobs:
+  c06-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact C06 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Lock accepted C05 base and six-file C06 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+          if [ -n "${PTAH_PR_BASE:-}" ]; then
+            test "$PTAH_PR_BASE" = "$PTAH_C06_BASE_SHA"
+          fi
+          test "$(git merge-base "$PTAH_C06_BASE_SHA" "$PTAH_EXACT_SHA")" = "$PTAH_C06_BASE_SHA"
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["PTAH_C06_BASE_SHA"]
+          head = os.environ["PTAH_EXACT_SHA"]
+          files = subprocess.check_output(
+              ["git", "diff", "--name-only", base, head], text=True
+          ).splitlines()
+          allowed = {
+              "C06_UNISOC_QUALCOMM_PACKS.md",
+              "crates/ptah-archive-decomposition/Cargo.toml",
+              "crates/ptah-archive-decomposition/src/lib.rs",
+              "crates/ptah-archive-decomposition/src/c06.rs",
+              "crates/ptah-archive-decomposition/tests/c06.rs",
+              ".github/workflows/c06-unisoc-qualcomm-packs.yml",
+          }
+          unexpected = sorted(set(files).difference(allowed))
+          missing = sorted(allowed.difference(files))
+          assert not unexpected, f"C06 scope drift: {unexpected}"
+          assert not missing, f"C06 required surface missing: {missing}"
+          PY
+          git diff --check "$PTAH_C06_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/c06
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          rustc -Vv | tee /tmp/c06/rustc-version.txt
+          cargo -V | tee /tmp/c06/cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$PTAH_EXACT_SHA" > /tmp/c06/exact-head.txt
+          cat /etc/os-release > /tmp/c06/host-os-release.txt
+
+      - name: Prove formatting and 20-case C06 acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ptah-archive-decomposition --test c06 --locked -- --nocapture \
+            2>&1 | tee /tmp/c06/c06-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c06/c06-tests.txt
+
+      - name: Prove C06 surface with strict Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ptah-archive-decomposition --lib --test c06 --locked -- -D warnings \
+            2>&1 | tee /tmp/c06/c06-clippy.txt
+
+      - name: Prove static C06 exposes no mutation or loader execution API
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee /tmp/c06/c06-static-authority.txt
+          import re
+          from pathlib import Path
+
+          source = Path("crates/ptah-archive-decomposition/src/c06.rs").read_text(encoding="utf-8")
+          public_functions = re.findall(r"\bpub\s+fn\s+([A-Za-z0-9_]+)", source)
+          forbidden = re.compile(
+              r"(?:^|_)(?:write|erase|flash|reset|reboot|unlock|relock|repartition|"
+              r"execute|upload_fdl|load_fdl|load_programmer|sahara|firehose_command|"
+              r"raw_xml|raw_command|memory_write|rpmb|efuse|nv)(?:_|$)"
+          )
+          offenders = sorted(name for name in public_functions if forbidden.search(name))
+          assert not offenders, f"C06 mutation/execution API surfaced: {offenders}"
+          assert "C06TrustAssessment::NotEstablished" in source
+          assert "contains.unisoc_pac_component" in source
+          assert "references.qualcomm_firmware_component" in source
+          print("C06 static authority boundary: PASS")
+          print(f"public_functions={public_functions}")
+          PY
+
+      - name: Re-prove inherited C05 MediaTek semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test c05 --locked -- --nocapture \
+            2>&1 | tee /tmp/c06/c05-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c06/c05-tests.txt
+
+      - name: Re-prove inherited C04 Apple firmware semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test c04 --locked -- --nocapture \
+            2>&1 | tee /tmp/c06/c04-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c06/c04-tests.txt
+
+      - name: Re-prove inherited C03 Android firmware semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test c03 --locked -- --nocapture \
+            2>&1 | tee /tmp/c06/c03-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c06/c03-tests.txt
+
+      - name: Re-prove inherited C02 filesystem semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test c02 --locked -- --nocapture \
+            2>&1 | tee /tmp/c06/c02-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c06/c02-tests.txt
+
+      - name: Re-prove inherited C01 disk foundations
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test c01 --locked -- --nocapture \
+            2>&1 | tee /tmp/c06/c01-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c06/c01-tests.txt
+
+      - name: Re-prove inherited B02 decomposition semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b02 --locked -- --nocapture \
+            2>&1 | tee /tmp/c06/b02-tests.txt
+
+      - name: Re-prove inherited B05 executable and package semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b05 --locked -- --nocapture \
+            2>&1 | tee /tmp/c06/b05-tests.txt
+          grep -Eq 'test result: ok\. 15 passed; 0 failed;' /tmp/c06/b05-tests.txt
+
+      - name: Re-prove inherited B07 Object World search semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b07 --locked -- --nocapture \
+            2>&1 | tee /tmp/c06/b07-tests.txt
+          grep -Eq 'test result: ok\. 14 passed; 0 failed;' /tmp/c06/b07-tests.txt
+          cargo test -p ptah-archive-decomposition --lib b07::tests --locked -- --nocapture \
+            2>&1 | tee /tmp/c06/b07-boundary-tests.txt
+          grep -Eq 'test result: ok\. 2 passed; 0 failed;' /tmp/c06/b07-boundary-tests.txt
+
+      - name: Re-prove full locked workspace at exact C06 head
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture \
+            2>&1 | tee /tmp/c06/workspace-tests.txt
+
+      - name: Write exact-head C06 proof manifest
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cp C06_UNISOC_QUALCOMM_PACKS.md /tmp/c06/acceptance-contract.md
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('/tmp/c06')
+          required = [
+              'exact-head.txt',
+              'host-os-release.txt',
+              'rustc-version.txt',
+              'cargo-version.txt',
+              'c06-tests.txt',
+              'c06-clippy.txt',
+              'c06-static-authority.txt',
+              'c05-tests.txt',
+              'c04-tests.txt',
+              'c03-tests.txt',
+              'c02-tests.txt',
+              'c01-tests.txt',
+              'b02-tests.txt',
+              'b05-tests.txt',
+              'b07-tests.txt',
+              'b07-boundary-tests.txt',
+              'workspace-tests.txt',
+              'acceptance-contract.md',
+          ]
+          files = {}
+          for name in required:
+              path = root / name
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f'missing C06 proof report: {name}')
+              files[name] = {
+                  'size_bytes': path.stat().st_size,
+                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+              }
+          head = (root / 'exact-head.txt').read_text(encoding='utf-8').strip()
+          if head != os.environ['PTAH_EXACT_SHA']:
+              raise SystemExit('C06 proof head mismatch')
+          manifest = {
+              'schema_version': '0.1.0',
+              'record_type': 'ptah.c06.unisoc_qualcomm_exact_head_proof',
+              'status': 'pass',
+              'implementation_commit': head,
+              'accepted_base_commit': os.environ['PTAH_C06_BASE_SHA'],
+              'workflow_run_id': int(os.environ['RUN_ID']),
+              'workflow_run_attempt': int(os.environ['RUN_ATTEMPT']),
+              'c06_acceptance_test_count': 20,
+              'unisoc_pac_ranges_and_digests_fail_closed': True,
+              'unisoc_overlap_and_path_hardening_proven': True,
+              'unisoc_fdl_evidence_not_promoted_to_compatibility': True,
+              'qualcomm_bundle_paths_and_digests_fail_closed': True,
+              'qualcomm_rawprogram_patch_ranges_bounded': True,
+              'qualcomm_programmer_evidence_not_promoted_to_compatibility': True,
+              'physical_mutation_and_loader_execution_api_surface_absent': True,
+              'source_bytes_immutable': True,
+              'registration_relationship_view_plans_proven': True,
+              'comparison_levels_proven': True,
+              'inherited_c05_reproven': True,
+              'inherited_c04_reproven': True,
+              'inherited_c03_reproven': True,
+              'inherited_c02_reproven': True,
+              'inherited_c01_reproven': True,
+              'inherited_b02_reproven': True,
+              'inherited_b05_reproven': True,
+              'inherited_b07_reproven': True,
+              'files': files,
+          }
+          rendered = json.dumps(manifest, indent=2, sort_keys=True) + '\n'
+          (root / 'proof-manifest.json').write_text(rendered, encoding='utf-8')
+          digest = hashlib.sha256(rendered.encode()).hexdigest()
+          (root / 'proof-manifest.sha256').write_text(
+              f'{digest}  proof-manifest.json\n', encoding='utf-8'
+          )
+          print(rendered, end='')
+          PY
+          cd /tmp/c06
+          sha256sum -c proof-manifest.sha256
+
+      - name: Confirm exact clean C06 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Retain C06 proof bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: c06-unisoc-qualcomm-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/c06/
+          if-no-files-found: error
+          retention-days: 90

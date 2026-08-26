@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-//! A12 deterministic archive decomposition plus B02–B07 Object World and C01–C05 firmware foundations.
+//! A12 deterministic archive decomposition plus B02–B07 Object World and C01–C06 firmware foundations.
 //!
 //! Parser backends, type detectors, document, media, executable/package and filesystem Providers are
 //! untrusted mechanical facilities. This crate owns path canonicalization, recursive resource budgets,
@@ -7,7 +7,8 @@
 //! interpretation, derived source-bound search, C01 immutable disk normalization/partition
 //! interpretation, C02 filesystem Provider validation/materialization, C03 Android image/OTA static
 //! inspection, C04 Apple firmware archive/IMG4 static inspection, C05 `MediaTek` scatter/bundle static
-//! inspection plus bounded read-only MTK/META evidence correlation and explicit proof levels, plus
+//! inspection plus bounded read-only MTK/META evidence correlation, C06 Unisoc PAC and Qualcomm
+//! MBN/ELF/Firehose/XML static inspection with explicit loader/programmer evidence boundaries, plus
 //! canonical registration plans through the A07/A03 boundaries. Derived projections never replace
 //! canonical source truth.
 
@@ -22,6 +23,7 @@ mod c02;
 mod c03;
 mod c04;
 mod c05;
+mod c06;
 mod model;
 mod persist;
 mod policy;
@@ -101,6 +103,19 @@ pub use c05::{
     MediatekMode, MediatekPartition, MediatekPartitionRange, MediatekReport,
     MediatekStaticProofLevel, MediatekTrustAssessment, assess_mediatek_rebuild,
     compare_mediatek_packages, inspect_mediatek_package, materialize_mediatek_component,
+};
+pub use c06::{
+    C06Assessment, C06ByteRange, C06ComparisonLevel, C06Context, C06Error, C06Limits,
+    C06StaticProofLevel, C06TrustAssessment, QualcommBundleEntry, QualcommBundleEntryObservation,
+    QualcommBundleObservation, QualcommBundleProvider, QualcommBundleReport, QualcommComparison,
+    QualcommComponentKind, QualcommMaterialization, QualcommPatchOperation,
+    QualcommPatchOperationObservation, QualcommProgramOperation,
+    QualcommProgramOperationObservation, QualcommProgrammerEvidence, QualcommProgrammerObservation,
+    UnisocComparison, UnisocComponentRole, UnisocLoaderEvidence, UnisocMaterialization,
+    UnisocPacEntry, UnisocPacEntryObservation, UnisocPacObservation, UnisocPacProvider,
+    UnisocPacReport, UnisocPacValidationObservation, compare_qualcomm_bundles,
+    compare_unisoc_packages, inspect_qualcomm_bundle, inspect_unisoc_pac,
+    materialize_qualcomm_component, materialize_unisoc_component,
 };
 pub use model::{
     ArchiveBackend, BackendIdentity, DecompositionBudget, DecompositionClock, DecompositionOutcome,

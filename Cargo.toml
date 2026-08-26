@@ -12,6 +12,7 @@ members = [
   "crates/ptah-object-store",
   "crates/ptah-transfer",
   "crates/ptah-provider-api",
+  "crates/ptah-device-runtime",
   "crates/ptah-browser-runtime",
   "crates/ptah-checkpoint",
   "crates/ptah-archive-decomposition",

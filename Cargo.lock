@@ -488,6 +488,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptah-device-runtime"
+version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-identifiers",
+ "ptah-provider-api",
+ "serde",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "ptah-events"
 version = "0.0.0-phase0c"
 dependencies = [

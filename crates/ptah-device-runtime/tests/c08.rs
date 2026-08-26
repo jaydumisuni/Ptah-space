@@ -1,8 +1,8 @@
 use ptah_device_runtime::{
     AdbObservationProvider, AppleMode, AppleObservationProvider, DeviceError, DeviceKind,
     DeviceLease, DeviceProviderBinding, DeviceRegistry, FastbootObservationProvider,
-    FenceDecision, InterfaceTransport, MutationClass, ObservationSeed, OperationAuthority,
-    ProtocolClass, ProtocolOperationRequest, Reachability, TransitionReason,
+    FenceDecision, InterfaceLocality, InterfaceTransport, MutationClass, ObservationSeed,
+    OperationAuthority, ProtocolClass, ProtocolOperationRequest, Reachability, TransitionReason,
     UsbSerialObservationProvider, admit_protocol_operation,
 };
 use ptah_identifiers::EntityRef;
@@ -33,7 +33,11 @@ fn provider_revision(kind: ProviderKind) -> ProviderRevision {
     }
 }
 
-fn provider_instance(revision_ref: EntityRef, generation: u64, connection_epoch: u64) -> ProviderInstance {
+fn provider_instance(
+    revision_ref: EntityRef,
+    generation: u64,
+    connection_epoch: u64,
+) -> ProviderInstance {
     ProviderInstance {
         instance_ref: reference("runtime.provider_instance"),
         provider_revision_ref: revision_ref,
@@ -58,7 +62,12 @@ fn binding(generation: u64, connection_epoch: u64) -> DeviceProviderBinding {
     DeviceProviderBinding::bind(&revision, &instance).expect("device binding")
 }
 
-fn seed(alias: &str, identity: Vec<EntityRef>, continuity: Vec<EntityRef>, reachability: Reachability) -> ObservationSeed {
+fn seed(
+    alias: &str,
+    identity: Vec<EntityRef>,
+    continuity: Vec<EntityRef>,
+    reachability: Reachability,
+) -> ObservationSeed {
     ObservationSeed {
         profile_revision_ref: reference("device.profile_revision"),
         identity_basis_refs: identity,
@@ -156,6 +165,7 @@ fn backend_alias_change_does_not_replace_canonical_device_identity() {
     assert_eq!(first.device.device_ref, second.device.device_ref);
     assert!(!second.device_created);
     assert_eq!(second.interface.observed_aliases, vec!["SERIAL-B"]);
+    assert_eq!(second.observation.device_ref, second.device.device_ref);
 }
 
 /* 3 */
@@ -177,15 +187,34 @@ fn additional_identity_evidence_extends_existing_device_without_rekeying() {
         .expect("first");
     let second = registry
         .reconcile(adb_observation(
-            provider,
+            provider.clone(),
             "A",
-            vec![identity_a, identity_b],
-            vec![continuity],
+            vec![identity_a.clone(), identity_b],
+            vec![continuity.clone()],
             Reachability::Reachable,
         ))
         .expect("second");
     assert_eq!(first.device.device_ref, second.device.device_ref);
     assert_eq!(second.device.identity_basis_refs.len(), 2);
+
+    let apple = AppleObservationProvider::new(provider)
+        .observe(
+            AppleMode::Normal,
+            seed(
+                "APPLE",
+                vec![identity_a],
+                vec![continuity],
+                Reachability::Reachable,
+            ),
+            None,
+        )
+        .expect("Apple observation");
+    assert_eq!(
+        registry
+            .reconcile(apple)
+            .expect_err("same stable basis cannot change Device kind"),
+        DeviceError::DeviceKindMismatch
+    );
 }
 
 /* 4 */
@@ -223,7 +252,9 @@ fn identity_basis_overlapping_two_devices_fails_closed() {
         Reachability::Reachable,
     );
     assert_eq!(
-        registry.reconcile(ambiguous).expect_err("ambiguous identity"),
+        registry
+            .reconcile(ambiguous)
+            .expect_err("ambiguous identity"),
         DeviceError::AmbiguousIdentity
     );
 }
@@ -295,36 +326,72 @@ fn fastboot_and_fastbootd_are_distinct_interfaces_on_one_device() {
 
 /* 7 */
 #[test]
-fn provider_generation_change_advances_connection_epoch() {
+fn provider_generation_change_advances_connection_epoch_and_older_generation_fails() {
     let (mut registry, _provider, identity, continuity, first) = current_registry();
     let second = registry
         .reconcile(adb_observation(
             binding(2, 1),
             "SERIAL-A",
-            vec![identity],
-            vec![continuity],
+            vec![identity.clone()],
+            vec![continuity.clone()],
             Reachability::Reachable,
         ))
         .expect("provider restart");
-    assert_eq!(second.interface.connection_epoch, first.interface.connection_epoch + 1);
-    assert_eq!(second.connection.transition_reason, TransitionReason::ProviderRestart);
+    assert_eq!(
+        second.interface.connection_epoch,
+        first.interface.connection_epoch + 1
+    );
+    assert_eq!(
+        second.connection.transition_reason,
+        TransitionReason::ProviderRestart
+    );
+    assert_eq!(
+        registry
+            .reconcile(adb_observation(
+                binding(1, 1),
+                "SERIAL-A",
+                vec![identity],
+                vec![continuity],
+                Reachability::Reachable,
+            ))
+            .expect_err("older Provider generation"),
+        DeviceError::StaleProviderGeneration
+    );
 }
 
 /* 8 */
 #[test]
-fn provider_control_epoch_change_advances_device_connection_epoch() {
+fn provider_control_epoch_change_advances_device_epoch_and_older_epoch_fails() {
     let (mut registry, _provider, identity, continuity, first) = current_registry();
     let second = registry
         .reconcile(adb_observation(
             binding(1, 2),
             "SERIAL-A",
-            vec![identity],
-            vec![continuity],
+            vec![identity.clone()],
+            vec![continuity.clone()],
             Reachability::Reachable,
         ))
         .expect("provider connection replacement");
-    assert_eq!(second.interface.connection_epoch, first.interface.connection_epoch + 1);
-    assert_eq!(second.connection.transition_reason, TransitionReason::ProviderRestart);
+    assert_eq!(
+        second.interface.connection_epoch,
+        first.interface.connection_epoch + 1
+    );
+    assert_eq!(
+        second.connection.transition_reason,
+        TransitionReason::ProviderRestart
+    );
+    assert_eq!(
+        registry
+            .reconcile(adb_observation(
+                binding(1, 1),
+                "SERIAL-A",
+                vec![identity],
+                vec![continuity],
+                Reachability::Reachable,
+            ))
+            .expect_err("older Provider control epoch"),
+        DeviceError::StaleProviderConnectionEpoch
+    );
 }
 
 /* 9 */
@@ -346,7 +413,10 @@ fn topology_reenumeration_advances_epoch_without_replacing_device() {
         )
         .expect("reenumeration");
     assert_eq!(first.device.device_ref, second.device.device_ref);
-    assert_eq!(second.connection.transition_reason, TransitionReason::Reenumeration);
+    assert_eq!(
+        second.connection.transition_reason,
+        TransitionReason::Reenumeration
+    );
 }
 
 /* 10 */
@@ -401,7 +471,11 @@ fn intermittent_usb_recovery_advances_epoch_on_recovery() {
         recovered.interface.connection_epoch,
         intermittent.interface.connection_epoch + 1
     );
-    assert_eq!(recovered.connection.transition_reason, TransitionReason::Reconnect);
+    assert_eq!(
+        recovered.connection.transition_reason,
+        TransitionReason::Reconnect
+    );
+    assert_eq!(registry.observations().len(), 2);
 }
 
 /* 12 */
@@ -433,7 +507,7 @@ fn apple_provider_normalizes_normal_recovery_and_dfu_as_observations_only() {
 
 /* 13 */
 #[test]
-fn usb_serial_provider_retains_port_as_alias_only() {
+fn usb_serial_provider_retains_port_as_alias_and_node_local_provider_evidence() {
     let lane = UsbSerialObservationProvider::new(binding(1, 1));
     let identity = reference("proof.evidence");
     let observation = lane
@@ -452,6 +526,12 @@ fn usb_serial_provider_retains_port_as_alias_only() {
     assert_eq!(observation.transport, InterfaceTransport::UsbSerial);
     assert_eq!(observation.backend_aliases, vec!["COM17"]);
     assert_eq!(observation.identity_basis_refs, vec![identity]);
+    let mut registry = DeviceRegistry::default();
+    let current = registry.reconcile(observation).expect("reconcile");
+    assert_eq!(current.interface.locality, InterfaceLocality::NodeLocal);
+    assert_eq!(current.interface.node_generation, 1);
+    assert_eq!(current.interface.endpoint_claims, vec!["18d1:4ee7"]);
+    assert_eq!(current.interface.capability_claim_refs.len(), 1);
 }
 
 /* 14 */
@@ -537,7 +617,7 @@ fn lease_fails_closed_after_provider_generation_changes() {
         lease
             .fence(&advanced.interface, 2, "protocol.observe")
             .expect_err("stale generation"),
-        DeviceError::StaleProviderGeneration
+        DeviceError::StaleLeaseProviderGeneration
     );
 }
 
@@ -669,8 +749,14 @@ fn read_protocol_operation_requires_current_device_provider_epoch_lease_and_atte
     ))
     .expect("read operation");
     assert_eq!(admitted.authority, OperationAuthority::ReadOnly);
+    assert_eq!(
+        admitted.device_profile_revision_ref,
+        current.device.current_profile_revision_ref
+    );
+    assert_eq!(admitted.device_session_ref.entity_kind.as_str(), "device.session");
     assert_eq!(admitted.connection_epoch, current.interface.connection_epoch);
     assert_eq!(admitted.attempt_refs.len(), 1);
+    assert_eq!(admitted.started_at, "2026-08-26T00:00:02Z");
 }
 
 /* 20 */

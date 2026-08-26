@@ -1,4 +1,4 @@
-name: TEMP ATHENA Lumi 32-way Redmi Global ROM download
+name: TEMP ATHENA Redmi Global ROM BITS resume and status
 
 on:
   push:
@@ -10,183 +10,46 @@ permissions:
   contents: read
 
 jobs:
-  lumi32:
+  resume:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
-    timeout-minutes: 240
+    timeout-minutes: 8
     steps:
-      - name: Borrow Lumi-DM 32-segment engine and verify ROM
+      - name: Resume canonical external-drive BITS job and report live state
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-
-          $fileName = 'sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
-          $lumiName = "$fileName.lumi32"
-          $url = "https://cdnorg.d.miui.com/OS2.0.9.0.VMWMIXM/$fileName"
-          $expectedSize = [int64]7949886711
-          $expectedMd5 = '3334591f858477053b68f4c0e47debf0'
-          $destDir = 'E:\redmi r12'
-          $officialDest = Join-Path $destDir $fileName
-          $lumiDest = Join-Path $destDir $lumiName
           $bitsName = 'TTG Redmi sky Global OS2.0.9.0 External'
+          $expectedMd5 = '3334591f858477053b68f4c0e47debf0'
+          $dest = 'E:\redmi r12\sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
 
-          Write-Output '=== EXTERNAL DRIVE PROOF ==='
           $partition = Get-Partition -DriveLetter E -ErrorAction Stop
           $disk = $partition | Get-Disk -ErrorAction Stop
           $volume = Get-Volume -DriveLetter E -ErrorAction Stop
           [ordered]@{drive='E:';label=[string]$volume.FileSystemLabel;busType=[string]$disk.BusType;freeBytes=[int64]$volume.SizeRemaining} | ConvertTo-Json -Compress
           if ([string]$disk.BusType -ne 'USB') { throw 'E: is not the expected USB drive' }
-          if ([int64]$volume.SizeRemaining -lt 12000000000) { throw 'Not enough free space for Lumi temporary ROM plus BITS fallback' }
-          New-Item -ItemType Directory -Path $destDir -Force | Out-Null
 
-          Write-Output '=== BITS FALLBACK ==='
-          $bits = Get-BitsTransfer -Name $bitsName -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($bits) {
-            $pct = if ([int64]$bits.BytesTotal -gt 0) { [math]::Round(([double]$bits.BytesTransferred/[double]$bits.BytesTotal)*100,4) } else { 0 }
-            [ordered]@{state=[string]$bits.JobState;bytesTransferred=[int64]$bits.BytesTransferred;bytesTotal=[int64]$bits.BytesTotal;percent=$pct} | ConvertTo-Json -Compress
-            if ($bits.JobState -eq 'Transferred') {
-              Complete-BitsTransfer -BitsJob $bits
-              $md5 = (Get-FileHash -LiteralPath $officialDest -Algorithm MD5).Hash.ToLowerInvariant()
-              if ($md5 -eq $expectedMd5) {
-                Write-Output 'BITS_ALREADY_VERIFIED=true'
-                exit 0
-              }
-              throw 'BITS reached Transferred but MD5 did not match official ROM'
-            }
-            if ($bits.JobState -in @('Transferring','Connecting','Queued','TransientError')) {
-              Suspend-BitsTransfer -BitsJob $bits
-              $bits = Get-BitsTransfer -Name $bitsName -ErrorAction SilentlyContinue | Select-Object -First 1
-            }
-            Write-Output "bits_fallback_state=$($bits.JobState)"
+          $job = Get-BitsTransfer -Name $bitsName -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $job) { throw 'Canonical external-drive BITS job not found' }
+
+          Write-Output '=== BEFORE ==='
+          $pct = if ([int64]$job.BytesTotal -gt 0) { [math]::Round(([double]$job.BytesTransferred/[double]$job.BytesTotal)*100,4) } else { 0 }
+          [ordered]@{state=[string]$job.JobState;bytesTransferred=[int64]$job.BytesTransferred;bytesTotal=[int64]$job.BytesTotal;percent=$pct;destination=($job.FileList | Select-Object -First 1 -ExpandProperty LocalName)} | ConvertTo-Json -Compress
+
+          if ($job.JobState -eq 'Transferred') {
+            Complete-BitsTransfer -BitsJob $job
+            $md5 = (Get-FileHash -LiteralPath $dest -Algorithm MD5).Hash.ToLowerInvariant()
+            [ordered]@{state='COMPLETED';path=$dest;md5=$md5;expectedMd5=$expectedMd5;verified=($md5 -eq $expectedMd5)} | ConvertTo-Json -Compress
+            if ($md5 -ne $expectedMd5) { throw 'Completed BITS file MD5 mismatch' }
+            exit 0
           }
 
-          Write-Output '=== PREPARE LUMI ENGINE ==='
-          $git = Get-Command git.exe -ErrorAction Stop
-          $pyCmd = Get-Command py.exe -ErrorAction SilentlyContinue
-          if ($pyCmd) {
-            $basePython = $pyCmd.Source
-            $basePythonArgs = @('-3')
-          } else {
-            $pythonCmd = Get-Command python.exe -ErrorAction Stop
-            $basePython = $pythonCmd.Source
-            $basePythonArgs = @()
+          if ($job.JobState -in @('Suspended','TransientError','Error')) {
+            Resume-BitsTransfer -BitsJob $job
           }
 
-          $work = Join-Path $env:RUNNER_TEMP 'ttg-lumi-borrow-redmi'
-          $repo = Join-Path $work 'Lumi-DM'
-          $venv = Join-Path $work 'venv'
-          Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Path $work -Force | Out-Null
-          & $git.Source clone --depth 1 https://github.com/jaydumisuni/Lumi-DM.git $repo
-          if ($LASTEXITCODE -ne 0) { throw 'Lumi-DM clone failed' }
-
-          & $basePython @basePythonArgs -m venv $venv
-          if ($LASTEXITCODE -ne 0) { throw 'Python venv creation failed' }
-          $venvPython = Join-Path $venv 'Scripts\python.exe'
-          & $venvPython -m pip install --disable-pip-version-check --quiet requests
-          if ($LASTEXITCODE -ne 0) { throw 'requests dependency install failed' }
-
-          Remove-Item -LiteralPath $lumiDest -Force -ErrorAction SilentlyContinue
-          Remove-Item -LiteralPath ($lumiDest + '.part') -Force -ErrorAction SilentlyContinue
-
-          $driver = Join-Path $work 'run_lumi32.py'
-          @'
-          import hashlib
-          import json
-          import sys
-          import time
-          from pathlib import Path
-
-          repo = Path(sys.argv[1])
-          url = sys.argv[2]
-          dest_dir = Path(sys.argv[3])
-          filename = sys.argv[4]
-          expected_size = int(sys.argv[5])
-          expected_md5 = sys.argv[6].lower()
-          sys.path.insert(0, str(repo))
-
-          from core import engine
-
-          engine.set_default_connections(32)
-          print(json.dumps({"lumi_default_connections": engine.get_default_connections()}), flush=True)
-          job = engine.start_http(
-              url,
-              target_dir=dest_dir,
-              filename=filename,
-              overwrite=True,
-              resume=True,
-              connections=32,
-          )
-          jid = job["id"]
-          last = 0.0
-          terminal = {"completed", "failed", "cancelled", "paused"}
-          while True:
-              state = engine.get_job(jid)
-              now = time.time()
-              if now - last >= 5:
-                  print(json.dumps({
-                      "status": state.get("status"),
-                      "mode": state.get("mode"),
-                      "segments": state.get("segments"),
-                      "connections": state.get("connections"),
-                      "downloaded_bytes": state.get("downloaded_bytes"),
-                      "total_bytes": state.get("total_bytes"),
-                      "progress_percent": state.get("progress_percent"),
-                      "speed_bytes_per_sec": state.get("speed_bytes_per_sec"),
-                      "error": state.get("error"),
-                  }), flush=True)
-                  last = now
-              status = str(state.get("status") or "")
-              if status in terminal:
-                  break
-              time.sleep(1)
-
-          if state.get("status") != "completed":
-              raise SystemExit(f"LUMI_DOWNLOAD_FAILED:{state.get('status')}:{state.get('error')}")
-
-          path = Path(state.get("path") or (dest_dir / filename))
-          size = path.stat().st_size
-          md5 = hashlib.md5()
-          with path.open("rb") as fh:
-              while True:
-                  chunk = fh.read(8 * 1024 * 1024)
-                  if not chunk:
-                      break
-                  md5.update(chunk)
-          digest = md5.hexdigest().lower()
-          print(json.dumps({"final_path": str(path), "size": size, "md5": digest, "expected_md5": expected_md5}), flush=True)
-          if size != expected_size:
-              raise SystemExit(f"LUMI_SIZE_MISMATCH:{size}:{expected_size}")
-          if digest != expected_md5:
-              raise SystemExit(f"LUMI_MD5_MISMATCH:{digest}:{expected_md5}")
-          '@ | Set-Content -LiteralPath $driver -Encoding UTF8
-
-          Write-Output '=== LUMI 32-WAY DOWNLOAD ==='
-          try {
-            & $venvPython $driver $repo $url $destDir $lumiName $expectedSize $expectedMd5
-            if ($LASTEXITCODE -ne 0) { throw "Lumi driver failed with exit $LASTEXITCODE" }
-          } catch {
-            Write-Output "LUMI_ERROR=$($_.Exception.Message)"
-            if ($bits -and $bits.JobState -eq 'Suspended') {
-              Resume-BitsTransfer -BitsJob $bits
-              Write-Output 'BITS_FALLBACK_RESUMED=true'
-            }
-            throw
-          }
-
-          Write-Output '=== PROMOTE VERIFIED LUMI COPY ==='
-          $lumiMd5 = (Get-FileHash -LiteralPath $lumiDest -Algorithm MD5).Hash.ToLowerInvariant()
-          $lumiSize = (Get-Item -LiteralPath $lumiDest).Length
-          [ordered]@{path=$lumiDest;size=[int64]$lumiSize;md5=$lumiMd5;expectedMd5=$expectedMd5;verified=($lumiMd5 -eq $expectedMd5 -and [int64]$lumiSize -eq $expectedSize)} | ConvertTo-Json -Compress
-          if ($lumiMd5 -ne $expectedMd5 -or [int64]$lumiSize -ne $expectedSize) { throw 'Lumi verification gate failed' }
-
-          if ($bits) {
-            Remove-BitsTransfer -BitsJob $bits -Confirm:$false -ErrorAction SilentlyContinue
-          }
-          Remove-Item -LiteralPath $officialDest -Force -ErrorAction SilentlyContinue
-          Move-Item -LiteralPath $lumiDest -Destination $officialDest -Force
-
-          $finalMd5 = (Get-FileHash -LiteralPath $officialDest -Algorithm MD5).Hash.ToLowerInvariant()
-          if ($finalMd5 -ne $expectedMd5) { throw 'Post-promotion MD5 mismatch' }
-          Write-Output "ROM_VERIFIED=true"
-          Write-Output "ROM_PATH=$officialDest"
-          Write-Output "ROM_MD5=$finalMd5"
+          Start-Sleep -Seconds 12
+          $job = Get-BitsTransfer -Name $bitsName -ErrorAction Stop | Select-Object -First 1
+          Write-Output '=== AFTER ==='
+          $pct = if ([int64]$job.BytesTotal -gt 0) { [math]::Round(([double]$job.BytesTransferred/[double]$job.BytesTotal)*100,4) } else { 0 }
+          [ordered]@{state=[string]$job.JobState;bytesTransferred=[int64]$job.BytesTransferred;bytesTotal=[int64]$job.BytesTotal;percent=$pct;destination=($job.FileList | Select-Object -First 1 -ExpandProperty LocalName)} | ConvertTo-Json -Compress
+          if ($job.JobState -eq 'Error') { throw $job.ErrorDescription }

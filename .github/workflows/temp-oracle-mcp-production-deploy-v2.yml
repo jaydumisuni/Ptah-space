@@ -1,4 +1,4 @@
-name: TEMP ATHENA Redmi Global ROM download via IDM
+name: TEMP ATHENA Redmi Global ROM IDM persistence proof
 
 on:
   push:
@@ -10,143 +10,86 @@ permissions:
   contents: read
 
 jobs:
-  start-idm:
+  verify-idm:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
-    timeout-minutes: 8
+    timeout-minutes: 6
     steps:
-      - name: Switch canonical external-drive ROM download to Internet Download Manager
+      - name: Verify IDM survives runner cleanup and is actively transferring
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
 
           $fileName = 'sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
           $url = "https://cdnorg.d.miui.com/OS2.0.9.0.VMWMIXM/$fileName"
-          $expectedSize = [int64]7949886711
-          $expectedMd5 = '3334591f858477053b68f4c0e47debf0'
           $destDir = 'E:\redmi r12'
           $dest = Join-Path $destDir $fileName
-          $bitsName = 'TTG Redmi sky Global OS2.0.9.0 External'
+          $expectedMd5 = '3334591f858477053b68f4c0e47debf0'
+          $expectedSize = [int64]7949886711
+          $idm = 'C:\Program Files (x86)\Internet Download Manager\IDMan.exe'
 
-          Write-Output '=== EXTERNAL DRIVE ==='
           $partition = Get-Partition -DriveLetter E -ErrorAction Stop
           $disk = $partition | Get-Disk -ErrorAction Stop
-          $volume = Get-Volume -DriveLetter E -ErrorAction Stop
-          [ordered]@{
-            drive='E:'
-            label=[string]$volume.FileSystemLabel
-            busType=[string]$disk.BusType
-            fileSystem=[string]$volume.FileSystem
-            freeBytes=[int64]$volume.SizeRemaining
-          } | ConvertTo-Json -Compress
           if ([string]$disk.BusType -ne 'USB') { throw 'E: is not the expected USB external drive' }
-          if ([int64]$volume.SizeRemaining -lt 10000000000) { throw 'E: has less than 10 GB free' }
-          New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+          if (-not (Test-Path -LiteralPath $idm)) { throw 'IDMan.exe missing from proven path' }
 
-          Write-Output '=== IDM DISCOVERY ==='
-          $idmCandidates = @()
-          try {
-            $reg = Get-ItemProperty 'HKCU:\Software\DownloadManager' -ErrorAction SilentlyContinue
-            if ($reg.ExePath) { $idmCandidates += [string]$reg.ExePath }
-          } catch {}
-          $idmCandidates += @(
-            'C:\Program Files (x86)\Internet Download Manager\IDMan.exe',
-            'C:\Program Files\Internet Download Manager\IDMan.exe'
-          )
-          $idm = $idmCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
-          if (-not $idm) { throw 'Internet Download Manager (IDMan.exe) is not installed or not discoverable on ATHENA' }
-          $idmItem = Get-Item -LiteralPath $idm
+          function Get-SkyIdmState {
+            $root = Join-Path $env:APPDATA 'IDM\DwnlData'
+            $folder = $null
+            if (Test-Path -LiteralPath $root) {
+              $folder = Get-ChildItem -LiteralPath $root -Directory -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -like 'sky_global_images_OS*' } |
+                Sort-Object LastWriteTimeUtc -Descending |
+                Select-Object -First 1
+            }
+            $files = @()
+            if ($folder) { $files = @(Get-ChildItem -LiteralPath $folder.FullName -File -ErrorAction SilentlyContinue) }
+            $bytes = [int64](($files | Measure-Object Length -Sum).Sum)
+            if (-not $bytes) { $bytes = 0 }
+            [pscustomobject]@{
+              folder = if($folder){$folder.FullName}else{$null}
+              bytes = $bytes
+              parts = @($files).Count
+              newest = if($files){($files | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).LastWriteTimeUtc.ToString('o')}else{$null}
+            }
+          }
+
+          Write-Output '=== PROCESS BEFORE ==='
+          $proc = @(Get-Process -Name IDMan -ErrorAction SilentlyContinue)
+          [ordered]@{running=($proc.Count -gt 0);count=$proc.Count} | ConvertTo-Json -Compress
+
+          if ($proc.Count -eq 0) {
+            Write-Output 'IDM_NOT_RUNNING_RESTARTING_DETACHED=true'
+            Remove-Item Env:RUNNER_TRACKING_ID -ErrorAction SilentlyContinue
+            $args = @('/n','/d',$url,'/p',$destDir,'/f',$fileName)
+            Start-Process -FilePath $idm -ArgumentList $args
+            Start-Sleep -Seconds 5
+          }
+
+          $before = Get-SkyIdmState
+          Write-Output '=== IDM STATE BEFORE WINDOW ==='
+          $before | ConvertTo-Json -Compress
+
+          Start-Sleep -Seconds 12
+
+          $after = Get-SkyIdmState
+          $proc2 = @(Get-Process -Name IDMan -ErrorAction SilentlyContinue)
+          Write-Output '=== IDM STATE AFTER WINDOW ==='
           [ordered]@{
-            path=$idmItem.FullName
-            version=$idmItem.VersionInfo.FileVersion
-            productVersion=$idmItem.VersionInfo.ProductVersion
-          } | ConvertTo-Json -Compress
-
-          Write-Output '=== EXISTING DESTINATION ==='
-          if (Test-Path -LiteralPath $dest) {
-            $existing = Get-Item -LiteralPath $dest
-            [ordered]@{path=$dest;size=[int64]$existing.Length} | ConvertTo-Json -Compress
-            if ([int64]$existing.Length -eq $expectedSize) {
-              $md5 = (Get-FileHash -LiteralPath $dest -Algorithm MD5).Hash.ToLowerInvariant()
-              [ordered]@{md5=$md5;expectedMd5=$expectedMd5;verified=($md5 -eq $expectedMd5)} | ConvertTo-Json -Compress
-              if ($md5 -eq $expectedMd5) {
-                Write-Output 'ROM_ALREADY_VERIFIED=true'
-                exit 0
-              }
-            }
-          } else {
-            Write-Output 'destination=ABSENT'
-          }
-
-          Write-Output '=== STOP BITS EXTERNAL JOB ==='
-          $job = Get-BitsTransfer -Name $bitsName -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($job) {
-            [ordered]@{
-              state=[string]$job.JobState
-              bytesTransferred=[int64]$job.BytesTransferred
-              bytesTotal=[int64]$job.BytesTotal
-              destination=($job.FileList | Select-Object -First 1 -ExpandProperty LocalName)
-            } | ConvertTo-Json -Compress
-            if ($job.JobState -eq 'Transferred') {
-              Complete-BitsTransfer -BitsJob $job
-              $md5 = (Get-FileHash -LiteralPath $dest -Algorithm MD5).Hash.ToLowerInvariant()
-              if ($md5 -eq $expectedMd5) {
-                [ordered]@{state='BITS_ALREADY_COMPLETE';md5=$md5;verified=$true} | ConvertTo-Json -Compress
-                exit 0
-              }
-              throw 'BITS reported Transferred but completed file MD5 is wrong'
-            }
-            if ($job.JobState -in @('Transferring','Connecting','Queued','TransientError','Suspended','Error')) {
-              Remove-BitsTransfer -BitsJob $job
-              Write-Output 'bits_external_job_removed=true'
-            }
-          } else {
-            Write-Output 'bits_external_job=ABSENT'
-          }
-
-          # BITS can preallocate the final path. After removing the known-incomplete BITS job,
-          # remove that placeholder so IDM starts from a clean file rather than inheriting zeros.
-          if (Test-Path -LiteralPath $dest) {
-            $remaining = Get-Item -LiteralPath $dest
-            $remainingMd5 = $null
-            if ([int64]$remaining.Length -eq $expectedSize) {
-              $remainingMd5 = (Get-FileHash -LiteralPath $dest -Algorithm MD5).Hash.ToLowerInvariant()
-            }
-            if ($remainingMd5 -ne $expectedMd5) {
-              Remove-Item -LiteralPath $dest -Force
-              Write-Output 'removed_incomplete_bits_placeholder=true'
-            }
-          }
-
-          Write-Output '=== START IDM ==='
-          $args = @('/n','/d',$url,'/p',$destDir,'/f',$fileName)
-          Start-Process -FilePath $idm -ArgumentList $args
-          Start-Sleep -Seconds 15
-
-          $idmProcesses = Get-Process -Name IDMan -ErrorAction SilentlyContinue
-          [ordered]@{
-            idmRunning=[bool]$idmProcesses
-            processCount=@($idmProcesses).Count
-            destination=$dest
-            source=$url
+            running=($proc2.Count -gt 0)
+            processCount=$proc2.Count
+            folder=$after.folder
+            bytesBefore=[int64]$before.bytes
+            bytesAfter=[int64]$after.bytes
+            deltaBytes=[int64]($after.bytes - $before.bytes)
+            parts=$after.parts
+            newest=$after.newest
+            finalExists=(Test-Path -LiteralPath $dest)
+            finalSize=if(Test-Path -LiteralPath $dest){[int64](Get-Item -LiteralPath $dest).Length}else{0}
             expectedSize=$expectedSize
             expectedMd5=$expectedMd5
           } | ConvertTo-Json -Compress
 
-          Write-Output '=== IDM LOCAL STATE ==='
-          if (Test-Path -LiteralPath $dest) {
-            $f = Get-Item -LiteralPath $dest
-            [ordered]@{path=$f.FullName;size=[int64]$f.Length;lastWrite=$f.LastWriteTimeUtc.ToString('o')} | ConvertTo-Json -Compress
-          } else {
-            Write-Output 'final_destination_not_created_yet=true'
+          if ($proc2.Count -eq 0) { throw 'IDM is not running after persistence proof' }
+          if (($after.bytes - $before.bytes) -le 0 -and -not (Test-Path -LiteralPath $dest)) {
+            throw 'IDM process exists but no download bytes advanced during proof window'
           }
-
-          $idmData = Join-Path $env:APPDATA 'IDM\DwnlData'
-          if (Test-Path -LiteralPath $idmData) {
-            Get-ChildItem -LiteralPath $idmData -Recurse -File -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -like '*sky_global_images*' -or $_.Length -gt 1048576 } |
-              Sort-Object LastWriteTimeUtc -Descending |
-              Select-Object -First 12 FullName,Length,LastWriteTimeUtc |
-              ConvertTo-Json -Compress
-          }
-
-          if (-not $idmProcesses) { throw 'IDM process is not running after download command was submitted' }

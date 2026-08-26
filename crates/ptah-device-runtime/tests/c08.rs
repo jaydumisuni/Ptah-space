@@ -1,9 +1,11 @@
+//! C08 acceptance corpus for device identity, transport, fencing, and read-only protocol admission.
+
 use ptah_device_runtime::{
     AdbObservationProvider, AppleMode, AppleObservationProvider, DeviceError, DeviceKind,
-    DeviceLease, DeviceProviderBinding, DeviceRegistry, FastbootObservationProvider,
-    FenceDecision, InterfaceLocality, InterfaceTransport, MutationClass, ObservationSeed,
-    OperationAuthority, ProtocolClass, ProtocolOperationRequest, Reachability, TransitionReason,
-    UsbSerialObservationProvider, admit_protocol_operation,
+    DeviceLease, DeviceLeaseRequest, DeviceProviderBinding, DeviceRegistry,
+    FastbootObservationProvider, FenceDecision, InterfaceLocality, InterfaceTransport,
+    MutationClass, ObservationSeed, OperationAuthority, ProtocolClass, ProtocolOperationRequest,
+    Reachability, TransitionReason, UsbSerialObservationProvider, admit_protocol_operation,
 };
 use ptah_identifiers::EntityRef;
 use ptah_provider_api::{
@@ -81,6 +83,26 @@ fn seed(
     }
 }
 
+fn issue_lease(
+    device_ref: EntityRef,
+    holder_ref: EntityRef,
+    fence_token: u64,
+    provider_generation: ProviderGeneration,
+    connection_epoch: u64,
+) -> DeviceLease {
+    DeviceLease::issue(DeviceLeaseRequest {
+        device_ref,
+        holder_ref,
+        scope: vec!["protocol.observe".to_owned()],
+        fence_token,
+        provider_generation,
+        connection_epoch,
+        issued_at: "2026-08-26T00:00:01Z".to_owned(),
+        expires_at: "2026-08-26T01:00:01Z".to_owned(),
+    })
+    .expect("lease")
+}
+
 fn adb_observation(
     provider: DeviceProviderBinding,
     alias: &str,
@@ -115,7 +137,7 @@ fn current_registry() -> (
         Reachability::Reachable,
     );
     let mut registry = DeviceRegistry::default();
-    let outcome = registry.reconcile(observation).expect("reconcile");
+    let outcome = registry.reconcile(&observation).expect("reconcile");
     (registry, provider, identity, continuity, outcome)
 }
 
@@ -145,7 +167,7 @@ fn backend_alias_change_does_not_replace_canonical_device_identity() {
     let continuity = reference("proof.evidence");
     let mut registry = DeviceRegistry::default();
     let first = registry
-        .reconcile(adb_observation(
+        .reconcile(&adb_observation(
             provider.clone(),
             "SERIAL-A",
             vec![identity.clone()],
@@ -154,7 +176,7 @@ fn backend_alias_change_does_not_replace_canonical_device_identity() {
         ))
         .expect("first");
     let second = registry
-        .reconcile(adb_observation(
+        .reconcile(&adb_observation(
             provider,
             "SERIAL-B",
             vec![identity],
@@ -177,7 +199,7 @@ fn additional_identity_evidence_extends_existing_device_without_rekeying() {
     let continuity = reference("proof.evidence");
     let mut registry = DeviceRegistry::default();
     let first = registry
-        .reconcile(adb_observation(
+        .reconcile(&adb_observation(
             provider.clone(),
             "A",
             vec![identity_a.clone()],
@@ -186,7 +208,7 @@ fn additional_identity_evidence_extends_existing_device_without_rekeying() {
         ))
         .expect("first");
     let second = registry
-        .reconcile(adb_observation(
+        .reconcile(&adb_observation(
             provider.clone(),
             "A",
             vec![identity_a.clone(), identity_b],
@@ -211,7 +233,7 @@ fn additional_identity_evidence_extends_existing_device_without_rekeying() {
         .expect("Apple observation");
     assert_eq!(
         registry
-            .reconcile(apple)
+            .reconcile(&apple)
             .expect_err("same stable basis cannot change Device kind"),
         DeviceError::DeviceKindMismatch
     );
@@ -227,7 +249,7 @@ fn identity_basis_overlapping_two_devices_fails_closed() {
     let continuity_b = reference("proof.evidence");
     let mut registry = DeviceRegistry::default();
     registry
-        .reconcile(adb_observation(
+        .reconcile(&adb_observation(
             provider.clone(),
             "A",
             vec![identity_a.clone()],
@@ -236,7 +258,7 @@ fn identity_basis_overlapping_two_devices_fails_closed() {
         ))
         .expect("device A");
     registry
-        .reconcile(adb_observation(
+        .reconcile(&adb_observation(
             provider.clone(),
             "B",
             vec![identity_b.clone()],
@@ -253,7 +275,7 @@ fn identity_basis_overlapping_two_devices_fails_closed() {
     );
     assert_eq!(
         registry
-            .reconcile(ambiguous)
+            .reconcile(&ambiguous)
             .expect_err("ambiguous identity"),
         DeviceError::AmbiguousIdentity
     );
@@ -266,7 +288,7 @@ fn backend_alias_lookup_fails_when_multiple_devices_share_alias() {
     let mut registry = DeviceRegistry::default();
     for _ in 0..2 {
         registry
-            .reconcile(adb_observation(
+            .reconcile(&adb_observation(
                 provider.clone(),
                 "DUPLICATE",
                 vec![reference("proof.evidence")],
@@ -304,7 +326,7 @@ fn fastboot_and_fastbootd_are_distinct_interfaces_on_one_device() {
             None,
         )
         .expect("fastboot");
-    let first = registry.reconcile(fastboot).expect("first");
+    let first = registry.reconcile(&fastboot).expect("first");
     let fastbootd = lane
         .observe(
             InterfaceTransport::FastbootUsb,
@@ -318,9 +340,12 @@ fn fastboot_and_fastbootd_are_distinct_interfaces_on_one_device() {
             None,
         )
         .expect("fastbootd");
-    let second = registry.reconcile(fastbootd).expect("second");
+    let second = registry.reconcile(&fastbootd).expect("second");
     assert_eq!(first.device.device_ref, second.device.device_ref);
-    assert_ne!(first.interface.interface_ref, second.interface.interface_ref);
+    assert_ne!(
+        first.interface.interface_ref,
+        second.interface.interface_ref
+    );
     assert_eq!(registry.interfaces().len(), 2);
 }
 
@@ -329,7 +354,7 @@ fn fastboot_and_fastbootd_are_distinct_interfaces_on_one_device() {
 fn provider_generation_change_advances_connection_epoch_and_older_generation_fails() {
     let (mut registry, _provider, identity, continuity, first) = current_registry();
     let second = registry
-        .reconcile(adb_observation(
+        .reconcile(&adb_observation(
             binding(2, 1),
             "SERIAL-A",
             vec![identity.clone()],
@@ -347,7 +372,7 @@ fn provider_generation_change_advances_connection_epoch_and_older_generation_fai
     );
     assert_eq!(
         registry
-            .reconcile(adb_observation(
+            .reconcile(&adb_observation(
                 binding(1, 1),
                 "SERIAL-A",
                 vec![identity],
@@ -364,7 +389,7 @@ fn provider_generation_change_advances_connection_epoch_and_older_generation_fai
 fn provider_control_epoch_change_advances_device_epoch_and_older_epoch_fails() {
     let (mut registry, _provider, identity, continuity, first) = current_registry();
     let second = registry
-        .reconcile(adb_observation(
+        .reconcile(&adb_observation(
             binding(1, 2),
             "SERIAL-A",
             vec![identity.clone()],
@@ -382,7 +407,7 @@ fn provider_control_epoch_change_advances_device_epoch_and_older_epoch_fails() {
     );
     assert_eq!(
         registry
-            .reconcile(adb_observation(
+            .reconcile(&adb_observation(
                 binding(1, 1),
                 "SERIAL-A",
                 vec![identity],
@@ -408,7 +433,8 @@ fn topology_reenumeration_advances_epoch_without_replacing_device() {
     changed_seed.topology_or_address = Some("usb:2-4".to_owned());
     let second = registry
         .reconcile(
-            lane.observe(InterfaceTransport::AdbUsb, changed_seed, None)
+            &lane
+                .observe(InterfaceTransport::AdbUsb, changed_seed, None)
                 .expect("observation"),
         )
         .expect("reenumeration");
@@ -424,7 +450,7 @@ fn topology_reenumeration_advances_epoch_without_replacing_device() {
 fn changed_continuity_basis_advances_epoch_and_retains_predecessor() {
     let (mut registry, provider, identity, _continuity, first) = current_registry();
     let second = registry
-        .reconcile(adb_observation(
+        .reconcile(&adb_observation(
             provider,
             "SERIAL-A",
             vec![identity],
@@ -450,7 +476,7 @@ fn intermittent_usb_recovery_advances_epoch_on_recovery() {
     let continuity = reference("proof.evidence");
     let mut registry = DeviceRegistry::default();
     let intermittent = registry
-        .reconcile(adb_observation(
+        .reconcile(&adb_observation(
             provider.clone(),
             "SERIAL-A",
             vec![identity.clone()],
@@ -459,7 +485,7 @@ fn intermittent_usb_recovery_advances_epoch_on_recovery() {
         ))
         .expect("intermittent");
     let recovered = registry
-        .reconcile(adb_observation(
+        .reconcile(&adb_observation(
             provider,
             "SERIAL-A",
             vec![identity],
@@ -527,7 +553,7 @@ fn usb_serial_provider_retains_port_as_alias_and_node_local_provider_evidence() 
     assert_eq!(observation.backend_aliases, vec!["COM17"]);
     assert_eq!(observation.identity_basis_refs, vec![identity]);
     let mut registry = DeviceRegistry::default();
-    let current = registry.reconcile(observation).expect("reconcile");
+    let current = registry.reconcile(&observation).expect("reconcile");
     assert_eq!(current.interface.locality, InterfaceLocality::NodeLocal);
     assert_eq!(current.interface.node_generation, 1);
     assert_eq!(current.interface.endpoint_claims, vec!["18d1:4ee7"]);
@@ -570,17 +596,13 @@ fn observation_lanes_reject_incompatible_transports_and_missing_basis() {
 #[test]
 fn current_device_lease_and_fence_are_accepted() {
     let (_registry, provider, _identity, _continuity, current) = current_registry();
-    let lease = DeviceLease::issue(
+    let lease = issue_lease(
         current.device.device_ref.clone(),
         reference("core.session"),
-        vec!["protocol.observe".to_owned()],
         7,
         provider.context.provider_generation,
         current.interface.connection_epoch,
-        "2026-08-26T00:00:01Z",
-        "2026-08-26T01:00:01Z",
-    )
-    .expect("lease");
+    );
     assert_eq!(
         lease
             .fence(&current.interface, 7, "protocol.observe")
@@ -593,19 +615,15 @@ fn current_device_lease_and_fence_are_accepted() {
 #[test]
 fn lease_fails_closed_after_provider_generation_changes() {
     let (mut registry, provider, identity, continuity, current) = current_registry();
-    let lease = DeviceLease::issue(
+    let lease = issue_lease(
         current.device.device_ref.clone(),
         reference("core.session"),
-        vec!["protocol.observe".to_owned()],
         2,
         provider.context.provider_generation,
         current.interface.connection_epoch,
-        "2026-08-26T00:00:01Z",
-        "2026-08-26T01:00:01Z",
-    )
-    .expect("lease");
+    );
     let advanced = registry
-        .reconcile(adb_observation(
+        .reconcile(&adb_observation(
             binding(2, 1),
             "SERIAL-A",
             vec![identity],
@@ -625,17 +643,13 @@ fn lease_fails_closed_after_provider_generation_changes() {
 #[test]
 fn lease_fails_closed_after_connection_epoch_changes() {
     let (mut registry, provider, identity, continuity, current) = current_registry();
-    let lease = DeviceLease::issue(
+    let lease = issue_lease(
         current.device.device_ref.clone(),
         reference("core.session"),
-        vec!["protocol.observe".to_owned()],
         2,
         provider.context.provider_generation,
         current.interface.connection_epoch,
-        "2026-08-26T00:00:01Z",
-        "2026-08-26T01:00:01Z",
-    )
-    .expect("lease");
+    );
     let lane = AdbObservationProvider::new(provider);
     let mut changed = seed(
         "SERIAL-A",
@@ -646,7 +660,8 @@ fn lease_fails_closed_after_connection_epoch_changes() {
     changed.topology_or_address = Some("usb:9-9".to_owned());
     let advanced = registry
         .reconcile(
-            lane.observe(InterfaceTransport::AdbUsb, changed, None)
+            &lane
+                .observe(InterfaceTransport::AdbUsb, changed, None)
                 .expect("observation"),
         )
         .expect("advanced");
@@ -662,17 +677,13 @@ fn lease_fails_closed_after_connection_epoch_changes() {
 #[test]
 fn fence_token_scope_and_revocation_fail_closed() {
     let (_registry, provider, _identity, _continuity, current) = current_registry();
-    let mut lease = DeviceLease::issue(
+    let mut lease = issue_lease(
         current.device.device_ref.clone(),
         reference("core.session"),
-        vec!["protocol.observe".to_owned()],
         5,
         provider.context.provider_generation,
         current.interface.connection_epoch,
-        "2026-08-26T00:00:01Z",
-        "2026-08-26T01:00:01Z",
-    )
-    .expect("lease");
+    );
     assert_eq!(
         lease
             .fence(&current.interface, 4, "protocol.observe")
@@ -730,17 +741,13 @@ fn operation_request<'a>(
 #[test]
 fn read_protocol_operation_requires_current_device_provider_epoch_lease_and_attempt_evidence() {
     let (_registry, provider, _identity, _continuity, current) = current_registry();
-    let lease = DeviceLease::issue(
+    let lease = issue_lease(
         current.device.device_ref.clone(),
         reference("core.session"),
-        vec!["protocol.observe".to_owned()],
         11,
         provider.context.provider_generation,
         current.interface.connection_epoch,
-        "2026-08-26T00:00:01Z",
-        "2026-08-26T01:00:01Z",
-    )
-    .expect("lease");
+    );
     let admitted = admit_protocol_operation(operation_request(
         &provider,
         &current,
@@ -753,8 +760,14 @@ fn read_protocol_operation_requires_current_device_provider_epoch_lease_and_atte
         admitted.device_profile_revision_ref,
         current.device.current_profile_revision_ref
     );
-    assert_eq!(admitted.device_session_ref.entity_kind.as_str(), "device.session");
-    assert_eq!(admitted.connection_epoch, current.interface.connection_epoch);
+    assert_eq!(
+        admitted.device_session_ref.entity_kind.as_str(),
+        "device.session"
+    );
+    assert_eq!(
+        admitted.connection_epoch,
+        current.interface.connection_epoch
+    );
     assert_eq!(admitted.attempt_refs.len(), 1);
     assert_eq!(admitted.started_at, "2026-08-26T00:00:02Z");
 }
@@ -763,17 +776,13 @@ fn read_protocol_operation_requires_current_device_provider_epoch_lease_and_atte
 #[test]
 fn physical_authority_evidence_never_upgrades_c08_into_device_write_authority() {
     let (_registry, provider, _identity, _continuity, current) = current_registry();
-    let lease = DeviceLease::issue(
+    let lease = issue_lease(
         current.device.device_ref.clone(),
         reference("core.session"),
-        vec!["protocol.observe".to_owned()],
         13,
         provider.context.provider_generation,
         current.interface.connection_epoch,
-        "2026-08-26T00:00:01Z",
-        "2026-08-26T01:00:01Z",
-    )
-    .expect("lease");
+    );
     let mut request = operation_request(&provider, &current, &lease, MutationClass::DeviceWrite);
     request.physical_authority_ref = Some(reference("security.grant"));
     assert_eq!(

@@ -22,11 +22,9 @@ use thiserror::Error;
 /// Frozen Device schema identity consumed by C08.
 pub const DEVICE_SCHEMA_ID: &str = "urn:ptah:schema:domain:device:0.1.0";
 /// Frozen Device Interface schema identity consumed by C08.
-pub const DEVICE_INTERFACE_SCHEMA_ID: &str =
-    "urn:ptah:schema:domain:device-interface:0.1.0";
+pub const DEVICE_INTERFACE_SCHEMA_ID: &str = "urn:ptah:schema:domain:device-interface:0.1.0";
 /// Frozen Device Connection schema identity consumed by C08.
-pub const DEVICE_CONNECTION_SCHEMA_ID: &str =
-    "urn:ptah:schema:domain:device-connection:0.1.0";
+pub const DEVICE_CONNECTION_SCHEMA_ID: &str = "urn:ptah:schema:domain:device-connection:0.1.0";
 /// Frozen Device Connection Observation schema identity consumed by C08.
 pub const DEVICE_CONNECTION_OBSERVATION_SCHEMA_ID: &str =
     "urn:ptah:schema:domain:device-connection-observation:0.1.0";
@@ -36,8 +34,7 @@ pub const DEVICE_PROTOCOL_OPERATION_SCHEMA_ID: &str =
 /// Frozen Lease schema identity consumed by C08.
 pub const DEVICE_LEASE_SCHEMA_ID: &str = "urn:ptah:schema:isolation:lease:0.1.0";
 /// Frozen Fence Observation schema identity consumed by C08.
-pub const FENCE_OBSERVATION_SCHEMA_ID: &str =
-    "urn:ptah:schema:isolation:fence-observation:0.1.0";
+pub const FENCE_OBSERVATION_SCHEMA_ID: &str = "urn:ptah:schema:isolation:fence-observation:0.1.0";
 
 /// Device substrate failures.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -240,7 +237,7 @@ pub enum ProtocolClass {
     UsbSerial,
     /// Vendor download protocol.
     VendorDownload,
-    /// MediaTek META protocol.
+    /// `MediaTek` META protocol.
     Meta,
     /// Diagnostic protocol.
     Diag,
@@ -341,10 +338,7 @@ impl DeviceProviderBinding {
         }
         instance.validate_local()?;
         if instance.provider_revision_ref != revision.revision_ref {
-            return Err(ProviderError::MissingEvidence(
-                "instance/provider revision match",
-            )
-            .into());
+            return Err(ProviderError::MissingEvidence("instance/provider revision match").into());
         }
         Ok(Self {
             context: ProviderContext {
@@ -434,7 +428,11 @@ impl TransportObservation {
         }
         require_nonempty(&self.mode_or_protocol, "mode_or_protocol")?;
         require_nonempty(&self.observed_at, "observed_at")?;
-        if self.backend_aliases.iter().any(|value| value.trim().is_empty()) {
+        if self
+            .backend_aliases
+            .iter()
+            .any(|value| value.trim().is_empty())
+        {
             return Err(DeviceError::EmptyField("backend_alias"));
         }
         if has_duplicates(&self.identity_basis_refs)
@@ -801,15 +799,45 @@ impl DeviceRegistry {
     /// required evidence is absent, or epoch arithmetic overflows.
     pub fn reconcile(
         &mut self,
-        observation: TransportObservation,
+        observation: &TransportObservation,
     ) -> Result<ReconcileOutcome, DeviceError> {
         observation.validate()?;
+        let (device_index, device_created) = self.reconcile_device(observation)?;
+        let device_ref = self.devices[device_index].device_ref.clone();
+        let (interface_index, interface_created, connection_advanced) =
+            self.reconcile_interface(&device_ref, observation)?;
+        let connection = self.current_connection(interface_index)?;
+        let connection_observation = self.record_connection_observation(
+            &device_ref,
+            interface_index,
+            &connection,
+            observation,
+        )?;
+
+        Ok(ReconcileOutcome {
+            device: self.devices[device_index].clone(),
+            interface: self.interfaces[interface_index].clone(),
+            connection,
+            observation: connection_observation,
+            device_created,
+            interface_created,
+            connection_advanced,
+        })
+    }
+
+    fn reconcile_device(
+        &mut self,
+        observation: &TransportObservation,
+    ) -> Result<(usize, bool), DeviceError> {
         let matching_devices = self
             .devices
             .iter()
             .enumerate()
             .filter(|(_, device)| {
-                basis_overlaps(&device.identity_basis_refs, &observation.identity_basis_refs)
+                basis_overlaps(
+                    &device.identity_basis_refs,
+                    &observation.identity_basis_refs,
+                )
             })
             .map(|(index, _)| index)
             .collect::<Vec<_>>();
@@ -817,7 +845,7 @@ impl DeviceRegistry {
             return Err(DeviceError::AmbiguousIdentity);
         }
 
-        let (device_index, device_created) = if let Some(index) = matching_devices.first().copied() {
+        if let Some(index) = matching_devices.first().copied() {
             if self.devices[index].device_kind != observation.device_kind {
                 return Err(DeviceError::DeviceKindMismatch);
             }
@@ -833,150 +861,210 @@ impl DeviceRegistry {
                     .profile_revision_refs
                     .push(observation.profile_revision_ref.clone());
             }
-            self.devices[index].current_profile_revision_ref = observation.profile_revision_ref.clone();
-            (index, false)
-        } else {
-            let device = DeviceRecord {
-                device_ref: EntityRef::new("device.device")?,
-                device_kind: observation.device_kind,
-                identity_basis_refs: observation.identity_basis_refs.clone(),
-                current_profile_revision_ref: observation.profile_revision_ref.clone(),
-                profile_revision_refs: vec![observation.profile_revision_ref.clone()],
-                limitations: observation.limitations.clone(),
-            };
-            self.devices.push(device);
-            (self.devices.len() - 1, true)
-        };
-        let device_ref = self.devices[device_index].device_ref.clone();
+            self.devices[index]
+                .current_profile_revision_ref
+                .clone_from(&observation.profile_revision_ref);
+            return Ok((index, false));
+        }
 
+        self.devices.push(DeviceRecord {
+            device_ref: EntityRef::new("device.device")?,
+            device_kind: observation.device_kind,
+            identity_basis_refs: observation.identity_basis_refs.clone(),
+            current_profile_revision_ref: observation.profile_revision_ref.clone(),
+            profile_revision_refs: vec![observation.profile_revision_ref.clone()],
+            limitations: observation.limitations.clone(),
+        });
+        Ok((self.devices.len() - 1, true))
+    }
+
+    fn reconcile_interface(
+        &mut self,
+        device_ref: &EntityRef,
+        observation: &TransportObservation,
+    ) -> Result<(usize, bool, bool), DeviceError> {
         let interface_index = self.interfaces.iter().position(|interface| {
-            interface.device_ref == device_ref
+            interface.device_ref == *device_ref
                 && interface.transport == observation.transport
                 && interface.mode_or_protocol == observation.mode_or_protocol
         });
 
-        let (interface_index, interface_created, connection_advanced) =
-            if let Some(index) = interface_index {
-                validate_observation_freshness(&self.interfaces[index], &observation)?;
-                let reason = connection_transition_reason(&self.interfaces[index], &observation);
-                if let Some(reason) = reason {
-                    let next_epoch = self.interfaces[index]
-                        .connection_epoch
-                        .checked_add(1)
-                        .ok_or(DeviceError::EpochOverflow)?;
-                    let predecessor = self.interfaces[index].connection_ref.clone();
-                    let connection_ref = EntityRef::new("device.connection")?;
-                    self.interfaces[index].connection_epoch = next_epoch;
-                    self.interfaces[index].connection_ref = connection_ref.clone();
-                    self.interfaces[index].provider_instance_ref =
-                        observation.provider.context.provider_instance_ref.clone();
-                    self.interfaces[index].provider_generation =
-                        observation.provider.context.provider_generation;
-                    self.interfaces[index].node_ref = observation.provider.context.node_ref.clone();
-                    self.interfaces[index].node_generation = observation.provider.context.node_generation;
-                    self.interfaces[index].provider_connection_epoch =
-                        observation.provider.context.connection_epoch;
-                    self.interfaces[index].continuity_basis_refs =
-                        observation.continuity_basis_refs.clone();
-                    self.interfaces[index].protocol_version = observation.protocol_version.clone();
-                    self.interfaces[index].topology_or_address = observation.topology_or_address.clone();
-                    self.interfaces[index].endpoint_claims = observation.endpoint_claims.clone();
-                    self.interfaces[index].capability_claim_refs =
-                        observation.provider.capability_claim_refs.clone();
-                    self.interfaces[index].reachability = observation.reachability;
-                    self.interfaces[index].observed_aliases = observation.backend_aliases.clone();
-                    self.interfaces[index].evidence_refs = observation.evidence_refs.clone();
-                    self.interfaces[index].last_observed_at = observation.observed_at.clone();
-                    self.connections.push(DeviceConnectionRecord {
-                        connection_ref,
-                        device_ref: device_ref.clone(),
-                        interface_ref: self.interfaces[index].interface_ref.clone(),
-                        connection_epoch: next_epoch,
-                        provider_instance_ref: observation
-                            .provider
-                            .context
-                            .provider_instance_ref
-                            .clone(),
-                        provider_generation: observation.provider.context.provider_generation,
-                        continuity_basis_refs: observation.continuity_basis_refs.clone(),
-                        predecessor_connection_ref: Some(predecessor),
-                        transition_reason: reason,
-                        started_at: observation.observed_at.clone(),
-                        evidence_refs: observation.evidence_refs.clone(),
-                    });
-                    (index, false, true)
-                } else {
-                    self.interfaces[index].protocol_version = observation.protocol_version.clone();
-                    self.interfaces[index].endpoint_claims = observation.endpoint_claims.clone();
-                    self.interfaces[index].capability_claim_refs =
-                        observation.provider.capability_claim_refs.clone();
-                    self.interfaces[index].reachability = observation.reachability;
-                    self.interfaces[index].observed_aliases = observation.backend_aliases.clone();
-                    self.interfaces[index].evidence_refs = observation.evidence_refs.clone();
-                    self.interfaces[index].last_observed_at = observation.observed_at.clone();
-                    (index, false, false)
-                }
-            } else {
-                let interface_ref = EntityRef::new("device.interface")?;
-                let connection_ref = EntityRef::new("device.connection")?;
-                let interface = DeviceInterfaceRecord {
-                    interface_ref: interface_ref.clone(),
-                    device_ref: device_ref.clone(),
-                    transport: observation.transport,
-                    mode_or_protocol: observation.mode_or_protocol.clone(),
-                    protocol_version: observation.protocol_version.clone(),
-                    observed_aliases: observation.backend_aliases.clone(),
-                    topology_or_address: observation.topology_or_address.clone(),
-                    endpoint_claims: observation.endpoint_claims.clone(),
-                    provider_instance_ref: observation
-                        .provider
-                        .context
-                        .provider_instance_ref
-                        .clone(),
-                    provider_generation: observation.provider.context.provider_generation,
-                    locality: InterfaceLocality::NodeLocal,
-                    node_ref: observation.provider.context.node_ref.clone(),
-                    node_generation: observation.provider.context.node_generation,
-                    provider_connection_epoch: observation.provider.context.connection_epoch,
-                    connection_epoch: 1,
-                    connection_ref: connection_ref.clone(),
-                    continuity_basis_refs: observation.continuity_basis_refs.clone(),
-                    capability_claim_refs: observation.provider.capability_claim_refs.clone(),
-                    reachability: observation.reachability,
-                    evidence_refs: observation.evidence_refs.clone(),
-                    first_observed_at: observation.observed_at.clone(),
-                    last_observed_at: observation.observed_at.clone(),
-                };
-                self.interfaces.push(interface);
-                let index = self.interfaces.len() - 1;
-                self.connections.push(DeviceConnectionRecord {
-                    connection_ref,
-                    device_ref: device_ref.clone(),
-                    interface_ref,
-                    connection_epoch: 1,
-                    provider_instance_ref: observation
-                        .provider
-                        .context
-                        .provider_instance_ref
-                        .clone(),
-                    provider_generation: observation.provider.context.provider_generation,
-                    continuity_basis_refs: observation.continuity_basis_refs.clone(),
-                    predecessor_connection_ref: None,
-                    transition_reason: TransitionReason::InitialObservation,
-                    started_at: observation.observed_at.clone(),
-                    evidence_refs: observation.evidence_refs.clone(),
-                });
-                (index, true, true)
-            };
+        if let Some(index) = interface_index {
+            validate_observation_freshness(&self.interfaces[index], observation)?;
+            if let Some(reason) = connection_transition_reason(&self.interfaces[index], observation)
+            {
+                self.advance_interface_connection(index, device_ref, observation, reason)?;
+                return Ok((index, false, true));
+            }
+            self.refresh_interface(index, observation);
+            return Ok((index, false, false));
+        }
 
-        let current_connection_ref = self.interfaces[interface_index].connection_ref.clone();
-        let connection = self
-            .connections
+        let index = self.create_interface(device_ref, observation)?;
+        Ok((index, true, true))
+    }
+
+    fn advance_interface_connection(
+        &mut self,
+        index: usize,
+        device_ref: &EntityRef,
+        observation: &TransportObservation,
+        reason: TransitionReason,
+    ) -> Result<(), DeviceError> {
+        let next_epoch = self.interfaces[index]
+            .connection_epoch
+            .checked_add(1)
+            .ok_or(DeviceError::EpochOverflow)?;
+        let predecessor = self.interfaces[index].connection_ref.clone();
+        let connection_ref = EntityRef::new("device.connection")?;
+        let interface_ref = {
+            let interface = &mut self.interfaces[index];
+            interface.connection_epoch = next_epoch;
+            interface.connection_ref.clone_from(&connection_ref);
+            interface
+                .provider_instance_ref
+                .clone_from(&observation.provider.context.provider_instance_ref);
+            interface.provider_generation = observation.provider.context.provider_generation;
+            interface
+                .node_ref
+                .clone_from(&observation.provider.context.node_ref);
+            interface.node_generation = observation.provider.context.node_generation;
+            interface.provider_connection_epoch = observation.provider.context.connection_epoch;
+            interface
+                .continuity_basis_refs
+                .clone_from(&observation.continuity_basis_refs);
+            interface
+                .protocol_version
+                .clone_from(&observation.protocol_version);
+            interface
+                .topology_or_address
+                .clone_from(&observation.topology_or_address);
+            interface
+                .endpoint_claims
+                .clone_from(&observation.endpoint_claims);
+            interface
+                .capability_claim_refs
+                .clone_from(&observation.provider.capability_claim_refs);
+            interface.reachability = observation.reachability;
+            interface
+                .observed_aliases
+                .clone_from(&observation.backend_aliases);
+            interface
+                .evidence_refs
+                .clone_from(&observation.evidence_refs);
+            interface
+                .last_observed_at
+                .clone_from(&observation.observed_at);
+            interface.interface_ref.clone()
+        };
+
+        self.connections.push(DeviceConnectionRecord {
+            connection_ref,
+            device_ref: device_ref.clone(),
+            interface_ref,
+            connection_epoch: next_epoch,
+            provider_instance_ref: observation.provider.context.provider_instance_ref.clone(),
+            provider_generation: observation.provider.context.provider_generation,
+            continuity_basis_refs: observation.continuity_basis_refs.clone(),
+            predecessor_connection_ref: Some(predecessor),
+            transition_reason: reason,
+            started_at: observation.observed_at.clone(),
+            evidence_refs: observation.evidence_refs.clone(),
+        });
+        Ok(())
+    }
+
+    fn refresh_interface(&mut self, index: usize, observation: &TransportObservation) {
+        let interface = &mut self.interfaces[index];
+        interface
+            .protocol_version
+            .clone_from(&observation.protocol_version);
+        interface
+            .endpoint_claims
+            .clone_from(&observation.endpoint_claims);
+        interface
+            .capability_claim_refs
+            .clone_from(&observation.provider.capability_claim_refs);
+        interface.reachability = observation.reachability;
+        interface
+            .observed_aliases
+            .clone_from(&observation.backend_aliases);
+        interface
+            .evidence_refs
+            .clone_from(&observation.evidence_refs);
+        interface
+            .last_observed_at
+            .clone_from(&observation.observed_at);
+    }
+
+    fn create_interface(
+        &mut self,
+        device_ref: &EntityRef,
+        observation: &TransportObservation,
+    ) -> Result<usize, DeviceError> {
+        let interface_ref = EntityRef::new("device.interface")?;
+        let connection_ref = EntityRef::new("device.connection")?;
+        self.interfaces.push(DeviceInterfaceRecord {
+            interface_ref: interface_ref.clone(),
+            device_ref: device_ref.clone(),
+            transport: observation.transport,
+            mode_or_protocol: observation.mode_or_protocol.clone(),
+            protocol_version: observation.protocol_version.clone(),
+            observed_aliases: observation.backend_aliases.clone(),
+            topology_or_address: observation.topology_or_address.clone(),
+            endpoint_claims: observation.endpoint_claims.clone(),
+            provider_instance_ref: observation.provider.context.provider_instance_ref.clone(),
+            provider_generation: observation.provider.context.provider_generation,
+            locality: InterfaceLocality::NodeLocal,
+            node_ref: observation.provider.context.node_ref.clone(),
+            node_generation: observation.provider.context.node_generation,
+            provider_connection_epoch: observation.provider.context.connection_epoch,
+            connection_epoch: 1,
+            connection_ref: connection_ref.clone(),
+            continuity_basis_refs: observation.continuity_basis_refs.clone(),
+            capability_claim_refs: observation.provider.capability_claim_refs.clone(),
+            reachability: observation.reachability,
+            evidence_refs: observation.evidence_refs.clone(),
+            first_observed_at: observation.observed_at.clone(),
+            last_observed_at: observation.observed_at.clone(),
+        });
+        let index = self.interfaces.len() - 1;
+        self.connections.push(DeviceConnectionRecord {
+            connection_ref,
+            device_ref: device_ref.clone(),
+            interface_ref,
+            connection_epoch: 1,
+            provider_instance_ref: observation.provider.context.provider_instance_ref.clone(),
+            provider_generation: observation.provider.context.provider_generation,
+            continuity_basis_refs: observation.continuity_basis_refs.clone(),
+            predecessor_connection_ref: None,
+            transition_reason: TransitionReason::InitialObservation,
+            started_at: observation.observed_at.clone(),
+            evidence_refs: observation.evidence_refs.clone(),
+        });
+        Ok(index)
+    }
+
+    fn current_connection(
+        &self,
+        interface_index: usize,
+    ) -> Result<DeviceConnectionRecord, DeviceError> {
+        let current_connection_ref = &self.interfaces[interface_index].connection_ref;
+        self.connections
             .iter()
-            .find(|connection| connection.connection_ref == current_connection_ref)
+            .find(|connection| connection.connection_ref == *current_connection_ref)
             .cloned()
-            .ok_or(DeviceError::OperationEvidenceMismatch)?;
-        let connection_observation = DeviceConnectionObservationRecord {
+            .ok_or(DeviceError::OperationEvidenceMismatch)
+    }
+
+    fn record_connection_observation(
+        &mut self,
+        device_ref: &EntityRef,
+        interface_index: usize,
+        connection: &DeviceConnectionRecord,
+        observation: &TransportObservation,
+    ) -> Result<DeviceConnectionObservationRecord, DeviceError> {
+        let record = DeviceConnectionObservationRecord {
             observation_ref: EntityRef::new("device.connection_observation")?,
             device_ref: device_ref.clone(),
             interface_ref: self.interfaces[interface_index].interface_ref.clone(),
@@ -985,20 +1073,12 @@ impl DeviceRegistry {
             provider_instance_ref: observation.provider.context.provider_instance_ref.clone(),
             provider_generation: observation.provider.context.provider_generation,
             reachability: observation.reachability,
-            mode_or_protocol: observation.mode_or_protocol,
-            observed_at: observation.observed_at,
-            evidence_refs: observation.evidence_refs,
+            mode_or_protocol: observation.mode_or_protocol.clone(),
+            observed_at: observation.observed_at.clone(),
+            evidence_refs: observation.evidence_refs.clone(),
         };
-        self.observations.push(connection_observation.clone());
-        Ok(ReconcileOutcome {
-            device: self.devices[device_index].clone(),
-            interface: self.interfaces[interface_index].clone(),
-            connection,
-            observation: connection_observation,
-            device_created,
-            interface_created,
-            connection_advanced,
-        })
+        self.observations.push(record.clone());
+        Ok(record)
     }
 
     /// Resolve a backend alias only as a lookup hint.
@@ -1010,22 +1090,51 @@ impl DeviceRegistry {
         require_nonempty(alias, "backend_alias")?;
         let mut device_indexes = BTreeSet::new();
         for interface in &self.interfaces {
-            if interface.observed_aliases.iter().any(|value| value == alias) {
-                if let Some(index) = self
-                    .devices
-                    .iter()
-                    .position(|device| device.device_ref == interface.device_ref)
-                {
-                    device_indexes.insert(index);
-                }
+            if interface
+                .observed_aliases
+                .iter()
+                .any(|value| value == alias)
+            {
+                device_indexes.extend(
+                    self.devices
+                        .iter()
+                        .position(|device| device.device_ref == interface.device_ref),
+                );
             }
         }
         match device_indexes.len() {
             0 => Err(DeviceError::AliasNotFound),
-            1 => Ok(&self.devices[*device_indexes.first().expect("one index")]),
+            1 => {
+                let index = device_indexes
+                    .first()
+                    .copied()
+                    .ok_or(DeviceError::AliasNotFound)?;
+                Ok(&self.devices[index])
+            }
             _ => Err(DeviceError::AmbiguousAlias),
         }
     }
+}
+
+/// Inputs required to issue a Device-control lease projection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceLeaseRequest {
+    /// Stable Device subject.
+    pub device_ref: EntityRef,
+    /// Lease holder.
+    pub holder_ref: EntityRef,
+    /// Authorized operation scopes.
+    pub scope: Vec<String>,
+    /// Positive fencing token.
+    pub fence_token: u64,
+    /// Exact Provider generation.
+    pub provider_generation: ProviderGeneration,
+    /// Exact Device connection epoch.
+    pub connection_epoch: u64,
+    /// Issue timestamp.
+    pub issued_at: String,
+    /// Expiry timestamp.
+    pub expires_at: String,
 }
 
 /// Device-control lease bound to exact Provider generation and connection epoch.
@@ -1058,16 +1167,17 @@ impl DeviceLease {
     ///
     /// # Errors
     /// Rejects zero fence tokens, empty scope, incorrect Device kind, or empty timestamps.
-    pub fn issue(
-        device_ref: EntityRef,
-        holder_ref: EntityRef,
-        scope: impl IntoIterator<Item = String>,
-        fence_token: u64,
-        provider_generation: ProviderGeneration,
-        connection_epoch: u64,
-        issued_at: impl Into<String>,
-        expires_at: impl Into<String>,
-    ) -> Result<Self, DeviceError> {
+    pub fn issue(request: DeviceLeaseRequest) -> Result<Self, DeviceError> {
+        let DeviceLeaseRequest {
+            device_ref,
+            holder_ref,
+            scope,
+            fence_token,
+            provider_generation,
+            connection_epoch,
+            issued_at,
+            expires_at,
+        } = request;
         require_entity_kind(&device_ref, "device.device")?;
         if fence_token == 0 {
             return Err(DeviceError::InvalidFenceToken);
@@ -1076,8 +1186,6 @@ impl DeviceLease {
         if scope.is_empty() || scope.iter().any(|value| value.trim().is_empty()) {
             return Err(DeviceError::LeaseScopeDenied);
         }
-        let issued_at = issued_at.into();
-        let expires_at = expires_at.into();
         require_nonempty(&issued_at, "issued_at")?;
         require_nonempty(&expires_at, "expires_at")?;
         Ok(Self {

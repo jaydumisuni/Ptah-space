@@ -1,4 +1,4 @@
-name: Temporary Redmi sky Global ROM offline preflight on KRATOS
+name: Temporary Redmi updater region-gate evidence on KRATOS
 
 on:
   push:
@@ -7,95 +7,76 @@ on:
       - '.github/workflows/tmp-oracle-relay-diagnose-kratos.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  preflight:
+  probe:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Inspect Global fastboot archive without extracting it
+      - name: Recover Xiaomi updater/recovery region-gate evidence read-only
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import datetime, hashlib, json, pathlib, shlex, shutil, socket, subprocess
+          ADB="$(command -v adb || true)"
+          if [[ -z "$ADB" && -x /home/kratos/.local/share/mibu-platform-tools/current/platform-tools/adb ]]; then
+            ADB=/home/kratos/.local/share/mibu-platform-tools/current/platform-tools/adb
+          fi
+          test -n "$ADB"
+          "$ADB" start-server >/dev/null
+          test "$("$ADB" get-state | tail -n1)" = device
 
-          desktop = pathlib.Path.home() / 'Desktop'
-          expected_name = 'sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
-          expected_md5 = '3334591f858477053b68f4c0e47debf0'
-          candidates = []
-          if desktop.exists():
-              candidates.extend(desktop.rglob(expected_name))
-              if not candidates:
-                  candidates.extend(desktop.rglob('sky_global_images_*.tgz'))
-          archive = candidates[0] if candidates else None
-
-          def digest(path, algo):
-              h = hashlib.new(algo)
-              with path.open('rb') as f:
-                  while True:
-                      chunk = f.read(8 * 1024 * 1024)
-                      if not chunk:
-                          break
-                      h.update(chunk)
-              return h.hexdigest()
-
-          def run(args, timeout=60):
-              try:
-                  p = subprocess.run(args, text=True, capture_output=True, timeout=timeout, check=False)
-                  return {'rc': p.returncode, 'stdout': p.stdout[-30000:], 'stderr': p.stderr[-10000:]}
-              except Exception as e:
-                  return {'rc': -1, 'stdout': '', 'stderr': f'{type(e).__name__}: {e}'}
-
-          tools = {name: shutil.which(name) for name in [
-              'tar','7z','python3','simg2img','img2simg','lpunpack','debugfs','e2fsck',
-              'unsquashfs','brotli','avbtool','payload-dumper-go','file','md5sum','sha256sum'
-          ]}
-          out = {
-              'schema': 'ttg.redmi.sky.global-preflight.v1',
-              'host': socket.gethostname(),
-              'desktop': str(desktop),
-              'expected_name': expected_name,
-              'expected_md5': expected_md5,
-              'archive_found': archive is not None,
-              'archive': None,
-              'tools': tools,
-              'completed_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-          }
-          if archive is not None:
-              size = archive.stat().st_size
-              md5 = digest(archive, 'md5')
-              sha256 = digest(archive, 'sha256')
-              quoted = shlex.quote(str(archive))
-              listing = run(['bash','-lc', f'set +o pipefail; tar -tzf {quoted} 2>&1 | head -n 260'], timeout=120)
-              out['archive'] = {
-                  'path': str(archive),
-                  'size_bytes': size,
-                  'md5': md5,
-                  'md5_matches_expected': md5.lower() == expected_md5.lower(),
-                  'sha256': sha256,
-                  'listing': listing,
-                  'file_type': run(['file','-b',str(archive)], timeout=20),
-              }
-          pathlib.Path('redmi-sky-global-preflight.json').write_text(json.dumps(out, indent=2) + '\n')
-          PY
-
-      - name: Publish preflight evidence
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add redmi-sky-global-preflight.json
-          git commit -m 'proof: publish KRATOS Redmi sky Global ROM preflight'
-          for i in 1 2 3 4 5; do
-            git push origin HEAD:main && exit 0
-            git fetch origin main
-            git rebase origin/main
+          echo '=== HOST TOOLS ==='
+          for x in adb aapt aapt2 apkanalyzer apksigner jadx apktool unzip zipinfo strings dexdump baksmali; do
+            printf '%s=' "$x"; command -v "$x" || true
           done
-          exit 1
+
+          echo '=== REGION / DEVICE / UPDATE PROPERTIES ==='
+          "$ADB" shell 'getprop | grep -Ei "\[(ro\.(miui|vendor\.miui|product|build|boot|system|system_ext)|persist\.(sys|vendor)|ro\.hardware|ro\.boot\.hwc|ro\.boot\.hardware\.sku|ro\.product\.mod_device|ro\.build\.version\.incremental|ro\.build\.version\.release|ro\.build\.fingerprint|ro\.build\.description|ro\.build\.product|ro\.product\.device|ro\.miui\.region|ro\.miui\.cust_variant|ro\.vendor\.miui\.region|ro\.vendor\.miui\.cust_variant|ro\.miui\.build\.region|ro\.miui\.business\.version))\]" | sort' || true
+
+          echo '=== UPDATE / OTA / RECOVERY PACKAGE CANDIDATES ==='
+          "$ADB" shell 'pm list packages -f -u | grep -Ei "(updat|ota|recovery|miui)" | sort' || true
+
+          echo '=== KNOWN UPDATER PACKAGE DETAILS ==='
+          for pkg in com.android.updater com.miui.updater com.xiaomi.updater com.miui.miservice; do
+            echo "--- $pkg ---"
+            "$ADB" shell "pm path $pkg" 2>/dev/null || true
+            "$ADB" shell "dumpsys package $pkg | head -n 420" 2>/dev/null || true
+          done
+
+          echo '=== UPDATE ENGINE / RECOVERY FILES ==='
+          "$ADB" shell 'for p in /system/bin/update_engine /system/bin/update_verifier /system/bin/recovery /system/etc/update_engine.conf /vendor/etc/update_engine.conf /metadata/ota /data/ota_package /cache/recovery; do printf "--- %s ---\n" "$p"; ls -ldZ "$p" 2>&1 || true; if [ -f "$p" ]; then head -n 120 "$p" 2>/dev/null || true; fi; done' || true
+
+          echo '=== BOUNDED UPDATE/OTA CONFIG INVENTORY ==='
+          "$ADB" shell 'find /system /system_ext /product /mi_ext /vendor /odm /cust -maxdepth 5 -type f 2>/dev/null | grep -Ei "/([^/]*(update|updater|ota|recovery|region|cust|sku)[^/]*)$" | head -n 500' || true
+
+          echo '=== UPDATER APK OFFLINE ANALYSIS ==='
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          updater_path="$("$ADB" shell 'pm path com.android.updater 2>/dev/null | head -n1 | sed "s/^package://"' | tr -d '\r')"
+          printf 'updater_device_path=%s\n' "$updater_path"
+          if [[ -n "$updater_path" ]]; then
+            "$ADB" pull "$updater_path" "$work/updater.apk" >/dev/null
+            file "$work/updater.apk"
+            sha256sum "$work/updater.apk"
+            echo '--- ZIP MEMBERS ---'
+            unzip -l "$work/updater.apk" | head -n 260 || true
+            echo '--- SIGNING CERT ---'
+            if command -v apksigner >/dev/null 2>&1; then
+              apksigner verify --print-certs "$work/updater.apk" 2>&1 | head -n 120 || true
+            fi
+            echo '--- MANIFEST ---'
+            if command -v apkanalyzer >/dev/null 2>&1; then
+              apkanalyzer manifest print "$work/updater.apk" 2>&1 | head -n 360 || true
+            elif command -v aapt2 >/dev/null 2>&1; then
+              aapt2 dump xmltree "$work/updater.apk" --file AndroidManifest.xml 2>&1 | head -n 360 || true
+            elif command -v aapt >/dev/null 2>&1; then
+              aapt dump xmltree "$work/updater.apk" AndroidManifest.xml 2>&1 | head -n 360 || true
+            fi
+            echo '--- REGION/DEVICE/VERIFY STRINGS FROM APK ---'
+            unzip -p "$work/updater.apk" 2>/dev/null | strings -a | grep -Ei '(CNXM|MIXM|EUXM|INXM|region|cust_variant|custVariant|currentSku|romRegion|mod_device|modDevice|device mismatch|version mismatch|rollback|anti.?rollback|verify|signature|signed|package.*invalid|update package|recovery|ota|build fingerprint|incremental|pre-device|pre-build|post-build)' | sort -u | head -n 1200 || true
+          fi
+
+          echo '=== POST-PROBE SAFETY ==='
+          printf 'adb_state='; "$ADB" get-state | tail -n1
+          ip route show default | head -n 10 || true

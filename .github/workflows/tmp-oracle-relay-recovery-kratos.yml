@@ -1,5 +1,5 @@
-# activate: verify external Redmi Global ROM on KRATOS 2026-08-27
-name: Temporary verify Redmi Global ROM from external USB on KRATOS
+# activate: extract verified Global regional images 2026-08-27
+name: Temporary extract verified Redmi Global regional images on KRATOS
 
 on:
   push:
@@ -11,76 +11,68 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  extract:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 45
     steps:
-      - name: Locate and verify external-drive ROM without touching Redmi
+      - name: Extract only regional partitions and metadata from verified archive
         shell: bash
         run: |
           set -euo pipefail
           expected_name='sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
-          expected_size=7949886711
-          expected_md5='3334591f858477053b68f4c0e47debf0'
+          root='sky_global_images_OS2.0.9.0.VMWMIXM_15.0'
+          work='/home/kratos/Desktop/redmi-global-analysis/OS2.0.9.0.VMWMIXM'
 
-          echo '=== BLOCK DEVICES ==='
-          lsblk -o NAME,PATH,TRAN,LABEL,FSTYPE,SIZE,FSAVAIL,MOUNTPOINTS
-
-          echo '=== FIND USB EXFAT VOLUME ==='
-          dev="$(lsblk -rno PATH,LABEL,FSTYPE,TRAN | awk '$2=="Untitled" && tolower($3)=="exfat" {print $1; exit}')"
-          if [[ -z "$dev" ]]; then
-            dev="$(lsblk -rno PATH,LABEL,FSTYPE,TRAN | awk 'tolower($3)=="exfat" && $4=="usb" {print $1; exit}')"
-          fi
-          [[ -n "$dev" ]] || { echo 'EXTERNAL_USB_EXFAT_NOT_FOUND'; exit 2; }
-          printf 'device=%s\n' "$dev"
-
+          dev="$(lsblk -rno PATH,LABEL,FSTYPE | awk '$2=="Untitled" && tolower($3)=="exfat" {print $1; exit}')"
+          [[ -n "$dev" ]] || { echo 'USB_VOLUME_NOT_FOUND'; exit 2; }
           mountpoint="$(lsblk -rno MOUNTPOINTS "$dev" | awk 'NF {print; exit}')"
           if [[ -z "$mountpoint" ]]; then
-            echo 'volume_not_mounted=true'
-            if command -v udisksctl >/dev/null 2>&1; then
-              out="$(udisksctl mount -b "$dev" -o ro 2>&1)" || { echo "$out"; exit 3; }
-              echo "$out"
-              mountpoint="$(lsblk -rno MOUNTPOINTS "$dev" | awk 'NF {print; exit}')"
-            fi
+            out="$(udisksctl mount -b "$dev" -o ro 2>&1)" || { echo "$out"; exit 3; }
+            echo "$out"
+            mountpoint="$(lsblk -rno MOUNTPOINTS "$dev" | awk 'NF {print; exit}')"
           fi
-          [[ -n "$mountpoint" ]] || { echo 'EXTERNAL_USB_NOT_MOUNTED'; exit 4; }
-          printf 'mountpoint=%s\n' "$mountpoint"
-          findmnt -T "$mountpoint" || true
+          rom="$(find "$mountpoint" -maxdepth 4 -type f -name "$expected_name" -print -quit)"
+          [[ -f "$rom" ]] || { echo 'VERIFIED_ROM_NOT_FOUND'; exit 4; }
+          [[ "$(md5sum "$rom" | awk '{print $1}')" == '3334591f858477053b68f4c0e47debf0' ]] || { echo 'ROM_MD5_CHANGED'; exit 5; }
 
-          echo '=== ROM CANDIDATES ==='
-          find "$mountpoint" -maxdepth 4 -type f \( -iname '*.tgz' -o -iname '*.tar.gz' -o -size +7G \) \
-            -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TS\t%p\n' 2>/dev/null | sort -nr | head -n 50
+          mkdir -p "$work"
+          echo '=== EXTRACT SELECTED MEMBERS ==='
+          tar -xzf "$rom" -C "$work" --strip-components=2 \
+            "$root/images/cust.img" \
+            "$root/images/opcust.img" \
+            "$root/images/opconfig.img" \
+            "$root/images/super.img" \
+            "$root/images/vbmeta.img" \
+            "$root/images/vbmeta_system.img" \
+            "$root/images/anti_version.txt"
+          tar -xzf "$rom" -C "$work" --strip-components=1 \
+            "$root/misc.txt" \
+            "$root/flash_all.sh" \
+            "$root/flash_all_lock.sh" \
+            "$root/flash_all_except_storage.sh"
 
-          rom="$(find "$mountpoint" -maxdepth 4 -type f -name "$expected_name" -print -quit 2>/dev/null || true)"
-          if [[ -z "$rom" ]]; then
-            rom="$(find "$mountpoint" -maxdepth 4 -type f -size +7G -print 2>/dev/null | head -n 1 || true)"
-          fi
-          [[ -n "$rom" ]] || { echo 'ROM_FILE_NOT_FOUND'; exit 5; }
-          printf 'selected_rom=%s\n' "$rom"
+          echo '=== EXTRACTED INVENTORY ==='
+          find "$work" -maxdepth 2 -type f -printf '%s\t%p\n' | sort -nr
 
-          echo '=== SIZE ==='
-          actual_size="$(stat -c %s "$rom")"
-          printf 'actual_size=%s\nexpected_size=%s\n' "$actual_size" "$expected_size"
-          [[ "$actual_size" -eq "$expected_size" ]] || { echo 'SIZE_MISMATCH'; exit 6; }
+          echo '=== FILE TYPES ==='
+          while IFS= read -r -d '' f; do
+            printf '%s\t' "$f"
+            file -b "$f"
+          done < <(find "$work" -maxdepth 2 -type f -print0 | sort -z)
 
-          echo '=== HASHES ==='
-          actual_md5="$(md5sum "$rom" | awk '{print $1}')"
-          actual_sha256="$(sha256sum "$rom" | awk '{print $1}')"
-          printf 'md5=%s\nexpected_md5=%s\nsha256=%s\n' "$actual_md5" "$expected_md5" "$actual_sha256"
-          [[ "${actual_md5,,}" == "${expected_md5,,}" ]] || { echo 'MD5_MISMATCH'; exit 7; }
+          echo '=== MAGIC HEADERS ==='
+          for f in "$work"/*.img; do
+            echo "--- $(basename "$f") ---"
+            od -An -tx1 -N64 "$f" | tr -s ' '
+          done
 
-          echo '=== GZIP INTEGRITY ==='
-          gzip -t "$rom"
-          echo 'gzip_test=PASS'
+          echo '=== AVAILABLE IMAGE TOOLS ==='
+          for t in simg2img img2simg lpunpack lpdump debugfs fsck.erofs dump.erofs mount 7z avbtool; do
+            printf '%s=' "$t"
+            command -v "$t" || true
+          done
 
-          echo '=== ARCHIVE MEMBER TABLE HEAD ==='
-          set +o pipefail
-          tar -tzf "$rom" | head -n 160
-          tar_rc=${PIPESTATUS[0]}
-          set -o pipefail
-          if [[ $tar_rc -ne 0 && $tar_rc -ne 141 ]]; then
-            echo "tar_list_rc=$tar_rc"
-            exit 8
-          fi
-          echo 'tar_listing=PASS'
-          echo 'ROM_ACCEPTANCE=PASS'
+          echo '=== FLASH/REGION HITS ==='
+          grep -RniE '(anti|region|product|cust|super|vbmeta|lock|erase|wiping|fastboot)' "$work"/*.sh "$work"/*.txt 2>/dev/null | head -n 500 || true
+
+          echo "analysis_root=$work"

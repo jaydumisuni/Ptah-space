@@ -1,0 +1,192 @@
+name: Temporary C08 integrated-main post-merge proof
+
+on:
+  push:
+    branches: [temp-c08-kratos-review-carrier]
+    paths:
+      - '.github/workflows/temp-c08-post-merge-integrated-proof.yml'
+
+permissions:
+  contents: read
+
+env:
+  EXPECTED_MAIN_HEAD: ec56894d80373bc46edd5afedd651422daa075b3
+  PROVEN_C08_HEAD: fd9b5fadf0b7f9115db3bd96921ba0ba1fd767f5
+  PROOF_BASE: 84bba85902955e712d66ff9aa4853d7d22d287c1
+  RUST_BIN: /home/kratos/.rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin
+  CARGO_TERM_COLOR: always
+
+jobs:
+  integrated-proof:
+    runs-on: [self-hosted, kratos, ptah]
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact integrated main head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.EXPECTED_MAIN_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fence integrated main and preserve proven C08 blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_HEAD"
+          test -z "$(git status --porcelain)"
+          remote_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          test "$remote_main" = "$EXPECTED_MAIN_HEAD"
+
+          read -r merge parent1 parent2 < <(git rev-list --parents -n 1 "$EXPECTED_MAIN_HEAD")
+          test "$merge" = "$EXPECTED_MAIN_HEAD"
+          test "$parent1" = "$PROOF_BASE"
+          test "$parent2" = "$PROVEN_C08_HEAD"
+
+          protected=(
+            Cargo.toml
+            Cargo.lock
+            C08_DEVICE_IDENTITY_TRANSPORT.md
+            crates/ptah-device-runtime/Cargo.toml
+            crates/ptah-device-runtime/src/lib.rs
+            crates/ptah-device-runtime/tests/c08.rs
+            .github/workflows/c08-device-identity-transport.yml
+          )
+          for path in "${protected[@]}"; do
+            integrated_blob="$(git rev-parse "$EXPECTED_MAIN_HEAD:$path")"
+            proven_blob="$(git rev-parse "$PROVEN_C08_HEAD:$path")"
+            if [ "$integrated_blob" != "$proven_blob" ]; then
+              echo "C08 protected blob changed during merge: $path" >&2
+              exit 1
+            fi
+          done
+          git diff --check "$PROOF_BASE" "$EXPECTED_MAIN_HEAD"
+          printf 'C08_INTEGRATED_MAIN_HEAD=%s\n' "$EXPECTED_MAIN_HEAD"
+          printf 'C08_PROTECTED_BLOB_PRESERVATION=PASS\n'
+
+      - name: Bind exact installed Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in rustc cargo rustfmt cargo-clippy clippy-driver; do test -x "$RUST_BIN/$tool"; done
+          "$RUST_BIN/rustc" -V | grep -q '^rustc 1.97.1 '
+          "$RUST_BIN/cargo" -V | grep -q '^cargo 1.97.1 '
+          echo "$RUST_BIN" >> "$GITHUB_PATH"
+          rustc_bin="$RUST_BIN/rustc"
+          cargo_bin="$RUST_BIN/cargo"
+          "$rustc_bin" -Vv
+          "$cargo_bin" -V
+
+      - name: Re-prove C08 acceptance formatting Clippy and authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/c08-integrated
+          cargo fmt --all -- --check
+          cargo test -p ptah-device-runtime --test c08 --locked -- --nocapture 2>&1 | tee /tmp/c08-integrated/c08-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c08-integrated/c08-tests.txt
+          cargo clippy -p ptah-device-runtime --lib --test c08 --locked -- -D warnings 2>&1 | tee /tmp/c08-integrated/c08-clippy.txt
+          python3 - <<'PY' | tee /tmp/c08-integrated/c08-static.txt
+          import re
+          from pathlib import Path
+          source = Path('crates/ptah-device-runtime/src/lib.rs').read_text(encoding='utf-8')
+          tests = Path('crates/ptah-device-runtime/tests/c08.rs').read_text(encoding='utf-8')
+          assert len(re.findall(r'^#\[test\]$', tests, re.M)) == 20
+          for token in (
+              'AmbiguousIdentity','AmbiguousAlias','StaleProviderGeneration',
+              'StaleConnectionEpoch','StaleFence','AheadFence','MutationOutsideC08',
+              'OperationAuthority::ReadOnly','physical_authority_ref','backend_aliases',
+          ):
+              assert token in source, token
+          public_functions = re.findall(r'\bpub\s+fn\s+([A-Za-z0-9_]+)', source)
+          forbidden = re.compile(r'(?:^|_)(?:write|erase|flash|repartition|unlock|relock|protected_nv|payload_execute|execute_payload|raw_command)(?:_|$)')
+          offenders = sorted(name for name in public_functions if forbidden.search(name))
+          assert not offenders, offenders
+          assert '#[allow(clippy::' not in source
+          print('C08_INTEGRATED_AUTHORITY_BOUNDARY=PASS')
+          PY
+
+      - name: Re-prove inherited C06 through C01
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in c06 c05 c04 c03 c02 c01; do
+            cargo test -p ptah-archive-decomposition --test "$target" --locked -- --nocapture 2>&1 | tee "/tmp/c08-integrated/${target}.txt"
+            grep -Eq 'test result: ok\. 20 passed; 0 failed;' "/tmp/c08-integrated/${target}.txt"
+          done
+
+      - name: Re-prove inherited B02 B05 B07 and A13
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-archive-decomposition --test b02 --locked -- --nocapture
+          cargo test -p ptah-archive-decomposition --test b05 --locked -- --nocapture 2>&1 | tee /tmp/c08-integrated/b05.txt
+          grep -Eq 'test result: ok\. 15 passed; 0 failed;' /tmp/c08-integrated/b05.txt
+          cargo test -p ptah-archive-decomposition --test b07 --locked -- --nocapture 2>&1 | tee /tmp/c08-integrated/b07.txt
+          grep -Eq 'test result: ok\. 14 passed; 0 failed;' /tmp/c08-integrated/b07.txt
+          cargo test -p ptah-archive-decomposition --lib b07::tests --locked -- --nocapture 2>&1 | tee /tmp/c08-integrated/b07-boundary.txt
+          grep -Eq 'test result: ok\. 2 passed; 0 failed;' /tmp/c08-integrated/b07-boundary.txt
+          cargo test -p ptah-checkpoint --test a13 --locked -- --nocapture 2>&1 | tee /tmp/c08-integrated/a13.txt
+
+      - name: Re-prove full locked integrated workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture 2>&1 | tee /tmp/c08-integrated/workspace.txt
+
+      - name: Write integrated-main proof manifest
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path('/tmp/c08-integrated')
+          required = ['c08-tests.txt','c08-clippy.txt','c08-static.txt','c06.txt','c05.txt','c04.txt','c03.txt','c02.txt','c01.txt','b05.txt','b07.txt','b07-boundary.txt','a13.txt','workspace.txt']
+          files = {}
+          for name in required:
+              path = root / name
+              assert path.is_file() and path.stat().st_size > 0, name
+              files[name] = {'size_bytes': path.stat().st_size, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+          manifest = {
+              'schema_version': '0.1.0',
+              'record_type': 'ptah.c08.integrated_main_proof',
+              'status': 'pass',
+              'integrated_main_commit': os.environ['EXPECTED_MAIN_HEAD'],
+              'proven_c08_candidate': os.environ['PROVEN_C08_HEAD'],
+              'proof_base_commit': os.environ['PROOF_BASE'],
+              'workflow_run_id': int(os.environ['RUN_ID']),
+              'protected_blob_preservation': True,
+              'c08_acceptance_test_count': 20,
+              'strict_clippy': True,
+              'physical_mutation_authority_absent': True,
+              'full_workspace_reproven': True,
+              'files': files,
+          }
+          rendered = json.dumps(manifest, indent=2, sort_keys=True) + '\n'
+          (root / 'proof-manifest.json').write_text(rendered, encoding='utf-8')
+          digest = hashlib.sha256(rendered.encode()).hexdigest()
+          (root / 'proof-manifest.sha256').write_text(f'{digest}  proof-manifest.json\n', encoding='utf-8')
+          print(rendered, end='')
+          PY
+          cd /tmp/c08-integrated
+          sha256sum -c proof-manifest.sha256
+
+      - name: Final main-head lease and clean tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_HEAD"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          remote_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          test "$remote_main" = "$EXPECTED_MAIN_HEAD"
+          printf 'C08_INTEGRATED_MAIN_FINAL_LEASE=PASS\n'
+
+      - name: Retain integrated-main proof bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: c08-integrated-main-${{ env.EXPECTED_MAIN_HEAD }}
+          path: /tmp/c08-integrated/
+          if-no-files-found: error
+          retention-days: 90

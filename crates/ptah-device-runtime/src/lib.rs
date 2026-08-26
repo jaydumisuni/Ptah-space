@@ -69,6 +69,9 @@ pub enum DeviceError {
     /// One observation overlaps more than one existing canonical Device basis.
     #[error("device identity basis is ambiguous across multiple canonical Devices")]
     AmbiguousIdentity,
+    /// Stable identity evidence disagrees about Device kind.
+    #[error("stable device identity evidence conflicts with existing device kind")]
+    DeviceKindMismatch,
     /// A backend alias resolved to more than one canonical Device.
     #[error("backend alias is ambiguous across multiple Devices")]
     AmbiguousAlias,
@@ -78,6 +81,15 @@ pub enum DeviceError {
     /// Connection-epoch arithmetic overflowed.
     #[error("device connection epoch overflow")]
     EpochOverflow,
+    /// Incoming Provider generation is older than the current Interface evidence.
+    #[error("device observation provider generation is stale")]
+    StaleProviderGeneration,
+    /// Incoming Provider control connection epoch is older than the current Interface evidence.
+    #[error("device observation provider connection epoch is stale")]
+    StaleProviderConnectionEpoch,
+    /// Same-generation Provider evidence unexpectedly changed Provider Instance identity.
+    #[error("device observation provider instance conflicts at the same generation and epoch")]
+    ProviderInstanceMismatch,
     /// Lease fence token must be positive.
     #[error("device lease fence token must be positive")]
     InvalidFenceToken,
@@ -90,10 +102,10 @@ pub enum DeviceError {
     /// Lease has been revoked.
     #[error("device lease has been revoked")]
     LeaseRevoked,
-    /// Lease Provider generation is stale.
+    /// Lease or operation Provider generation is stale.
     #[error("device lease/provider generation is stale")]
-    StaleProviderGeneration,
-    /// Operation or lease connection epoch is stale.
+    StaleLeaseProviderGeneration,
+    /// Operation or lease Device Connection epoch is stale.
     #[error("device connection epoch is stale")]
     StaleConnectionEpoch,
     /// Observed fence token is behind the lease token.
@@ -170,6 +182,14 @@ pub enum InterfaceTransport {
     OtherRegistered,
 }
 
+/// C08 Provider lanes are node-local in the first substrate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InterfaceLocality {
+    /// Provider and transport are bound to the exact local Node Generation.
+    NodeLocal,
+}
+
 /// Reachability value retained from Device Connection Observation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -200,7 +220,7 @@ pub enum TransitionReason {
     Reenumeration,
     /// Device changed protocol/mode.
     ModeTransition,
-    /// Provider generation changed.
+    /// Provider generation or Provider control epoch advanced.
     ProviderRestart,
     /// Continuity evidence changed.
     TransportContinuityLost,
@@ -275,7 +295,7 @@ pub enum MutationClass {
 }
 
 impl MutationClass {
-    /// Return whether C08 can admit the class without manufacturing write authority.
+    /// Return whether C08 can admit the class without manufacturing physical write authority.
     #[must_use]
     pub const fn is_c08_read_only(self) -> bool {
         matches!(
@@ -294,6 +314,8 @@ impl MutationClass {
 pub struct DeviceProviderBinding {
     /// Validated immutable Provider context.
     pub context: ProviderContext,
+    /// Capability evidence retained from the exact Provider Revision.
+    pub capability_claim_refs: Vec<EntityRef>,
 }
 
 impl DeviceProviderBinding {
@@ -310,10 +332,10 @@ impl DeviceProviderBinding {
         if revision.provider_kind != ProviderKind::Device {
             return Err(ProviderError::ProviderKindMismatch.into());
         }
-        require_text(&revision.implementation_name, "implementation_name")?;
-        require_text(&revision.implementation_version, "implementation_version")?;
-        require_text(&revision.build_or_package_digest, "build_or_package_digest")?;
-        require_text(&revision.configuration_digest, "configuration_digest")?;
+        require_provider_text(&revision.implementation_name, "implementation_name")?;
+        require_provider_text(&revision.implementation_version, "implementation_version")?;
+        require_provider_text(&revision.build_or_package_digest, "build_or_package_digest")?;
+        require_provider_text(&revision.configuration_digest, "configuration_digest")?;
         if revision.supported_facility_refs.is_empty() {
             return Err(ProviderError::MissingEvidence("supported_facility_refs").into());
         }
@@ -335,6 +357,7 @@ impl DeviceProviderBinding {
                 connection_epoch: instance.connection_epoch,
                 implementation_version: revision.implementation_version.clone(),
             },
+            capability_claim_refs: revision.capability_claim_refs.clone(),
         })
     }
 }
@@ -399,6 +422,7 @@ pub struct TransportObservation {
 
 impl TransportObservation {
     fn validate(&self) -> Result<(), DeviceError> {
+        require_entity_kind(&self.profile_revision_ref, "device.profile_revision")?;
         if self.identity_basis_refs.is_empty() {
             return Err(DeviceError::MissingIdentityBasis);
         }
@@ -623,14 +647,24 @@ pub struct DeviceInterfaceRecord {
     pub transport: InterfaceTransport,
     /// Mode/protocol.
     pub mode_or_protocol: String,
+    /// Optional protocol version.
+    pub protocol_version: Option<String>,
     /// Backend aliases retained as evidence only.
     pub observed_aliases: Vec<String>,
     /// Optional topology/address evidence.
     pub topology_or_address: Option<String>,
-    /// Provider instance.
+    /// VID/PID/endpoint claims retained as evidence only.
+    pub endpoint_claims: Vec<String>,
+    /// Exact Provider instance.
     pub provider_instance_ref: EntityRef,
     /// Provider generation.
     pub provider_generation: ProviderGeneration,
+    /// First C08 Provider lanes are node-local.
+    pub locality: InterfaceLocality,
+    /// Exact local Node reference.
+    pub node_ref: EntityRef,
+    /// Exact local Node generation.
+    pub node_generation: u64,
     /// Provider control connection epoch.
     pub provider_connection_epoch: u64,
     /// Current Device connection epoch.
@@ -639,10 +673,14 @@ pub struct DeviceInterfaceRecord {
     pub connection_ref: EntityRef,
     /// Current continuity basis.
     pub continuity_basis_refs: Vec<EntityRef>,
+    /// Provider capability evidence retained for the interface.
+    pub capability_claim_refs: Vec<EntityRef>,
     /// Current reachability.
     pub reachability: Reachability,
     /// Last observation evidence.
     pub evidence_refs: Vec<EntityRef>,
+    /// First observation timestamp for this Interface incarnation.
+    pub first_observed_at: String,
     /// Last observation timestamp.
     pub last_observed_at: String,
 }
@@ -674,6 +712,33 @@ pub struct DeviceConnectionRecord {
     pub evidence_refs: Vec<EntityRef>,
 }
 
+/// Canonical observation projection created after reconciliation binds Device/Interface/Connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceConnectionObservationRecord {
+    /// Canonical observation reference.
+    pub observation_ref: EntityRef,
+    /// Stable Device reference.
+    pub device_ref: EntityRef,
+    /// Interface reference.
+    pub interface_ref: EntityRef,
+    /// Exact Connection reference.
+    pub connection_ref: EntityRef,
+    /// Exact Device connection epoch.
+    pub connection_epoch: u64,
+    /// Exact Provider instance.
+    pub provider_instance_ref: EntityRef,
+    /// Exact Provider generation.
+    pub provider_generation: ProviderGeneration,
+    /// Observed reachability.
+    pub reachability: Reachability,
+    /// Mode/protocol observed.
+    pub mode_or_protocol: String,
+    /// Observation timestamp.
+    pub observed_at: String,
+    /// Evidence supporting the observation.
+    pub evidence_refs: Vec<EntityRef>,
+}
+
 /// Result of reconciling one transport observation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReconcileOutcome {
@@ -683,6 +748,8 @@ pub struct ReconcileOutcome {
     pub interface: DeviceInterfaceRecord,
     /// Current connection after reconciliation.
     pub connection: DeviceConnectionRecord,
+    /// Canonical connection observation retained for this reconcile call.
+    pub observation: DeviceConnectionObservationRecord,
     /// Whether a new Device identity was allocated.
     pub device_created: bool,
     /// Whether a new interface identity was allocated.
@@ -697,6 +764,7 @@ pub struct DeviceRegistry {
     devices: Vec<DeviceRecord>,
     interfaces: Vec<DeviceInterfaceRecord>,
     connections: Vec<DeviceConnectionRecord>,
+    observations: Vec<DeviceConnectionObservationRecord>,
 }
 
 impl DeviceRegistry {
@@ -718,11 +786,18 @@ impl DeviceRegistry {
         &self.connections
     }
 
+    /// Return retained connection observations.
+    #[must_use]
+    pub fn observations(&self) -> &[DeviceConnectionObservationRecord] {
+        &self.observations
+    }
+
     /// Reconcile one bounded transport observation into stable Device identity and
     /// monotonic connection epochs.
     ///
     /// # Errors
     /// Fails closed when identity evidence overlaps more than one canonical Device,
+    /// stable identity conflicts with Device kind, Provider/epoch evidence is stale,
     /// required evidence is absent, or epoch arithmetic overflows.
     pub fn reconcile(
         &mut self,
@@ -743,6 +818,9 @@ impl DeviceRegistry {
         }
 
         let (device_index, device_created) = if let Some(index) = matching_devices.first().copied() {
+            if self.devices[index].device_kind != observation.device_kind {
+                return Err(DeviceError::DeviceKindMismatch);
+            }
             merge_unique_refs(
                 &mut self.devices[index].identity_basis_refs,
                 &observation.identity_basis_refs,
@@ -779,6 +857,7 @@ impl DeviceRegistry {
 
         let (interface_index, interface_created, connection_advanced) =
             if let Some(index) = interface_index {
+                validate_observation_freshness(&self.interfaces[index], &observation)?;
                 let reason = connection_transition_reason(&self.interfaces[index], &observation);
                 if let Some(reason) = reason {
                     let next_epoch = self.interfaces[index]
@@ -793,11 +872,17 @@ impl DeviceRegistry {
                         observation.provider.context.provider_instance_ref.clone();
                     self.interfaces[index].provider_generation =
                         observation.provider.context.provider_generation;
+                    self.interfaces[index].node_ref = observation.provider.context.node_ref.clone();
+                    self.interfaces[index].node_generation = observation.provider.context.node_generation;
                     self.interfaces[index].provider_connection_epoch =
                         observation.provider.context.connection_epoch;
                     self.interfaces[index].continuity_basis_refs =
                         observation.continuity_basis_refs.clone();
+                    self.interfaces[index].protocol_version = observation.protocol_version.clone();
                     self.interfaces[index].topology_or_address = observation.topology_or_address.clone();
+                    self.interfaces[index].endpoint_claims = observation.endpoint_claims.clone();
+                    self.interfaces[index].capability_claim_refs =
+                        observation.provider.capability_claim_refs.clone();
                     self.interfaces[index].reachability = observation.reachability;
                     self.interfaces[index].observed_aliases = observation.backend_aliases.clone();
                     self.interfaces[index].evidence_refs = observation.evidence_refs.clone();
@@ -821,6 +906,10 @@ impl DeviceRegistry {
                     });
                     (index, false, true)
                 } else {
+                    self.interfaces[index].protocol_version = observation.protocol_version.clone();
+                    self.interfaces[index].endpoint_claims = observation.endpoint_claims.clone();
+                    self.interfaces[index].capability_claim_refs =
+                        observation.provider.capability_claim_refs.clone();
                     self.interfaces[index].reachability = observation.reachability;
                     self.interfaces[index].observed_aliases = observation.backend_aliases.clone();
                     self.interfaces[index].evidence_refs = observation.evidence_refs.clone();
@@ -835,20 +924,27 @@ impl DeviceRegistry {
                     device_ref: device_ref.clone(),
                     transport: observation.transport,
                     mode_or_protocol: observation.mode_or_protocol.clone(),
+                    protocol_version: observation.protocol_version.clone(),
                     observed_aliases: observation.backend_aliases.clone(),
                     topology_or_address: observation.topology_or_address.clone(),
+                    endpoint_claims: observation.endpoint_claims.clone(),
                     provider_instance_ref: observation
                         .provider
                         .context
                         .provider_instance_ref
                         .clone(),
                     provider_generation: observation.provider.context.provider_generation,
+                    locality: InterfaceLocality::NodeLocal,
+                    node_ref: observation.provider.context.node_ref.clone(),
+                    node_generation: observation.provider.context.node_generation,
                     provider_connection_epoch: observation.provider.context.connection_epoch,
                     connection_epoch: 1,
                     connection_ref: connection_ref.clone(),
                     continuity_basis_refs: observation.continuity_basis_refs.clone(),
+                    capability_claim_refs: observation.provider.capability_claim_refs.clone(),
                     reachability: observation.reachability,
                     evidence_refs: observation.evidence_refs.clone(),
+                    first_observed_at: observation.observed_at.clone(),
                     last_observed_at: observation.observed_at.clone(),
                 };
                 self.interfaces.push(interface);
@@ -880,10 +976,25 @@ impl DeviceRegistry {
             .find(|connection| connection.connection_ref == current_connection_ref)
             .cloned()
             .ok_or(DeviceError::OperationEvidenceMismatch)?;
+        let connection_observation = DeviceConnectionObservationRecord {
+            observation_ref: EntityRef::new("device.connection_observation")?,
+            device_ref: device_ref.clone(),
+            interface_ref: self.interfaces[interface_index].interface_ref.clone(),
+            connection_ref: connection.connection_ref.clone(),
+            connection_epoch: connection.connection_epoch,
+            provider_instance_ref: observation.provider.context.provider_instance_ref.clone(),
+            provider_generation: observation.provider.context.provider_generation,
+            reachability: observation.reachability,
+            mode_or_protocol: observation.mode_or_protocol,
+            observed_at: observation.observed_at,
+            evidence_refs: observation.evidence_refs,
+        };
+        self.observations.push(connection_observation.clone());
         Ok(ReconcileOutcome {
             device: self.devices[device_index].clone(),
             interface: self.interfaces[interface_index].clone(),
             connection,
+            observation: connection_observation,
             device_created,
             interface_created,
             connection_advanced,
@@ -936,9 +1047,9 @@ pub struct DeviceLease {
     pub connection_epoch: u64,
     /// Issue timestamp.
     pub issued_at: String,
-    /// Expiry timestamp retained for the canonical projection.
+    /// Expiry timestamp retained for the canonical Lease lifecycle projection.
     pub expires_at: String,
-    /// Revocation projection.
+    /// Revocation projection. Expiry itself remains an A13/lifecycle decision.
     pub revoked: bool,
 }
 
@@ -946,7 +1057,7 @@ impl DeviceLease {
     /// Issue a Device lease projection.
     ///
     /// # Errors
-    /// Rejects zero fence tokens, empty scope, or empty timestamps.
+    /// Rejects zero fence tokens, empty scope, incorrect Device kind, or empty timestamps.
     pub fn issue(
         device_ref: EntityRef,
         holder_ref: EntityRef,
@@ -957,6 +1068,7 @@ impl DeviceLease {
         issued_at: impl Into<String>,
         expires_at: impl Into<String>,
     ) -> Result<Self, DeviceError> {
+        require_entity_kind(&device_ref, "device.device")?;
         if fence_token == 0 {
             return Err(DeviceError::InvalidFenceToken);
         }
@@ -1004,7 +1116,7 @@ impl DeviceLease {
             return Err(DeviceError::LeaseSubjectMismatch);
         }
         if self.provider_generation != interface.provider_generation {
-            return Err(DeviceError::StaleProviderGeneration);
+            return Err(DeviceError::StaleLeaseProviderGeneration);
         }
         if self.connection_epoch != interface.connection_epoch {
             return Err(DeviceError::StaleConnectionEpoch);
@@ -1083,6 +1195,10 @@ pub struct AdmittedProtocolOperation {
     pub protocol_operation_ref: EntityRef,
     /// Stable Device reference.
     pub device_ref: EntityRef,
+    /// Exact Device Profile Revision.
+    pub device_profile_revision_ref: EntityRef,
+    /// Exact Device Session reference.
+    pub device_session_ref: EntityRef,
     /// Current interface reference.
     pub interface_ref: EntityRef,
     /// Current connection reference.
@@ -1109,6 +1225,10 @@ pub struct AdmittedProtocolOperation {
     pub attempt_refs: Vec<EntityRef>,
     /// Supporting evidence.
     pub evidence_refs: Vec<EntityRef>,
+    /// Start timestamp.
+    pub started_at: String,
+    /// Physical-authority evidence retained without upgrading C08 authority.
+    pub physical_authority_ref: Option<EntityRef>,
     /// Explicit authority result.
     pub authority: OperationAuthority,
 }
@@ -1128,12 +1248,20 @@ pub enum OperationAuthority {
 ///
 /// # Errors
 /// Fails closed for stale Provider/connection state, incomplete Activity/Attempt evidence,
-/// lease/fence mismatch, or any Device mutation class outside C08.
+/// lease/fence mismatch, malformed canonical refs, or any Device mutation class outside C08.
 pub fn admit_protocol_operation(
     request: ProtocolOperationRequest<'_>,
 ) -> Result<AdmittedProtocolOperation, DeviceError> {
     require_nonempty(&request.protocol_operation_key, "protocol_operation_key")?;
     require_nonempty(&request.started_at, "started_at")?;
+    require_entity_kind(&request.device_ref, "device.device")?;
+    require_entity_kind(
+        &request.device_profile_revision_ref,
+        "device.profile_revision",
+    )?;
+    require_entity_kind(&request.device_session_ref, "device.session")?;
+    require_entity_kind(&request.interface.interface_ref, "device.interface")?;
+    require_entity_kind(&request.interface.connection_ref, "device.connection")?;
     if request.attempt_refs.is_empty() || request.evidence_refs.is_empty() {
         return Err(DeviceError::OperationEvidenceMismatch);
     }
@@ -1144,7 +1272,7 @@ pub fn admit_protocol_operation(
         return Err(DeviceError::OperationEvidenceMismatch);
     }
     if request.provider.context.connection_epoch != request.interface.provider_connection_epoch {
-        return Err(DeviceError::StaleProviderGeneration);
+        return Err(DeviceError::StaleProviderConnectionEpoch);
     }
     request.lease.fence(
         request.interface,
@@ -1157,6 +1285,8 @@ pub fn admit_protocol_operation(
     Ok(AdmittedProtocolOperation {
         protocol_operation_ref: EntityRef::new("device.protocol_operation")?,
         device_ref: request.device_ref,
+        device_profile_revision_ref: request.device_profile_revision_ref,
+        device_session_ref: request.device_session_ref,
         interface_ref: request.interface.interface_ref.clone(),
         connection_ref: request.interface.connection_ref.clone(),
         connection_epoch: request.interface.connection_epoch,
@@ -1170,6 +1300,8 @@ pub fn admit_protocol_operation(
         operation_ref: request.operation_ref,
         attempt_refs: request.attempt_refs,
         evidence_refs: request.evidence_refs,
+        started_at: request.started_at,
+        physical_authority_ref: request.physical_authority_ref,
         authority: OperationAuthority::ReadOnly,
     })
 }
@@ -1203,12 +1335,34 @@ fn normalized_observation(
     Ok(observation)
 }
 
+fn validate_observation_freshness(
+    current: &DeviceInterfaceRecord,
+    observation: &TransportObservation,
+) -> Result<(), DeviceError> {
+    let incoming_generation = observation.provider.context.provider_generation;
+    if incoming_generation < current.provider_generation {
+        return Err(DeviceError::StaleProviderGeneration);
+    }
+    if incoming_generation == current.provider_generation
+        && observation.provider.context.connection_epoch < current.provider_connection_epoch
+    {
+        return Err(DeviceError::StaleProviderConnectionEpoch);
+    }
+    if incoming_generation == current.provider_generation
+        && observation.provider.context.connection_epoch == current.provider_connection_epoch
+        && observation.provider.context.provider_instance_ref != current.provider_instance_ref
+    {
+        return Err(DeviceError::ProviderInstanceMismatch);
+    }
+    Ok(())
+}
+
 fn connection_transition_reason(
     current: &DeviceInterfaceRecord,
     observation: &TransportObservation,
 ) -> Option<TransitionReason> {
-    if current.provider_generation != observation.provider.context.provider_generation
-        || current.provider_connection_epoch != observation.provider.context.connection_epoch
+    if observation.provider.context.provider_generation > current.provider_generation
+        || observation.provider.context.connection_epoch > current.provider_connection_epoch
     {
         return Some(TransitionReason::ProviderRestart);
     }
@@ -1252,7 +1406,7 @@ fn has_duplicates(values: &[EntityRef]) -> bool {
         .any(|(index, value)| values[..index].contains(value))
 }
 
-fn require_text(value: &str, field: &'static str) -> Result<(), DeviceError> {
+fn require_provider_text(value: &str, field: &'static str) -> Result<(), DeviceError> {
     if value.trim().is_empty() {
         return Err(ProviderError::EmptyField(field).into());
     }
@@ -1262,6 +1416,13 @@ fn require_text(value: &str, field: &'static str) -> Result<(), DeviceError> {
 fn require_nonempty(value: &str, field: &'static str) -> Result<(), DeviceError> {
     if value.trim().is_empty() {
         return Err(DeviceError::EmptyField(field));
+    }
+    Ok(())
+}
+
+fn require_entity_kind(reference: &EntityRef, expected: &str) -> Result<(), DeviceError> {
+    if reference.entity_kind.as_str() != expected {
+        return Err(DeviceError::OperationEvidenceMismatch);
     }
     Ok(())
 }

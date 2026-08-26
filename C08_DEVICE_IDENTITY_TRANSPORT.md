@@ -1,9 +1,9 @@
 # C08 — Device Identity and Transport Substrate
 
-**Programme:** C — Firmware and Device  
-**Status:** implementation candidate  
-**Accepted construction base:** `ae7a9c9c939db03df55f97ebb3edffd68216197b`  
-**Roadmap dependencies:** A04, A06, A07, A13  
+**Programme:** C — Firmware and Device
+**Status:** implementation candidate
+**Accepted construction base:** `ae7a9c9c939db03df55f97ebb3edffd68216197b`
+**Roadmap dependencies:** A04, A06, A07, A13
 **C07 relationship:** reserved vendor-completion work remains parked unless lawful samples, source and proof exist
 
 ## Purpose

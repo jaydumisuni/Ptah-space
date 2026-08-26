@@ -1,4 +1,4 @@
-name: TEMP ATHENA Redmi Global ROM IDM persistence proof
+name: TEMP ATHENA Redmi Global ROM IDM stall diagnosis
 
 on:
   push:
@@ -10,86 +10,66 @@ permissions:
   contents: read
 
 jobs:
-  verify-idm:
+  diagnose-idm:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
     timeout-minutes: 6
     steps:
-      - name: Verify IDM survives runner cleanup and is actively transferring
+      - name: Inspect IDM process, download log, and source reachability read-only
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-
           $fileName = 'sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
           $url = "https://cdnorg.d.miui.com/OS2.0.9.0.VMWMIXM/$fileName"
-          $destDir = 'E:\redmi r12'
-          $dest = Join-Path $destDir $fileName
-          $expectedMd5 = '3334591f858477053b68f4c0e47debf0'
-          $expectedSize = [int64]7949886711
-          $idm = 'C:\Program Files (x86)\Internet Download Manager\IDMan.exe'
+          $root = Join-Path $env:APPDATA 'IDM\DwnlData'
 
-          $partition = Get-Partition -DriveLetter E -ErrorAction Stop
-          $disk = $partition | Get-Disk -ErrorAction Stop
-          if ([string]$disk.BusType -ne 'USB') { throw 'E: is not the expected USB external drive' }
-          if (-not (Test-Path -LiteralPath $idm)) { throw 'IDMan.exe missing from proven path' }
+          Write-Output '=== RUNNER IDENTITY ==='
+          [ordered]@{user=[Environment]::UserName;session=[System.Diagnostics.Process]::GetCurrentProcess().SessionId;appData=$env:APPDATA} | ConvertTo-Json -Compress
 
-          function Get-SkyIdmState {
-            $root = Join-Path $env:APPDATA 'IDM\DwnlData'
-            $folder = $null
-            if (Test-Path -LiteralPath $root) {
-              $folder = Get-ChildItem -LiteralPath $root -Directory -Recurse -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -like 'sky_global_images_OS*' } |
-                Sort-Object LastWriteTimeUtc -Descending |
-                Select-Object -First 1
-            }
-            $files = @()
-            if ($folder) { $files = @(Get-ChildItem -LiteralPath $folder.FullName -File -ErrorAction SilentlyContinue) }
+          Write-Output '=== IDM PROCESS ==='
+          $procs = @(Get-CimInstance Win32_Process -Filter "Name='IDMan.exe'" -ErrorAction SilentlyContinue)
+          foreach ($p in $procs) {
+            $owner = Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction SilentlyContinue
+            [ordered]@{pid=[int]$p.ProcessId;parentPid=[int]$p.ParentProcessId;sessionId=[int]$p.SessionId;owner=if($owner){"$($owner.Domain)\$($owner.User)"}else{$null};commandLine=$p.CommandLine;executable=$p.ExecutablePath} | ConvertTo-Json -Compress
+          }
+
+          Write-Output '=== SKY DOWNLOAD FOLDERS ==='
+          $folders = @()
+          if (Test-Path -LiteralPath $root) {
+            $folders = @(Get-ChildItem -LiteralPath $root -Directory -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'sky_global_images_OS*' } | Sort-Object LastWriteTimeUtc -Descending)
+          }
+          foreach ($folder in ($folders | Select-Object -First 5)) {
+            $files = @(Get-ChildItem -LiteralPath $folder.FullName -File -ErrorAction SilentlyContinue | Sort-Object Name)
             $bytes = [int64](($files | Measure-Object Length -Sum).Sum)
-            if (-not $bytes) { $bytes = 0 }
-            [pscustomobject]@{
-              folder = if($folder){$folder.FullName}else{$null}
-              bytes = $bytes
-              parts = @($files).Count
-              newest = if($files){($files | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).LastWriteTimeUtc.ToString('o')}else{$null}
+            [ordered]@{folder=$folder.FullName;lastWrite=$folder.LastWriteTimeUtc.ToString('o');bytes=$bytes;fileCount=$files.Count} | ConvertTo-Json -Compress
+            $files | Select-Object Name,Length,LastWriteTimeUtc | ConvertTo-Json -Compress
+            $log = $files | Where-Object { $_.Extension -eq '.log' } | Select-Object -First 1
+            if ($log) {
+              Write-Output "--- LOG $($log.FullName) ---"
+              try {
+                Get-Content -LiteralPath $log.FullName -Raw -ErrorAction Stop | Write-Output
+              } catch {
+                Write-Output "LOG_READ_ERROR=$($_.Exception.Message)"
+              }
             }
           }
 
-          Write-Output '=== PROCESS BEFORE ==='
-          $proc = @(Get-Process -Name IDMan -ErrorAction SilentlyContinue)
-          [ordered]@{running=($proc.Count -gt 0);count=$proc.Count} | ConvertTo-Json -Compress
-
-          if ($proc.Count -eq 0) {
-            Write-Output 'IDM_NOT_RUNNING_RESTARTING_DETACHED=true'
-            Remove-Item Env:RUNNER_TRACKING_ID -ErrorAction SilentlyContinue
-            $args = @('/n','/d',$url,'/p',$destDir,'/f',$fileName)
-            Start-Process -FilePath $idm -ArgumentList $args
-            Start-Sleep -Seconds 5
+          Write-Output '=== IDM TCP CONNECTIONS ==='
+          $pids = @($procs | ForEach-Object { [int]$_.ProcessId })
+          if ($pids.Count -gt 0) {
+            Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue |
+              Where-Object { $pids -contains [int]$_.OwningProcess } |
+              Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,OwningProcess |
+              ConvertTo-Json -Compress
           }
 
-          $before = Get-SkyIdmState
-          Write-Output '=== IDM STATE BEFORE WINDOW ==='
-          $before | ConvertTo-Json -Compress
-
-          Start-Sleep -Seconds 12
-
-          $after = Get-SkyIdmState
-          $proc2 = @(Get-Process -Name IDMan -ErrorAction SilentlyContinue)
-          Write-Output '=== IDM STATE AFTER WINDOW ==='
-          [ordered]@{
-            running=($proc2.Count -gt 0)
-            processCount=$proc2.Count
-            folder=$after.folder
-            bytesBefore=[int64]$before.bytes
-            bytesAfter=[int64]$after.bytes
-            deltaBytes=[int64]($after.bytes - $before.bytes)
-            parts=$after.parts
-            newest=$after.newest
-            finalExists=(Test-Path -LiteralPath $dest)
-            finalSize=if(Test-Path -LiteralPath $dest){[int64](Get-Item -LiteralPath $dest).Length}else{0}
-            expectedSize=$expectedSize
-            expectedMd5=$expectedMd5
-          } | ConvertTo-Json -Compress
-
-          if ($proc2.Count -eq 0) { throw 'IDM is not running after persistence proof' }
-          if (($after.bytes - $before.bytes) -le 0 -and -not (Test-Path -LiteralPath $dest)) {
-            throw 'IDM process exists but no download bytes advanced during proof window'
+          Write-Output '=== CDN RANGE PROBE ==='
+          $tmp = Join-Path $env:TEMP ([guid]::NewGuid().ToString() + '.bin')
+          try {
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            & curl.exe -L --fail --silent --show-error --connect-timeout 15 --max-time 45 --range '0-1048575' --output $tmp $url
+            $code = $LASTEXITCODE
+            $sw.Stop()
+            [ordered]@{exitCode=$code;bytes=if(Test-Path $tmp){[int64](Get-Item $tmp).Length}else{0};seconds=[math]::Round($sw.Elapsed.TotalSeconds,3)} | ConvertTo-Json -Compress
+          } finally {
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
           }

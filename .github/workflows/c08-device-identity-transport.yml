@@ -1,6 +1,15 @@
 name: C08 Device identity and transport exact-head proof
 
 on:
+  push:
+    branches:
+      - "c08-device-identity-transport"
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "C08_DEVICE_IDENTITY_TRANSPORT.md"
+      - "crates/ptah-device-runtime/**"
+      - ".github/workflows/c08-device-identity-transport.yml"
   pull_request:
     paths:
       - "Cargo.toml"
@@ -49,16 +58,24 @@ jobs:
             ".github/workflows/c08-device-identity-transport.yml"
           )
 
-          if [ -n "${PTAH_PR_BASE:-}" ]; then
-            test "$(git merge-base "$PTAH_C08_BASE_SHA" "$PTAH_PR_BASE")" = "$PTAH_C08_BASE_SHA"
-            base_drift="$(git diff --name-only "$PTAH_C08_BASE_SHA" "$PTAH_PR_BASE")"
-            for path in "${protected[@]}"; do
-              if printf '%s\n' "$base_drift" | grep -Fxq "$path"; then
-                echo "C08 PR base drift overlaps protected C08 surface: $path" >&2
-                exit 1
-              fi
-            done
+          proof_base="${PTAH_PR_BASE:-}"
+          if [ -z "$proof_base" ]; then
+            git fetch --no-tags origin main
+            proof_base="$(git rev-parse FETCH_HEAD)"
+            printf 'C08_PUSH_BASE=%s\n' "$proof_base"
+          else
+            printf 'C08_PR_BASE=%s\n' "$proof_base"
           fi
+          test "$(git merge-base "$PTAH_C08_BASE_SHA" "$proof_base")" = "$PTAH_C08_BASE_SHA"
+          base_drift="$(git diff --name-only "$PTAH_C08_BASE_SHA" "$proof_base")"
+          for path in "${protected[@]}"; do
+            if printf '%s\n' "$base_drift" | grep -Fxq "$path"; then
+              echo "C08 proof base drift overlaps protected C08 surface: $path" >&2
+              exit 1
+            fi
+          done
+          mkdir -p /tmp/c08
+          printf '%s\n' "$proof_base" > /tmp/c08/proof-base.txt
 
           python3 - <<'PY'
           import os
@@ -220,7 +237,7 @@ jobs:
               'c06-tests.txt', 'c05-tests.txt', 'c04-tests.txt', 'c03-tests.txt',
               'c02-tests.txt', 'c01-tests.txt', 'b02-tests.txt', 'b05-tests.txt',
               'b07-tests.txt', 'b07-boundary-tests.txt', 'a13-tests.txt',
-              'workspace-tests.txt', 'acceptance-contract.md',
+              'workspace-tests.txt', 'acceptance-contract.md', 'proof-base.txt',
           ]
           files = {}
           for name in required:
@@ -234,12 +251,16 @@ jobs:
           head = (root / 'exact-head.txt').read_text(encoding='utf-8').strip()
           if head != os.environ['PTAH_EXACT_SHA']:
               raise SystemExit('C08 proof head mismatch')
+          proof_base = (root / 'proof-base.txt').read_text(encoding='utf-8').strip()
+          if not proof_base:
+              raise SystemExit('C08 proof base missing')
           manifest = {
               'schema_version': '0.1.0',
               'record_type': 'ptah.c08.device_identity_transport_exact_head_proof',
               'status': 'pass',
               'implementation_commit': head,
               'accepted_construction_base': os.environ['PTAH_C08_BASE_SHA'],
+              'proof_base_commit': proof_base,
               'workflow_run_id': int(os.environ['RUN_ID']),
               'workflow_run_attempt': int(os.environ['RUN_ATTEMPT']),
               'c08_acceptance_test_count': 20,

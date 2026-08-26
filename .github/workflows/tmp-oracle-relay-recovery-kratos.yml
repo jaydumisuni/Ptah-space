@@ -1,5 +1,5 @@
-# activate: extract verified Global regional images 2026-08-27
-name: Temporary extract verified Redmi Global regional images on KRATOS
+# activate: inspect Global cust.img read-only 2026-08-27
+name: Temporary inspect Redmi Global cust image on KRATOS
 
 on:
   push:
@@ -11,68 +11,130 @@ permissions:
   contents: read
 
 jobs:
-  extract:
+  inspect:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
-      - name: Extract only regional partitions and metadata from verified archive
+      - name: Unsparse and mount Global cust image read-only
         shell: bash
         run: |
           set -euo pipefail
-          expected_name='sky_global_images_OS2.0.9.0.VMWMIXM_20250530.0000.00_15.0_global_3334591f85.tgz'
-          root='sky_global_images_OS2.0.9.0.VMWMIXM_15.0'
           work='/home/kratos/Desktop/redmi-global-analysis/OS2.0.9.0.VMWMIXM'
+          sparse="$work/cust.img"
+          raw="$work/cust.raw.img"
+          [[ -f "$sparse" ]] || { echo 'CUST_SPARSE_MISSING'; exit 2; }
 
-          dev="$(lsblk -rno PATH,LABEL,FSTYPE | awk '$2=="Untitled" && tolower($3)=="exfat" {print $1; exit}')"
-          [[ -n "$dev" ]] || { echo 'USB_VOLUME_NOT_FOUND'; exit 2; }
-          mountpoint="$(lsblk -rno MOUNTPOINTS "$dev" | awk 'NF {print; exit}')"
-          if [[ -z "$mountpoint" ]]; then
-            out="$(udisksctl mount -b "$dev" -o ro 2>&1)" || { echo "$out"; exit 3; }
-            echo "$out"
-            mountpoint="$(lsblk -rno MOUNTPOINTS "$dev" | awk 'NF {print; exit}')"
-          fi
-          rom="$(find "$mountpoint" -maxdepth 4 -type f -name "$expected_name" -print -quit)"
-          [[ -f "$rom" ]] || { echo 'VERIFIED_ROM_NOT_FOUND'; exit 4; }
-          [[ "$(md5sum "$rom" | awk '{print $1}')" == '3334591f858477053b68f4c0e47debf0' ]] || { echo 'ROM_MD5_CHANGED'; exit 5; }
+          echo '=== UNSPARSE CUST ==='
+          python3 - "$sparse" "$raw" <<'PY'
+          import os, struct, sys
+          src, dst = sys.argv[1:3]
+          SPARSE_MAGIC=0xED26FF3A
+          RAW=0xCAC1; FILL=0xCAC2; DONT=0xCAC3; CRC=0xCAC4
+          with open(src,'rb') as fi:
+              hdr=fi.read(28)
+              if len(hdr)!=28: raise SystemExit('short sparse header')
+              magic,major,minor,file_hdr_sz,chunk_hdr_sz,blk_sz,total_blks,total_chunks,checksum=struct.unpack('<IHHHHIIII',hdr)
+              if magic!=SPARSE_MAGIC or major!=1: raise SystemExit(f'unsupported sparse image magic={magic:#x} major={major}')
+              if file_hdr_sz>28: fi.seek(file_hdr_sz-28,1)
+              print(f'blk_size={blk_sz} total_blocks={total_blks} total_chunks={total_chunks} logical_size={total_blks*blk_sz}')
+              out_pos=0
+              with open(dst,'wb') as fo:
+                  for idx in range(total_chunks):
+                      ch=fi.read(chunk_hdr_sz)
+                      if len(ch)!=chunk_hdr_sz: raise SystemExit(f'short chunk header {idx}')
+                      ctype,reserved,chunk_sz,total_sz=struct.unpack('<HHII',ch[:12])
+                      payload=total_sz-chunk_hdr_sz
+                      logical=chunk_sz*blk_sz
+                      if ctype==RAW:
+                          if payload!=logical: raise SystemExit(f'raw size mismatch chunk {idx}')
+                          remaining=logical
+                          while remaining:
+                              b=fi.read(min(8*1024*1024,remaining))
+                              if not b: raise SystemExit(f'short raw chunk {idx}')
+                              fo.write(b); remaining-=len(b)
+                      elif ctype==FILL:
+                          if payload!=4: raise SystemExit(f'fill size mismatch chunk {idx}')
+                          pat=fi.read(4)
+                          unit=pat*(1024*1024//4)
+                          remaining=logical
+                          while remaining:
+                              b=unit[:min(len(unit),remaining)]
+                              fo.write(b); remaining-=len(b)
+                      elif ctype==DONT:
+                          if payload: fi.seek(payload,1)
+                          fo.seek(logical,1)
+                      elif ctype==CRC:
+                          if payload!=4: raise SystemExit(f'crc size mismatch chunk {idx}')
+                          fi.seek(4,1)
+                          if logical: fo.seek(logical,1)
+                      else:
+                          raise SystemExit(f'unknown chunk type {ctype:#x} at {idx}')
+                      out_pos += logical
+                  fo.truncate(total_blks*blk_sz)
+              print(f'output={dst} size={os.path.getsize(dst)}')
+          PY
 
-          mkdir -p "$work"
-          echo '=== EXTRACT SELECTED MEMBERS ==='
-          tar -xzf "$rom" -C "$work" --strip-components=2 \
-            "$root/images/cust.img" \
-            "$root/images/opcust.img" \
-            "$root/images/opconfig.img" \
-            "$root/images/super.img" \
-            "$root/images/vbmeta.img" \
-            "$root/images/vbmeta_system.img" \
-            "$root/images/anti_version.txt"
-          tar -xzf "$rom" -C "$work" --strip-components=1 \
-            "$root/misc.txt" \
-            "$root/flash_all.sh" \
-            "$root/flash_all_lock.sh" \
-            "$root/flash_all_except_storage.sh"
+          echo '=== RAW TYPE ==='
+          file "$raw"
+          stat --printf='size=%s blocks512=%b\n' "$raw"
 
-          echo '=== EXTRACTED INVENTORY ==='
-          find "$work" -maxdepth 2 -type f -printf '%s\t%p\n' | sort -nr
+          echo '=== LOOP/MOUNT READ ONLY ==='
+          loop=''
+          cleanup() {
+            set +e
+            if [[ -n "${loop:-}" ]]; then
+              udisksctl unmount -b "$loop" >/dev/null 2>&1 || true
+              udisksctl loop-delete -b "$loop" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup EXIT
+          setup="$(udisksctl loop-setup -r -f "$raw")"
+          echo "$setup"
+          loop="$(sed -n 's/.* as \([^.]\+\).*/\1/p' <<<"$setup" | head -n1)"
+          [[ -b "$loop" ]] || { echo "LOOP_PARSE_FAILED:$loop"; exit 3; }
+          mout="$(udisksctl mount -b "$loop" -o ro)"
+          echo "$mout"
+          mnt="$(lsblk -rno MOUNTPOINTS "$loop" | awk 'NF {print; exit}')"
+          [[ -d "$mnt" ]] || { echo 'CUST_MOUNT_FAILED'; exit 4; }
+          printf 'cust_mount=%s\n' "$mnt"
+          findmnt -T "$mnt" || true
 
-          echo '=== FILE TYPES ==='
-          while IFS= read -r -d '' f; do
-            printf '%s\t' "$f"
-            file -b "$f"
-          done < <(find "$work" -maxdepth 2 -type f -print0 | sort -z)
+          echo '=== GLOBAL CUST TOP LEVEL ==='
+          find "$mnt" -maxdepth 2 -printf '%y\t%p\n' 2>/dev/null | sort | head -n 500
 
-          echo '=== MAGIC HEADERS ==='
-          for f in "$work"/*.img; do
-            echo "--- $(basename "$f") ---"
-            od -An -tx1 -N64 "$f" | tr -s ' '
+          echo '=== SELECTOR / BUSINESS FILES ==='
+          for rel in \
+            cust_variant \
+            etc/business.prop \
+            etc/cust_apps_request_config \
+            etc/cust_apps_config \
+            cust/cust_apps_request_config \
+            cust/cust_apps_config; do
+            f="$mnt/$rel"
+            if [[ -f "$f" ]]; then
+              echo "--- /$rel ---"
+              sed -n '1,500p' "$f"
+            fi
           done
 
-          echo '=== AVAILABLE IMAGE TOOLS ==='
-          for t in simg2img img2simg lpunpack lpdump debugfs fsck.erofs dump.erofs mount 7z avbtool; do
-            printf '%s=' "$t"
-            command -v "$t" || true
-          done
+          echo '=== PRELOAD/APPLICATION TREE ==='
+          find "$mnt" -maxdepth 5 -type f 2>/dev/null | grep -Ei '/(app|priv-app|customized|preload|partner)/|\.apk$' | sort | head -n 1200 || true
 
-          echo '=== FLASH/REGION HITS ==='
-          grep -RniE '(anti|region|product|cust|super|vbmeta|lock|erase|wiping|fastboot)' "$work"/*.sh "$work"/*.txt 2>/dev/null | head -n 500 || true
+          echo '=== REGION / GOOGLE HITS ==='
+          grep -RniE '(global|mixm|region|cust_variant|currentSku|romRegion|google|gms|gsf|phonesky|play.?store|market|baidu|douyin|alipay|weibo|tencent)' "$mnt"/etc "$mnt"/cust 2>/dev/null | head -n 1500 || true
 
-          echo "analysis_root=$work"
+          echo '=== FILE COUNT BY FIRST DIRECTORY ==='
+          python3 - "$mnt" <<'PY'
+          from collections import Counter
+          from pathlib import Path
+          import sys
+          root=Path(sys.argv[1]); c=Counter()
+          for p in root.rglob('*'):
+              try:
+                  if p.is_file():
+                      rel=p.relative_to(root)
+                      c[rel.parts[0] if rel.parts else '.'] += 1
+              except OSError:
+                  pass
+          print(dict(sorted(c.items())))
+          PY

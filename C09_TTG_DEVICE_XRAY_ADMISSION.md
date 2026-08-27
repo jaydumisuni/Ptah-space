@@ -5,7 +5,7 @@
 **Roadmap dependency:** C01–C08
 **Canonical donor:** `https://github.com/jaydumisuni/TTG-Device-X-Ray`
 **Exact donor commit:** `ad4ae832ed994944a5d8e99bc3a0785e257826ff`
-**Workspace lock:** inherited `Cargo.lock` remains byte-identical; `cargo metadata --locked` accepts the new path-only adapter without lock regeneration.
+**Workspace lock:** inherited dependency selections remain unchanged; `Cargo.lock` adds only the new path-package stanza required for locked workspace execution.
 **Donor package version:** `0.4.3.dev2`
 **Exact donor CI:** run `32939120054` — SUCCESS
 

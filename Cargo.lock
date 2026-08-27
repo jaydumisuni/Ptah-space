@@ -951,6 +951,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ttg-device-xray-admission"
+version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-device-runtime",
+ "ptah-identifiers",
+ "ptah-provider-api",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

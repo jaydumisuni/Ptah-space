@@ -94,6 +94,7 @@ jobs:
           )
           expected = {
               "Cargo.toml",
+              "Cargo.lock",
               "C09_TTG_DEVICE_XRAY_ADMISSION.md",
               "adapters/ttg-device-xray/Cargo.toml",
               "adapters/ttg-device-xray/src/lib.rs",

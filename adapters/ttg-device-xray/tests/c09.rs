@@ -215,7 +215,7 @@ fn donor_version_or_ci_drift_fails_closed() {
             &version,
             &assets,
             &interface,
-            &[operation.clone()],
+            std::slice::from_ref(&operation),
             &evidence()
         ),
         Err(XrayAdmissionError::SourceLockMismatch("scanner_version"))
@@ -318,7 +318,7 @@ fn every_donor_write_allowed_surface_is_rejected() {
                 &source,
                 &assets,
                 &interface,
-                &[operation.clone()],
+                std::slice::from_ref(&operation),
                 &observed
             ),
             Err(XrayAdmissionError::WriteAuthorityClaim)

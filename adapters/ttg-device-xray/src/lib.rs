@@ -371,7 +371,7 @@ pub struct AdmittedXrayWorkload {
 /// claims write authority, candidate truth is inconsistent, the manifest digest is
 /// malformed, or supporting C08 operations are absent/stale/mismatched.
 pub fn admit_xray_workload(
-    request: XrayAdmissionRequest<'_>,
+    request: &XrayAdmissionRequest<'_>,
 ) -> Result<AdmittedXrayWorkload, XrayAdmissionError> {
     request.source.validate()?;
     validate_public_assets(request.public_assets)?;

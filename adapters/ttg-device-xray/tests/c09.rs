@@ -155,7 +155,7 @@ fn admit(
     operations: &[AdmittedProtocolOperation],
     evidence: &XrayEvidenceSummary,
 ) -> Result<AdmittedXrayWorkload, XrayAdmissionError> {
-    admit_xray_workload(XrayAdmissionRequest {
+    admit_xray_workload(&XrayAdmissionRequest {
         source,
         public_assets: assets,
         current_interface: interface,

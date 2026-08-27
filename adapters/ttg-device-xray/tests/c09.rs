@@ -211,7 +211,13 @@ fn donor_version_or_ci_drift_fails_closed() {
     let mut version = XraySourceLock::frozen();
     version.scanner_version = "0.4.3.dev3".to_owned();
     assert!(matches!(
-        admit(&version, &assets, &interface, &[operation.clone()], &evidence()),
+        admit(
+            &version,
+            &assets,
+            &interface,
+            &[operation.clone()],
+            &evidence()
+        ),
         Err(XrayAdmissionError::SourceLockMismatch("scanner_version"))
     ));
 
@@ -227,8 +233,7 @@ fn donor_version_or_ci_drift_fails_closed() {
 #[test]
 fn donor_read_only_checker_drift_fails_closed() {
     let mut source = XraySourceLock::frozen();
-    source.read_only_check_blob_sha1 =
-        "0000000000000000000000000000000000000000".to_owned();
+    source.read_only_check_blob_sha1 = "0000000000000000000000000000000000000000".to_owned();
     let assets = frozen_public_assets();
     let (interface, _binding, operation) = current_context();
     assert!(matches!(
@@ -243,8 +248,7 @@ fn donor_read_only_checker_drift_fails_closed() {
 #[test]
 fn donor_bundle_seal_drift_fails_closed() {
     let mut source = XraySourceLock::frozen();
-    source.bundle_seal_blob_sha1 =
-        "0000000000000000000000000000000000000000".to_owned();
+    source.bundle_seal_blob_sha1 = "0000000000000000000000000000000000000000".to_owned();
     let assets = frozen_public_assets();
     let (interface, _binding, operation) = current_context();
     assert!(matches!(

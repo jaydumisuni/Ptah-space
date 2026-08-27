@@ -7,9 +7,7 @@
 //! mutation. C08 remains the authority for current Device/Provider/epoch/lease/fence
 //! admission; C09 consumes only already-admitted C08 read-only protocol operations.
 
-use ptah_device_runtime::{
-    AdmittedProtocolOperation, DeviceInterfaceRecord, OperationAuthority,
-};
+use ptah_device_runtime::{AdmittedProtocolOperation, DeviceInterfaceRecord, OperationAuthority};
 use ptah_identifiers::EntityRef;
 use ptah_provider_api::ProviderGeneration;
 use std::collections::{BTreeMap, BTreeSet};
@@ -24,11 +22,9 @@ pub const XRAY_SCANNER_VERSION: &str = "0.4.3.dev2";
 /// Successful public donor CI run bound to [`XRAY_COMMIT_SHA`].
 pub const XRAY_CI_RUN_ID: u64 = 32_939_120_054;
 /// Git blob identity of the donor's public read-only command-literal validator.
-pub const XRAY_READ_ONLY_CHECK_BLOB_SHA1: &str =
-    "0e3827d7dba201c236e78ab9ff904975862e840e";
+pub const XRAY_READ_ONLY_CHECK_BLOB_SHA1: &str = "0e3827d7dba201c236e78ab9ff904975862e840e";
 /// Git blob identity of the donor's sealed-bundle implementation.
-pub const XRAY_BUNDLE_SEAL_BLOB_SHA1: &str =
-    "1a6568a957a3ce9837b34dabab3caf9cc4fca44d";
+pub const XRAY_BUNDLE_SEAL_BLOB_SHA1: &str = "1a6568a957a3ce9837b34dabab3caf9cc4fca44d";
 
 const FROZEN_PUBLIC_ASSETS: &[(&str, &str, XrayPublicAssetKind)] = &[
     (
@@ -442,9 +438,7 @@ pub fn admit_xray_workload(
     })
 }
 
-fn validate_public_assets(
-    observed: &[XrayPublicAssetEvidence],
-) -> Result<(), XrayAdmissionError> {
+fn validate_public_assets(observed: &[XrayPublicAssetEvidence]) -> Result<(), XrayAdmissionError> {
     if observed.len() != FROZEN_PUBLIC_ASSETS.len() {
         return Err(XrayAdmissionError::PublicAssetLockMismatch);
     }
@@ -455,7 +449,10 @@ fn validate_public_assets(
         if !unique.insert(asset.path.as_str()) {
             return Err(XrayAdmissionError::DuplicatePublicAsset);
         }
-        observed_by_path.insert(asset.path.as_str(), (asset.git_blob_sha1.as_str(), asset.kind));
+        observed_by_path.insert(
+            asset.path.as_str(),
+            (asset.git_blob_sha1.as_str(), asset.kind),
+        );
     }
 
     for (path, expected_sha, expected_kind) in FROZEN_PUBLIC_ASSETS {

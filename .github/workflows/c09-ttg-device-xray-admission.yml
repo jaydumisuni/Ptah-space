@@ -1,0 +1,374 @@
+name: C09 TTG Device X-Ray admission exact-head proof
+
+on:
+  push:
+    branches:
+      - "c09-ttg-device-xray-admission"
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "C09_TTG_DEVICE_XRAY_ADMISSION.md"
+      - "adapters/ttg-device-xray/**"
+      - ".github/workflows/c09-ttg-device-xray-admission.yml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "C09_TTG_DEVICE_XRAY_ADMISSION.md"
+      - "adapters/ttg-device-xray/**"
+      - ".github/workflows/c09-ttg-device-xray-admission.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PTAH_PR_BASE: ${{ github.event.pull_request.base.sha }}
+  PTAH_C09_BASE_SHA: ec56894d80373bc46edd5afedd651422daa075b3
+  XRAY_REPOSITORY_URL: https://github.com/jaydumisuni/TTG-Device-X-Ray
+  XRAY_COMMIT_SHA: ad4ae832ed994944a5d8e99bc3a0785e257826ff
+  XRAY_SCANNER_VERSION: 0.4.3.dev2
+  CARGO_TERM_COLOR: always
+
+jobs:
+  c09-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact C09 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Lock C09 base and protected scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+          test "$(git merge-base "$PTAH_C09_BASE_SHA" "$PTAH_EXACT_SHA")" = "$PTAH_C09_BASE_SHA"
+
+          proof_base="${PTAH_PR_BASE:-}"
+          if [ -z "$proof_base" ]; then
+            git fetch --no-tags origin main
+            proof_base="$(git rev-parse FETCH_HEAD)"
+            printf 'C09_PUSH_BASE=%s\n' "$proof_base"
+          else
+            printf 'C09_PR_BASE=%s\n' "$proof_base"
+          fi
+          test "$(git merge-base "$PTAH_C09_BASE_SHA" "$proof_base")" = "$PTAH_C09_BASE_SHA"
+
+          protected=(
+            "Cargo.toml"
+            "Cargo.lock"
+            "C09_TTG_DEVICE_XRAY_ADMISSION.md"
+            "adapters/ttg-device-xray/Cargo.toml"
+            "adapters/ttg-device-xray/src/lib.rs"
+            "adapters/ttg-device-xray/tests/c09.rs"
+            ".github/workflows/c09-ttg-device-xray-admission.yml"
+          )
+          base_drift="$(git diff --name-only "$PTAH_C09_BASE_SHA" "$proof_base")"
+          for path in "${protected[@]}"; do
+            if printf '%s\n' "$base_drift" | grep -Fxq "$path"; then
+              echo "C09 proof base drift overlaps protected C09 surface: $path" >&2
+              exit 1
+            fi
+          done
+
+          mkdir -p /tmp/c09
+          printf '%s\n' "$proof_base" > /tmp/c09/proof-base.txt
+
+          python3 - <<'PY'
+          import os
+          import subprocess
+          from pathlib import Path
+
+          base = os.environ["PTAH_C09_BASE_SHA"]
+          head = os.environ["PTAH_EXACT_SHA"]
+          observed = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", base, head], text=True
+              ).splitlines()
+          )
+          expected = {
+              "Cargo.toml",
+              "Cargo.lock",
+              "C09_TTG_DEVICE_XRAY_ADMISSION.md",
+              "adapters/ttg-device-xray/Cargo.toml",
+              "adapters/ttg-device-xray/src/lib.rs",
+              "adapters/ttg-device-xray/tests/c09.rs",
+              ".github/workflows/c09-ttg-device-xray-admission.yml",
+          }
+          assert observed == expected, (
+              f"C09 scope mismatch: missing={sorted(expected-observed)} "
+              f"unexpected={sorted(observed-expected)}"
+          )
+
+          lock_diff = subprocess.check_output(
+              ["git", "diff", "--unified=0", base, head, "--", "Cargo.lock"],
+              text=True,
+          )
+          assert lock_diff.count("[[package]]") == 1, "unexpected Cargo.lock package drift"
+          assert 'name = "ttg-device-xray-admission"' in lock_diff
+          removed = [
+              line for line in lock_diff.splitlines()
+              if line.startswith("-") and not line.startswith("---")
+          ]
+          assert not removed, f"inherited Cargo.lock content changed: {removed}"
+          (Path("/tmp/c09") / "construction-lock.txt").write_text(
+              lock_diff + "C09_LOCK_ONLY_NEW_PATH_PACKAGE=PASS\n",
+              encoding="utf-8",
+          )
+          print("C09_LOCK_ONLY_NEW_PATH_PACKAGE=PASS")
+          PY
+          git diff --check "$PTAH_C09_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          rustc -Vv | tee /tmp/c09/rustc-version.txt
+          cargo -V | tee /tmp/c09/cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$PTAH_EXACT_SHA" > /tmp/c09/exact-head.txt
+          cat /etc/os-release > /tmp/c09/host-os-release.txt
+
+      - name: Prove exact donor revision profiles fixtures and read-only boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/c09-donor
+          git init -q /tmp/c09-donor
+          git -C /tmp/c09-donor remote add origin "$XRAY_REPOSITORY_URL"
+          git -C /tmp/c09-donor fetch --no-tags --depth=1 origin "$XRAY_COMMIT_SHA"
+          git -C /tmp/c09-donor checkout -q --detach FETCH_HEAD
+          test "$(git -C /tmp/c09-donor rev-parse HEAD)" = "$XRAY_COMMIT_SHA"
+          printf '%s\n' "$XRAY_COMMIT_SHA" | tee /tmp/c09/xray-exact-head.txt
+
+          python3 - <<'PY' | tee /tmp/c09/xray-public-assets.txt
+          import os
+          import subprocess
+          from pathlib import Path
+
+          root = "/tmp/c09-donor"
+          expected = {
+              "scripts/check_read_only.py": "0e3827d7dba201c236e78ab9ff904975862e840e",
+              "src/ttg_device_xray/bundle_seal.py": "1a6568a957a3ce9837b34dabab3caf9cc4fca44d",
+              "src/ttg_device_xray/profiles/apple/a8_a11_gaster_reference.json":
+                  "7a529a9d5ac43f3249d1be31f71b65b3abc88c97",
+              "src/ttg_device_xray/profiles/huawei/vog_l29_c185_kirin.json":
+                  "b1488c24df6350d901b30ad4beec1e84e9c7b6b5",
+              "src/ttg_device_xray/profiles/transsion/km7.json":
+                  "e77cdaa5fa2f9c8052779a3355c234eea5856d97",
+              "src/ttg_device_xray/profiles/xiaomi/redmi_sky_parrot.json":
+                  "7ff402b6b23bc1b1f911b570768f2abed67135a4",
+              "tests/fixtures/mtk_meta_km7.json":
+                  "1107bb513e16f58963b2a7abbdd3c22ea1bf755c",
+              "tests/fixtures/qualcomm_edl_sm7250.json":
+                  "491958e5901ba66561debe945a2ad617a2561189",
+              "tests/fixtures/samsung_download_exynos.json":
+                  "02171716cfac3c9d39949f93961a403f1154f5f5",
+              "tests/fixtures/spd_ums9230.json":
+                  "7fc931c179df174428aed0e9241ab611cfa06dcf",
+          }
+          for path, expected_sha in expected.items():
+              observed = subprocess.check_output(
+                  ["git", "-C", root, "rev-parse", f"HEAD:{path}"], text=True
+              ).strip()
+              if observed != expected_sha:
+                  raise SystemExit(f"donor blob drift: {path}: {observed}")
+              print(f"{path}\t{observed}")
+
+          pyproject = Path(root, "pyproject.toml").read_text(encoding="utf-8")
+          expected_version = os.environ["XRAY_SCANNER_VERSION"]
+          if f'version = "{expected_version}"' not in pyproject:
+              raise SystemExit("donor scanner version drift")
+          print(f"XRAY_SCANNER_VERSION={expected_version}")
+          PY
+
+          python3 /tmp/c09-donor/scripts/check_read_only.py \
+            | tee /tmp/c09/xray-read-only-boundary.txt
+
+      - name: Prove formatting and 20-case C09 acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ttg-device-xray-admission --test c09 --locked -- --nocapture \
+            2>&1 | tee /tmp/c09/c09-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c09/c09-tests.txt
+
+      - name: Prove C09 with strict Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ttg-device-xray-admission --lib --test c09 --locked -- -D warnings \
+            2>&1 | tee /tmp/c09/c09-clippy.txt
+
+      - name: Prove C09 public authority boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee /tmp/c09/c09-static-authority.txt
+          import re
+          from pathlib import Path
+
+          source = Path("adapters/ttg-device-xray/src/lib.rs").read_text(encoding="utf-8")
+          tests = Path("adapters/ttg-device-xray/tests/c09.rs").read_text(encoding="utf-8")
+          assert len(re.findall(r"^#\[test\]$", tests, re.M)) == 20
+          for token in (
+              "ad4ae832ed994944a5d8e99bc3a0785e257826ff",
+              "0.4.3.dev2",
+              "EvidenceOnlyReadOnly",
+              "SignedClaimUnverifiedPublicly",
+              "C08ContextMismatch",
+              "WriteAuthorityClaim",
+              "CandidateProfile",
+              "object.artifact",
+          ):
+              assert token in source, token
+
+          authority = re.search(r"pub enum XrayAuthority\s*\{([^}]*)\}", source, re.S)
+          assert authority, "missing XrayAuthority"
+          variants = [
+              line.strip().rstrip(",")
+              for line in authority.group(1).splitlines()
+              if line.strip() and not line.strip().startswith("///")
+          ]
+          assert variants == ["EvidenceOnlyReadOnly"], variants
+
+          public_functions = re.findall(r"\bpub\s+fn\s+([A-Za-z0-9_]+)", source)
+          forbidden = re.compile(
+              r"(?:^|_)(?:write|erase|flash|repartition|unlock|relock|"
+              r"protected_nv|payload_execute|execute_payload|raw_command)(?:_|$)"
+          )
+          offenders = sorted(name for name in public_functions if forbidden.search(name))
+          assert not offenders, offenders
+
+          public_fields = re.findall(r"\bpub\s+([a-z][A-Za-z0-9_]*)\s*:", source)
+          sensitive = re.compile(r"(?:serial|imei|udid|ecid|signing_key|signature_hex)")
+          leaked = sorted(name for name in public_fields if sensitive.search(name))
+          assert not leaked, leaked
+          assert "TTG_XRAY_SIGNING_KEY" not in source
+
+          print("C09_ACCEPTANCE_TEST_COUNT=20")
+          print("C09_PUBLIC_MUTATION_EXECUTOR_SURFACE=0")
+          print("C09_AUTHORITY_VARIANTS=1")
+          print("C09_PRIVATE_KEY_SURFACE=0")
+          print("C09_DONOR_DISAGREEMENT_RETAINED=PASS")
+          print("C09_C08_STALE_CONTEXT_FENCE=PASS")
+          PY
+
+      - name: Re-prove inherited C08 acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-device-runtime --test c08 --locked -- --nocapture \
+            2>&1 | tee /tmp/c09/c08-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c09/c08-tests.txt
+
+      - name: Re-prove full locked workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture \
+            2>&1 | tee /tmp/c09/workspace-tests.txt
+
+      - name: Write exact-head C09 proof manifest
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cp C09_TTG_DEVICE_XRAY_ADMISSION.md /tmp/c09/acceptance-contract.md
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("/tmp/c09")
+          required = [
+              "exact-head.txt", "host-os-release.txt", "rustc-version.txt", "cargo-version.txt",
+              "construction-lock.txt",
+              "xray-exact-head.txt", "xray-public-assets.txt", "xray-read-only-boundary.txt",
+              "c09-tests.txt", "c09-clippy.txt", "c09-static-authority.txt",
+              "c08-tests.txt", "workspace-tests.txt", "acceptance-contract.md", "proof-base.txt",
+          ]
+          files = {}
+          for name in required:
+              path = root / name
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f"missing C09 proof report: {name}")
+              files[name] = {
+                  "size_bytes": path.stat().st_size,
+                  "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+              }
+
+          head = (root / "exact-head.txt").read_text(encoding="utf-8").strip()
+          if head != os.environ["PTAH_EXACT_SHA"]:
+              raise SystemExit("C09 proof head mismatch")
+          donor = (root / "xray-exact-head.txt").read_text(encoding="utf-8").strip()
+          if donor != os.environ["XRAY_COMMIT_SHA"]:
+              raise SystemExit("C09 donor proof head mismatch")
+          proof_base = (root / "proof-base.txt").read_text(encoding="utf-8").strip()
+          if not proof_base:
+              raise SystemExit("C09 proof base missing")
+
+          manifest = {
+              "schema_version": "0.1.0",
+              "record_type": "ptah.c09.ttg_device_xray_exact_head_proof",
+              "status": "pass",
+              "implementation_commit": head,
+              "accepted_construction_base": os.environ["PTAH_C09_BASE_SHA"],
+              "proof_base_commit": proof_base,
+              "workflow_run_id": int(os.environ["RUN_ID"]),
+              "workflow_run_attempt": int(os.environ["RUN_ATTEMPT"]),
+              "xray_repository": os.environ["XRAY_REPOSITORY_URL"],
+              "xray_commit": donor,
+              "xray_scanner_version": os.environ["XRAY_SCANNER_VERSION"],
+              "c09_acceptance_test_count": 20,
+              "cargo_lock_only_new_path_package": True,
+              "exact_donor_profiles_and_fixtures_proven": True,
+              "donor_read_only_boundary_proven": True,
+              "private_key_surface_absent": True,
+              "sensitive_identifier_projection_absent": True,
+              "xray_disagreement_and_staleness_retained": True,
+              "c08_current_context_fencing_proven": True,
+              "physical_mutation_authority_absent": True,
+              "c08_reproven": True,
+              "full_workspace_reproven": True,
+              "files": files,
+          }
+          rendered = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+          (root / "proof-manifest.json").write_text(rendered, encoding="utf-8")
+          digest = hashlib.sha256(rendered.encode()).hexdigest()
+          (root / "proof-manifest.sha256").write_text(
+              f"{digest}  proof-manifest.json\n", encoding="utf-8"
+          )
+          print(rendered, end="")
+          PY
+          cd /tmp/c09
+          sha256sum -c proof-manifest.sha256
+
+      - name: Confirm exact clean C09 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Retain C09 proof bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: c09-ttg-device-xray-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/c09/
+          if-no-files-found: error
+          retention-days: 90

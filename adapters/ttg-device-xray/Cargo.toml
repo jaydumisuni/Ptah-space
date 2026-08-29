@@ -1,0 +1,23 @@
+[package]
+name = "ttg-device-xray-admission"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+ptah-device-runtime = { path = "../../crates/ptah-device-runtime", version = "=0.0.0-phase0c" }
+ptah-identifiers = { path = "../../crates/ptah-identifiers", version = "=0.0.0-phase0c" }
+ptah-provider-api = { path = "../../crates/ptah-provider-api", version = "=0.0.0-phase0c" }
+thiserror = { workspace = true }
+
+[lib]
+path = "src/lib.rs"
+
+[[test]]
+name = "c09"
+path = "tests/c09.rs"

@@ -22,6 +22,7 @@ members = [
   "adapters/git-cli",
   "adapters/decomposition-libarchive",
   "adapters/native-process",
+  "adapters/ttg-device-xray",
   "evidence/rust-dependency-lock",
 ]
 

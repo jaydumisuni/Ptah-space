@@ -1,5 +1,5 @@
-# activate: inspect Global super metadata 2026-08-30
-name: Temporary inspect Redmi Global super metadata on KRATOS
+# activate: locate local Android partition tools 2026-08-30
+name: Temporary locate Android partition tools on KRATOS
 
 on:
   push:
@@ -11,28 +11,27 @@ permissions:
   contents: read
 
 jobs:
-  inspect:
+  locate:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 12
     steps:
-      - name: Inspect dynamic partition tooling and Global super metadata read-only
+      - name: Locate existing dynamic-partition utilities without installing anything
         shell: bash
         run: |
           set -euo pipefail
-          work='/home/kratos/Desktop/redmi-global-analysis/OS2.0.9.0.VMWMIXM'
-          super="$work/super.unsparse.img"
-          test -f "$super"
-          echo '=== TOOLS ==='
-          for t in lpdump lpunpack simg2img img2simg; do
-            printf '%s=' "$t"
-            command -v "$t" || true
-          done
-          echo '=== LPUNPACK HELP ==='
-          if command -v lpunpack >/dev/null 2>&1; then lpunpack --help 2>&1 | head -n 120 || true; fi
-          echo '=== SUPER METADATA ==='
-          if command -v lpdump >/dev/null 2>&1; then
-            lpdump "$super" 2>&1 | head -n 1200
-          else
-            echo 'LPDUMP_UNAVAILABLE'
-          fi
-          echo 'GLOBAL_SUPER_METADATA=PASS'
+          echo '=== EXACT BINARY NAMES ==='
+          find /home/kratos /opt /usr/local /tmp -xdev -type f \( -name lpunpack -o -name lpdump -o -name simg2img -o -name img2simg -o -name 'lpunpack*' \) -print 2>/dev/null | sort -u | head -n 300 || true
+          echo '=== SCRIPT / MODULE REFERENCES ==='
+          grep -RIlE '(LP_METADATA_HEADER_MAGIC|liblp|lpunpack|dynamic partitions|super partition)' \
+            /home/kratos/TTG-Device-X-Ray /home/kratos/ttg-device-xray /home/kratos/projects /home/kratos/oracle-roadmap-work \
+            2>/dev/null | head -n 300 || true
+          echo '=== PYTHON MODULES ==='
+          python3 - <<'PY'
+          import pkgutil
+          names=sorted(m.name for m in pkgutil.iter_modules())
+          for n in names:
+              low=n.lower()
+              if any(k in low for k in ('android','sparse','super','lp')):
+                  print(n)
+          PY
+          echo 'LOCAL_PARTITION_TOOL_SEARCH=PASS'

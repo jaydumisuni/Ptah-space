@@ -1,5 +1,5 @@
-# activate: inventory Global regional images 2026-08-30
-name: Temporary inventory Redmi Global regional images on KRATOS
+# activate: inspect Global super metadata 2026-08-30
+name: Temporary inspect Redmi Global super metadata on KRATOS
 
 on:
   push:
@@ -11,36 +11,28 @@ permissions:
   contents: read
 
 jobs:
-  inventory:
+  inspect:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 12
     steps:
-      - name: Inventory prepared Global analysis workspace read-only
+      - name: Inspect dynamic partition tooling and Global super metadata read-only
         shell: bash
         run: |
           set -euo pipefail
           work='/home/kratos/Desktop/redmi-global-analysis/OS2.0.9.0.VMWMIXM'
-          test -d "$work"
-          echo '=== WORKSPACE ==='
-          printf 'path=%s\n' "$work"
-          echo '=== TOP LEVEL FILES ==='
-          find "$work" -maxdepth 1 -type f -printf '%s\t%f\n' | sort -k2 | head -n 300
-          echo '=== IMAGE TYPES ==='
-          for f in "$work"/*.img; do
-            [[ -f "$f" ]] || continue
-            printf '%s\t%s\t' "$(basename "$f")" "$(stat -c %s "$f")"
-            blkid -p -s TYPE -o value "$f" 2>/dev/null || printf 'unknown'
-            printf '\n'
+          super="$work/super.unsparse.img"
+          test -f "$super"
+          echo '=== TOOLS ==='
+          for t in lpdump lpunpack simg2img img2simg; do
+            printf '%s=' "$t"
+            command -v "$t" || true
           done
-          echo '=== REGIONAL TARGETS ==='
-          for n in cust mi_ext product system_ext vendor odm super; do
-            for suffix in raw.img img; do
-              f="$work/$n.$suffix"
-              if [[ -f "$f" ]]; then
-                printf '%s\tsize=%s\ttype=' "$(basename "$f")" "$(stat -c %s "$f")"
-                blkid -p -s TYPE -o value "$f" 2>/dev/null || printf 'unknown'
-                printf '\n'
-              fi
-            done
-          done
-          echo 'GLOBAL_IMAGE_INVENTORY=PASS'
+          echo '=== LPUNPACK HELP ==='
+          if command -v lpunpack >/dev/null 2>&1; then lpunpack --help 2>&1 | head -n 120 || true; fi
+          echo '=== SUPER METADATA ==='
+          if command -v lpdump >/dev/null 2>&1; then
+            lpdump "$super" 2>&1 | head -n 1200
+          else
+            echo 'LPDUMP_UNAVAILABLE'
+          fi
+          echo 'GLOBAL_SUPER_METADATA=PASS'

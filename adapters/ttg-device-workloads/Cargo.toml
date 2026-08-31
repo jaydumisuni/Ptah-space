@@ -6,10 +6,10 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-ptah-android-runtime = { path = "../../crates/ptah-android-runtime" }
-ptah-identifiers = { path = "../../crates/ptah-identifiers" }
-ptah-provider-api = { path = "../../crates/ptah-provider-api" }
-ttg-device-xray-admission = { path = "../ttg-device-xray" }
+ptah-android-runtime = { path = "../../crates/ptah-android-runtime", version = "=0.0.0-phase0c" }
+ptah-identifiers = { path = "../../crates/ptah-identifiers", version = "=0.0.0-phase0c" }
+ptah-provider-api = { path = "../../crates/ptah-provider-api", version = "=0.0.0-phase0c" }
+ttg-device-xray-admission = { path = "../ttg-device-xray", version = "=0.0.0-phase0c" }
 sha2.workspace = true
 thiserror.workspace = true
 

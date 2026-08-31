@@ -1,0 +1,344 @@
+name: C10 Android Application and Device Session exact-head proof
+
+on:
+  push:
+    branches:
+      - "c10-android-application-device-session-v1"
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "C10_ANDROID_APPLICATION_DEVICE_SESSION.md"
+      - "crates/ptah-android-runtime/**"
+      - ".github/workflows/c10-android-application-device-session.yml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "C10_ANDROID_APPLICATION_DEVICE_SESSION.md"
+      - "crates/ptah-android-runtime/**"
+      - ".github/workflows/c10-android-application-device-session.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PTAH_PR_BASE: ${{ github.event.pull_request.base.sha }}
+  PTAH_C10_BASE_SHA: 482d28f3232abbcbfe8e4618ab82add36e831f4a
+  CARGO_TERM_COLOR: always
+
+jobs:
+  c10-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact C10 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Lock C10 base and protected scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+          test "$(git merge-base "$PTAH_C10_BASE_SHA" "$PTAH_EXACT_SHA")" = "$PTAH_C10_BASE_SHA"
+
+          proof_base="${PTAH_PR_BASE:-}"
+          if [ -z "$proof_base" ]; then
+            git fetch --no-tags origin main
+            proof_base="$(git rev-parse FETCH_HEAD)"
+            printf 'C10_PUSH_BASE=%s\n' "$proof_base"
+          else
+            printf 'C10_PR_BASE=%s\n' "$proof_base"
+          fi
+          test "$(git merge-base "$PTAH_C10_BASE_SHA" "$proof_base")" = "$PTAH_C10_BASE_SHA"
+
+          protected=(
+            "Cargo.toml"
+            "Cargo.lock"
+            "C10_ANDROID_APPLICATION_DEVICE_SESSION.md"
+            "crates/ptah-android-runtime/Cargo.toml"
+            "crates/ptah-android-runtime/src/lib.rs"
+            "crates/ptah-android-runtime/tests/c10.rs"
+            ".github/workflows/c10-android-application-device-session.yml"
+          )
+          base_drift="$(git diff --name-only "$PTAH_C10_BASE_SHA" "$proof_base")"
+          for path in "${protected[@]}"; do
+            if printf '%s\n' "$base_drift" | grep -Fxq "$path"; then
+              echo "C10 proof base drift overlaps protected C10 surface: $path" >&2
+              exit 1
+            fi
+          done
+
+          mkdir -p /tmp/c10
+          printf '%s\n' "$proof_base" > /tmp/c10/proof-base.txt
+
+          python3 - <<'PY'
+          import os
+          import subprocess
+          from pathlib import Path
+
+          base = os.environ["PTAH_C10_BASE_SHA"]
+          head = os.environ["PTAH_EXACT_SHA"]
+          observed = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", base, head], text=True
+              ).splitlines()
+          )
+          expected = {
+              "Cargo.toml",
+              "Cargo.lock",
+              "C10_ANDROID_APPLICATION_DEVICE_SESSION.md",
+              "crates/ptah-android-runtime/Cargo.toml",
+              "crates/ptah-android-runtime/src/lib.rs",
+              "crates/ptah-android-runtime/tests/c10.rs",
+              ".github/workflows/c10-android-application-device-session.yml",
+          }
+          assert observed == expected, (
+              f"C10 scope mismatch: missing={sorted(expected-observed)} "
+              f"unexpected={sorted(observed-expected)}"
+          )
+
+          lock_diff = subprocess.check_output(
+              ["git", "diff", "--unified=0", base, head, "--", "Cargo.lock"],
+              text=True,
+          )
+          assert lock_diff.count("[[package]]") == 1, "unexpected Cargo.lock package drift"
+          assert 'name = "ptah-android-runtime"' in lock_diff
+          removed = [
+              line for line in lock_diff.splitlines()
+              if line.startswith("-") and not line.startswith("---")
+          ]
+          assert not removed, f"inherited Cargo.lock content changed: {removed}"
+          (Path("/tmp/c10") / "construction-lock.txt").write_text(
+              lock_diff + "C10_LOCK_ONLY_NEW_PATH_PACKAGE=PASS\n",
+              encoding="utf-8",
+          )
+          print("C10_LOCK_ONLY_NEW_PATH_PACKAGE=PASS")
+          PY
+          git diff --check "$PTAH_C10_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          rustc -Vv | tee /tmp/c10/rustc-version.txt
+          cargo -V | tee /tmp/c10/cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$PTAH_EXACT_SHA" > /tmp/c10/exact-head.txt
+          cat /etc/os-release > /tmp/c10/host-os-release.txt
+
+      - name: Prove formatting and 26-case C10 acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ptah-android-runtime --test c10 --locked -- --nocapture \
+            2>&1 | tee /tmp/c10/c10-tests.txt
+          grep -Eq 'test result: ok\. 26 passed; 0 failed;' /tmp/c10/c10-tests.txt
+
+      - name: Prove C10 with strict Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ptah-android-runtime --lib --test c10 --locked -- -D warnings \
+            2>&1 | tee /tmp/c10/c10-clippy.txt
+
+      - name: Prove C10 authority privacy and read-back boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee /tmp/c10/c10-static-authority.txt
+          import re
+          from pathlib import Path
+
+          source = Path("crates/ptah-android-runtime/src/lib.rs").read_text(encoding="utf-8")
+          tests = Path("crates/ptah-android-runtime/tests/c10.rs").read_text(encoding="utf-8")
+          assert len(re.findall(r"^#\[test\]$", tests, re.M)) == 26
+
+          for token in (
+              'urn:ptah:schema:domain:device-session:0.1.1',
+              'urn:ptah:schema:application:application-session:0.1.0',
+              'android.session.control',
+              'android.package.install',
+              'android.application.launch',
+              'android.application.stop',
+              'android.semantic.read',
+              'android.input',
+              'android.clipboard',
+              'android.evidence.capture',
+              'android.session.cleanup',
+              'text_sha256',
+              'content_sha256',
+              'provider_generation',
+              'connection_epoch',
+          ):
+              assert token in source, token
+
+          evidence_kind = re.search(r"pub enum EvidenceCaptureKind\s*\{([^}]*)\}", source, re.S)
+          assert evidence_kind, "missing EvidenceCaptureKind"
+          evidence_variants = [
+              line.strip().rstrip(",")
+              for line in evidence_kind.group(1).splitlines()
+              if line.strip() and not line.strip().startswith("///")
+          ]
+          assert evidence_variants == ["Screenshot", "Recording", "LogSegment"], evidence_variants
+
+          cleanup = re.search(r"pub enum CleanupDisposition\s*\{([^}]*)\}", source, re.S)
+          assert cleanup, "missing CleanupDisposition"
+          cleanup_variants = [
+              line.strip().rstrip(",")
+              for line in cleanup.group(1).splitlines()
+              if line.strip() and not line.strip().startswith("///")
+          ]
+          assert cleanup_variants == ["Verified", "Quarantined"], cleanup_variants
+
+          public_functions = re.findall(r"\bpub\s+fn\s+([A-Za-z0-9_]+)", source)
+          forbidden = re.compile(
+              r"(?:^|_)(?:flash|erase|repartition|bootloader_unlock|bootloader_relock|"
+              r"protected_nv|programmer|fdl|frp_remove|execute_payload|raw_command)(?:_|$)"
+          )
+          offenders = sorted(name for name in public_functions if forbidden.search(name))
+          assert not offenders, offenders
+
+          for forbidden_raw_field in (
+              "raw_text",
+              "raw_clipboard",
+              "clipboard_content",
+              "plaintext",
+          ):
+              assert not re.search(
+                  rf"\bpub\s+{re.escape(forbidden_raw_field)}\s*:", source
+              ), forbidden_raw_field
+
+          for readback in (
+              "PackageReadBack",
+              "ApplicationLaunchReadBack",
+              "ApplicationStopReadBack",
+              "EvidenceCaptureReadBack",
+              "DeviceCleanupReadBack",
+          ):
+              body = re.search(rf"pub struct {readback}\s*\{{([^}}]*)\}}", source, re.S)
+              assert body, readback
+              assert "provider_generation" in body.group(1), readback
+              assert "connection_epoch" in body.group(1), readback
+
+          print("C10_ACCEPTANCE_TEST_COUNT=26")
+          print("C10_STALE_READBACK_FENCING=PASS")
+          print("C10_RAW_TEXT_CLIPBOARD_RETENTION=0")
+          print("C10_CLEANUP_QUARANTINE_BOUNDARY=PASS")
+          print("C10_FORBIDDEN_DEVICE_MUTATION_SURFACE=0")
+          PY
+
+      - name: Re-prove inherited C08 and B05 acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-device-runtime --test c08 --locked -- --nocapture \
+            2>&1 | tee /tmp/c10/c08-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c10/c08-tests.txt
+          cargo test -p ptah-archive-decomposition --test b05 --locked -- --nocapture \
+            2>&1 | tee /tmp/c10/b05-tests.txt
+          grep -Eq 'test result: ok\. 15 passed; 0 failed;' /tmp/c10/b05-tests.txt
+
+      - name: Re-prove full locked workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture \
+            2>&1 | tee /tmp/c10/workspace-tests.txt
+
+      - name: Write exact-head C10 proof manifest
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cp C10_ANDROID_APPLICATION_DEVICE_SESSION.md /tmp/c10/acceptance-contract.md
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("/tmp/c10")
+          required = [
+              "exact-head.txt", "host-os-release.txt", "rustc-version.txt", "cargo-version.txt",
+              "construction-lock.txt", "c10-tests.txt", "c10-clippy.txt",
+              "c10-static-authority.txt", "c08-tests.txt", "b05-tests.txt",
+              "workspace-tests.txt", "acceptance-contract.md", "proof-base.txt",
+          ]
+          files = {}
+          for name in required:
+              path = root / name
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f"missing C10 proof report: {name}")
+              files[name] = {
+                  "size_bytes": path.stat().st_size,
+                  "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+              }
+
+          head = (root / "exact-head.txt").read_text(encoding="utf-8").strip()
+          if head != os.environ["PTAH_EXACT_SHA"]:
+              raise SystemExit("C10 proof head mismatch")
+          proof_base = (root / "proof-base.txt").read_text(encoding="utf-8").strip()
+          if not proof_base:
+              raise SystemExit("C10 proof base missing")
+
+          manifest = {
+              "schema_version": "0.1.0",
+              "record_type": "ptah.c10.android_application_device_session_exact_head_proof",
+              "status": "pass",
+              "implementation_commit": head,
+              "accepted_construction_base": os.environ["PTAH_C10_BASE_SHA"],
+              "proof_base_commit": proof_base,
+              "workflow_run_id": int(os.environ["RUN_ID"]),
+              "workflow_run_attempt": int(os.environ["RUN_ATTEMPT"]),
+              "c10_acceptance_test_count": 26,
+              "cargo_lock_only_new_path_package": True,
+              "c08_lease_and_fence_authority_reproven": True,
+              "b05_package_signature_evidence_reproven": True,
+              "stale_readback_fencing_proven": True,
+              "semantic_target_reacquisition_proven": True,
+              "input_post_condition_readback_proven": True,
+              "privacy_and_retention_boundary_proven": True,
+              "raw_text_clipboard_retention_absent": True,
+              "cleanup_quarantine_boundary_proven": True,
+              "forbidden_device_mutation_surface_absent": True,
+              "full_workspace_reproven": True,
+              "files": files,
+          }
+          rendered = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+          (root / "proof-manifest.json").write_text(rendered, encoding="utf-8")
+          digest = hashlib.sha256(rendered.encode()).hexdigest()
+          (root / "proof-manifest.sha256").write_text(
+              f"{digest}  proof-manifest.json\n", encoding="utf-8"
+          )
+          print(rendered, end="")
+          PY
+          cd /tmp/c10
+          sha256sum -c proof-manifest.sha256
+
+      - name: Confirm exact clean C10 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Retain C10 proof bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: c10-android-application-device-session-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/c10/
+          if-no-files-found: error
+          retention-days: 90

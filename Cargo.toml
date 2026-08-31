@@ -24,6 +24,7 @@ members = [
   "adapters/decomposition-libarchive",
   "adapters/native-process",
   "adapters/ttg-device-xray",
+  "adapters/ttg-device-workloads",
   "evidence/rust-dependency-lock",
 ]
 

@@ -1,6 +1,6 @@
 use ptah_control::{
     AuthorizedSubmission, ControlKind, HumanControlRequest, HumanSnapshot, authorize_control,
-    validate_snapshot,
+    build_workspace_shell_v2_projection, validate_snapshot,
 };
 use serde::Serialize;
 use std::fs::{self, OpenOptions};
@@ -78,6 +78,7 @@ impl ControlServer {
                 write_response(stream, 200, "text/css; charset=utf-8", STYLES_CSS)
             }
             ("GET", "/api/state") => self.write_snapshot(stream),
+            ("GET", "/api/shell-v2") => self.write_shell_v2(stream),
             ("POST", "/api/control") => self.submit_control(stream, &request.body),
             _ => write_json_error(stream, 404, "not_found", "route not found"),
         }
@@ -92,6 +93,24 @@ impl ControlServer {
         };
         let body = serde_json::to_string(&snapshot)
             .map_err(|error| format!("cannot serialize snapshot: {error}"))?;
+        write_response(stream, 200, "application/json", &body)
+    }
+
+    fn write_shell_v2(&self, stream: &mut TcpStream) -> Result<(), String> {
+        let snapshot = match self.read_snapshot() {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                return write_json_error(stream, 503, "state_unavailable", &error);
+            }
+        };
+        let projection = match build_workspace_shell_v2_projection(&snapshot) {
+            Ok(projection) => projection,
+            Err(error) => {
+                return write_json_error(stream, 503, "projection_unavailable", &error.to_string());
+            }
+        };
+        let body = serde_json::to_string(&projection)
+            .map_err(|error| format!("cannot serialize D01 projection: {error}"))?;
         write_response(stream, 200, "application/json", &body)
     }
 
@@ -820,6 +839,21 @@ mod tests {
             .is_err()
         );
         assert!(parse_request_framing(["Host: 127.0.0.1:7800", "Origin:   "].into_iter()).is_err());
+    }
+
+    #[test]
+    fn d01_shell_v2_is_exposed_only_as_a_read_only_authority_bound_projection() {
+        let response = physical_http_response(
+            "GET /api/shell-v2 HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n",
+        );
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(response.contains("\"profile_id\":\"ptah.workspace.operations.v2\""));
+        assert!(response.contains("\"workspace_id\":\"workspace-1\""));
+        assert!(response.contains("\"workspace_revision\":7"));
+        assert!(response.contains("\"schedules\":[]"));
+        assert!(response.contains("\"context_selection_authority\":false"));
+        assert!(response.contains("\"approval_authority\":false"));
+        assert!(response.contains("\"next_action_authority\":false"));
     }
 
     #[test]

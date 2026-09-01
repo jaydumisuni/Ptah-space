@@ -1,0 +1,215 @@
+name: C11 Device Manager and MIBU workload admissions exact-head proof
+
+on:
+  push:
+    branches:
+      - "c11-device-manager-mibu-workload-admissions"
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "C11_DEVICE_MANAGER_MIBU_WORKLOAD_ADMISSIONS.md"
+      - "adapters/ttg-device-workloads/**"
+      - ".github/workflows/c11-device-manager-mibu-workload-admissions.yml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "C11_DEVICE_MANAGER_MIBU_WORKLOAD_ADMISSIONS.md"
+      - "adapters/ttg-device-workloads/**"
+      - ".github/workflows/c11-device-manager-mibu-workload-admissions.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  PTAH_PR_BASE: ${{ github.event.pull_request.base.sha }}
+  PTAH_C11_BASE_SHA: 88a004c5a27ba496fa6a2c6c013743cae875875e
+  CARGO_TERM_COLOR: always
+
+jobs:
+  c11-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact C11 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Lock C11 base, scope, and Cargo construction
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain)"
+          test "$(git merge-base "$PTAH_C11_BASE_SHA" "$PTAH_EXACT_SHA")" = "$PTAH_C11_BASE_SHA"
+
+          proof_base="${PTAH_PR_BASE:-}"
+          if [ -z "$proof_base" ]; then
+            git fetch --no-tags origin main
+            proof_base="$(git rev-parse FETCH_HEAD)"
+          fi
+          test "$(git merge-base "$PTAH_C11_BASE_SHA" "$proof_base")" = "$PTAH_C11_BASE_SHA"
+          mkdir -p /tmp/c11
+          printf '%s\n' "$proof_base" > /tmp/c11/proof-base.txt
+
+          python3 - <<'PY'
+          import os, subprocess
+          from pathlib import Path
+          base=os.environ["PTAH_C11_BASE_SHA"]
+          head=os.environ["PTAH_EXACT_SHA"]
+          observed=set(subprocess.check_output(["git","diff","--name-only",base,head],text=True).splitlines())
+          expected={
+            "Cargo.toml","Cargo.lock","C11_DEVICE_MANAGER_MIBU_WORKLOAD_ADMISSIONS.md",
+            "adapters/ttg-device-workloads/Cargo.toml",
+            "adapters/ttg-device-workloads/src/lib.rs",
+            "adapters/ttg-device-workloads/tests/c11.rs",
+            ".github/workflows/c11-device-manager-mibu-workload-admissions.yml",
+          }
+          assert observed==expected, f"C11 scope mismatch missing={sorted(expected-observed)} unexpected={sorted(observed-expected)}"
+          lock_diff=subprocess.check_output(["git","diff","--unified=0",base,head,"--","Cargo.lock"],text=True)
+          assert lock_diff.count("[[package]]")==1, "unexpected Cargo.lock package drift"
+          assert 'name = "ttg-device-workload-admissions"' in lock_diff
+          removed=[line for line in lock_diff.splitlines() if line.startswith("-") and not line.startswith("---")]
+          assert not removed, f"inherited Cargo.lock content changed: {removed}"
+          Path("/tmp/c11/construction-lock.txt").write_text(lock_diff+"C11_LOCK_ONLY_NEW_PATH_PACKAGE=PASS\n",encoding="utf-8")
+          print("C11_LOCK_ONLY_NEW_PATH_PACKAGE=PASS")
+          PY
+          git diff --check "$PTAH_C11_BASE_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Install pinned Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+          rustc -Vv | tee /tmp/c11/rustc-version.txt
+          cargo -V | tee /tmp/c11/cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$PTAH_EXACT_SHA" > /tmp/c11/exact-head.txt
+          cat /etc/os-release > /tmp/c11/host-os-release.txt
+
+      - name: Prove formatting and 22-case C11 acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ttg-device-workload-admissions --test c11 --locked -- --nocapture 2>&1 | tee /tmp/c11/c11-tests.txt
+          grep -Eq 'test result: ok\. 22 passed; 0 failed;' /tmp/c11/c11-tests.txt
+
+      - name: Prove C11 with strict Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ttg-device-workload-admissions --all-targets --locked -- -D warnings 2>&1 | tee /tmp/c11/c11-clippy.txt
+
+      - name: Prove C11 donor, authority, privacy, and replay boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee /tmp/c11/c11-static-boundary.txt
+          import re
+          from pathlib import Path
+          source=Path("adapters/ttg-device-workloads/src/lib.rs").read_text(encoding="utf-8")
+          tests=Path("adapters/ttg-device-workloads/tests/c11.rs").read_text(encoding="utf-8")
+          assert len(re.findall(r"^#\[test\]$",tests,re.M))==22
+          required=(
+            "e40189f6a4832124c91172b77967c46c06b5c66a","6d1d07b9ca3ddd41dc27c3c159954b578fd16229",
+            "1.0-v1-dev-build","1788d909b968d7f61fdae1faed68e9e35fcf5196",
+            "9fb3803dedddc55f07280f660a7c78583f73b138","4a300f3825b12be99f8d40b860eb9338dd241d4c",
+            "0.3.0-dev","MIBU_PROOF_PROTOCOL_VERSION: u32 = 3","ReversibleDpcPolicyOnly",
+            "ApplicationVisibility","nonce_sha256","nonce_length","automatic_replay_allowed: false",
+            "UnauthenticatedMibuProducer","AuthoritativeResultAlreadyRecorded","ExternalAuthoritativeResult",
+          )
+          for token in required: assert token in source, token
+          admission=re.search(r"pub struct MibuWorkflowAdmission\s*\{(.*?)\n\}",source,re.S)
+          assert admission
+          assert "pub nonce: String" not in admission.group(1)
+          assert "pub nonce_sha256: String" in admission.group(1)
+          assert "pub nonce_length: usize" in admission.group(1)
+          public_functions=re.findall(r"\bpub\s+fn\s+([A-Za-z0-9_]+)",source)
+          forbidden=re.compile(r"(?:^|_)(?:flash|erase|frp|mdm|raw_partition|bootloader|factory_reset|ota_policy)(?:_|$)")
+          offenders=sorted(name for name in public_functions if forbidden.search(name))
+          assert not offenders, offenders
+          assert "include_str!" not in source and "include_bytes!" not in source
+          assert ".kt\"" not in source and ".java\"" not in source and ".cmd\"" not in source
+          print("C11_ACCEPTANCE_TEST_COUNT=22")
+          print("C11_PRIVATE_DONOR_EXTRACTION=0")
+          print("C11_RAW_NONCE_RETAINED_IN_ADMISSION=0")
+          print("C11_AUTOMATIC_REPLAY=0")
+          print("C11_FORBIDDEN_RECOVERY_PUBLIC_FUNCTIONS=0")
+          PY
+
+      - name: Re-prove inherited C09 and C10 acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ttg-device-xray-admission --test c09 --locked -- --nocapture 2>&1 | tee /tmp/c11/c09-tests.txt
+          grep -Eq 'test result: ok\. 20 passed; 0 failed;' /tmp/c11/c09-tests.txt
+          cargo test -p ptah-android-runtime --test c10 --locked -- --nocapture 2>&1 | tee /tmp/c11/c10-tests.txt
+          grep -Eq 'test result: ok\. 26 passed; 0 failed;' /tmp/c11/c10-tests.txt
+
+      - name: Re-prove full locked workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked -- --nocapture 2>&1 | tee /tmp/c11/workspace-tests.txt
+
+      - name: Write exact-head C11 proof manifest
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cp C11_DEVICE_MANAGER_MIBU_WORKLOAD_ADMISSIONS.md /tmp/c11/acceptance-contract.md
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path("/tmp/c11")
+          required=["exact-head.txt","host-os-release.txt","rustc-version.txt","cargo-version.txt","construction-lock.txt","c11-tests.txt","c11-clippy.txt","c11-static-boundary.txt","c09-tests.txt","c10-tests.txt","workspace-tests.txt","acceptance-contract.md","proof-base.txt"]
+          files={}
+          for name in required:
+            path=root/name
+            if not path.is_file() or path.stat().st_size==0: raise SystemExit(f"missing C11 proof report: {name}")
+            files[name]={"size_bytes":path.stat().st_size,"sha256":hashlib.sha256(path.read_bytes()).hexdigest()}
+          head=(root/"exact-head.txt").read_text().strip()
+          if head!=os.environ["PTAH_EXACT_SHA"]: raise SystemExit("C11 proof head mismatch")
+          manifest={
+            "schema_version":"0.1.0","record_type":"ptah.c11.device_manager_mibu_workload_admissions_exact_head_proof",
+            "status":"pass","implementation_commit":head,"accepted_construction_base":os.environ["PTAH_C11_BASE_SHA"],
+            "proof_base_commit":(root/"proof-base.txt").read_text().strip(),"workflow_run_id":int(os.environ["RUN_ID"]),
+            "workflow_run_attempt":int(os.environ["RUN_ATTEMPT"]),"c11_acceptance_test_count":22,
+            "cargo_lock_only_new_path_package":True,"c09_xray_reproven":True,"c10_android_runtime_reproven":True,
+            "device_manager_exact_package_version_signer_gate":True,"explicit_reversible_dpc_authorization":True,
+            "destructive_recovery_surface_absent":True,"mibu_nonce_not_authentication":True,"mibu_automatic_replay_disabled":True,
+            "mibu_external_authority_separated":True,"full_workspace_reproven":True,"files":files,
+          }
+          rendered=json.dumps(manifest,indent=2,sort_keys=True)+"\n"
+          (root/"proof-manifest.json").write_text(rendered)
+          digest=hashlib.sha256(rendered.encode()).hexdigest()
+          (root/"proof-manifest.sha256").write_text(f"{digest}  proof-manifest.json\n")
+          print(rendered,end="")
+          PY
+          cd /tmp/c11
+          sha256sum -c proof-manifest.sha256
+
+      - name: Confirm exact clean C11 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Retain C11 proof bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: c11-device-manager-mibu-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/c11/
+          if-no-files-found: error
+          retention-days: 90

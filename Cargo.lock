@@ -962,6 +962,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ttg-device-workload-admissions"
+version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-android-runtime",
+ "ptah-identifiers",
+ "ptah-provider-api",
+ "sha2",
+ "thiserror 2.0.17",
+ "ttg-device-xray-admission",
+]
+
+[[package]]
 name = "ttg-device-xray-admission"
 version = "0.0.0-phase0c"
 dependencies = [

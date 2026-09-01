@@ -1,0 +1,358 @@
+name: D01 Human Workspace shell v2 exact-head proof
+
+on:
+  pull_request:
+    paths:
+      - "D01_HUMAN_WORKSPACE_SHELL_V2.md"
+      - "services/ptah-control/**"
+      - ".github/workflows/d01-human-workspace-shell-v2-proof.yml"
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha }}
+  PTAH_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  PTAH_C11_SHA: 3526acd0c6d28a2fd97497f99bc1798259b47433
+  CARGO_TERM_COLOR: always
+
+jobs:
+  d01-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out exact D01 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Lock exact C11 predecessor and D01 scope
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test "$PTAH_BASE_SHA" = "$PTAH_C11_SHA"
+          test "$(git rev-list --count "$PTAH_C11_SHA..$PTAH_EXACT_SHA")" -eq 1
+          test "$(git rev-parse "$PTAH_EXACT_SHA^")" = "$PTAH_C11_SHA"
+          python - <<'PY'
+          import os, subprocess
+          base=os.environ['PTAH_C11_SHA']; head=os.environ['PTAH_EXACT_SHA']
+          files=subprocess.check_output(['git','diff','--name-only',base,head], text=True).splitlines()
+          allowed=lambda p: (
+              p == 'D01_HUMAN_WORKSPACE_SHELL_V2.md'
+              or p == '.github/workflows/d01-human-workspace-shell-v2-proof.yml'
+              or p in {
+                  'services/ptah-control/src/lib.rs',
+                  'services/ptah-control/src/server.rs',
+                  'services/ptah-control/web/index.html',
+                  'services/ptah-control/web/preflight.js',
+                  'services/ptah-control/web/app.js',
+                  'services/ptah-control/web/styles.css',
+                  'services/ptah-control/tests/d01_acceptance.rs',
+              }
+          )
+          bad=[p for p in files if not allowed(p)]
+          assert not bad, f'D01 scope drift: {bad}'
+          required={
+              'D01_HUMAN_WORKSPACE_SHELL_V2.md',
+              '.github/workflows/d01-human-workspace-shell-v2-proof.yml',
+              'services/ptah-control/src/lib.rs',
+              'services/ptah-control/src/server.rs',
+              'services/ptah-control/web/index.html',
+              'services/ptah-control/web/preflight.js',
+              'services/ptah-control/web/app.js',
+              'services/ptah-control/web/styles.css',
+              'services/ptah-control/tests/d01_acceptance.rs',
+          }
+          missing=sorted(required-set(files))
+          assert not missing, f'missing D01 product/proof surface: {missing}'
+          PY
+          git diff --check "$PTAH_C11_SHA" "$PTAH_EXACT_SHA"
+          git diff --exit-code "$PTAH_C11_SHA" "$PTAH_EXACT_SHA" -- Cargo.lock
+
+      - name: Install pinned Rust 1.97.1
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          rustc -V | tee /tmp/d01-rustc-version.txt
+          cargo -V | tee /tmp/d01-cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+
+      - name: Prove locked dependency universe
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/d01-proof
+          cp Cargo.lock /tmp/d01-proof/Cargo.lock.repository
+          cargo metadata --locked --format-version 1 > /tmp/d01-proof/cargo-metadata.json
+          cmp -s Cargo.lock /tmp/d01-proof/Cargo.lock.repository
+          python tools/check_rust_dependency_lock.py --output /tmp/d01-proof/dependency-lock-report.json
+          python - <<'PY'
+          import json
+          p=json.load(open('/tmp/d01-proof/dependency-lock-report.json'))
+          assert p['git_dependency_count'] == 0, p
+          PY
+
+      - name: Format lint and static review gates
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo clippy -p ptah-control --all-targets --locked -- -D clippy::all -D clippy::pedantic
+          ! grep -R -n -E 'TODO|FIXME|todo!\(|unimplemented!\(|unsafe[[:space:]]*\{' services/ptah-control/src services/ptah-control/tests
+          ! grep -R -n -E 'layout\.(authority|fence)|layout_(authority|fence)' services/ptah-control/web
+
+      - name: Prove D01 A14 and inherited workspace
+        run: |
+          set -euo pipefail
+          d01_count=$(cargo test -p ptah-control --test d01_acceptance --locked -- --list | grep -c ': test$')
+          test "$d01_count" -eq 13
+          printf '%s\n' "$d01_count" > /tmp/d01-proof/d01-test-count.txt
+          a14_count=$(cargo test -p ptah-control --test a14_acceptance --locked -- --list | grep -c ': test$')
+          test "$a14_count" -eq 11
+          printf '%s\n' "$a14_count" > /tmp/d01-proof/a14-test-count.txt
+          cargo test -p ptah-control --locked
+          workspace_count=$(cargo test --workspace --locked -- --list | grep -c ': test$')
+          printf '%s\n' "$workspace_count" > /tmp/d01-proof/workspace-test-count.txt
+          cargo test --workspace --locked
+
+      - name: Prove loopback-only control boundary
+        run: |
+          set -euo pipefail
+          cp services/ptah-control/tests/fixtures/a14_snapshot.json /tmp/d01-snapshot.json
+          : > /tmp/d01-submissions.ndjson
+          cargo build -p ptah-control --locked
+          set +e
+          timeout 3s target/debug/ptah-control serve \
+            --snapshot /tmp/d01-snapshot.json \
+            --submissions /tmp/d01-remote-submissions.ndjson \
+            --listen 0.0.0.0:17801 > /tmp/d01-remote-bind.log 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          test "$rc" -ne 124
+          grep -q 'listen address must be loopback' /tmp/d01-remote-bind.log
+
+      - name: Start exact D01 human workspace service
+        run: |
+          set -euo pipefail
+          target/debug/ptah-control serve \
+            --snapshot /tmp/d01-snapshot.json \
+            --submissions /tmp/d01-submissions.ndjson \
+            --listen 127.0.0.1:17800 > /tmp/d01-server.log 2>&1 &
+          echo $! > /tmp/d01-server.pid
+          for i in $(seq 1 50); do
+            if curl --fail --silent --show-error http://127.0.0.1:17800/api/state > /tmp/d01-state.json \
+              && curl --fail --silent --show-error http://127.0.0.1:17800/api/shell-v2 > /tmp/d01-shell-v2.json; then
+              exit 0
+            fi
+            sleep 0.2
+          done
+          cat /tmp/d01-server.log
+          exit 1
+
+      - name: Install exact Node 24.18.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: browser-provider/package-lock.json
+
+      - name: Install locked Playwright Chromium
+        working-directory: browser-provider
+        run: |
+          set -euo pipefail
+          node -v | tee /tmp/d01-proof/node-version.txt
+          test "$(node -v)" = "v24.18.0"
+          npm ci --ignore-scripts
+          test "$(node -p "require('./node_modules/playwright/package.json').version")" = "1.60.0"
+          npx playwright install --with-deps chromium
+
+      - name: Physically prove D01 projection layout accessibility and no authority drift
+        working-directory: browser-provider
+        env:
+          PTAH_D01_URL: http://127.0.0.1:17800
+          PTAH_D01_SUBMISSIONS: /tmp/d01-submissions.ndjson
+        run: |
+          set -euo pipefail
+          cat > /tmp/d01-ui-proof.mjs <<'JS'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          import { createRequire } from 'node:module';
+          const require=createRequire(`${process.cwd()}/package.json`);
+          const { chromium }=require('playwright');
+          const url=process.env.PTAH_D01_URL;
+          const submissions=process.env.PTAH_D01_SUBMISSIONS;
+          const browser=await chromium.launch({headless:true});
+          const viewports=[
+            {name:'desktop',width:1280,height:900},
+            {name:'tablet',width:820,height:1180},
+            {name:'mobile',width:390,height:844},
+          ];
+          const d01Panels=[
+            'home','operations','activities','objects','availability','results','terminals','editor',
+            'transfers','browser','applications-devices','media-documents','health','diagnostics',
+            'workers','schedules','conflicts','control-transfer','recovery','views-limits','evidence',
+          ];
+          const critical=[
+            'checkpoint_request','workspace_reconnect','submit_upgrade_activity','accept_worker_result',
+          ];
+
+          for (const viewport of viewports) {
+            const context=await browser.newContext({viewport});
+            const page=await context.newPage();
+            await page.goto(url,{waitUntil:'networkidle'});
+            await page.locator('#authority').waitFor();
+            for (const id of d01Panels) {
+              assert.equal(await page.locator(`#${id}`).count(),1,`${viewport.name}: missing ${id}`);
+            }
+            for (const kind of critical) {
+              assert.equal(await page.locator(`button[data-control="${kind}"]`).first().isVisible(),true,`${viewport.name}: hidden critical ${kind}`);
+            }
+            assert.equal(await page.locator('.skip-link').count(),1,`${viewport.name}: skip link absent`);
+            const state=await page.evaluate(async()=>await (await fetch('/api/state',{cache:'no-store'})).json());
+            const shell=await page.evaluate(async()=>await (await fetch('/api/shell-v2',{cache:'no-store'})).json());
+            assert.deepEqual(shell.authority,state.authority,`${viewport.name}: state/shell authority mismatch`);
+            assert.equal(shell.profile_id,'ptah.workspace.operations.v2');
+            assert.equal(shell.context_selection_authority,false);
+            assert.equal(shell.approval_authority,false);
+            assert.equal(shell.next_action_authority,false);
+            assert.deepEqual(shell.schedules,[]);
+            await context.close();
+          }
+
+          assert.equal(fs.readFileSync(submissions,'utf8').trim(),'','rendering must not authorize work');
+
+          const context=await browser.newContext({viewport:{width:1280,height:900}});
+          const page=await context.newPage();
+          await page.goto(url,{waitUntil:'networkidle'});
+          const stateBefore=await page.evaluate(async()=>await (await fetch('/api/state',{cache:'no-store'})).json());
+          const initialOrder=await page.locator('.panel').evaluateAll(nodes=>nodes.map(node=>node.id));
+
+          await page.locator('#layout-mode').selectOption('single');
+          const storedSingle=await page.evaluate(()=>JSON.parse(localStorage.getItem('ptah.layout.v2')));
+          assert.deepEqual(Object.keys(storedSingle).sort(),['layout_mode','panel_order']);
+          assert.equal(storedSingle.layout_mode,'single');
+          assert.deepEqual(storedSingle.panel_order,initialOrder);
+          assert.equal(await page.locator('#workspace-shell').evaluate(node=>node.classList.contains('layout-single')),true);
+
+          await page.reload({waitUntil:'networkidle'});
+          assert.equal(await page.locator('#layout-mode').inputValue(),'single','layout mode must survive reload');
+          assert.equal(await page.locator('#workspace-shell').evaluate(node=>node.classList.contains('layout-single')),true);
+
+          const operations=page.locator('#operations');
+          await operations.focus();
+          await operations.press('Alt+ArrowUp');
+          const reordered=await page.evaluate(()=>JSON.parse(localStorage.getItem('ptah.layout.v2')));
+          assert.deepEqual(Object.keys(reordered).sort(),['layout_mode','panel_order']);
+          assert.notDeepEqual(reordered.panel_order,initialOrder,'keyboard reorder must change presentation order');
+
+          await page.evaluate(()=>localStorage.setItem('ptah.layout.v2','{corrupt'));
+          await page.reload({waitUntil:'networkidle'});
+          assert.equal(await page.evaluate(()=>localStorage.getItem('ptah.layout.v2')),null,'corrupt presentation state must be discarded');
+          assert.equal(await page.locator('#layout-mode').inputValue(),'grid');
+
+          await page.locator('#layout-mode').selectOption('single');
+          await page.locator('#reset-layout').click();
+          assert.equal(await page.evaluate(()=>localStorage.getItem('ptah.layout.v2')),null,'reset must remove presentation cache');
+          assert.equal(await page.locator('#layout-mode').inputValue(),'grid');
+
+          const stateAfter=await page.evaluate(async()=>await (await fetch('/api/state',{cache:'no-store'})).json());
+          assert.deepEqual(stateAfter,stateBefore,'layout operations must not mutate canonical state');
+          assert.equal(fs.readFileSync(submissions,'utf8').trim(),'','layout operations must not submit work');
+
+          const backingText=await page.locator('#editor, #applications-devices, #media-documents').allInnerTexts();
+          assert(backingText.join('\n').includes('No canonical editor session exists'));
+          assert(backingText.join('\n').includes('must be projected by its owning session'));
+          assert(backingText.join('\n').includes('canonical typed Objects/Artifacts'));
+
+          await context.close();
+          await browser.close();
+          console.log(JSON.stringify({
+            viewports:viewports.map(v=>v.name),
+            panels:d01Panels.length,
+            authority_pair_equal:true,
+            layout_presentation_only:true,
+            corrupt_layout_recovered:true,
+            keyboard_reorder:true,
+            submissions:0,
+          }));
+          JS
+          node /tmp/d01-ui-proof.mjs | tee /tmp/d01-proof/ui-physical-proof.json
+
+      - name: Stop D01 service and retain boundary evidence
+        if: always()
+        run: |
+          set +e
+          if test -f /tmp/d01-server.pid; then kill "$(cat /tmp/d01-server.pid)" 2>/dev/null; fi
+          wait "$(cat /tmp/d01-server.pid 2>/dev/null)" 2>/dev/null
+          set -e
+          cp /tmp/d01-server.log /tmp/d01-proof/server.log 2>/dev/null || true
+          cp /tmp/d01-remote-bind.log /tmp/d01-proof/remote-bind.log 2>/dev/null || true
+          cp /tmp/d01-state.json /tmp/d01-proof/state.json 2>/dev/null || true
+          cp /tmp/d01-shell-v2.json /tmp/d01-proof/shell-v2.json 2>/dev/null || true
+          cp /tmp/d01-submissions.ndjson /tmp/d01-proof/submissions.ndjson 2>/dev/null || true
+
+      - name: Write exact-head D01 proof record
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path('/tmp/d01-proof')
+          ui=json.loads((root/'ui-physical-proof.json').read_text().strip().splitlines()[-1])
+          payload={
+            'record_type':'ptah.programme_d.d01.human_workspace_shell_v2_exact_head_proof',
+            'schema_version':'0.1.0',
+            'created_at':datetime.now(timezone.utc).isoformat(timespec='seconds'),
+            'implementation_commit':os.environ['PTAH_EXACT_SHA'],
+            'implementation_tree':subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip(),
+            'base_commit':os.environ['PTAH_C11_SHA'],
+            'exact_head_match':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==os.environ['PTAH_EXACT_SHA'],
+            'one_commit_over_c11':int(subprocess.check_output(['git','rev-list','--count',f"{os.environ['PTAH_C11_SHA']}..{os.environ['PTAH_EXACT_SHA']}"],text=True).strip())==1,
+            'cargo_lock_sha256':hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),
+            'd01_test_count':int((root/'d01-test-count.txt').read_text()),
+            'a14_test_count':int((root/'a14-test-count.txt').read_text()),
+            'workspace_test_count':int((root/'workspace-test-count.txt').read_text()),
+            'physical_viewports':ui['viewports'],
+            'physical_panel_count':ui['panels'],
+            'authorized_submission_count':ui['submissions'],
+            'proofs':[
+              'exact_c11_predecessor_and_scope',
+              'unchanged_cargo_lock',
+              'locked_dependency_policy',
+              'cargo_fmt',
+              'strict_clippy_categories',
+              'd01_acceptance_corpus',
+              'a14_regression_corpus',
+              'full_workspace_regression',
+              'loopback_only_control_boundary',
+              'desktop_tablet_mobile_d01_projection',
+              'state_shell_authority_pair_equality',
+              'presentation_only_layout_persistence',
+              'corrupt_layout_recovery',
+              'keyboard_accessible_reordering',
+              'layout_no_submission_no_canonical_mutation',
+              'specialized_backing_state_not_invented'
+            ],
+            'status':'exact_head_d01_proof_passed',
+          }
+          assert payload['exact_head_match'] and payload['one_commit_over_c11']
+          assert payload['authorized_submission_count'] == 0
+          (root/'d01-proof.json').write_text(json.dumps(payload,indent=2)+'\n')
+          PY
+          sha256sum /tmp/d01-proof/d01-proof.json | tee /tmp/d01-proof/d01-proof.sha256
+          sha256sum Cargo.lock D01_HUMAN_WORKSPACE_SHELL_V2.md services/ptah-control/src/lib.rs services/ptah-control/src/server.rs services/ptah-control/web/app.js > /tmp/d01-proof/repository-hashes.sha256
+          rm -rf browser-provider/node_modules
+          git status --porcelain=v1 > /tmp/d01-proof/git-status.txt
+          test ! -s /tmp/d01-proof/git-status.txt
+
+      - name: Upload retained D01 proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: d01-human-workspace-shell-v2-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/d01-proof/
+          if-no-files-found: error
+          retention-days: 30

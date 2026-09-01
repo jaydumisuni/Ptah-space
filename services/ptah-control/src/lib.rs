@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-//! Human-facing Ptah projection and protected-control fencing for A14.
+//! Human-facing Ptah projection and protected-control fencing for A14 and D01.
 //!
 //! This crate is deliberately a projection boundary. Canonical runtime truth remains in the
 //! owning Ptah runtimes; client layout, cached state and diagnostic advice never become authority.
@@ -451,6 +451,16 @@ pub fn responsive_projection(viewport: Viewport) -> ResponsiveProjection {
         "diagnostics",
         "workers",
         "recovery",
+        "operations",
+        "availability",
+        "results",
+        "editor",
+        "applications_devices",
+        "media_documents",
+        "schedules",
+        "conflicts",
+        "control_transfer",
+        "views_limits",
         "evidence",
     ]
     .into_iter()
@@ -549,3 +559,499 @@ impl fmt::Display for SnapshotError {
 }
 
 impl std::error::Error for SnapshotError {}
+
+/// Mechanical effect class exposed by the D01 operation catalog.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationEffectClass {
+    /// Observation only; no requested mutation.
+    Observe,
+    /// Creates a caller-reviewable draft without publishing it.
+    Draft,
+    /// Computes a hypothetical result without requesting the external effect.
+    Simulate,
+    /// Changes Ptah or caller-owned state when separately authorized.
+    Mutate,
+    /// Publishes a caller-owned result to an external boundary.
+    Publish,
+    /// Destructive mutation requiring an independently reviewed adapter family.
+    Destructive,
+    /// Requests an effect through an external Provider.
+    ExternalSideEffect,
+}
+
+/// Truth state for an Object or Artifact reference in the D01 shell.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AvailabilityState {
+    /// Only an external reference is held.
+    ExternalReference,
+    /// The external reference has been indexed without local bytes.
+    IndexedReference,
+    /// The source is mounted read-only.
+    MountedReadOnly,
+    /// A distinct local copy has been materialized.
+    MaterializedCopy,
+    /// Ptah retains a generated Artifact.
+    GeneratedArtifact,
+}
+
+/// Final result vocabulary surfaced by D01 without collapsing caller acceptance.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityResultState {
+    /// The owning runtime reports successful completion.
+    Succeeded,
+    /// The owning runtime reports failure.
+    Failed,
+    /// The caller declined the requested work.
+    Declined,
+    /// The Activity was cancelled.
+    Cancelled,
+    /// The Activity was intentionally not run.
+    NotRun,
+    /// Some output was retained but the Activity did not fully complete.
+    PartiallyCompleted,
+}
+
+/// Timing modes understood by the D01 shell. They do not create schedules by themselves.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimingMode {
+    /// Run at the exact caller-specified time.
+    Exact,
+    /// Run within the caller-specified flexible window.
+    Flexible,
+    /// Evaluate a caller-specified condition on its configured cadence.
+    Condition,
+}
+
+/// Requirement visibility/state for a D01 operation boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RequirementState {
+    /// The operation contract requires this boundary.
+    Required,
+    /// This shell boundary does not require this boundary.
+    NotRequired,
+    /// The canonical source does not expose whether this boundary is required.
+    NotExposed,
+}
+
+/// Relationship between external Provider permission and Ptah confirmation policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderPermissionRelation {
+    /// Provider permission and Ptah confirmation are independently evaluated facts.
+    Separate,
+}
+
+/// One mechanically discoverable operation presented by the D01 shell.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OperationDescriptorView {
+    /// Stable operation identifier used by the human client.
+    pub id: String,
+    /// Human-readable label.
+    pub label: String,
+    /// Mechanical effect classification.
+    pub effect: OperationEffectClass,
+    /// Ptah Grant requirement when the canonical source exposes it.
+    pub grant_requirement: RequirementState,
+    /// Current Grant visibility/status at this projection boundary.
+    pub grant_state: String,
+    /// Caller confirmation requirement at this shell boundary.
+    pub confirmation_requirement: RequirementState,
+    /// Current caller-confirmation policy/status.
+    pub confirmation_state: String,
+    /// Relationship between Provider permission and Ptah confirmation policy.
+    pub provider_permission_relation: ProviderPermissionRelation,
+    /// Current Provider access visibility/status at this projection boundary.
+    pub provider_access_state: String,
+    /// Local byte materialization requirement when the canonical source exposes it.
+    pub materialization_requirement: RequirementState,
+    /// Explicit limitations retained with the descriptor.
+    pub limits: Vec<String>,
+}
+
+/// D01 availability projection for one current Object or Artifact.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AvailabilityTruthView {
+    /// Stable Object or Artifact identity.
+    pub object_id: String,
+    /// Exact current Revision reference.
+    pub revision: String,
+    /// Current availability/materialization truth.
+    pub state: AvailabilityState,
+    /// Local path only when canonical state actually supplies one; A14 does not.
+    pub local_path: Option<String>,
+    /// Retained evidence supporting the state.
+    pub evidence: Vec<String>,
+}
+
+/// Stable result handle projected from one Activity.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StableResultView {
+    /// Stable handle usable by clients without treating a rendered card as authority.
+    pub handle: String,
+    /// Stable Activity identity.
+    pub activity_id: String,
+    /// Mechanical final-state classification, if the runtime state is final.
+    pub final_state: Option<ActivityResultState>,
+    /// Caller/reviewer acceptance remains independent from runtime completion.
+    pub acceptance: String,
+    /// Whether a partial Artifact is explicitly retained, when current canonical state says so.
+    pub partial_retained: Option<bool>,
+    /// Whether this projection currently exposes bounded paging for the result.
+    pub pageable: bool,
+    /// Whether this projection currently exposes searchable result access.
+    pub searchable: bool,
+    /// Explicit limitations retained with the result handle.
+    pub limitations: Vec<String>,
+}
+
+/// Caller-defined schedule projection. D01 does not manufacture instances when none exist.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScheduleTruthView {
+    /// Stable schedule identity.
+    pub schedule_id: String,
+    /// Caller-selected timing mode.
+    pub timing_mode: TimingMode,
+    /// Exact caller-owned input Revision supplied to the scheduled Activity.
+    pub input_revision: String,
+    /// Provider identity, when the caller selected one.
+    pub provider_id: Option<String>,
+    /// Grant identity, when required by the owning runtime.
+    pub grant_id: Option<String>,
+    /// Current mechanical schedule state.
+    pub state: String,
+}
+
+/// Unresolved conflict or moved-target/precondition state shown to the caller.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConflictTruthView {
+    /// Stable projection identity for the conflict.
+    pub conflict_id: String,
+    /// Stable target whose evidence conflicts.
+    pub target_id: String,
+    /// Exact conflict detail from canonical evidence.
+    pub detail: String,
+    /// Mechanical conflict state.
+    pub state: String,
+    /// Ptah leaves semantic reconciliation to the caller/reviewer.
+    pub caller_resolution_required: bool,
+}
+
+/// A replaceable typed View over canonical Ptah state.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypedViewDescriptor {
+    /// Stable View identity.
+    pub view_id: String,
+    /// Kind of backing canonical record.
+    pub backing_kind: String,
+    /// Stable backing record identity.
+    pub backing_id: String,
+    /// Whether clients may replace the rendering without changing backing truth.
+    pub replaceable: bool,
+    /// Views are never authority in D01.
+    pub authoritative: bool,
+}
+
+/// Read-only D01 Human Workspace shell v2 projection built from a validated A14 snapshot.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceShellV2Projection {
+    /// Exact profile identity accepted by the D01 roadmap amendment.
+    pub profile_id: String,
+    /// Exact canonical authority stamp inherited from A14.
+    pub authority: AuthorityStamp,
+    /// Typed operation catalog for controls already owned by A14.
+    pub operations: Vec<OperationDescriptorView>,
+    /// Reference/materialization truth.
+    pub availability: Vec<AvailabilityTruthView>,
+    /// Stable result handles and final-state projections.
+    pub results: Vec<StableResultView>,
+    /// Caller-defined schedules only; empty means none are canonically present.
+    pub schedules: Vec<ScheduleTruthView>,
+    /// Timing modes the shell can present when a caller supplies a schedule.
+    pub supported_timing_modes: Vec<TimingMode>,
+    /// Unresolved worker/precondition conflicts.
+    pub conflicts: Vec<ConflictTruthView>,
+    /// Replaceable renderings of canonical records.
+    pub views: Vec<TypedViewDescriptor>,
+    /// Visible product and evidence limitations.
+    pub limits: Vec<String>,
+    /// Ptah does not select semantic context.
+    pub context_selection_authority: bool,
+    /// Ptah does not approve caller work.
+    pub approval_authority: bool,
+    /// Ptah does not choose the caller's next action.
+    pub next_action_authority: bool,
+}
+
+/// Failure to project D01 truth without inventing semantics.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ShellV2Error {
+    /// A canonical materialization state is outside the accepted D01 vocabulary.
+    UnknownAvailabilityState(String),
+}
+
+impl fmt::Display for ShellV2Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownAvailabilityState(value) => {
+                write!(f, "unknown availability/materialization state: {value}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ShellV2Error {}
+
+fn availability_state(value: &str) -> Result<AvailabilityState, ShellV2Error> {
+    match value {
+        "external_reference" => Ok(AvailabilityState::ExternalReference),
+        "indexed_reference" => Ok(AvailabilityState::IndexedReference),
+        "mounted_read_only" => Ok(AvailabilityState::MountedReadOnly),
+        "materialized_copy" => Ok(AvailabilityState::MaterializedCopy),
+        "generated_artifact" => Ok(AvailabilityState::GeneratedArtifact),
+        other => Err(ShellV2Error::UnknownAvailabilityState(String::from(other))),
+    }
+}
+
+fn activity_result_state(value: &str) -> Option<ActivityResultState> {
+    match value {
+        "completed" | "succeeded" => Some(ActivityResultState::Succeeded),
+        "failed" => Some(ActivityResultState::Failed),
+        "declined" => Some(ActivityResultState::Declined),
+        "cancelled" => Some(ActivityResultState::Cancelled),
+        "not_run" => Some(ActivityResultState::NotRun),
+        "partially_completed" => Some(ActivityResultState::PartiallyCompleted),
+        _ => None,
+    }
+}
+
+fn acceptance_label(value: &AcceptanceState) -> String {
+    String::from(match value {
+        AcceptanceState::Pending => "pending",
+        AcceptanceState::Accepted => "accepted",
+        AcceptanceState::Rejected => "rejected",
+    })
+}
+
+fn operation_descriptor(
+    id: &str,
+    label: &str,
+    effect: OperationEffectClass,
+    confirmation_requirement: RequirementState,
+) -> OperationDescriptorView {
+    OperationDescriptorView {
+        id: String::from(id),
+        label: String::from(label),
+        effect,
+        grant_requirement: RequirementState::NotExposed,
+        grant_state: String::from("not_exposed_by_a14_projection"),
+        confirmation_state: String::from(match confirmation_requirement {
+            RequirementState::Required => "explicit_reference_required",
+            RequirementState::NotRequired => "not_required_by_this_shell_boundary",
+            RequirementState::NotExposed => "not_exposed_by_a14_projection",
+        }),
+        confirmation_requirement,
+        provider_permission_relation: ProviderPermissionRelation::Separate,
+        provider_access_state: String::from("provider_specific_not_exposed_by_a14_projection"),
+        materialization_requirement: RequirementState::NotExposed,
+        limits: vec![
+            String::from(
+                "authorization records permission to dispatch; it is not completion proof",
+            ),
+            String::from(
+                "Grant and external Provider access status are not present in the A14 snapshot and are therefore not inferred",
+            ),
+        ],
+    }
+}
+
+fn build_availability_views(
+    snapshot: &HumanSnapshot,
+) -> Result<Vec<AvailabilityTruthView>, ShellV2Error> {
+    snapshot
+        .objects
+        .iter()
+        .map(|item| {
+            Ok(AvailabilityTruthView {
+                object_id: item.id.clone(),
+                revision: item.revision.clone(),
+                state: availability_state(&item.materialization_state)?,
+                local_path: None,
+                evidence: item.evidence.clone(),
+            })
+        })
+        .collect()
+}
+
+fn build_result_views(snapshot: &HumanSnapshot) -> Vec<StableResultView> {
+    snapshot
+        .activities
+        .iter()
+        .map(|item| {
+            let mut limitations = item.limitation.iter().cloned().collect::<Vec<_>>();
+            limitations.push(String::from(
+                "incremental page/search access is not exposed by the current A14 snapshot boundary",
+            ));
+            StableResultView {
+                handle: format!("activity:{}", item.id),
+                activity_id: item.id.clone(),
+                final_state: activity_result_state(&item.runtime_state),
+                acceptance: acceptance_label(&item.acceptance),
+                partial_retained: None,
+                pageable: false,
+                searchable: false,
+                limitations,
+            }
+        })
+        .collect()
+}
+
+fn build_conflict_views(snapshot: &HumanSnapshot) -> Vec<ConflictTruthView> {
+    snapshot
+        .workers
+        .iter()
+        .filter_map(|worker| {
+            worker.conflict.as_ref().map(|detail| ConflictTruthView {
+                conflict_id: format!("worker-conflict:{}", worker.worker_id),
+                target_id: worker.worker_id.clone(),
+                detail: detail.clone(),
+                state: String::from("unresolved"),
+                caller_resolution_required: true,
+            })
+        })
+        .collect()
+}
+
+fn build_typed_views(snapshot: &HumanSnapshot) -> Vec<TypedViewDescriptor> {
+    let activity_views = snapshot
+        .activities
+        .iter()
+        .map(|activity| TypedViewDescriptor {
+            view_id: format!("activity-view:{}", activity.id),
+            backing_kind: String::from("activity"),
+            backing_id: activity.id.clone(),
+            replaceable: true,
+            authoritative: false,
+        });
+    let object_views = snapshot.objects.iter().map(|object| TypedViewDescriptor {
+        view_id: format!("object-view:{}", object.id),
+        backing_kind: String::from(if object.artifact {
+            "artifact"
+        } else {
+            "object"
+        }),
+        backing_id: object.id.clone(),
+        replaceable: true,
+        authoritative: false,
+    });
+    activity_views.chain(object_views).collect()
+}
+
+fn operation_catalog() -> Vec<OperationDescriptorView> {
+    use OperationEffectClass::{ExternalSideEffect, Mutate};
+    use RequirementState::{NotRequired, Required};
+    vec![
+        operation_descriptor(
+            "terminal_input",
+            "Send terminal input",
+            ExternalSideEffect,
+            NotRequired,
+        ),
+        operation_descriptor(
+            "terminal_reconnect",
+            "Reconnect terminal",
+            Mutate,
+            NotRequired,
+        ),
+        operation_descriptor("transfer_pause", "Pause transfer", Mutate, NotRequired),
+        operation_descriptor("transfer_resume", "Resume transfer", Mutate, NotRequired),
+        operation_descriptor(
+            "browser_navigate",
+            "Navigate browser",
+            ExternalSideEffect,
+            NotRequired,
+        ),
+        operation_descriptor(
+            "checkpoint_request",
+            "Create checkpoint",
+            Mutate,
+            NotRequired,
+        ),
+        operation_descriptor(
+            "workspace_reconnect",
+            "Reconnect workspace",
+            Mutate,
+            NotRequired,
+        ),
+        operation_descriptor("advisory_dismiss", "Dismiss advisory", Mutate, NotRequired),
+        operation_descriptor("advisory_defer", "Defer advisory", Mutate, NotRequired),
+        operation_descriptor(
+            "advisory_choose_alternative",
+            "Choose advisory alternative",
+            Mutate,
+            NotRequired,
+        ),
+        operation_descriptor(
+            "submit_upgrade_activity",
+            "Submit approved upgrade Activity",
+            Mutate,
+            Required,
+        ),
+        operation_descriptor(
+            "accept_worker_result",
+            "Accept worker result",
+            Mutate,
+            Required,
+        ),
+    ]
+}
+
+fn workspace_shell_limits() -> Vec<String> {
+    vec![
+        String::from("operation authorization is not completion proof"),
+        String::from("typed Views are replaceable projections and never runtime authority"),
+        String::from(
+            "Ptah does not select context, approve results, or choose the caller's next action",
+        ),
+        String::from(
+            "external Provider permission and Ptah confirmation policy remain separate facts",
+        ),
+    ]
+}
+
+/// Build the D01 Human Workspace shell v2 projection from current canonical A14 truth.
+///
+/// This function is intentionally read-only. It does not create Grants, approvals, schedules,
+/// materialized paths, semantic reconciliations, or operation success claims.
+///
+/// # Errors
+///
+/// Returns [`ShellV2Error`] when a canonical availability/materialization state cannot be mapped
+/// exactly to the accepted D01 vocabulary.
+pub fn build_workspace_shell_v2_projection(
+    snapshot: &HumanSnapshot,
+) -> Result<WorkspaceShellV2Projection, ShellV2Error> {
+    Ok(WorkspaceShellV2Projection {
+        profile_id: String::from("ptah.workspace.operations.v2"),
+        authority: snapshot.authority.clone(),
+        operations: operation_catalog(),
+        availability: build_availability_views(snapshot)?,
+        results: build_result_views(snapshot),
+        schedules: Vec::new(),
+        supported_timing_modes: vec![
+            TimingMode::Exact,
+            TimingMode::Flexible,
+            TimingMode::Condition,
+        ],
+        conflicts: build_conflict_views(snapshot),
+        views: build_typed_views(snapshot),
+        limits: workspace_shell_limits(),
+        context_selection_authority: false,
+        approval_authority: false,
+        next_action_authority: false,
+    })
+}

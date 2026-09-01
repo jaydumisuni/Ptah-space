@@ -3,31 +3,49 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Ptah Human Alpha</title>
+  <title>Ptah Human Workspace</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+  <a class="skip-link" href="#workspace-shell">Skip to workspace panels</a>
   <header class="topbar">
-    <div><strong>Ptah</strong><span class="muted">Human Alpha</span></div>
+    <div><strong>Ptah</strong><span class="muted">Human Workspace shell v2</span></div>
     <div id="authority" class="authority" aria-live="polite">Loading authority…</div>
   </header>
   <nav class="nav" aria-label="Workspace controls">
     <label>Workspace <select id="workspace-selector"></select></label>
     <button data-control="workspace_reconnect" data-target="workspace">Reconnect</button>
     <button data-control="checkpoint_request" data-target="workspace">Checkpoint</button>
+    <label>Layout
+      <select id="layout-mode" aria-label="Workspace layout">
+        <option value="grid">Two-column grid</option>
+        <option value="single">Single column</option>
+      </select>
+    </label>
+    <button id="reset-layout" type="button">Reset layout</button>
     <button id="refresh">Refresh truth</button>
   </nav>
-  <main class="shell">
+  <main class="shell" id="workspace-shell">
     <section class="panel span-2" id="home"><h2>Current state</h2><div id="home-content"></div></section>
+    <section class="panel span-2" id="operations"><h2>Operations</h2><p class="boundary">Effect, Provider access, Grant and confirmation are separate facts.</p><div class="rows" data-view="operations"></div></section>
     <section class="panel" id="activities"><h2>Activity Centre</h2><div class="rows" data-view="activities"></div></section>
     <section class="panel" id="objects"><h2>Objects & Artifacts</h2><div class="rows" data-view="objects"></div></section>
+    <section class="panel" id="availability"><h2>Availability & materialization</h2><div class="rows" data-view="availability"></div></section>
+    <section class="panel" id="results"><h2>Results & partials</h2><div class="rows" data-view="results"></div></section>
     <section class="panel span-2" id="terminals"><h2>Terminals</h2><div class="rows" data-view="terminals"></div></section>
+    <section class="panel" id="editor"><h2>Editor</h2><div class="rows" data-view="editor"></div></section>
     <section class="panel" id="transfers"><h2>Transfers</h2><div class="rows" data-view="transfers"></div></section>
     <section class="panel" id="browser"><h2>Browser</h2><div class="rows" data-view="browsers"></div></section>
+    <section class="panel" id="applications-devices"><h2>Applications & Devices</h2><div class="rows" data-view="applications-devices"></div></section>
+    <section class="panel" id="media-documents"><h2>Media & Documents</h2><div class="rows" data-view="media-documents"></div></section>
     <section class="panel" id="health"><h2>Node / Provider health</h2><div class="rows" data-view="health"></div></section>
     <section class="panel" id="diagnostics"><h2>Diagnostics</h2><p class="boundary">Observed facts and suggestions are separate. Advice cannot authorize itself.</p><div class="rows" data-view="advisories"></div></section>
     <section class="panel" id="workers"><h2>Workers & acceptance</h2><p class="boundary">Worker completion is not caller/reviewer acceptance.</p><div class="rows" data-view="workers"></div></section>
+    <section class="panel" id="schedules"><h2>Schedules</h2><div class="rows" data-view="schedules"></div></section>
+    <section class="panel" id="conflicts"><h2>Conflicts & preconditions</h2><div class="rows" data-view="conflicts"></div></section>
+    <section class="panel" id="control-transfer"><h2>Approvals & control transfer</h2><div class="rows" data-view="control-transfer"></div></section>
     <section class="panel" id="recovery"><h2>Checkpoint / recovery</h2><div class="rows" data-view="recovery"></div></section>
+    <section class="panel span-2" id="views-limits"><h2>Views & limits</h2><div class="rows" data-view="views-limits"></div></section>
     <section class="panel span-2" id="evidence"><h2>Evidence & limitations</h2><div class="rows" data-view="evidence"></div></section>
   </main>
   <footer id="status" aria-live="polite">Projection only — runtime truth remains authoritative.</footer>

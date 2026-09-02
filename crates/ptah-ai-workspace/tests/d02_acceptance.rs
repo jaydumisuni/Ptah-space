@@ -2,9 +2,11 @@
 
 use ptah_ai_workspace::{
     ActivityResultState, AvailabilityState, D02Error, OperationEffectClass, RecordClass,
-    RetrievalRequest, TimingMode, WorkspaceReader, ai_project_profile, operations_profile,
+    RetrievalRequest, TimingMode, WorkspaceReader, ai_project_profile,
+    archived_session_by_identity, operations_profile, project_session_threads,
 };
 
+use ptah_checkpoint::{SessionVaultManifest, SessionVaultSession};
 use ptah_identifiers::{EntityId, EntityRef, RecordRevision};
 use ptah_workspace::{
     CreateSession, CreateWorkspace, SessionAuthority, SessionKind, WorkspaceStore,
@@ -13,6 +15,10 @@ use std::{fs, path::PathBuf, sync::Arc};
 
 fn reference(kind: &str) -> EntityRef {
     EntityRef::new(kind).expect("valid reference")
+}
+
+fn ref_key(reference: &EntityRef) -> String {
+    format!("{}:{}", reference.entity_kind, reference.entity_id)
 }
 
 fn db_path(label: &str) -> PathBuf {
@@ -168,4 +174,70 @@ fn workspace_isolation() {
         grant_ref: None,
     });
     assert!(matches!(denied, Err(D02Error::WorkspaceAccessDenied)));
+}
+
+#[test]
+fn parallel_session_threads_are_non_authoritative() {
+    let path = db_path("parallel-sessions");
+    let mut store = WorkspaceStore::open(&path, clock()).expect("workspace store");
+    let workspace = create_workspace(&mut store, "parallel.workspace");
+    let first = create_session(&mut store, workspace.workspace_ref.clone());
+    let second = create_session(&mut store, workspace.workspace_ref.clone());
+
+    let projection = project_session_threads(&store, workspace.workspace_ref.entity_id)
+        .expect("session projection");
+    assert_eq!(projection.workspace_ref, workspace.workspace_ref);
+    assert_eq!(projection.sessions.len(), 2);
+    assert!(
+        projection
+            .sessions
+            .iter()
+            .any(|session| session.session_ref == first)
+    );
+    assert!(
+        projection
+            .sessions
+            .iter()
+            .any(|session| session.session_ref == second)
+    );
+    assert!(!projection.authoritative);
+}
+
+#[test]
+fn archived_session_discoverability() {
+    let archived_ref = reference("runtime.session");
+    let workspace_ref = reference("core.workspace");
+    let manifest = SessionVaultManifest {
+        workspace_ref: ref_key(&workspace_ref),
+        current_workspace_revision_ref: "workspace-revision:4".to_owned(),
+        current_materialization_generation: 9,
+        workspace_versions: Vec::new(),
+        sessions: vec![SessionVaultSession {
+            session_ref: ref_key(&archived_ref),
+            workspace_ref: ref_key(&workspace_ref),
+            workspace_revision_ref: "workspace-revision:4".to_owned(),
+            provider_instance_ref: "provider:a".to_owned(),
+            provider_generation: 7,
+            connection_epoch: 4,
+            node_ref: Some("node:a".to_owned()),
+            node_generation: Some(3),
+            attachment_refs: vec!["attachment:old".to_owned()],
+            subject_refs: vec!["object:1".to_owned()],
+        }],
+        objects: Vec::new(),
+        artifacts: Vec::new(),
+        conflicts: Vec::new(),
+        required_capability_refs: Vec::new(),
+        checkpoint_bundle_ref: "checkpoint:1".to_owned(),
+        checkpoint_manifest_sha256: "a".repeat(64),
+        checkpoint_verified_at_export: true,
+        export_evidence_refs: vec!["evidence:vault".to_owned()],
+    };
+
+    let found = archived_session_by_identity(&manifest, &archived_ref)
+        .expect("archived Session by exact identity");
+    assert_eq!(found.session_ref, ref_key(&archived_ref));
+
+    let missing = archived_session_by_identity(&manifest, &reference("runtime.session"));
+    assert!(matches!(missing, Err(D02Error::ArchivedSessionNotFound)));
 }

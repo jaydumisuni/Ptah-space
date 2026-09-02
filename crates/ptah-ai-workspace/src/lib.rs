@@ -6,6 +6,7 @@
 
 mod profile;
 mod retrieval;
+mod sessions;
 
 pub use profile::{
     AI_PROJECT_PROFILE_ID, ActivityResultState, AvailabilityState, OPERATIONS_PROFILE_ID,
@@ -15,6 +16,9 @@ pub use profile::{
 
 pub use retrieval::{
     RecordClass, RetrievalRequest, RetrievedRecord, WorkspaceClock, WorkspaceReader,
+};
+pub use sessions::{
+    SessionThreadProjection, archived_session_by_identity, project_session_threads,
 };
 
 /// D02 composition failures. Every variant is mechanical; none expresses a semantic verdict.

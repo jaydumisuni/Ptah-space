@@ -13,6 +13,7 @@ members = [
   "crates/ptah-knowledge-search",
   "crates/ptah-recipe-registry",
   "crates/ptah-package-plugin",
+  "crates/ptah-provenance",
   "crates/ptah-object-store",
   "crates/ptah-transfer",
   "crates/ptah-provider-api",

@@ -1,0 +1,25 @@
+[package]
+name = "ptah-provenance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+ptah-identifiers = { path = "../ptah-identifiers", version = "=0.0.0-phase0c" }
+ptah-ledger = { path = "../ptah-ledger", version = "=0.0.0-phase0c" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[lib]
+path = "src/lib.rs"
+
+[[test]]
+name = "d06_acceptance"
+path = "tests/d06_acceptance.rs"

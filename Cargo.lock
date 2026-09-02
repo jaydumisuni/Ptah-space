@@ -630,6 +630,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptah-provenance"
+version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-identifiers",
+ "ptah-ledger",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "ptah-provider-api"
 version = "0.0.0-phase0c"
 dependencies = [

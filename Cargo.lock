@@ -615,6 +615,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptah-package-plugin"
+version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-activity-runtime",
+ "ptah-identifiers",
+ "ptah-ledger",
+ "ptah-recipe-registry",
+ "ptah-workspace",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "ptah-provider-api"
 version = "0.0.0-phase0c"
 dependencies = [

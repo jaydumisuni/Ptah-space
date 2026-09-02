@@ -23,3 +23,7 @@ path = "src/lib.rs"
 [[test]]
 name = "d06_acceptance"
 path = "tests/d06_acceptance.rs"
+
+[[test]]
+name = "store_roundtrip"
+path = "tests/store_roundtrip.rs"

@@ -21,4 +21,16 @@ pub enum D03Error {
     /// Citation locator or evidence metadata is malformed.
     #[error("invalid D03 citation binding: {0}")]
     InvalidCitationBinding(&'static str),
+    /// A derived index document/field is malformed or exceeds D03 policy.
+    #[error("invalid D03 index input: {0}")]
+    InvalidIndexInput(&'static str),
+    /// Textual/typed query shape is mechanically invalid.
+    #[error("invalid D03 query: {0}")]
+    InvalidQuery(&'static str),
+    /// Private B07 adapter failed mechanically.
+    #[error("D03 B07 adapter failure: {0}")]
+    SearchAdapter(String),
+    /// Canonical serialization used for deterministic derived identity failed.
+    #[error("D03 serialization failure: {0}")]
+    Serialization(String),
 }

@@ -29,6 +29,11 @@ pub enum KnowledgeLocator {
         /// Optional first excluded byte offset.
         byte_end_exclusive: Option<u64>,
     },
+    /// Exact copied metadata field on the bound source record.
+    MetadataField {
+        /// Optional stable metadata key.
+        key: Option<String>,
+    },
     /// Exact symbol name within one exact source revision.
     SourceSymbol {
         /// Exact source symbol text.
@@ -156,6 +161,7 @@ fn validate_locator(locator: &KnowledgeLocator) -> Result<(), D03Error> {
             }
             Ok(())
         }
+        KnowledgeLocator::MetadataField { key: Some(key) } => require_text(key, "metadata key"),
         KnowledgeLocator::SourceSymbol { symbol } => require_text(symbol, "symbol"),
         KnowledgeLocator::FirmwareComponent { component } => require_text(component, "component"),
         KnowledgeLocator::PartitionRange {

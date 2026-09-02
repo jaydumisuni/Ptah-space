@@ -1,12 +1,23 @@
 #![forbid(unsafe_code)]
 //! D03 Knowledge, Data and Search v2 neutral derived-query substrate.
 
+mod adapters;
 mod error;
 mod evidence;
+mod index;
+mod query;
 mod source;
 
 pub use error::D03Error;
 pub use evidence::{CitationEvidence, KnowledgeLocator};
+pub use index::{
+    AnchoredTextInput, KnowledgeField, KnowledgeIndex, KnowledgeIndexRevision,
+    KnowledgeSearchDocument,
+};
+pub use query::{
+    KnowledgeResultRow, KnowledgeResultSet, KnowledgeSearchDomain, KnowledgeTextQuery,
+    KnowledgeValue,
+};
 pub use source::{
     KnowledgeSourceClass, KnowledgeSourceRevision, KnowledgeSourceRevisionInput,
     require_knowledge_schema, validate_current_source,

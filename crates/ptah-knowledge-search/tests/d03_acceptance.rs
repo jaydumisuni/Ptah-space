@@ -2,9 +2,10 @@
 
 use ptah_identifiers::EntityRef;
 use ptah_knowledge_search::{
-    CitationEvidence, D03Error, KnowledgeLimits, KnowledgeLocator, KnowledgeSourceClass,
-    KnowledgeSourceRevision, KnowledgeSourceRevisionInput, require_knowledge_schema,
-    validate_current_source,
+    AnchoredTextInput, CitationEvidence, D03Error, KnowledgeField, KnowledgeIndex, KnowledgeLimits,
+    KnowledgeLocator, KnowledgeSearchDocument, KnowledgeSearchDomain, KnowledgeSourceClass,
+    KnowledgeSourceRevision, KnowledgeSourceRevisionInput, KnowledgeTextQuery,
+    require_knowledge_schema, validate_current_source,
 };
 
 const HASH_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -185,4 +186,184 @@ fn default_limits_are_nonzero_and_validate() {
     assert!(limits.max_sources > 0);
     assert!(limits.max_results > 0);
     assert!(limits.max_export_bytes > 0);
+}
+
+fn source_in(
+    workspace_ref: &EntityRef,
+    class: KnowledgeSourceClass,
+    digest: &str,
+) -> KnowledgeSourceRevision {
+    KnowledgeSourceRevision::new(KnowledgeSourceRevisionInput {
+        workspace_ref: workspace_ref.clone(),
+        source_ref: reference("object.view"),
+        source_record_revision: 11,
+        object_revision_ref: Some(reference("object.revision")),
+        content_sha256: digest.to_owned(),
+        class,
+        provenance_ref: reference("evidence.receipt"),
+        schema_id: "urn:ptah:schema:knowledge:source-revision:0.1.0".to_owned(),
+    })
+    .expect("source")
+}
+
+#[test]
+fn b07_symbol_hit_becomes_source_bound_d03_citation() {
+    let workspace = reference("core.workspace");
+    let source = source_in(&workspace, KnowledgeSourceClass::SourceSymbol, HASH_A);
+    let document = KnowledgeSearchDocument::SourceSymbols {
+        source: source.clone(),
+        symbols: vec!["Widget::open".to_owned(), "Widget::close".to_owned()],
+    };
+    let mut index = KnowledgeIndex::new(KnowledgeLimits::default()).expect("index");
+    index.rebuild(&[document]).expect("rebuild");
+    let result = index
+        .search(
+            &KnowledgeTextQuery::new(
+                workspace,
+                "widget open",
+                vec![KnowledgeSearchDomain::SourceSymbol],
+                10,
+            )
+            .expect("query"),
+        )
+        .expect("search");
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.rows[0].citations[0].source, source);
+    assert!(result.rows[0].citations.iter().any(|citation| matches!(
+        citation.locator,
+        KnowledgeLocator::SourceSymbol { ref symbol } if symbol == "Widget::open"
+    )));
+    assert!(!result.authoritative);
+}
+
+#[test]
+fn b03_document_citation_preserves_exact_anchor() {
+    let workspace = reference("core.workspace");
+    let source = source_in(&workspace, KnowledgeSourceClass::Document, HASH_A);
+    let object_revision_ref = source.object_revision_ref.clone().expect("revision");
+    let document = KnowledgeSearchDocument::B03DocumentText {
+        source: source.clone(),
+        spans: vec![AnchoredTextInput {
+            text: "exact anchored phrase".to_owned(),
+            object_revision_ref,
+            page: Some(3),
+            byte_start: Some(20),
+            byte_end_exclusive: Some(41),
+        }],
+    };
+    let mut index = KnowledgeIndex::new(KnowledgeLimits::default()).expect("index");
+    index.rebuild(&[document]).expect("rebuild");
+    let result = index
+        .search(
+            &KnowledgeTextQuery::new(
+                workspace,
+                "anchored phrase",
+                vec![KnowledgeSearchDomain::DocumentText],
+                10,
+            )
+            .expect("query"),
+        )
+        .expect("search");
+    assert!(matches!(
+        result.rows[0].citations[0].locator,
+        KnowledgeLocator::DocumentAnchor {
+            page: Some(3),
+            byte_start: Some(20),
+            byte_end_exclusive: Some(41)
+        }
+    ));
+    assert_eq!(result.rows[0].citations[0].source, source);
+}
+
+#[test]
+fn index_digest_is_reproducible_and_workspace_filter_precedes_matching() {
+    let workspace_a = reference("core.workspace");
+    let workspace_b = reference("core.workspace");
+    let doc_a = KnowledgeSearchDocument::ObjectMetadata {
+        source: source_in(&workspace_a, KnowledgeSourceClass::Document, HASH_A),
+        filename: Some("alpha.txt".to_owned()),
+        metadata: vec![
+            KnowledgeField::new(
+                KnowledgeSearchDomain::Metadata,
+                Some("class".to_owned()),
+                "private token",
+                "fixture",
+            )
+            .expect("field"),
+        ],
+    };
+    let doc_b = KnowledgeSearchDocument::ObjectMetadata {
+        source: source_in(&workspace_b, KnowledgeSourceClass::Document, HASH_B),
+        filename: Some("beta.txt".to_owned()),
+        metadata: vec![
+            KnowledgeField::new(
+                KnowledgeSearchDomain::Metadata,
+                Some("class".to_owned()),
+                "private token",
+                "fixture",
+            )
+            .expect("field"),
+        ],
+    };
+    let mut first = KnowledgeIndex::new(KnowledgeLimits::default()).expect("index");
+    let rev1 = first
+        .rebuild(&[doc_a.clone(), doc_b.clone()])
+        .expect("rebuild");
+    let mut second = KnowledgeIndex::new(KnowledgeLimits::default()).expect("index");
+    let rev2 = second.rebuild(&[doc_b, doc_a]).expect("rebuild");
+    assert_eq!(rev1.content_sha256, rev2.content_sha256);
+
+    let result = first
+        .search(
+            &KnowledgeTextQuery::new(
+                workspace_a.clone(),
+                "private token",
+                vec![KnowledgeSearchDomain::Metadata],
+                10,
+            )
+            .expect("query"),
+        )
+        .expect("search");
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.source_refs[0].workspace_ref, workspace_a);
+}
+
+#[test]
+fn ranking_changes_do_not_change_source_or_citation_truth() {
+    let workspace = reference("core.workspace");
+    let source = source_in(&workspace, KnowledgeSourceClass::SourceSymbol, HASH_A);
+    let docs = [KnowledgeSearchDocument::SourceSymbols {
+        source: source.clone(),
+        symbols: vec!["alpha".to_owned(), "alpha helper".to_owned()],
+    }];
+    let mut index = KnowledgeIndex::new(KnowledgeLimits::default()).expect("index");
+    index.rebuild(&docs).expect("rebuild");
+    let broad = index
+        .search(
+            &KnowledgeTextQuery::new(
+                workspace.clone(),
+                "alpha",
+                vec![KnowledgeSearchDomain::SourceSymbol],
+                10,
+            )
+            .expect("query"),
+        )
+        .expect("search");
+    let narrow = index
+        .search(
+            &KnowledgeTextQuery::new(
+                workspace,
+                "alpha helper",
+                vec![KnowledgeSearchDomain::SourceSymbol],
+                10,
+            )
+            .expect("query"),
+        )
+        .expect("search");
+    assert_eq!(broad.rows[0].citations[0].source, source);
+    assert_eq!(narrow.rows[0].citations[0].source, source);
+    assert_eq!(
+        broad.rows[0].citations[0].source.content_sha256,
+        narrow.rows[0].citations[0].source.content_sha256
+    );
 }

@@ -1,9 +1,9 @@
 //! D02 AI Project Workspace runtime acceptance corpus.
 
 use ptah_ai_workspace::{
-    ActivityInputEnvelope, ActivityResultState, AvailabilityState, CallerRecord, D02Error,
-    HunterAdapter, OperationEffectClass, RecordClass, RetrievalRequest, SergeantAdapter,
-    SergeantReviewPayload, TimingMode, WorkspaceReader, WorkspaceSearchDocument,
+    ActivityInputEnvelope, ActivityResultState, AuthorityOwner, AvailabilityState, CallerRecord,
+    CoreEntityPolicy, D02Error, HunterAdapter, OperationEffectClass, RecordClass, RetrievalRequest,
+    SergeantAdapter, SergeantReviewPayload, TimingMode, WorkspaceReader, WorkspaceSearchDocument,
     WorkspaceSearchIndex, WorkspaceSearchLimits, WorkspaceSearchRequest, WorkspaceSearchSource,
     ai_project_profile, archived_session_by_identity, artifact_library, decode_caller_record,
     encode_caller_record, operations_profile, project_session_threads, query_workspace_index,
@@ -60,6 +60,77 @@ fn a07_config() -> ObjectStoreConfig {
         producer_ref: reference("runtime.provider_instance"),
         producer_version: "d02-a07-test-1.0.0".to_owned(),
     }
+}
+
+fn append_production_receipts(
+    runtime: &ActivityRuntime,
+    activity_id: EntityId,
+    operation_id: EntityId,
+    attempt_id: EntityId,
+    context: &AttemptContext,
+    nonce: &str,
+    registration: bool,
+) -> Vec<EntityRef> {
+    let kinds: Vec<(ReceiptKind, Vec<ProofLevel>, &str)> = if registration {
+        vec![
+            (
+                ReceiptKind::OutputObservation,
+                vec![ProofLevel::OutputCreated, ProofLevel::OperationCompleted],
+                "D02 caller bytes observed",
+            ),
+            (
+                ReceiptKind::HashVerification,
+                vec![ProofLevel::OutputHashVerified],
+                "D02 caller bytes hash verified",
+            ),
+        ]
+    } else {
+        vec![(
+            ReceiptKind::OutputObservation,
+            vec![ProofLevel::OutputCreated, ProofLevel::OperationCompleted],
+            "D02 Artifact promotion observed",
+        )]
+    };
+
+    kinds
+        .into_iter()
+        .map(|(kind, levels, summary)| {
+            let receipt_id = runtime
+                .append_receipt(ReceiptSpec {
+                    kind,
+                    outcome: ReceiptOutcome::Positive,
+                    authority_class: AuthorityClass::FacilityRuntime,
+                    context: ReceiptContext {
+                        activity_ref: EntityRef::from_id(activity_id, "core.activity")
+                            .expect("activity ref"),
+                        operation_ref: EntityRef::from_id(operation_id, "core.operation")
+                            .expect("operation ref"),
+                        attempt_ref: EntityRef::from_id(attempt_id, "core.attempt")
+                            .expect("attempt ref"),
+                        idempotency_key: None,
+                        correlation_nonce: nonce.to_owned(),
+                        node_ref: context.node_ref.clone(),
+                        node_generation: context.node_generation,
+                        provider_ref: context.provider_ref.clone(),
+                        provider_generation: context.provider_generation,
+                        workload_generation: context.workload_generation,
+                        connection_epoch: context.connection_epoch,
+                        facility_ref: context.facility_ref.clone(),
+                        producer_instance_ref: context.producer_instance_ref.clone(),
+                        producer_version: context.producer_version.clone(),
+                    },
+                    producer_identity_evidence_refs: vec![reference("proof.evidence")],
+                    proof_claim_refs: vec![reference("proof.claim")],
+                    proof_levels: levels,
+                    previous_or_superseded_receipt_refs: Vec::new(),
+                    summary: summary.to_owned(),
+                    limitations: Vec::new(),
+                    occurred_at: "2026-09-02T01:30:00Z".to_owned(),
+                })
+                .expect("append receipt");
+            EntityRef::from_id(receipt_id, "proof.receipt").expect("receipt ref")
+        })
+        .collect()
 }
 
 fn production_evidence(
@@ -125,63 +196,15 @@ fn production_evidence(
         .correlation_nonce()
         .to_owned();
 
-    let mut receipt_refs = Vec::new();
-    let kinds: Vec<(ReceiptKind, Vec<ProofLevel>, &str)> = if registration {
-        vec![
-            (
-                ReceiptKind::OutputObservation,
-                vec![ProofLevel::OutputCreated, ProofLevel::OperationCompleted],
-                "D02 caller bytes observed",
-            ),
-            (
-                ReceiptKind::HashVerification,
-                vec![ProofLevel::OutputHashVerified],
-                "D02 caller bytes hash verified",
-            ),
-        ]
-    } else {
-        vec![(
-            ReceiptKind::OutputObservation,
-            vec![ProofLevel::OutputCreated, ProofLevel::OperationCompleted],
-            "D02 Artifact promotion observed",
-        )]
-    };
-    for (kind, levels, summary) in kinds {
-        let receipt_id = runtime
-            .append_receipt(ReceiptSpec {
-                kind,
-                outcome: ReceiptOutcome::Positive,
-                authority_class: AuthorityClass::FacilityRuntime,
-                context: ReceiptContext {
-                    activity_ref: EntityRef::from_id(activity_id, "core.activity")
-                        .expect("activity ref"),
-                    operation_ref: EntityRef::from_id(operation_id, "core.operation")
-                        .expect("operation ref"),
-                    attempt_ref: EntityRef::from_id(attempt_id, "core.attempt")
-                        .expect("attempt ref"),
-                    idempotency_key: None,
-                    correlation_nonce: nonce.clone(),
-                    node_ref: context.node_ref.clone(),
-                    node_generation: context.node_generation,
-                    provider_ref: context.provider_ref.clone(),
-                    provider_generation: context.provider_generation,
-                    workload_generation: context.workload_generation,
-                    connection_epoch: context.connection_epoch,
-                    facility_ref: context.facility_ref.clone(),
-                    producer_instance_ref: context.producer_instance_ref.clone(),
-                    producer_version: context.producer_version.clone(),
-                },
-                producer_identity_evidence_refs: vec![reference("proof.evidence")],
-                proof_claim_refs: vec![reference("proof.claim")],
-                proof_levels: levels,
-                previous_or_superseded_receipt_refs: Vec::new(),
-                summary: summary.to_owned(),
-                limitations: Vec::new(),
-                occurred_at: "2026-09-02T01:30:00Z".to_owned(),
-            })
-            .expect("append receipt");
-        receipt_refs.push(EntityRef::from_id(receipt_id, "proof.receipt").expect("receipt ref"));
-    }
+    let receipt_refs = append_production_receipts(
+        runtime,
+        activity_id,
+        operation_id,
+        attempt_id,
+        &context,
+        &nonce,
+        registration,
+    );
 
     ProductionEvidence {
         activity_ref: EntityRef::from_id(activity_id, "core.activity").expect("activity ref"),
@@ -263,11 +286,11 @@ fn d02_exposes_both_neutral_profile_ids_without_ptah_decision_authority() {
 
     assert_eq!(ai.profile_id, "ptah.workspace.ai_project.v1");
     assert_eq!(ops.profile_id, "ptah.workspace.operations.v2");
-    assert!(!ai.decision_authority);
-    assert!(!ai.context_selection_authority);
-    assert!(!ai.review_authority);
-    assert!(!ai.approval_authority);
-    assert!(!ai.new_core_entity_required);
+    assert_eq!(ai.authority.decision, AuthorityOwner::Caller);
+    assert_eq!(ai.authority.context_selection, AuthorityOwner::Caller);
+    assert_eq!(ai.authority.review, AuthorityOwner::Caller);
+    assert_eq!(ai.authority.approval, AuthorityOwner::Caller);
+    assert_eq!(ai.core_entity_policy, CoreEntityPolicy::ExistingOnly);
 }
 
 #[test]

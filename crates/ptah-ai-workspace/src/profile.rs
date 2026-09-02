@@ -67,21 +67,42 @@ pub enum TimingMode {
     ConditionDependent,
 }
 
+/// Owner of semantic authority at a D02 composition boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthorityOwner {
+    /// The external caller/application retains semantic authority.
+    Caller,
+}
+
+/// D02 semantic authority ownership by responsibility.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuthorityBoundary {
+    /// Decision authority owner.
+    pub decision: AuthorityOwner,
+    /// Context-selection authority owner.
+    pub context_selection: AuthorityOwner,
+    /// Review-verdict authority owner.
+    pub review: AuthorityOwner,
+    /// Approval authority owner.
+    pub approval: AuthorityOwner,
+}
+
+/// Core-entity policy for a D02 runtime profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoreEntityPolicy {
+    /// Compose only existing frozen Core entities.
+    ExistingOnly,
+}
+
 /// Neutral D02 composition descriptor. This is code metadata, not canonical Ptah state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeProfileDescriptor {
     /// Exact profile identity.
     pub profile_id: &'static str,
-    /// Ptah has no semantic decision authority in this profile.
-    pub decision_authority: bool,
-    /// Ptah has no context-selection authority.
-    pub context_selection_authority: bool,
-    /// Ptah has no review-verdict authority.
-    pub review_authority: bool,
-    /// Ptah has no approval authority.
-    pub approval_authority: bool,
-    /// The profile introduces no new Core entity.
-    pub new_core_entity_required: bool,
+    /// Explicit semantic-authority ownership.
+    pub authority: AuthorityBoundary,
+    /// Core-entity policy.
+    pub core_entity_policy: CoreEntityPolicy,
 }
 
 /// D02-relevant `operations.v2` compatibility metadata.
@@ -108,11 +129,13 @@ pub struct OperationsCompatibilityDescriptor {
 pub fn ai_project_profile() -> RuntimeProfileDescriptor {
     RuntimeProfileDescriptor {
         profile_id: AI_PROJECT_PROFILE_ID,
-        decision_authority: false,
-        context_selection_authority: false,
-        review_authority: false,
-        approval_authority: false,
-        new_core_entity_required: false,
+        authority: AuthorityBoundary {
+            decision: AuthorityOwner::Caller,
+            context_selection: AuthorityOwner::Caller,
+            review: AuthorityOwner::Caller,
+            approval: AuthorityOwner::Caller,
+        },
+        core_entity_policy: CoreEntityPolicy::ExistingOnly,
     }
 }
 

@@ -21,9 +21,10 @@ pub use caller_records::{
 };
 pub use library::{ArtifactLibraryEntry, ArtifactLibraryProjection, artifact_library};
 pub use profile::{
-    AI_PROJECT_PROFILE_ID, ActivityResultState, AvailabilityState, OPERATIONS_PROFILE_ID,
-    OperationEffectClass, OperationsCompatibilityDescriptor, RuntimeProfileDescriptor, TimingMode,
-    ai_project_profile, operations_profile,
+    AI_PROJECT_PROFILE_ID, ActivityResultState, AuthorityBoundary, AuthorityOwner,
+    AvailabilityState, CoreEntityPolicy, OPERATIONS_PROFILE_ID, OperationEffectClass,
+    OperationsCompatibilityDescriptor, RuntimeProfileDescriptor, TimingMode, ai_project_profile,
+    operations_profile,
 };
 
 pub use retrieval::{

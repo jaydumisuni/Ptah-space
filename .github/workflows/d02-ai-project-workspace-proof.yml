@@ -1,0 +1,174 @@
+name: D02 AI Project Workspace exact-head proof
+
+on:
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "D02_AI_PROJECT_WORKSPACE.md"
+      - "crates/ptah-ai-workspace/**"
+      - "docs/superpowers/plans/2026-09-02-d02-ai-project-workspace.md"
+      - "docs/superpowers/specs/2026-09-02-d02-ai-project-workspace-design.md"
+      - ".github/workflows/d02-ai-project-workspace-proof.yml"
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha }}
+  PTAH_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  PTAH_D01_SHA: 8be77210eee2b62eed753151287935bdebc369ae
+  CARGO_TERM_COLOR: always
+
+jobs:
+  d02-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out exact D02 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Lock exact D01 predecessor and D02 scope
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test "$PTAH_BASE_SHA" = "$PTAH_D01_SHA"
+          git merge-base --is-ancestor "$PTAH_D01_SHA" "$PTAH_EXACT_SHA"
+          test -z "$(git rev-list --merges "$PTAH_D01_SHA..$PTAH_EXACT_SHA")"
+          python - <<'PY'
+          import os, subprocess
+          base=os.environ["PTAH_D01_SHA"]; head=os.environ["PTAH_EXACT_SHA"]
+          files=set(subprocess.check_output(["git","diff","--name-only",base,head], text=True).splitlines())
+          allowed=lambda p: (
+              p in {"Cargo.toml","Cargo.lock","D02_AI_PROJECT_WORKSPACE.md",
+                    ".github/workflows/d02-ai-project-workspace-proof.yml",
+                    "docs/superpowers/plans/2026-09-02-d02-ai-project-workspace.md",
+                    "docs/superpowers/specs/2026-09-02-d02-ai-project-workspace-design.md"}
+              or p.startswith("crates/ptah-ai-workspace/")
+          )
+          bad=sorted(p for p in files if not allowed(p))
+          assert not bad, f"D02 scope drift: {bad}"
+          required={
+              "Cargo.toml","Cargo.lock","D02_AI_PROJECT_WORKSPACE.md",
+              ".github/workflows/d02-ai-project-workspace-proof.yml",
+              "docs/superpowers/plans/2026-09-02-d02-ai-project-workspace.md",
+              "docs/superpowers/specs/2026-09-02-d02-ai-project-workspace-design.md",
+              "crates/ptah-ai-workspace/Cargo.toml",
+              "crates/ptah-ai-workspace/src/lib.rs",
+              "crates/ptah-ai-workspace/src/profile.rs",
+              "crates/ptah-ai-workspace/src/retrieval.rs",
+              "crates/ptah-ai-workspace/src/search.rs",
+              "crates/ptah-ai-workspace/src/adapters/hunter.rs",
+              "crates/ptah-ai-workspace/src/adapters/sergeant.rs",
+              "crates/ptah-ai-workspace/tests/d02_acceptance.rs",
+          }
+          missing=sorted(required-files)
+          assert not missing, f"missing D02 surface: {missing}"
+          PY
+          git diff --check "$PTAH_D01_SHA" "$PTAH_EXACT_SHA"
+          test -z "$(git diff --name-only "$PTAH_D01_SHA" "$PTAH_EXACT_SHA" | grep -E '(^|/)(migrations?|schemas?)/|PHASE-0C|candidate|donor' || true)"
+
+      - name: Prove D02-only Cargo lock delta
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, subprocess, tomllib
+          base=os.environ["PTAH_D01_SHA"]
+          old=tomllib.loads(subprocess.check_output(["git","show",f"{base}:Cargo.lock"], text=True))
+          with open("Cargo.lock","rb") as f: new=tomllib.load(f)
+          key=lambda p:(p["name"],p["version"],p.get("source"))
+          before={key(p):p for p in old["package"]}; after={key(p):p for p in new["package"]}
+          assert not (set(before)-set(after))
+          added=sorted(set(after)-set(before))
+          assert added == [("ptah-ai-workspace","0.0.0-phase0c",None)], added
+          assert not [k for k in before.keys() & after.keys() if before[k] != after[k]]
+          expected={"ptah-activity-runtime","ptah-archive-decomposition","ptah-checkpoint",
+                    "ptah-identifiers","ptah-ledger","ptah-object-store","ptah-receipts",
+                    "ptah-workspace","serde","serde_json","thiserror 2.0.17"}
+          assert set(after[added[0]].get("dependencies",[])) == expected
+          PY
+
+      - name: Install pinned Rust 1.97.1
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          mkdir -p /tmp/d02-proof
+          rustc -V | tee /tmp/d02-proof/rustc-version.txt
+          cargo -V | tee /tmp/d02-proof/cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+
+      - name: Prove dependency and static policy
+        run: |
+          set -euo pipefail
+          cp Cargo.lock /tmp/d02-proof/Cargo.lock.repository
+          cargo metadata --locked --format-version 1 > /tmp/d02-proof/cargo-metadata.json
+          cmp -s Cargo.lock /tmp/d02-proof/Cargo.lock.repository
+          python tools/check_rust_dependency_lock.py --output /tmp/d02-proof/dependency-lock-report.json
+          python -c 'import json; p=json.load(open("/tmp/d02-proof/dependency-lock-report.json")); assert p["git_dependency_count"] == 0, p'
+          cargo fmt --all -- --check
+          cargo clippy -p ptah-ai-workspace --all-targets --locked -- -D clippy::all -D clippy::pedantic
+          grep -q '^#!\[forbid(unsafe_code)\]' crates/ptah-ai-workspace/src/lib.rs
+          ! grep -R -n -E 'TODO|FIXME|todo!\(|unimplemented!\(|unsafe[[:space:]]*\{' crates/ptah-ai-workspace/src crates/ptah-ai-workspace/tests
+          ! grep -R -n -E 'pub[[:space:]]+fn[[:space:]]+(choose_context|select_authority|approve|promote|decide_next_action)' crates/ptah-ai-workspace/src/adapters
+          ! grep -R -n -E 'pub.*ptah_archive_decomposition|ptah_archive_decomposition::SearchError' crates/ptah-ai-workspace/src
+
+      - name: Prove D02 and full workspace
+        run: |
+          set -euo pipefail
+          d02_count=$(cargo test -p ptah-ai-workspace --test d02_acceptance --locked -- --list | grep -c ': test$')
+          test "$d02_count" -eq 18
+          printf '%s\n' "$d02_count" > /tmp/d02-proof/d02-test-count.txt
+          cargo test -p ptah-ai-workspace --locked
+          workspace_count=$(cargo test --workspace --locked -- --list | grep -c ': test$')
+          printf '%s\n' "$workspace_count" > /tmp/d02-proof/workspace-test-count.txt
+          cargo test --workspace --locked
+
+      - name: Build exact-head proof record
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path("/tmp/d02-proof")
+          base=os.environ["PTAH_D01_SHA"]; head=os.environ["PTAH_EXACT_SHA"]
+          files=subprocess.check_output(["git","diff","--name-only",base,head], text=True).splitlines()
+          hashes={p:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in files}
+          payload={
+            "record_type":"ptah.programme_d.d02.ai_project_workspace_exact_head_proof",
+            "schema_version":"0.1.0",
+            "created_at":datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "implementation_commit":head,
+            "implementation_tree":subprocess.check_output(["git","rev-parse","HEAD^{tree}"],text=True).strip(),
+            "base_commit":base,
+            "exact_head_match":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()==head,
+            "linear_from_d01":not bool(subprocess.check_output(["git","rev-list","--merges",f"{base}..{head}"],text=True).strip()),
+            "commit_count":int(subprocess.check_output(["git","rev-list","--count",f"{base}..{head}"],text=True).strip()),
+            "cargo_lock_sha256":hashlib.sha256(Path("Cargo.lock").read_bytes()).hexdigest(),
+            "d02_test_count":int((root/"d02-test-count.txt").read_text()),
+            "workspace_test_count":int((root/"workspace-test-count.txt").read_text()),
+            "changed_file_sha256":hashes,
+            "status":"exact_head_d02_proof_passed",
+          }
+          assert payload["exact_head_match"] and payload["linear_from_d01"]
+          assert payload["d02_test_count"] == 18
+          (root/"d02-proof.json").write_text(json.dumps(payload,indent=2)+"\n")
+          (root/"repository-hashes.sha256").write_text("".join(f"{d}  {p}\n" for p,d in sorted(hashes.items())))
+          PY
+          sha256sum /tmp/d02-proof/d02-proof.json | tee /tmp/d02-proof/d02-proof.sha256
+          git status --porcelain=v1 > /tmp/d02-proof/git-status.txt
+          test ! -s /tmp/d02-proof/git-status.txt
+
+      - name: Upload retained D02 proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: d02-ai-project-workspace-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/d02-proof/
+          if-no-files-found: error
+          retention-days: 30

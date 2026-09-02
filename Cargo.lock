@@ -435,6 +435,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptah-ai-workspace"
+version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-activity-runtime",
+ "ptah-archive-decomposition",
+ "ptah-checkpoint",
+ "ptah-identifiers",
+ "ptah-ledger",
+ "ptah-object-store",
+ "ptah-receipts",
+ "ptah-workspace",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "ptah-android-runtime"
 version = "0.0.0-phase0c"
 dependencies = [

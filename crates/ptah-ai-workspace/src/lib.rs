@@ -4,12 +4,15 @@
 //! This crate composes accepted Ptah primitives. It adds no canonical entity
 //! family and owns no semantic context, review, approval, promotion, or next-action authority.
 
+mod activity_inputs;
 mod caller_records;
 mod library;
 mod profile;
 mod retrieval;
+mod search;
 mod sessions;
 
+pub use activity_inputs::ActivityInputEnvelope;
 pub use caller_records::{
     CALLER_RECORD_FORMAT_VERSION, CallerRecord, MAX_CALLER_RECORD_BYTES, decode_caller_record,
     encode_caller_record,
@@ -23,6 +26,12 @@ pub use profile::{
 
 pub use retrieval::{
     RecordClass, RetrievalRequest, RetrievedRecord, WorkspaceClock, WorkspaceReader,
+};
+pub use search::{
+    WorkspaceSearchDocument, WorkspaceSearchDomain, WorkspaceSearchHit, WorkspaceSearchIndex,
+    WorkspaceSearchIndexRevision, WorkspaceSearchLimits, WorkspaceSearchMatch,
+    WorkspaceSearchMetadata, WorkspaceSearchRequest, WorkspaceSearchResponse,
+    WorkspaceSearchSource, WorkspaceSearchText, query_workspace_index,
 };
 pub use sessions::{
     SessionThreadProjection, archived_session_by_identity, project_session_threads,

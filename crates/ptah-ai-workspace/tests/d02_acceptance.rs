@@ -1,10 +1,12 @@
 //! D02 AI Project Workspace runtime acceptance corpus.
 
 use ptah_ai_workspace::{
-    ActivityResultState, AvailabilityState, CallerRecord, D02Error, OperationEffectClass,
-    RecordClass, RetrievalRequest, TimingMode, WorkspaceReader, ai_project_profile,
-    archived_session_by_identity, artifact_library, decode_caller_record, encode_caller_record,
-    operations_profile, project_session_threads,
+    ActivityInputEnvelope, ActivityResultState, AvailabilityState, CallerRecord, D02Error,
+    OperationEffectClass, RecordClass, RetrievalRequest, TimingMode, WorkspaceReader,
+    WorkspaceSearchDocument, WorkspaceSearchIndex, WorkspaceSearchLimits, WorkspaceSearchRequest,
+    WorkspaceSearchSource, ai_project_profile, archived_session_by_identity, artifact_library,
+    decode_caller_record, encode_caller_record, operations_profile, project_session_threads,
+    query_workspace_index,
 };
 
 use ptah_activity_runtime::{
@@ -567,4 +569,106 @@ fn artifact_library_is_projection_only() {
     assert_eq!(library.entries[0].object_ref, registration.object_ref);
     assert!(!library.authoritative);
     assert!(!library.exhaustive);
+}
+
+#[test]
+fn scheduled_exact_inputs() {
+    let workspace_ref = reference("core.workspace");
+    let request_ref = reference("core.request");
+    let artifact_a = reference("object.artifact");
+    let artifact_b = reference("object.artifact");
+    let artifact_c = reference("object.artifact");
+    let grant = reference("isolation.secure_grant");
+    let other_grant = reference("isolation.secure_grant");
+    let envelope = ActivityInputEnvelope {
+        workspace_ref,
+        request_ref,
+        input_refs: vec![artifact_a.clone(), artifact_b],
+        provider_refs: vec![reference("runtime.provider")],
+        facility_refs: vec![reference("runtime.facility")],
+        grant_refs: vec![grant.clone()],
+        schedule_ref: Some(reference("core.schedule")),
+    };
+
+    envelope
+        .ensure_declared_input(&artifact_a)
+        .expect("declared input");
+    assert!(matches!(
+        envelope.ensure_declared_input(&artifact_c),
+        Err(D02Error::InputNotDeclared)
+    ));
+    envelope
+        .ensure_declared_grant(Some(&grant))
+        .expect("declared Grant");
+    assert!(matches!(
+        envelope.ensure_declared_grant(Some(&other_grant)),
+        Err(D02Error::GrantNotDeclared)
+    ));
+}
+
+#[test]
+fn search_is_source_bound_not_authority() {
+    let path = db_path("search-authority");
+    let (private_workspace, public_workspace) = {
+        let mut store = WorkspaceStore::open(&path, clock()).expect("workspace store");
+        let private_workspace = create_workspace(&mut store, "search.private");
+        let public_workspace = create_workspace(&mut store, "search.public");
+        (
+            private_workspace.workspace_ref,
+            public_workspace.workspace_ref,
+        )
+    };
+    let source_ref = reference("object.artifact");
+    let source = WorkspaceSearchSource {
+        workspace_ref: private_workspace.clone(),
+        source_ref: source_ref.clone(),
+        source_record_revision: 4,
+        object_revision_ref: None,
+    };
+    let mut index =
+        WorkspaceSearchIndex::new(WorkspaceSearchLimits::default()).expect("search index");
+    index
+        .rebuild(&[WorkspaceSearchDocument::Artifact {
+            source,
+            values: vec!["generated candidate alpha".to_owned()],
+        }])
+        .expect("index rebuild");
+    let reader = WorkspaceReader::open(&path, clock()).expect("reader");
+    let actor = reference("identity.principal");
+
+    let response = query_workspace_index(
+        &reader,
+        &index,
+        &WorkspaceSearchRequest {
+            actor_ref: actor.clone(),
+            source_workspace_ref: private_workspace.clone(),
+            target_workspace_ref: private_workspace.clone(),
+            required_scope: "workspace.read".to_owned(),
+            grant_ref: None,
+            text: "candidate alpha".to_owned(),
+            domains: Vec::new(),
+            limit: 10,
+        },
+    )
+    .expect("authorized search");
+    assert!(!response.authoritative);
+    assert_eq!(response.hits.len(), 1);
+    assert_eq!(response.hits[0].source_ref, source_ref);
+    assert_eq!(response.hits[0].source_record_revision, 4);
+
+    let denied = query_workspace_index(
+        &reader,
+        &index,
+        &WorkspaceSearchRequest {
+            actor_ref: actor,
+            source_workspace_ref: public_workspace,
+            target_workspace_ref: private_workspace,
+            required_scope: "workspace.read".to_owned(),
+            grant_ref: None,
+            text: "candidate".to_owned(),
+            domains: Vec::new(),
+            limit: 10,
+        },
+    );
+    assert!(matches!(denied, Err(D02Error::WorkspaceAccessDenied)));
 }

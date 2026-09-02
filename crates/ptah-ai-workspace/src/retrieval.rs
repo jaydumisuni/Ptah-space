@@ -85,12 +85,33 @@ impl WorkspaceReader {
     /// # Errors
     /// Fails closed when Workspace authority denies access.
     pub fn authorize_workspace_access(&self, request: &RetrievalRequest) -> Result<(), D02Error> {
-        match self.workspace.authorize_retrieval(
+        self.authorize_workspace_scope(
             &request.actor_ref,
-            request.source_workspace_ref.entity_id,
-            request.target_workspace_ref.entity_id,
+            &request.source_workspace_ref,
+            &request.target_workspace_ref,
             &request.required_scope,
             request.grant_ref.as_ref(),
+        )
+    }
+
+    /// Enforce configured A06 access for a Workspace-scoped operation such as derived search.
+    ///
+    /// # Errors
+    /// Fails closed when configured A06 authority denies the exact scope.
+    pub fn authorize_workspace_scope(
+        &self,
+        actor_ref: &EntityRef,
+        source_workspace_ref: &EntityRef,
+        target_workspace_ref: &EntityRef,
+        required_scope: &str,
+        grant_ref: Option<&EntityRef>,
+    ) -> Result<(), D02Error> {
+        match self.workspace.authorize_retrieval(
+            actor_ref,
+            source_workspace_ref.entity_id,
+            target_workspace_ref.entity_id,
+            required_scope,
+            grant_ref,
         ) {
             Ok(()) => Ok(()),
             Err(WorkspaceError::CrossWorkspaceDenied | WorkspaceError::InvalidGrant) => {

@@ -44,6 +44,15 @@ pub enum KnowledgeValue {
     },
 }
 
+/// Shared source-local column reference for structured and relational queries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ColumnRef {
+    /// Optional table qualifier.
+    pub table: Option<String>,
+    /// Exact column name.
+    pub column: String,
+}
+
 /// Workspace-scoped textual query request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KnowledgeTextQuery {

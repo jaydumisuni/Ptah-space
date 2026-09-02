@@ -3,13 +3,15 @@
 use ptah_identifiers::EntityRef;
 use ptah_knowledge_search::{
     AnchoredTextInput, C01InputProjection, C03InputProjection, C04InputProjection,
-    C05InputProjection, C06InputProjection, CitationEvidence, D03Error, FirmwareComponentEvidence,
-    KnowledgeField, KnowledgeIndex, KnowledgeLimits, KnowledgeLocator, KnowledgeSearchDocument,
-    KnowledgeSearchDomain, KnowledgeSourceClass, KnowledgeSourceRevision,
-    KnowledgeSourceRevisionInput, KnowledgeTextQuery, PartitionEvidence, PartitionEvidenceInput,
+    C05InputProjection, C06InputProjection, CellValue, CitationEvidence, ColumnRef, ColumnType,
+    D03Error, FirmwareComponentEvidence, KnowledgeField, KnowledgeIndex, KnowledgeLimits,
+    KnowledgeLocator, KnowledgeSearchDocument, KnowledgeSearchDomain, KnowledgeSourceClass,
+    KnowledgeSourceRevision, KnowledgeSourceRevisionInput, KnowledgeTextQuery, PartitionEvidence,
+    PartitionEvidenceInput, StructuredOrder, StructuredPredicate, StructuredQuery,
     firmware_evidence_document, from_c01_partition_report, from_c03_android_report,
-    from_c04_apple_report, from_c05_mediatek_report, from_c06_firmware_report,
-    partition_evidence_document, require_knowledge_schema, validate_current_source,
+    from_c04_apple_report, from_c05_mediatek_report, from_c06_firmware_report, ingest_csv,
+    ingest_json, ingest_json_lines, partition_evidence_document, query_dataset,
+    require_knowledge_schema, validate_current_source,
 };
 
 const HASH_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -602,4 +604,122 @@ fn c03_manifest_binding_is_explicit_and_search_citation_stays_source_bound() {
             .iter()
             .all(|citation| citation.source == source)
     );
+}
+
+#[test]
+fn structured_json_digest_is_key_order_independent_and_types_are_exact() {
+    let workspace = reference("core.workspace");
+    let source = source_in(&workspace, KnowledgeSourceClass::Dataset, HASH_A);
+    let left = ingest_json(
+        source.clone(),
+        "items",
+        br#"[{"b":2,"a":1,"ratio":1.25},{"a":3,"b":null,"ratio":2.5}]"#,
+        KnowledgeLimits::default(),
+    )
+    .expect("left snapshot");
+    let right = ingest_json(
+        source,
+        "items",
+        br#"[{"ratio":1.25,"a":1,"b":2},{"b":null,"ratio":2.5,"a":3}]"#,
+        KnowledgeLimits::default(),
+    )
+    .expect("right snapshot");
+    assert_eq!(left.content_sha256, right.content_sha256);
+    assert_eq!(left.tables.len(), 1);
+    let table = &left.tables[0];
+    assert_eq!(
+        table
+            .columns
+            .iter()
+            .map(|column| column.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["a", "b", "ratio"]
+    );
+    assert_eq!(table.columns[0].data_type, ColumnType::Integer);
+    assert_eq!(table.columns[1].data_type, ColumnType::Integer);
+    assert!(table.columns[1].nullable);
+    assert_eq!(table.columns[2].data_type, ColumnType::Decimal);
+    assert_eq!(table.rows[0][2], CellValue::Decimal("1.25".to_owned()));
+    assert!(left.complete);
+}
+
+#[test]
+fn malformed_jsonl_and_csv_fail_closed_without_inventing_rows() {
+    let workspace = reference("core.workspace");
+    let source = source_in(&workspace, KnowledgeSourceClass::Dataset, HASH_A);
+    assert!(matches!(
+        ingest_json_lines(
+            source.clone(),
+            "events",
+            b"{\"id\":1}\n{broken}\n",
+            KnowledgeLimits::default(),
+        ),
+        Err(D03Error::StructuredData(_))
+    ));
+    assert!(matches!(
+        ingest_csv(
+            source,
+            "events",
+            b"id,name\n1,\"unterminated\n",
+            KnowledgeLimits::default(),
+        ),
+        Err(D03Error::StructuredData(_))
+    ));
+}
+
+#[test]
+fn structured_query_filter_order_projection_and_limit_are_deterministic() {
+    let workspace = reference("core.workspace");
+    let source = source_in(&workspace, KnowledgeSourceClass::Dataset, HASH_A);
+    let snapshot = ingest_csv(
+        source.clone(),
+        "items",
+        b"id,name,active\n2,beta,true\n1,alpha,false\n3,gamma,true\n",
+        KnowledgeLimits::default(),
+    )
+    .expect("snapshot");
+    let id = ColumnRef {
+        table: Some("items".to_owned()),
+        column: "id".to_owned(),
+    };
+    let query = StructuredQuery {
+        table: "items".to_owned(),
+        projection: vec!["name".to_owned(), "id".to_owned()],
+        predicates: vec![StructuredPredicate::Ge(id.clone(), CellValue::Integer(1))],
+        order: vec![StructuredOrder {
+            column: id,
+            descending: true,
+        }],
+        limit: 2,
+        offset: 0,
+    };
+    let result = query_dataset(&snapshot, &query, KnowledgeLimits::default()).expect("query");
+    assert_eq!(result.columns, vec!["name", "id"]);
+    assert_eq!(
+        result.rows[0].values,
+        vec![CellValue::Text("gamma".to_owned()), CellValue::Integer(3)]
+    );
+    assert_eq!(
+        result.rows[1].values,
+        vec![CellValue::Text("beta".to_owned()), CellValue::Integer(2)]
+    );
+    assert!(!result.complete);
+    assert!(!result.authoritative);
+    assert!(
+        result
+            .rows
+            .iter()
+            .flat_map(|row| &row.citations)
+            .all(|citation| {
+                citation.source == source
+                    && matches!(citation.locator, KnowledgeLocator::DatasetCell { .. })
+                    && !citation.authoritative
+            })
+    );
+
+    let mut full_query = query;
+    full_query.limit = 3;
+    let full = query_dataset(&snapshot, &full_query, KnowledgeLimits::default()).expect("full");
+    assert!(full.complete);
+    assert_ne!(result.query_plan_sha256, full.query_plan_sha256);
 }

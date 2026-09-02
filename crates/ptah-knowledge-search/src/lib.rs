@@ -7,6 +7,7 @@ mod evidence;
 mod index;
 mod query;
 mod source;
+mod structured;
 
 pub use adapters::programme_c::{
     C01InputProjection, C03InputProjection, C04InputProjection, C05InputProjection,
@@ -22,12 +23,16 @@ pub use index::{
     KnowledgeSearchDocument,
 };
 pub use query::{
-    KnowledgeResultRow, KnowledgeResultSet, KnowledgeSearchDomain, KnowledgeTextQuery,
+    ColumnRef, KnowledgeResultRow, KnowledgeResultSet, KnowledgeSearchDomain, KnowledgeTextQuery,
     KnowledgeValue,
 };
 pub use source::{
     KnowledgeSourceClass, KnowledgeSourceRevision, KnowledgeSourceRevisionInput,
     require_knowledge_schema, validate_current_source,
+};
+pub use structured::{
+    CellValue, ColumnSchema, ColumnType, DatasetSnapshot, StructuredOrder, StructuredPredicate,
+    StructuredQuery, TableSnapshot, ingest_csv, ingest_json, ingest_json_lines, query_dataset,
 };
 
 /// Bounded D03 resource policy. Exceeding a bound fails closed rather than silently truncating input truth.

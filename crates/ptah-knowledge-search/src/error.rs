@@ -30,6 +30,9 @@ pub enum D03Error {
     /// Private B07 adapter failed mechanically.
     #[error("D03 B07 adapter failure: {0}")]
     SearchAdapter(String),
+    /// Structured dataset ingestion/query failed mechanically.
+    #[error("D03 structured data failure: {0}")]
+    StructuredData(String),
     /// Canonical serialization used for deterministic derived identity failed.
     #[error("D03 serialization failure: {0}")]
     Serialization(String),

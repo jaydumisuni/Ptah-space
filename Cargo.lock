@@ -619,6 +619,7 @@ name = "ptah-package-plugin"
 version = "0.0.0-phase0c"
 dependencies = [
  "ptah-identifiers",
+ "ptah-workspace",
  "serde",
  "serde_json",
  "sha2",

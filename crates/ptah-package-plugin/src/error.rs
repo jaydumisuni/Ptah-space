@@ -12,4 +12,16 @@ pub enum D05Error {
     /// Constraint does not admit the resolved package.
     #[error("package constraint mismatch")]
     ConstraintMismatch,
+    /// Workspace authority does not permit the requested private package access.
+    #[error("workspace access denied")]
+    WorkspaceAccessDenied,
+    /// Package licence policy explicitly denies admission.
+    #[error("licence denied")]
+    LicenceDenied,
+    /// Package licence requires governed review before admission.
+    #[error("licence review required")]
+    LicenceReviewRequired,
+    /// Required trust-policy evidence is absent.
+    #[error("trust policy missing")]
+    TrustPolicyMissing,
 }

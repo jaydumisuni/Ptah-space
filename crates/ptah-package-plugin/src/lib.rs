@@ -3,6 +3,7 @@
 
 mod activation;
 mod admission;
+mod change;
 mod error;
 mod install;
 mod package;
@@ -27,4 +28,10 @@ pub use plugin::PluginRevisionInput;
 pub use runtime::{
     CapabilityGrantState, DependencyBinding, HealthObservation, PluginInstanceRecord,
     PluginPortRegistration, PluginRuntime, PluginServiceRegistration,
+};
+
+pub use change::{
+    PluginChangeEvidence, PluginChangeExecutor, PluginChangeHandle, PluginChangeKind,
+    PluginChangeRequest, PluginUninstallAck, PluginUpdateDecision, RemovalProof, RemovalStage,
+    UpdateDecision,
 };

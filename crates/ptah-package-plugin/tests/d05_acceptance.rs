@@ -6,11 +6,13 @@ use ptah_package_plugin::{
     DependencyBinding, DistributionClass, HealthObservation, InstallRequest, LicenceDecision,
     PackageAdmissionRequest, PackageCandidate, PackageCatalog, PackageConstraint,
     PackageCoordinate, PackageInstallAck, PackageInstaller, PackageStore, PackageVerificationInput,
-    PluginInstanceRecord, PluginPortRegistration, PluginRevisionInput, PluginRuntime,
-    PluginServiceRegistration, RegistrySource, VerificationDecision, VerificationScope,
+    PluginChangeExecutor, PluginChangeRequest, PluginInstanceRecord, PluginPortRegistration,
+    PluginRevisionInput, PluginRuntime, PluginServiceRegistration, PluginUninstallAck,
+    PluginUpdateDecision, RegistrySource, RemovalProof, RemovalStage, UpdateDecision,
+    VerificationDecision, VerificationScope,
 };
 use ptah_workspace::{CreateWorkspace, IssueGrant, WorkspaceStore};
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{collections::BTreeSet, fs, path::PathBuf, sync::Arc};
 
 fn r(kind: &str) -> EntityRef {
     EntityRef::new(kind).unwrap()
@@ -631,4 +633,122 @@ fn bound_plugin_port_never_becomes_network_exposure_authority() {
     };
     assert!(PluginRuntime::validate_port(&instance, &port, &[grant], 200).is_ok());
     assert!(!port.grants_network_exposure());
+}
+
+fn plugin_change_request() -> PluginChangeRequest {
+    PluginChangeRequest {
+        plugin_ref: r("plugin.plugin"),
+        from_revision_ref: r("plugin.revision"),
+        to_revision_ref: r("plugin.revision"),
+        workspace_ref: r("core.workspace"),
+        activity_request_ref: r("core.activity_request"),
+        caller_ref: r("identity.principal"),
+        authority_ref: r("authority.owner"),
+        intent_ref: r("core.intent"),
+        verification_refs: vec![r("core.evidence")],
+    }
+}
+
+#[test]
+fn plugin_update_decision_is_not_update_execution() {
+    let decision = PluginUpdateDecision {
+        plugin_ref: r("plugin.plugin"),
+        current_revision_ref: r("plugin.revision"),
+        candidate_revision_ref: r("plugin.revision"),
+        compatibility_ref: r("plugin.compatibility"),
+        verification_refs: vec![r("package.verification")],
+        decision: UpdateDecision::Approved,
+        decided_at: "2026-09-02T16:20:00Z".into(),
+        decided_by_ref: r("identity.principal"),
+    };
+    let value = serde_json::to_value(decision).unwrap();
+    assert!(value.get("activity_ref").is_none());
+    assert!(value.get("attempt_ref").is_none());
+    assert!(value.get("executed").is_none());
+}
+
+#[test]
+fn verified_update_creates_new_revision_and_instance_generation_evidence() {
+    let runtime = activity_runtime();
+    let request = plugin_change_request();
+    let handle =
+        PluginChangeExecutor::begin_update(&runtime, &request, attempt_context(7)).unwrap();
+    let evidence =
+        PluginChangeExecutor::verify_update(&handle, 12, vec![r("core.evidence")]).unwrap();
+    assert_eq!(evidence.plugin_ref, request.plugin_ref);
+    assert_eq!(evidence.revision_ref, request.to_revision_ref);
+    assert_eq!(evidence.instance_generation, 12);
+    assert!(evidence.verified);
+}
+
+#[test]
+fn rollback_uses_fresh_attempt_and_requires_post_verification() {
+    let runtime = activity_runtime();
+    let request = plugin_change_request();
+    let update =
+        PluginChangeExecutor::begin_update(&runtime, &request, attempt_context(7)).unwrap();
+    let rollback =
+        PluginChangeExecutor::begin_rollback(&runtime, &request, attempt_context(7)).unwrap();
+    assert_ne!(update.attempt_id, rollback.attempt_id);
+    assert!(!rollback.verified);
+    let verified = PluginChangeExecutor::verify_rollback(&rollback, &[r("core.evidence")]).unwrap();
+    assert!(verified.verified);
+}
+
+#[test]
+fn uninstall_ack_is_not_verified_plugin_removal() {
+    let ack = PluginUninstallAck {
+        backend_alias: "fixture-host".into(),
+        evidence_refs: vec![r("core.evidence")],
+    };
+    let value = serde_json::to_value(ack).unwrap();
+    assert!(value.get("cleanup_verified").is_none());
+    assert!(value.get("removed").is_none());
+}
+
+#[test]
+fn verified_plugin_removal_requires_all_staged_postconditions() {
+    let runtime = activity_runtime();
+    let request = plugin_change_request();
+    let handle =
+        PluginChangeExecutor::begin_removal(&runtime, &request, attempt_context(7)).unwrap();
+    let proof = RemovalProof {
+        completed_stages: BTreeSet::from([
+            RemovalStage::ActivationDisabled,
+            RemovalStage::GrantsRevoked,
+            RemovalStage::InstancesStopped,
+            RemovalStage::RegistrationsRemoved,
+            RemovalStage::PackageUninstalled,
+            RemovalStage::CleanupVerified,
+        ]),
+        evidence_refs: vec![r("core.evidence")],
+    };
+    assert!(PluginChangeExecutor::verify_removal(&handle, &proof).is_ok());
+    let mut incomplete = proof;
+    incomplete
+        .completed_stages
+        .remove(&RemovalStage::GrantsRevoked);
+    assert_eq!(
+        PluginChangeExecutor::verify_removal(&handle, &incomplete),
+        Err(D05Error::RemovalVerificationIncomplete)
+    );
+}
+
+#[test]
+fn plugin_host_replacement_preserves_plugin_identity_and_creates_new_generation() {
+    let instance = plugin_instance();
+    let replacement =
+        PluginChangeExecutor::replace_host(&instance, r("runtime.provider_instance"), 8, 12)
+            .unwrap();
+    assert_eq!(replacement.instance_ref, instance.instance_ref);
+    assert_eq!(
+        replacement.plugin_revision_ref,
+        instance.plugin_revision_ref
+    );
+    assert_ne!(
+        replacement.provider_instance_ref,
+        instance.provider_instance_ref
+    );
+    assert_eq!(replacement.provider_generation, 8);
+    assert_eq!(replacement.generation, 12);
 }

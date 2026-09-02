@@ -48,4 +48,7 @@ pub enum D05Error {
     /// Plugin registration is structurally invalid.
     #[error("plugin registration invalid")]
     InvalidPluginRegistration,
+    /// Rollback/removal post-condition verification is incomplete.
+    #[error("plugin removal verification incomplete")]
+    RemovalVerificationIncomplete,
 }

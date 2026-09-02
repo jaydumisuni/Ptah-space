@@ -2,11 +2,11 @@
 
 use ptah_ai_workspace::{
     ActivityInputEnvelope, ActivityResultState, AvailabilityState, CallerRecord, D02Error,
-    OperationEffectClass, RecordClass, RetrievalRequest, TimingMode, WorkspaceReader,
-    WorkspaceSearchDocument, WorkspaceSearchIndex, WorkspaceSearchLimits, WorkspaceSearchRequest,
-    WorkspaceSearchSource, ai_project_profile, archived_session_by_identity, artifact_library,
-    decode_caller_record, encode_caller_record, operations_profile, project_session_threads,
-    query_workspace_index,
+    HunterAdapter, OperationEffectClass, RecordClass, RetrievalRequest, SergeantAdapter,
+    SergeantReviewPayload, TimingMode, WorkspaceReader, WorkspaceSearchDocument,
+    WorkspaceSearchIndex, WorkspaceSearchLimits, WorkspaceSearchRequest, WorkspaceSearchSource,
+    ai_project_profile, archived_session_by_identity, artifact_library, decode_caller_record,
+    encode_caller_record, operations_profile, project_session_threads, query_workspace_index,
 };
 
 use ptah_activity_runtime::{
@@ -24,7 +24,8 @@ use ptah_receipts::{
     AuthorityClass, ProofLevel, ReceiptContext, ReceiptKind, ReceiptOutcome, ReceiptSpec,
 };
 use ptah_workspace::{
-    CreateSession, CreateWorkspace, ScopeProjection, SessionAuthority, SessionKind, WorkspaceStore,
+    AttachSession, AttachmentKind, CreateSession, CreateWorkspace, IssueGrant, ScopeProjection,
+    SessionAuthority, SessionKind, WorkspaceStore,
 };
 use std::{fs, path::PathBuf, sync::Arc};
 
@@ -671,4 +672,219 @@ fn search_is_source_bound_not_authority() {
         },
     );
     assert!(matches!(denied, Err(D02Error::WorkspaceAccessDenied)));
+}
+
+#[test]
+fn model_independent_resume() {
+    let path = db_path("model-independent-resume");
+    let actor = reference("identity.principal");
+    let (source_workspace, target_workspace, session_ref, grant_ref) = {
+        let mut store = WorkspaceStore::open(&path, clock()).expect("workspace store");
+        let source = create_workspace(&mut store, "model.source");
+        let target = create_workspace(&mut store, "model.target");
+        let session_ref = create_session(&mut store, target.workspace_ref.clone());
+        let grant_ref = store
+            .issue_grant(IssueGrant {
+                subject_ref: target.workspace_ref.clone(),
+                grantee_ref: actor.clone(),
+                scopes: vec!["workspace.read".to_owned()],
+                policy_ref: reference("policy.workspace"),
+                provider_generation: 2,
+                fence_token: 1,
+                expires_at: "2026-09-03T01:30:00Z".to_owned(),
+                authority_ref: reference("authority.owner"),
+            })
+            .expect("read Grant");
+        let authority = SessionAuthority::new(3, 7).expect("session authority");
+        let model_a = reference("runtime.service");
+        let model_b = reference("runtime.service");
+        store
+            .attach_session(
+                session_ref.entity_id,
+                authority,
+                AttachSession {
+                    attacher_ref: actor.clone(),
+                    client_or_service_ref: Some(model_a),
+                    attachment_kind: AttachmentKind::Service,
+                    capability_scope: vec!["workspace.read".to_owned()],
+                    control_lease_ref: None,
+                    authority_ref: reference("authority.owner"),
+                },
+            )
+            .expect("attach model A");
+        store
+            .attach_session(
+                session_ref.entity_id,
+                authority,
+                AttachSession {
+                    attacher_ref: actor.clone(),
+                    client_or_service_ref: Some(model_b),
+                    attachment_kind: AttachmentKind::Service,
+                    capability_scope: vec!["workspace.read".to_owned()],
+                    control_lease_ref: None,
+                    authority_ref: reference("authority.owner"),
+                },
+            )
+            .expect("attach model B");
+        let projected = store.session(session_ref.entity_id).expect("session");
+        assert_eq!(projected.session_ref, session_ref);
+        assert_eq!(projected.attachment_refs.len(), 2);
+        (
+            source.workspace_ref,
+            target.workspace_ref,
+            session_ref,
+            grant_ref,
+        )
+    };
+
+    let reader = WorkspaceReader::open(&path, clock()).expect("reader");
+    let hunter = HunterAdapter::new(&reader);
+    let retrieved = hunter
+        .retrieve_exact(&RetrievalRequest {
+            actor_ref: actor,
+            source_workspace_ref: source_workspace,
+            target_workspace_ref: target_workspace,
+            record_class: RecordClass::Session,
+            entity_ref: session_ref.clone(),
+            record_revision: None,
+            required_scope: "workspace.read".to_owned(),
+            grant_ref: Some(grant_ref),
+        })
+        .expect("same pre-existing Grant after model replacement");
+    assert_eq!(retrieved.entity_ref, session_ref);
+}
+
+#[test]
+fn grant_survives_agent_change() {
+    let path = db_path("grant-agent-change");
+    let actor = reference("identity.principal");
+    let (source_workspace, target_workspace, session_ref, grant_ref) = {
+        let mut store = WorkspaceStore::open(&path, clock()).expect("workspace store");
+        let source = create_workspace(&mut store, "grant.source");
+        let target = create_workspace(&mut store, "grant.target");
+        let session_ref = create_session(&mut store, target.workspace_ref.clone());
+        let grant_ref = store
+            .issue_grant(IssueGrant {
+                subject_ref: target.workspace_ref.clone(),
+                grantee_ref: actor.clone(),
+                scopes: vec!["workspace.read".to_owned()],
+                policy_ref: reference("policy.workspace"),
+                provider_generation: 5,
+                fence_token: 2,
+                expires_at: "2026-09-03T01:30:00Z".to_owned(),
+                authority_ref: reference("authority.owner"),
+            })
+            .expect("Grant");
+        (
+            source.workspace_ref,
+            target.workspace_ref,
+            session_ref,
+            grant_ref,
+        )
+    };
+    let reader = WorkspaceReader::open(&path, clock()).expect("reader");
+    let hunter = HunterAdapter::new(&reader);
+    for _replacement_model in 0..2 {
+        hunter
+            .retrieve_exact(&RetrievalRequest {
+                actor_ref: actor.clone(),
+                source_workspace_ref: source_workspace.clone(),
+                target_workspace_ref: target_workspace.clone(),
+                record_class: RecordClass::Session,
+                entity_ref: session_ref.clone(),
+                record_revision: None,
+                required_scope: "workspace.read".to_owned(),
+                grant_ref: Some(grant_ref.clone()),
+            })
+            .expect("existing Grant remains exact access boundary");
+    }
+}
+
+#[test]
+fn sergeant_review_no_ptah_verdict() {
+    let path = db_path("sergeant-review");
+    let cas = path.with_extension("cas");
+    let mut workspace_store = WorkspaceStore::open(&path, clock()).expect("workspace");
+    let workspace = create_workspace(&mut workspace_store, "sergeant.review");
+    drop(workspace_store);
+    let runtime = activity_runtime(&path);
+    let authority = reference("identity.principal");
+    let mut object_store = ObjectStore::open(&path, &cas, a07_config(), clock()).expect("A07");
+
+    let candidate_registration = register_caller_bytes(
+        &mut object_store,
+        &runtime,
+        &workspace.workspace_ref,
+        &authority,
+        b"frozen D02 candidate",
+    );
+    let candidate_promotion = production_evidence(
+        &runtime,
+        &workspace.workspace_ref,
+        &authority,
+        candidate_registration.revision_ref.clone(),
+        false,
+    );
+    let candidate_artifact = object_store
+        .promote_artifact(
+            candidate_registration.revision_ref.entity_id,
+            ArtifactPromotionSpec {
+                workspace_ref: workspace.workspace_ref.clone(),
+                authority_ref: authority.clone(),
+                artifact_type: "candidate".to_owned(),
+                artifact_version: "1.0.0".to_owned(),
+                purpose: "frozen review candidate".to_owned(),
+                subject_refs: Vec::new(),
+                production: candidate_promotion,
+            },
+        )
+        .expect("candidate Artifact");
+
+    let reader = WorkspaceReader::open(&path, clock()).expect("reader");
+    let sergeant = SergeantAdapter::new(&reader);
+    let review = SergeantReviewPayload {
+        candidate_ref: candidate_artifact.clone(),
+        reviewer_ref: reference("identity.principal"),
+        selected_evidence_refs: vec![reference("proof.evidence")],
+        result_bytes: b"Sergeant independent result: findings retained".to_vec(),
+    };
+    let review_bytes = sergeant
+        .encode_review(&review)
+        .expect("Sergeant review bytes");
+    let review_json: serde_json::Value =
+        serde_json::from_slice(&review_bytes).expect("review JSON");
+    assert!(review_json.get("approved").is_none());
+    assert!(review_json.get("rejected").is_none());
+    assert!(review_json.get("canonical_winner").is_none());
+    assert!(review_json.get("promotion").is_none());
+
+    let review_registration = register_caller_bytes(
+        &mut object_store,
+        &runtime,
+        &workspace.workspace_ref,
+        &authority,
+        &review_bytes,
+    );
+    let review_promotion = production_evidence(
+        &runtime,
+        &workspace.workspace_ref,
+        &authority,
+        review_registration.revision_ref.clone(),
+        false,
+    );
+    let review_artifact = object_store
+        .promote_artifact(
+            review_registration.revision_ref.entity_id,
+            ArtifactPromotionSpec {
+                workspace_ref: workspace.workspace_ref,
+                authority_ref: authority,
+                artifact_type: "sergeant_review".to_owned(),
+                artifact_version: "1.0.0".to_owned(),
+                purpose: "Sergeant-owned independent review result".to_owned(),
+                subject_refs: vec![candidate_artifact.clone()],
+                production: review_promotion,
+            },
+        )
+        .expect("review Artifact");
+    assert_ne!(candidate_artifact, review_artifact);
 }

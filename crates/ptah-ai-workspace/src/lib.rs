@@ -5,6 +5,7 @@
 //! family and owns no semantic context, review, approval, promotion, or next-action authority.
 
 mod activity_inputs;
+mod adapters;
 mod caller_records;
 mod library;
 mod profile;
@@ -13,6 +14,7 @@ mod search;
 mod sessions;
 
 pub use activity_inputs::ActivityInputEnvelope;
+pub use adapters::{HunterAdapter, SergeantAdapter, SergeantReviewPayload};
 pub use caller_records::{
     CALLER_RECORD_FORMAT_VERSION, CallerRecord, MAX_CALLER_RECORD_BYTES, decode_caller_record,
     encode_caller_record,

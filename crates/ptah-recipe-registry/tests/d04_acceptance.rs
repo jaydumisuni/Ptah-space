@@ -2,12 +2,12 @@
 use ptah_activity_runtime::{IdempotencyClass, RetryClass, SideEffectClass};
 use ptah_identifiers::EntityRef;
 use ptah_recipe_registry::{
-    AcceptanceDecision, CompiledPlanRecordInput, CredentialBinding, D04Error,
-    ExecutionPlanManifest, ExecutionStage, MaterialBindingInput, OperationCatalog,
-    OperationDescriptorRevision, OperationEffectClass, ParameterBinding, ParameterValue,
-    PlanRequirementResultInput, PlanStepMappingInput, PlannedOperation, ProofRequirementInput,
-    RecipeAcceptanceInput, RecipeInput, RecipeProposalInput, RecipeRevisionInput, RecipeStepInput,
-    RecipeStore,
+    AcceptanceDecision, CompiledPlanRecordInput, CredentialBinding, D04Error, ExactPrecondition,
+    ExecutionPlanManifest, ExecutionStage, MaterialBindingInput, ObservedPrecondition,
+    OperationCatalog, OperationDescriptorRevision, OperationEffectClass, ParameterBinding,
+    ParameterValue, PlanRequirementResultInput, PlanStepMappingInput, PlannedOperation,
+    PreconditionKind, ProofRequirementInput, RecipeAcceptanceInput, RecipeInput,
+    RecipeProposalInput, RecipeRevisionInput, RecipeStepInput, RecipeStore, evaluate_preconditions,
 };
 
 fn reference(kind: &str) -> EntityRef {
@@ -466,4 +466,51 @@ fn credential_binding_serializes_reference_only() {
     for forbidden in ["password", "api_key", "secret_value", "raw_secret"] {
         assert!(!rendered.contains(forbidden));
     }
+}
+
+fn exact_precondition(kind: PreconditionKind, value: &str) -> ExactPrecondition {
+    ExactPrecondition {
+        kind,
+        target_ref: reference("core.object_revision"),
+        selector: Some("primary".to_owned()),
+        expected: value.to_owned(),
+        evidence_refs: vec![reference("security.evidence_item")],
+    }
+}
+
+fn observed_precondition(expected: &ExactPrecondition, value: &str) -> ObservedPrecondition {
+    ObservedPrecondition {
+        kind: expected.kind,
+        target_ref: expected.target_ref.clone(),
+        selector: expected.selector.clone(),
+        observed: value.to_owned(),
+        evidence_refs: vec![reference("security.evidence_item")],
+    }
+}
+
+#[test]
+fn all_six_exact_preconditions_compare_mechanically() {
+    for kind in [
+        PreconditionKind::ObjectRevisionDigest,
+        PreconditionKind::CanonicalRecordRevision,
+        PreconditionKind::GitBranchHead,
+        PreconditionKind::DraftRevision,
+        PreconditionKind::StateMachineState,
+        PreconditionKind::ProviderFreshness,
+    ] {
+        let expected = exact_precondition(kind, "aaaaaaaa");
+        let observed = observed_precondition(&expected, "aaaaaaaa");
+        assert!(evaluate_preconditions(&[expected], &[observed]).is_ok());
+    }
+}
+
+#[test]
+fn moved_target_conflict_retains_expected_observed_and_evidence() {
+    let expected = exact_precondition(PreconditionKind::ObjectRevisionDigest, "aaaaaaaa");
+    let observed = observed_precondition(&expected, "bbbbbbbb");
+    let conflict = evaluate_preconditions(&[expected], &[observed]).expect_err("conflict");
+    assert_eq!(conflict.expected, "aaaaaaaa");
+    assert_eq!(conflict.observed.as_deref(), Some("bbbbbbbb"));
+    assert!(!conflict.expected_evidence_refs.is_empty());
+    assert!(!conflict.observed_evidence_refs.is_empty());
 }

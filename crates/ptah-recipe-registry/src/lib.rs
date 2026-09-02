@@ -8,6 +8,7 @@
 mod error;
 mod operation;
 mod plan;
+mod precondition;
 mod recipe_store;
 
 pub use error::D04Error;
@@ -17,6 +18,10 @@ pub use operation::{
 pub use plan::{
     CredentialBinding, ExecutionPlanManifest, ExecutionStage, ParameterBinding, ParameterValue,
     PlannedOperation,
+};
+pub use precondition::{
+    ExactPrecondition, ObservedPrecondition, PreconditionConflict, PreconditionKind,
+    evaluate_preconditions,
 };
 pub use recipe_store::{
     AcceptanceDecision, AcceptedRevision, CompiledPlanRecordInput, CreatedRecipe,

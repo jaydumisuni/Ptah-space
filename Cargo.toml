@@ -10,6 +10,7 @@ members = [
   "crates/ptah-activity-runtime",
   "crates/ptah-workspace",
   "crates/ptah-ai-workspace",
+  "crates/ptah-knowledge-search",
   "crates/ptah-object-store",
   "crates/ptah-transfer",
   "crates/ptah-provider-api",

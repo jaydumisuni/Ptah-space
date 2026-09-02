@@ -547,6 +547,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptah-knowledge-search"
+version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-archive-decomposition",
+ "ptah-contracts",
+ "ptah-identifiers",
+ "ptah-ledger",
+ "ptah-object-store",
+ "ptah-workspace",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "ptah-ledger"
 version = "0.0.0-phase0c"
 dependencies = [

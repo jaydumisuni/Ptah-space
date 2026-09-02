@@ -10,6 +10,7 @@ mod operation;
 mod plan;
 mod precondition;
 mod recipe_store;
+mod schedule;
 
 pub use error::D04Error;
 pub use operation::{
@@ -28,4 +29,8 @@ pub use recipe_store::{
     MaterialBindingInput, PlanRequirementResultInput, PlanStepMappingInput, ProofRequirementInput,
     RecipeAcceptanceInput, RecipeInput, RecipeProposalInput, RecipeRecordView, RecipeRevisionInput,
     RecipeStepInput, RecipeStore,
+};
+pub use schedule::{
+    ScheduleEvaluation, ScheduleKind, ScheduleSpec, ScheduledRecipeInvocation, TimingMode,
+    evaluate_schedule,
 };

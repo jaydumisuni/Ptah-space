@@ -83,6 +83,9 @@ pub enum D04Error {
     /// Plan serialization failed before deterministic digest creation.
     #[error("execution Plan serialization failed: {0}")]
     PlanSerialization(String),
+    /// Caller-authored schedule data violates the D04 mechanical contract.
+    #[error("invalid schedule: {0}")]
+    InvalidSchedule(String),
     /// Canonical descriptor serialization failed before a digest could be produced.
     #[error("descriptor serialization failed: {0}")]
     DescriptorSerialization(String),

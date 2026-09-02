@@ -7,7 +7,9 @@ use ptah_recipe_registry::{
     OperationCatalog, OperationDescriptorRevision, OperationEffectClass, ParameterBinding,
     ParameterValue, PlanRequirementResultInput, PlanStepMappingInput, PlannedOperation,
     PreconditionKind, ProofRequirementInput, RecipeAcceptanceInput, RecipeInput,
-    RecipeProposalInput, RecipeRevisionInput, RecipeStepInput, RecipeStore, evaluate_preconditions,
+    RecipeProposalInput, RecipeRevisionInput, RecipeStepInput, RecipeStore, ScheduleEvaluation,
+    ScheduleKind, ScheduleSpec, ScheduledRecipeInvocation, TimingMode, evaluate_preconditions,
+    evaluate_schedule,
 };
 
 fn reference(kind: &str) -> EntityRef {
@@ -513,4 +515,119 @@ fn moved_target_conflict_retains_expected_observed_and_evidence() {
     assert_eq!(conflict.observed.as_deref(), Some("bbbbbbbb"));
     assert!(!conflict.expected_evidence_refs.is_empty());
     assert!(!conflict.observed_evidence_refs.is_empty());
+}
+
+fn schedule(kind: ScheduleKind, timing_mode: TimingMode) -> ScheduleSpec {
+    ScheduleSpec {
+        kind,
+        timing_mode,
+        starts_at: Some("2026-09-02T15:00:00Z".to_owned()),
+        recurrence_expression: (kind == ScheduleKind::Recurring).then(|| "FREQ=DAILY".to_owned()),
+        condition_ref: (kind == ScheduleKind::ConditionWatch).then(|| reference("core.condition")),
+        limitations: Vec::new(),
+    }
+}
+
+fn scheduled_invocation(spec: ScheduleSpec) -> ScheduledRecipeInvocation {
+    ScheduledRecipeInvocation {
+        workspace_ref: reference("workspace.workspace"),
+        recipe_revision_ref: reference("build.recipe_revision"),
+        acceptance_ref: reference("build.recipe_acceptance"),
+        compiled_plan_ref: reference("build.compiled_plan"),
+        plan_digest: "sha256:plan".to_owned(),
+        immutable_input_refs: vec![reference("core.object_revision")],
+        provider_revision_refs: vec![reference("runtime.provider_revision")],
+        grant_refs: vec![reference("isolation.secure_grant")],
+        preconditions: vec![exact_precondition(
+            PreconditionKind::ProviderFreshness,
+            "generation-7",
+        )],
+        expected_output_refs: vec![reference("build.output_declaration")],
+        caller_ref: reference("core.actor"),
+        schedule: spec,
+    }
+}
+
+#[test]
+fn schedule_kind_timing_matrix_and_evaluation_states_are_exact() {
+    for (kind, timing, valid) in [
+        (ScheduleKind::OneOff, TimingMode::Exact, true),
+        (ScheduleKind::OneOff, TimingMode::FlexibleWindow, true),
+        (ScheduleKind::OneOff, TimingMode::ConditionDependent, false),
+        (ScheduleKind::Recurring, TimingMode::Exact, true),
+        (ScheduleKind::Recurring, TimingMode::FlexibleWindow, true),
+        (
+            ScheduleKind::Recurring,
+            TimingMode::ConditionDependent,
+            false,
+        ),
+        (
+            ScheduleKind::ConditionWatch,
+            TimingMode::ConditionDependent,
+            true,
+        ),
+        (ScheduleKind::ConditionWatch, TimingMode::Exact, false),
+    ] {
+        assert_eq!(schedule(kind, timing).validate().is_ok(), valid);
+    }
+
+    let due = scheduled_invocation(schedule(ScheduleKind::OneOff, TimingMode::Exact));
+    let observed = observed_precondition(&due.preconditions[0], "generation-7");
+    assert_eq!(
+        evaluate_schedule(&due, false, None, std::slice::from_ref(&observed)),
+        ScheduleEvaluation::NotDue
+    );
+    assert_eq!(
+        evaluate_schedule(&due, true, None, std::slice::from_ref(&observed)),
+        ScheduleEvaluation::Due
+    );
+
+    let watch = scheduled_invocation(schedule(
+        ScheduleKind::ConditionWatch,
+        TimingMode::ConditionDependent,
+    ));
+    let watch_observed = observed_precondition(&watch.preconditions[0], "generation-7");
+    assert_eq!(
+        evaluate_schedule(
+            &watch,
+            true,
+            Some(false),
+            std::slice::from_ref(&watch_observed)
+        ),
+        ScheduleEvaluation::ConditionFalse
+    );
+    assert_eq!(
+        evaluate_schedule(&watch, true, Some(true), &[watch_observed]),
+        ScheduleEvaluation::ConditionTrue
+    );
+
+    let conflict = observed_precondition(&due.preconditions[0], "generation-8");
+    assert!(matches!(
+        evaluate_schedule(&due, true, None, &[conflict]),
+        ScheduleEvaluation::InvalidatedByPrecondition(_)
+    ));
+}
+
+#[test]
+fn scheduled_invocation_freezes_exact_caller_inputs_without_hidden_context() {
+    let invocation = scheduled_invocation(schedule(ScheduleKind::Recurring, TimingMode::Exact));
+    invocation.validate().expect("valid invocation");
+    let encoded = serde_json::to_value(&invocation).expect("serialize");
+    assert_eq!(encoded["plan_digest"], "sha256:plan");
+    assert_eq!(encoded["immutable_input_refs"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        encoded["provider_revision_refs"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(encoded["grant_refs"].as_array().unwrap().len(), 1);
+    assert_eq!(encoded["preconditions"].as_array().unwrap().len(), 1);
+    assert_eq!(encoded["expected_output_refs"].as_array().unwrap().len(), 1);
+    for forbidden in [
+        "discover",
+        "select_provider",
+        "implicit_context",
+        "global_scheduler",
+    ] {
+        assert!(!encoded.to_string().contains(forbidden));
+    }
 }

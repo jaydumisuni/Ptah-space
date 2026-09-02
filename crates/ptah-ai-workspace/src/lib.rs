@@ -4,10 +4,17 @@
 //! This crate composes accepted Ptah primitives. It adds no canonical entity
 //! family and owns no semantic context, review, approval, promotion, or next-action authority.
 
+mod caller_records;
+mod library;
 mod profile;
 mod retrieval;
 mod sessions;
 
+pub use caller_records::{
+    CALLER_RECORD_FORMAT_VERSION, CallerRecord, MAX_CALLER_RECORD_BYTES, decode_caller_record,
+    encode_caller_record,
+};
+pub use library::{ArtifactLibraryEntry, ArtifactLibraryProjection, artifact_library};
 pub use profile::{
     AI_PROJECT_PROFILE_ID, ActivityResultState, AvailabilityState, OPERATIONS_PROFILE_ID,
     OperationEffectClass, OperationsCompatibilityDescriptor, RuntimeProfileDescriptor, TimingMode,

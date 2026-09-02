@@ -444,6 +444,7 @@ dependencies = [
  "ptah-identifiers",
  "ptah-ledger",
  "ptah-object-store",
+ "ptah-receipts",
  "ptah-workspace",
  "serde",
  "serde_json",

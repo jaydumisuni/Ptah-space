@@ -27,6 +27,9 @@ pub enum D06Error {
     /// Proof bundle structure or domain evidence is invalid.
     #[error("invalid proof bundle")]
     InvalidProofBundle,
+    /// Reproduction request/run/comparison is not independently valid.
+    #[error("invalid reproduction evidence")]
+    InvalidReproduction,
     /// Deterministic evidence encoding failed.
     #[error("encoding error: {0}")]
     Encoding(String),

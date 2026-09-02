@@ -5,6 +5,7 @@ mod attestation;
 mod error;
 mod oci;
 mod proof_bundle;
+mod reproduction;
 mod sbom;
 mod signature;
 mod store;
@@ -15,6 +16,11 @@ pub use attestation::{AttestationProjection, BoundMaterial, EnvelopeType, Materi
 pub use error::D06Error;
 pub use oci::{DiscoveryMethod, OciDescriptor, OciReferrerProjection};
 pub use proof_bundle::{BundleCoverage, ProofBundleManifest, ProofDomain, ProofEntry};
+pub use reproduction::{
+    BackendEvidence, CachePolicy, ComparisonClass, IndependenceRequirement,
+    ReproductionComparisonProjection, ReproductionExecutionKind, ReproductionRequestProjection,
+    ReproductionRunProjection,
+};
 pub use sbom::{
     CoverageState, PackageObservationProjection, SbomClaimScope, SbomConversion, SbomCoverage,
     SbomFormat, SbomProjection, SbomProjectionInput,

@@ -2,12 +2,14 @@
 
 use ptah_identifiers::EntityRef;
 use ptah_provenance::{
-    AttestationProjection, BoundMaterial, BundleCoverage, CoverageState, D06Error,
-    DisclosureAcknowledgement, DiscoveryMethod, EnvelopeType, ExactSubject, MaterialOrigin,
-    OciDescriptor, OciReferrerProjection, OfflinePolicy, PackageObservationProjection,
-    ProofBundleManifest, ProofDomain, ProofEntry, SbomClaimScope, SbomConversion, SbomCoverage,
-    SbomFormat, SbomProjection, SbomProjectionInput, SignatureProjection, SigningMethod,
-    TransparencyEvidenceProjection, TransparencyMode, TransparencyPolicy, TrustMode,
+    AttestationProjection, BackendEvidence, BoundMaterial, BundleCoverage, CachePolicy,
+    ComparisonClass, CoverageState, D06Error, DisclosureAcknowledgement, DiscoveryMethod,
+    EnvelopeType, ExactSubject, IndependenceRequirement, MaterialOrigin, OciDescriptor,
+    OciReferrerProjection, OfflinePolicy, PackageObservationProjection, ProofBundleManifest,
+    ProofDomain, ProofEntry, ReproductionComparisonProjection, ReproductionExecutionKind,
+    ReproductionRequestProjection, ReproductionRunProjection, SbomClaimScope, SbomConversion,
+    SbomCoverage, SbomFormat, SbomProjection, SbomProjectionInput, SignatureProjection,
+    SigningMethod, TransparencyEvidenceProjection, TransparencyMode, TransparencyPolicy, TrustMode,
     TrustPolicyProjection, VerificationDecision, verify_signature_binding,
 };
 
@@ -492,4 +494,132 @@ fn downstream_sbom_or_signing_failure_preserves_prior_valid_output_evidence() {
         bundle.decision_for(ProofDomain::Signature),
         Some(VerificationDecision::Unavailable)
     );
+}
+
+fn reproduction_request() -> ReproductionRequestProjection {
+    ReproductionRequestProjection {
+        request_ref: er("provenance.reproduction_request"),
+        original_build_run_ref: er("build.run"),
+        recipe_revision_ref: er("build.recipe_revision"),
+        comparison_protocol_ref: er("verification.protocol_revision"),
+        independence_requirements: vec![
+            IndependenceRequirement::DifferentNode,
+            IndependenceRequirement::DifferentProviderInstance,
+            IndependenceRequirement::CacheDisabled,
+        ],
+        cache_policy: CachePolicy::Disabled,
+    }
+}
+
+fn backend_evidence() -> BackendEvidence {
+    BackendEvidence {
+        provider_revision_ref: er("core.provider_revision"),
+        provider_generation: 1,
+        tool_revision_ref: er("core.object_revision"),
+    }
+}
+
+#[test]
+fn independent_reproduction_requires_distinct_build_run() {
+    let request = reproduction_request();
+    assert_eq!(
+        ReproductionRunProjection::new(
+            &request,
+            request.original_build_run_ref.clone(),
+            vec![er("core.evidence")],
+            ReproductionExecutionKind::FreshBuild,
+            VerificationDecision::Valid,
+            backend_evidence(),
+        ),
+        Err(D06Error::InvalidReproduction)
+    );
+}
+
+#[test]
+fn cache_hit_or_reverification_cannot_impersonate_reproduction() {
+    let request = reproduction_request();
+    for kind in [
+        ReproductionExecutionKind::CacheHit,
+        ReproductionExecutionKind::Reverification,
+    ] {
+        assert_eq!(
+            ReproductionRunProjection::new(
+                &request,
+                er("build.run"),
+                vec![er("core.evidence")],
+                kind,
+                VerificationDecision::Valid,
+                backend_evidence(),
+            ),
+            Err(D06Error::InvalidReproduction)
+        );
+    }
+}
+
+#[test]
+fn byte_identical_and_functional_equivalence_remain_distinct() {
+    let byte = ReproductionComparisonProjection {
+        comparison_ref: er("proof.comparison"),
+        original_subject: exact_subject(),
+        reproduced_subject: exact_subject(),
+        comparison_class: ComparisonClass::ByteIdentical,
+        evidence_refs: vec![er("core.evidence")],
+    };
+    let functional = ReproductionComparisonProjection {
+        comparison_ref: er("proof.comparison"),
+        original_subject: byte.original_subject.clone(),
+        reproduced_subject: byte.reproduced_subject.clone(),
+        comparison_class: ComparisonClass::FunctionallyEquivalentWithinProtocol,
+        evidence_refs: vec![er("core.evidence")],
+    };
+    assert_ne!(byte.comparison_class, functional.comparison_class);
+    assert!(byte.is_byte_identical());
+    assert!(!functional.is_byte_identical());
+}
+
+#[test]
+fn failed_or_inconclusive_reproduction_is_retained_without_rewriting_original() {
+    let request = reproduction_request();
+    let original = request.original_build_run_ref.clone();
+    let run = ReproductionRunProjection::new(
+        &request,
+        er("build.run"),
+        vec![er("core.evidence")],
+        ReproductionExecutionKind::FreshBuild,
+        VerificationDecision::Inconclusive,
+        backend_evidence(),
+    )
+    .unwrap();
+    assert_eq!(run.decision, VerificationDecision::Inconclusive);
+    assert_eq!(run.original_build_run_ref, original);
+    assert_eq!(request.original_build_run_ref, original);
+}
+
+#[test]
+fn backend_replacement_preserves_ptah_proof_identity_and_creates_new_evidence() {
+    let request = reproduction_request();
+    let run = ReproductionRunProjection::new(
+        &request,
+        er("build.run"),
+        vec![er("core.evidence")],
+        ReproductionExecutionKind::FreshBuild,
+        VerificationDecision::Valid,
+        backend_evidence(),
+    )
+    .unwrap();
+    let replacement = BackendEvidence {
+        provider_revision_ref: er("core.provider_revision"),
+        provider_generation: 2,
+        tool_revision_ref: er("core.object_revision"),
+    };
+    let replaced = run.with_replacement_backend(replacement.clone());
+    assert_eq!(run.run_ref, replaced.run_ref);
+    assert_eq!(run.request_ref, replaced.request_ref);
+    assert_eq!(run.original_build_run_ref, replaced.original_build_run_ref);
+    assert_eq!(
+        run.reproduction_build_run_ref,
+        replaced.reproduction_build_run_ref
+    );
+    assert_ne!(run.backend, replaced.backend);
+    assert_eq!(replaced.backend, replacement);
 }

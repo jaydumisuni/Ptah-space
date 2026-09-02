@@ -3,13 +3,17 @@
 
 mod admission;
 mod error;
+mod install;
 mod package;
+mod store;
 
 pub use admission::{
     AdmissionService, DistributionClass, LicenceDecision, PackageAdmission, PackageAdmissionRequest,
 };
 pub use error::D05Error;
+pub use install::{InstallRequest, PackageInstallAck, PackageInstallHandle, PackageInstaller};
 pub use package::{
     PackageCandidate, PackageCatalog, PackageConstraint, PackageCoordinate, PackageLock,
     RegistrySource, ResolvedGraph,
 };
+pub use store::{PackageStore, PackageVerificationInput, VerificationDecision, VerificationScope};

@@ -24,4 +24,16 @@ pub enum D05Error {
     /// Required trust-policy evidence is absent.
     #[error("trust policy missing")]
     TrustPolicyMissing,
+    /// A04 rejected lifecycle orchestration.
+    #[error("activity runtime error: {0}")]
+    ActivityRuntime(String),
+    /// A03 rejected canonical package lifecycle persistence.
+    #[error("ledger error: {0}")]
+    Ledger(String),
+    /// Verification input is incomplete or cannot establish the claimed state.
+    #[error("verification incomplete")]
+    VerificationIncomplete,
+    /// Stored canonical lifecycle record is absent or malformed.
+    #[error("package lifecycle record invalid")]
+    InvalidLifecycleRecord,
 }

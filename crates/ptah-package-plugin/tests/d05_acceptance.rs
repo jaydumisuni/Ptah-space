@@ -1,8 +1,11 @@
 #![allow(missing_docs)]
+use ptah_activity_runtime::{ActivityRuntime, AttemptContext, MemoryJournal};
 use ptah_identifiers::{EntityId, EntityRef};
 use ptah_package_plugin::{
-    AdmissionService, D05Error, DistributionClass, LicenceDecision, PackageAdmissionRequest,
-    PackageCandidate, PackageCatalog, PackageConstraint, PackageCoordinate, RegistrySource,
+    AdmissionService, D05Error, DistributionClass, InstallRequest, LicenceDecision,
+    PackageAdmissionRequest, PackageCandidate, PackageCatalog, PackageConstraint,
+    PackageCoordinate, PackageInstallAck, PackageInstaller, PackageStore, PackageVerificationInput,
+    RegistrySource, VerificationDecision, VerificationScope,
 };
 use ptah_workspace::{CreateWorkspace, WorkspaceStore};
 use std::{fs, path::PathBuf, sync::Arc};
@@ -238,4 +241,160 @@ fn admission_contract_contains_references_not_raw_credentials() {
     ] {
         assert!(!serialized.contains(forbidden));
     }
+}
+
+fn activity_runtime() -> ActivityRuntime {
+    ActivityRuntime::new(
+        8,
+        Arc::new(MemoryJournal::default()),
+        Arc::new(|| "2026-09-02T15:30:00Z".to_owned()),
+    )
+    .unwrap()
+}
+
+fn attempt_context(provider_generation: u64) -> AttemptContext {
+    AttemptContext {
+        node_ref: r("core.node"),
+        node_generation: 3,
+        provider_ref: r("runtime.provider_instance"),
+        provider_generation,
+        workload_generation: 11,
+        connection_epoch: 5,
+        facility_ref: r("runtime.facility_revision"),
+        producer_instance_ref: r("runtime.provider_instance"),
+        producer_version: "d05-test".to_owned(),
+    }
+}
+
+fn install_request(provider_generation: u64) -> InstallRequest {
+    InstallRequest {
+        package_ref: r("package.package"),
+        package_revision_ref: r("package.revision"),
+        resolved_graph_ref: r("package.resolved_graph"),
+        lock_record_ref: r("package.lock_record"),
+        workspace_ref: r("core.workspace"),
+        provider_instance_ref: r("runtime.provider_instance"),
+        provider_generation,
+        installed_object_refs: vec![r("core.object_revision")],
+        activity_request_ref: r("core.activity_request"),
+        caller_ref: r("identity.principal"),
+        authority_ref: r("authority.owner"),
+        intent_ref: r("core.intent"),
+    }
+}
+
+fn install_ack() -> PackageInstallAck {
+    PackageInstallAck {
+        backend_alias: "fixture-pkg-manager".into(),
+        accepted_at: "2026-09-02T15:30:01Z".into(),
+        evidence_refs: vec![r("core.evidence")],
+    }
+}
+
+fn package_store(label: &str) -> (PathBuf, PackageStore) {
+    let path = std::env::temp_dir().join(format!(
+        "ptah-d05-package-{label}-{}.sqlite3",
+        EntityId::new_v7()
+    ));
+    let _ = fs::remove_file(&path);
+    let store = PackageStore::open(&path).unwrap();
+    (path, store)
+}
+
+#[test]
+fn install_ack_is_not_package_verification() {
+    let runtime = activity_runtime();
+    let request = install_request(7);
+    let handle =
+        PackageInstaller::begin_install(&runtime, &request, attempt_context(7), &install_ack())
+            .unwrap();
+    assert_eq!(handle.verification_state, "unverified");
+    let operation = runtime.operation(handle.operation_id).unwrap().unwrap();
+    assert_ne!(format!("{:?}", operation.state()), "Succeeded");
+}
+
+#[test]
+fn installed_unverified_requires_independent_integrity_and_installed_state_verification() {
+    let runtime = activity_runtime();
+    let request = install_request(7);
+    let handle =
+        PackageInstaller::begin_install(&runtime, &request, attempt_context(7), &install_ack())
+            .unwrap();
+    let (_path, mut store) = package_store("verified");
+    store.record_installation(&handle, &request).unwrap();
+    assert_eq!(
+        store.installation_state(&handle.installation_ref).unwrap(),
+        "installed_unverified"
+    );
+    let verification = PackageVerificationInput {
+        scopes: vec![
+            VerificationScope::Integrity,
+            VerificationScope::InstalledState,
+        ],
+        checks: vec!["digest_match".into(), "readback_match".into()],
+        decision: VerificationDecision::Verified,
+        signature_verified: false,
+        verified_at: "2026-09-02T15:31:00Z".into(),
+        evidence_refs: vec![r("core.evidence")],
+        receipt_refs: vec![r("core.receipt")],
+        limitations: vec![],
+    };
+    let verification_ref = store.record_verification(&handle, &verification).unwrap();
+    assert_eq!(
+        verification_ref.entity_kind.as_str(),
+        "package.verification"
+    );
+    assert_eq!(
+        store.installation_state(&handle.installation_ref).unwrap(),
+        "installed_verified"
+    );
+}
+
+#[test]
+fn signature_verification_does_not_claim_functionality() {
+    let verification = PackageVerificationInput {
+        scopes: vec![VerificationScope::Integrity],
+        checks: vec!["signature_valid".into()],
+        decision: VerificationDecision::Verified,
+        signature_verified: true,
+        verified_at: "2026-09-02T15:31:00Z".into(),
+        evidence_refs: vec![r("core.evidence")],
+        receipt_refs: vec![],
+        limitations: vec![],
+    };
+    assert!(!verification.proves_functionality());
+}
+
+#[test]
+fn package_install_retry_allocates_fresh_a04_attempt() {
+    let runtime = activity_runtime();
+    let request = install_request(7);
+    let first =
+        PackageInstaller::begin_install(&runtime, &request, attempt_context(7), &install_ack())
+            .unwrap();
+    runtime
+        .fail_attempt(first.attempt_id, "backend_failure")
+        .unwrap();
+    let second_attempt =
+        PackageInstaller::retry_install(&runtime, &first, r("core.policy"), attempt_context(7))
+            .unwrap();
+    assert_ne!(first.attempt_id, second_attempt);
+}
+
+#[test]
+fn package_manager_replacement_preserves_package_identity_and_creates_new_installation_evidence() {
+    let runtime = activity_runtime();
+    let request7 = install_request(7);
+    let first =
+        PackageInstaller::begin_install(&runtime, &request7, attempt_context(7), &install_ack())
+            .unwrap();
+    let mut request8 = request7.clone();
+    request8.provider_generation = 8;
+    let second =
+        PackageInstaller::begin_install(&runtime, &request8, attempt_context(8), &install_ack())
+            .unwrap();
+    assert_eq!(first.package_ref, second.package_ref);
+    assert_eq!(first.package_revision_ref, second.package_revision_ref);
+    assert_ne!(first.installation_ref, second.installation_ref);
+    assert_ne!(first.attempt_id, second.attempt_id);
 }

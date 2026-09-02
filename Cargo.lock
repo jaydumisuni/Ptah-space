@@ -618,7 +618,9 @@ dependencies = [
 name = "ptah-package-plugin"
 version = "0.0.0-phase0c"
 dependencies = [
+ "ptah-activity-runtime",
  "ptah-identifiers",
+ "ptah-ledger",
  "ptah-workspace",
  "serde",
  "serde_json",

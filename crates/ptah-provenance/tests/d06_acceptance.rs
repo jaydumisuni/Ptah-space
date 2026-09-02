@@ -3,8 +3,9 @@
 use ptah_identifiers::EntityRef;
 use ptah_provenance::{
     AttestationProjection, BoundMaterial, CoverageState, D06Error, DisclosureAcknowledgement,
-    EnvelopeType, ExactSubject, MaterialOrigin, OfflinePolicy, PackageObservationProjection,
-    SbomClaimScope, SbomConversion, SbomCoverage, SbomFormat, SbomProjection, SbomProjectionInput,
+    DiscoveryMethod, EnvelopeType, ExactSubject, MaterialOrigin, OciDescriptor,
+    OciReferrerProjection, OfflinePolicy, PackageObservationProjection, SbomClaimScope,
+    SbomConversion, SbomCoverage, SbomFormat, SbomProjection, SbomProjectionInput,
     SignatureProjection, SigningMethod, TransparencyEvidenceProjection, TransparencyMode,
     TransparencyPolicy, TrustMode, TrustPolicyProjection, VerificationDecision,
     verify_signature_binding,
@@ -351,4 +352,57 @@ fn transparency_negative_and_inconclusive_outcomes_remain_explicit() {
         .unwrap();
         assert_eq!(evidence.decision, decision);
     }
+}
+
+#[test]
+fn oci_oras_subject_referrer_relationship_is_exact_digest_bound() {
+    let subject = OciDescriptor::new(
+        "application/vnd.oci.image.manifest.v1+json".into(),
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+        123,
+    )
+    .unwrap();
+    let referrer = OciDescriptor::new(
+        "application/vnd.oci.artifact.manifest.v1+json".into(),
+        "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+        456,
+    )
+    .unwrap();
+    let relation = OciReferrerProjection::new(
+        subject.clone(),
+        referrer.clone(),
+        "application/spdx+json".into(),
+        Some("registry.example/app:latest".into()),
+        DiscoveryMethod::OciReferrersApi,
+    )
+    .unwrap();
+    assert_eq!(relation.subject.digest, subject.digest);
+    assert_eq!(relation.referrer.digest, referrer.digest);
+    assert_eq!(
+        OciDescriptor::new("application/json".into(), "sha256:ABCDEF".into(), 1),
+        Err(D06Error::InvalidOciDescriptor)
+    );
+}
+
+#[test]
+fn oci_oras_referrer_discovery_does_not_imply_trust() {
+    let relation = OciReferrerProjection::new(
+        OciDescriptor::new(
+            "application/vnd.oci.image.manifest.v1+json".into(),
+            "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".into(),
+            10,
+        )
+        .unwrap(),
+        OciDescriptor::new(
+            "application/vnd.oci.artifact.manifest.v1+json".into(),
+            "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".into(),
+            20,
+        )
+        .unwrap(),
+        "application/vnd.in-toto+json".into(),
+        Some("registry.example/app".into()),
+        DiscoveryMethod::OrasFallback,
+    )
+    .unwrap();
+    assert!(!relation.grants_trust());
 }

@@ -21,6 +21,9 @@ pub enum D06Error {
     /// Signature, subject, or policy binding is inconsistent.
     #[error("invalid verification binding")]
     InvalidVerificationBinding,
+    /// OCI descriptor or referrer relationship is not exact.
+    #[error("invalid OCI descriptor")]
+    InvalidOciDescriptor,
     /// Deterministic evidence encoding failed.
     #[error("encoding error: {0}")]
     Encoding(String),

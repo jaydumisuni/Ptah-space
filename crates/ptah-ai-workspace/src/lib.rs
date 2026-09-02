@@ -5,11 +5,16 @@
 //! family and owns no semantic context, review, approval, promotion, or next-action authority.
 
 mod profile;
+mod retrieval;
 
 pub use profile::{
     AI_PROJECT_PROFILE_ID, ActivityResultState, AvailabilityState, OPERATIONS_PROFILE_ID,
     OperationEffectClass, OperationsCompatibilityDescriptor, RuntimeProfileDescriptor, TimingMode,
     ai_project_profile, operations_profile,
+};
+
+pub use retrieval::{
+    RecordClass, RetrievalRequest, RetrievedRecord, WorkspaceClock, WorkspaceReader,
 };
 
 /// D02 composition failures. Every variant is mechanical; none expresses a semantic verdict.

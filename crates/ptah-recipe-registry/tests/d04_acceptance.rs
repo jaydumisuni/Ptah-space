@@ -2,10 +2,12 @@
 use ptah_activity_runtime::{IdempotencyClass, RetryClass, SideEffectClass};
 use ptah_identifiers::EntityRef;
 use ptah_recipe_registry::{
-    AcceptanceDecision, CompiledPlanRecordInput, D04Error, MaterialBindingInput, OperationCatalog,
-    OperationDescriptorRevision, OperationEffectClass, PlanRequirementResultInput,
-    PlanStepMappingInput, ProofRequirementInput, RecipeAcceptanceInput, RecipeInput,
-    RecipeProposalInput, RecipeRevisionInput, RecipeStepInput, RecipeStore,
+    AcceptanceDecision, CompiledPlanRecordInput, CredentialBinding, D04Error,
+    ExecutionPlanManifest, ExecutionStage, MaterialBindingInput, OperationCatalog,
+    OperationDescriptorRevision, OperationEffectClass, ParameterBinding, ParameterValue,
+    PlanRequirementResultInput, PlanStepMappingInput, PlannedOperation, ProofRequirementInput,
+    RecipeAcceptanceInput, RecipeInput, RecipeProposalInput, RecipeRevisionInput, RecipeStepInput,
+    RecipeStore,
 };
 
 fn reference(kind: &str) -> EntityRef {
@@ -357,4 +359,111 @@ fn backend_replacement_creates_distinct_plan_without_changing_recipe_identity() 
     assert_eq!(recipe.recipe_ref, recipe_ref);
     assert_eq!(recipe.current_revision_ref, revision_ref);
     let _ = std::fs::remove_file(path);
+}
+
+fn planned_operation(stage: ExecutionStage) -> PlannedOperation {
+    PlannedOperation {
+        recipe_step_key: "inspect".to_owned(),
+        stage,
+        operation_key: "test.inspect".to_owned(),
+        descriptor_digest: "sha256:descriptor".to_owned(),
+        logical_target_refs: vec![reference("core.object_revision")],
+        parameters: vec![ParameterBinding {
+            key: "mode".to_owned(),
+            value: ParameterValue::String("strict".to_owned()),
+        }],
+        credentials: vec![CredentialBinding {
+            requirement_key: "registry.auth".to_owned(),
+            credential_ref: reference("security.credential_reference"),
+            provider_or_service_scope_ref: None,
+        }],
+        service_refs: vec![reference("plugin.service_registration")],
+        required_grant_refs: vec![reference("isolation.secure_grant")],
+        expected_output_refs: vec![reference("build.output_declaration")],
+        limitations: Vec::new(),
+    }
+}
+
+fn execution_plan(stages: &[ExecutionStage]) -> ExecutionPlanManifest {
+    let operations: Vec<_> = stages.iter().copied().map(planned_operation).collect();
+    let declared_service_refs = operations
+        .iter()
+        .flat_map(|operation| operation.service_refs.iter().cloned())
+        .collect();
+    ExecutionPlanManifest {
+        recipe_revision_ref: reference("build.recipe_revision"),
+        acceptance_ref: reference("build.recipe_acceptance"),
+        operations,
+        declared_parameter_keys: vec!["mode".to_owned()],
+        declared_credential_keys: vec!["registry.auth".to_owned()],
+        declared_service_refs,
+    }
+}
+
+#[test]
+fn staged_plan_is_monotonic_and_verify_remains_separate() {
+    let invalid = execution_plan(&[ExecutionStage::Verify, ExecutionStage::Execute]);
+    assert!(matches!(
+        invalid.validate(),
+        Err(D04Error::InvalidStageOrder)
+    ));
+    let valid = execution_plan(&[
+        ExecutionStage::Observe,
+        ExecutionStage::Execute,
+        ExecutionStage::Verify,
+    ]);
+    assert!(valid.validate().is_ok());
+    assert_ne!(valid.operations[1].stage, valid.operations[2].stage);
+}
+
+#[test]
+fn execution_plan_digest_is_deterministic_and_order_sensitive() {
+    let first = execution_plan(&[ExecutionStage::Observe, ExecutionStage::Execute]);
+    let same = first.clone();
+    let changed = execution_plan(&[ExecutionStage::Execute, ExecutionStage::Observe]);
+    assert_eq!(
+        first.digest().expect("digest"),
+        same.digest().expect("digest")
+    );
+    assert_ne!(
+        first.digest().expect("digest"),
+        changed.digest().expect("digest")
+    );
+}
+
+#[test]
+fn undeclared_parameter_credential_and_service_fail_closed() {
+    let mut plan = execution_plan(&[ExecutionStage::Execute]);
+    plan.declared_parameter_keys.clear();
+    assert!(matches!(
+        plan.validate(),
+        Err(D04Error::UndeclaredPlanInput { .. })
+    ));
+    let mut plan = execution_plan(&[ExecutionStage::Execute]);
+    plan.declared_credential_keys.clear();
+    assert!(matches!(
+        plan.validate(),
+        Err(D04Error::UndeclaredPlanInput { .. })
+    ));
+    let mut plan = execution_plan(&[ExecutionStage::Execute]);
+    plan.declared_service_refs.clear();
+    assert!(matches!(
+        plan.validate(),
+        Err(D04Error::UndeclaredPlanInput { .. })
+    ));
+}
+
+#[test]
+fn credential_binding_serializes_reference_only() {
+    let binding = CredentialBinding {
+        requirement_key: "registry.auth".to_owned(),
+        credential_ref: reference("security.credential_reference"),
+        provider_or_service_scope_ref: Some(reference("runtime.provider_instance")),
+    };
+    let rendered = serde_json::to_value(binding)
+        .expect("serialize")
+        .to_string();
+    for forbidden in ["password", "api_key", "secret_value", "raw_secret"] {
+        assert!(!rendered.contains(forbidden));
+    }
 }

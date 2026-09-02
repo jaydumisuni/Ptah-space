@@ -69,6 +69,20 @@ pub enum D04Error {
     /// A retained canonical document does not contain the D04-required field.
     #[error("canonical record field missing or invalid: {0}")]
     InvalidStoredRecord(String),
+    /// Planned Recipe stages violate the accepted monotonic lifecycle.
+    #[error("invalid staged Recipe order")]
+    InvalidStageOrder,
+    /// A Plan operation supplied a parameter, credential, or service outside its declaration.
+    #[error("undeclared Plan input {kind}: {key}")]
+    UndeclaredPlanInput {
+        /// Mechanical input class.
+        kind: String,
+        /// Exact undeclared key or reference rendering.
+        key: String,
+    },
+    /// Plan serialization failed before deterministic digest creation.
+    #[error("execution Plan serialization failed: {0}")]
+    PlanSerialization(String),
     /// Canonical descriptor serialization failed before a digest could be produced.
     #[error("descriptor serialization failed: {0}")]
     DescriptorSerialization(String),

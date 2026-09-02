@@ -7,11 +7,16 @@
 
 mod error;
 mod operation;
+mod plan;
 mod recipe_store;
 
 pub use error::D04Error;
 pub use operation::{
     OperationCatalog, OperationDescriptorRevision, OperationEffectClass, OperationResolution,
+};
+pub use plan::{
+    CredentialBinding, ExecutionPlanManifest, ExecutionStage, ParameterBinding, ParameterValue,
+    PlannedOperation,
 };
 pub use recipe_store::{
     AcceptanceDecision, AcceptedRevision, CompiledPlanRecordInput, CreatedRecipe,

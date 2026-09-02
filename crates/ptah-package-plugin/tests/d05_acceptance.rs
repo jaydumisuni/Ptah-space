@@ -2,12 +2,13 @@
 use ptah_activity_runtime::{ActivityRuntime, AttemptContext, MemoryJournal};
 use ptah_identifiers::{EntityId, EntityRef};
 use ptah_package_plugin::{
-    AdmissionService, D05Error, DistributionClass, InstallRequest, LicenceDecision,
-    PackageAdmissionRequest, PackageCandidate, PackageCatalog, PackageConstraint,
-    PackageCoordinate, PackageInstallAck, PackageInstaller, PackageStore, PackageVerificationInput,
-    RegistrySource, VerificationDecision, VerificationScope,
+    ActivationRequest, ActivationService, AdmissionService, D05Error, DistributionClass,
+    InstallRequest, LicenceDecision, PackageAdmissionRequest, PackageCandidate, PackageCatalog,
+    PackageConstraint, PackageCoordinate, PackageInstallAck, PackageInstaller, PackageStore,
+    PackageVerificationInput, PluginRevisionInput, RegistrySource, VerificationDecision,
+    VerificationScope,
 };
-use ptah_workspace::{CreateWorkspace, WorkspaceStore};
+use ptah_workspace::{CreateWorkspace, IssueGrant, WorkspaceStore};
 use std::{fs, path::PathBuf, sync::Arc};
 
 fn r(kind: &str) -> EntityRef {
@@ -397,4 +398,119 @@ fn package_manager_replacement_preserves_package_identity_and_creates_new_instal
     assert_eq!(first.package_revision_ref, second.package_revision_ref);
     assert_ne!(first.installation_ref, second.installation_ref);
     assert_ne!(first.attempt_id, second.attempt_id);
+}
+
+fn workspace_store_with_clock(label: &str, now: &'static str) -> (PathBuf, WorkspaceStore) {
+    let path =
+        std::env::temp_dir().join(format!("ptah-d05-{label}-{}.sqlite3", EntityId::new_v7()));
+    let _ = fs::remove_file(&path);
+    let clock: Arc<dyn Fn() -> String + Send + Sync> = Arc::new(move || now.to_owned());
+    let store = WorkspaceStore::open(&path, clock).unwrap();
+    (path, store)
+}
+
+fn plugin_revision_input() -> PluginRevisionInput {
+    PluginRevisionInput {
+        revision: "1.0.0".into(),
+        object_revision_refs: vec![r("core.object_revision")],
+        manifest_ref: r("plugin.manifest"),
+        package_lock_refs: vec![r("package.lock_record")],
+        created_at: "2026-09-02T15:45:00Z".into(),
+    }
+}
+
+#[test]
+fn plugin_revision_binds_exact_manifest_objects_and_package_locks() {
+    let input = plugin_revision_input();
+    assert!(input.validate_exact().is_ok());
+    let mut bad = input.clone();
+    bad.package_lock_refs.clear();
+    assert_eq!(bad.validate_exact(), Err(D05Error::InvalidLifecycleRecord));
+}
+
+#[test]
+fn plugin_installation_does_not_imply_activation() {
+    let installation_ref = r("plugin.installation");
+    let value = serde_json::json!({"installation_ref": installation_ref});
+    assert!(value.get("activation_ref").is_none());
+    assert!(value.get("active").is_none());
+}
+
+#[test]
+fn activation_requires_explicit_policy_and_scoped_a06_grant() {
+    let (_path, mut store) = workspace_store_with_clock("activate", "2026-09-02T16:00:00Z");
+    let source = create_workspace(&mut store, "plugin.source");
+    let target = create_workspace(&mut store, "plugin.target");
+    let actor = r("identity.principal");
+    let grant = store
+        .issue_grant(IssueGrant {
+            subject_ref: target.clone(),
+            grantee_ref: actor.clone(),
+            scopes: vec!["plugin.activate".into()],
+            policy_ref: r("policy.plugin"),
+            provider_generation: 7,
+            fence_token: 1,
+            expires_at: "2026-09-03T16:00:00Z".into(),
+            authority_ref: r("authority.owner"),
+        })
+        .unwrap();
+    let request = ActivationRequest {
+        actor_ref: actor,
+        source_workspace_id: source.entity_id,
+        target_workspace_id: target.entity_id,
+        plugin_revision_ref: r("plugin.revision"),
+        installation_ref: r("plugin.installation"),
+        workspace_ref: target,
+        policy_refs: vec![r("policy.plugin")],
+        grant_ref: Some(grant),
+        decided_by_ref: r("identity.principal"),
+        decided_at: "2026-09-02T16:00:01Z".into(),
+    };
+    assert!(ActivationService::authorize(&store, &request).is_ok());
+    let mut missing_policy = request.clone();
+    missing_policy.policy_refs.clear();
+    assert_eq!(
+        ActivationService::authorize(&store, &missing_policy),
+        Err(D05Error::ActivationAuthorityMissing)
+    );
+}
+
+#[test]
+fn expired_a06_grant_cannot_authorize_plugin_activation() {
+    let (path, mut store) = workspace_store_with_clock("activate-expired", "2026-09-02T16:00:00Z");
+    let source = create_workspace(&mut store, "plugin.source");
+    let target = create_workspace(&mut store, "plugin.target");
+    let actor = r("identity.principal");
+    let grant = store
+        .issue_grant(IssueGrant {
+            subject_ref: target.clone(),
+            grantee_ref: actor.clone(),
+            scopes: vec!["plugin.activate".into()],
+            policy_ref: r("policy.plugin"),
+            provider_generation: 7,
+            fence_token: 1,
+            expires_at: "2026-09-03T16:00:00Z".into(),
+            authority_ref: r("authority.owner"),
+        })
+        .unwrap();
+    drop(store);
+    let late_clock: Arc<dyn Fn() -> String + Send + Sync> =
+        Arc::new(|| "2026-09-04T16:00:00Z".to_owned());
+    let reopened = WorkspaceStore::open(&path, late_clock).unwrap();
+    let request = ActivationRequest {
+        actor_ref: actor,
+        source_workspace_id: source.entity_id,
+        target_workspace_id: target.entity_id,
+        plugin_revision_ref: r("plugin.revision"),
+        installation_ref: r("plugin.installation"),
+        workspace_ref: target,
+        policy_refs: vec![r("policy.plugin")],
+        grant_ref: Some(grant),
+        decided_by_ref: r("identity.principal"),
+        decided_at: "2026-09-04T16:00:00Z".into(),
+    };
+    assert_eq!(
+        ActivationService::authorize(&reopened, &request),
+        Err(D05Error::ActivationAuthorityMissing)
+    );
 }

@@ -36,4 +36,7 @@ pub enum D05Error {
     /// Stored canonical lifecycle record is absent or malformed.
     #[error("package lifecycle record invalid")]
     InvalidLifecycleRecord,
+    /// Plugin activation lacks current explicit policy/Grant authority.
+    #[error("plugin activation authority missing")]
+    ActivationAuthorityMissing,
 }

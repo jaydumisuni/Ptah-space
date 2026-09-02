@@ -6,7 +6,7 @@
 
 **Architecture:** Add one `ptah-recipe-registry` crate. WP07 Recipe/Revision/Proposal/Acceptance/Compiled Plan records persist through A03; D04 descriptors/plans/schedules/service registrations are deterministic projections or manifests. A04 remains Operation/Attempt authority, WP11 remains Grant/exposure authority, and A10 integration is mechanical only.
 
-**Tech Stack:** Rust 1.97.1; edition 2024; `ptah-contracts`, `ptah-identifiers`, `ptah-ledger`, `ptah-activity-runtime`, `ptah-provider-api`, `ptah-container-oci`, `serde`, `serde_json`, `sha2`, `thiserror`.
+**Tech Stack:** Rust 1.97.1; edition 2024; `ptah-contracts`, `ptah-identifiers`, `ptah-ledger`, `ptah-activity-runtime`, `ptah-provider-api`, `container-oci`, `serde`, `serde_json`, `sha2`, `thiserror`.
 
 **Spec:** `docs/superpowers/specs/2026-09-02-d04-recipes-service-registry-design.md`
 
@@ -194,7 +194,7 @@ cargo test -p ptah-recipe-registry --locked
 
 ```bash
 cargo test -p ptah-activity-runtime --test a04_acceptance --locked
-cargo test -p ptah-container-oci --locked
+cargo test -p container-oci --locked
 cargo test -p ptah-ai-workspace -p ptah-knowledge-search -p ptah-control -p ptah-transfer -p ptah-object-store -p ptah-workspace --locked
 ```
 

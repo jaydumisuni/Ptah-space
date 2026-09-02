@@ -12,6 +12,9 @@ pub enum D06Error {
     /// A canonical record is outside the D06 WP07 boundary or malformed.
     #[error("invalid D06 canonical record")]
     InvalidCanonicalRecord,
+    /// Deterministic evidence encoding failed.
+    #[error("encoding error: {0}")]
+    Encoding(String),
     /// Canonical A03 ledger operation failed.
     #[error("ledger error: {0}")]
     Ledger(String),

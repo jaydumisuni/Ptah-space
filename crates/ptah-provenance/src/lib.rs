@@ -1,11 +1,13 @@
 #![forbid(unsafe_code)]
 #![doc = "Provider-neutral D06 provenance, SBOM, signing and proof-bundle composition."]
 
+mod attestation;
 mod error;
 mod sbom;
 mod store;
 mod subject;
 
+pub use attestation::{AttestationProjection, BoundMaterial, EnvelopeType, MaterialOrigin};
 pub use error::D06Error;
 pub use sbom::{
     CoverageState, PackageObservationProjection, SbomClaimScope, SbomConversion, SbomCoverage,

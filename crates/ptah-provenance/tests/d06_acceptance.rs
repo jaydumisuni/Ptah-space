@@ -2,8 +2,9 @@
 
 use ptah_identifiers::EntityRef;
 use ptah_provenance::{
-    CoverageState, D06Error, ExactSubject, PackageObservationProjection, SbomClaimScope,
-    SbomConversion, SbomCoverage, SbomFormat, SbomProjection, SbomProjectionInput,
+    AttestationProjection, BoundMaterial, CoverageState, D06Error, EnvelopeType, ExactSubject,
+    MaterialOrigin, PackageObservationProjection, SbomClaimScope, SbomConversion, SbomCoverage,
+    SbomFormat, SbomProjection, SbomProjectionInput,
 };
 
 fn er(kind: &str) -> EntityRef {
@@ -164,4 +165,63 @@ fn changed_generator_or_configuration_creates_distinct_sbom_evidence() {
     b.generator_provider_revision_ref = er("core.provider_revision");
     b.generator_configuration_ref = er("core.configuration_revision");
     assert_ne!(a, b);
+}
+
+#[test]
+fn attestation_creation_remains_unverified() {
+    let attestation = AttestationProjection {
+        subjects: vec![exact_subject()],
+        predicate_type: "https://slsa.dev/provenance/v1".into(),
+        predicate_version: "1".into(),
+        statement_artifact_ref: er("core.artifact"),
+        producer_ref: er("core.principal"),
+        producer_facility_revision_ref: er("core.facility_revision"),
+        materials: vec![],
+        products: vec![],
+        envelope_type: EnvelopeType::UnsignedStatement,
+    };
+    assert!(!attestation.is_verified());
+}
+
+#[test]
+fn declared_and_observed_attestation_materials_remain_distinct() {
+    let subject = exact_subject();
+    let declared = BoundMaterial {
+        subject: subject.clone(),
+        origin: MaterialOrigin::Declared,
+    };
+    let observed = BoundMaterial {
+        subject,
+        origin: MaterialOrigin::Observed,
+    };
+    assert_ne!(declared, observed);
+}
+
+#[test]
+fn in_toto_dsse_projection_preserves_exact_subjects_materials_and_products() {
+    let subject = exact_subject();
+    let material = BoundMaterial {
+        subject: exact_subject(),
+        origin: MaterialOrigin::Observed,
+    };
+    let product = BoundMaterial {
+        subject: exact_subject(),
+        origin: MaterialOrigin::Observed,
+    };
+    let attestation = AttestationProjection {
+        subjects: vec![subject.clone()],
+        predicate_type: "https://in-toto.io/attestation/release/v0.1".into(),
+        predicate_version: "0.1".into(),
+        statement_artifact_ref: er("core.artifact"),
+        producer_ref: er("core.principal"),
+        producer_facility_revision_ref: er("core.facility_revision"),
+        materials: vec![material.clone()],
+        products: vec![product.clone()],
+        envelope_type: EnvelopeType::Dsse,
+    };
+    assert_eq!(attestation.subjects, vec![subject]);
+    assert_eq!(attestation.materials, vec![material]);
+    assert_eq!(attestation.products, vec![product]);
+    assert_eq!(attestation.envelope_type, EnvelopeType::Dsse);
+    assert_eq!(attestation.statement_digest_sha256().unwrap().len(), 64);
 }

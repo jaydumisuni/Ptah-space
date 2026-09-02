@@ -2,14 +2,16 @@
 use ptah_activity_runtime::{IdempotencyClass, RetryClass, SideEffectClass};
 use ptah_identifiers::EntityRef;
 use ptah_recipe_registry::{
-    AcceptanceDecision, CompiledPlanRecordInput, CredentialBinding, D04Error, ExactPrecondition,
+    AcceptanceDecision, CompiledPlanRecordInput, ContainerAuthorityScope, ContainerMountAccess,
+    ContainerMountScope, ContainerNetworkScope, CredentialBinding, D04Error, ExactPrecondition,
     ExecutionPlanManifest, ExecutionStage, MaterialBindingInput, ObservedPrecondition,
     OperationCatalog, OperationDescriptorRevision, OperationEffectClass, ParameterBinding,
     ParameterValue, PlanRequirementResultInput, PlanStepMappingInput, PlannedOperation,
-    PreconditionKind, ProofRequirementInput, RecipeAcceptanceInput, RecipeInput,
-    RecipeProposalInput, RecipeRevisionInput, RecipeStepInput, RecipeStore, ScheduleEvaluation,
-    ScheduleKind, ScheduleSpec, ScheduledRecipeInvocation, TimingMode, evaluate_preconditions,
-    evaluate_schedule,
+    PortProtocol, PortRegistration, PreconditionKind, ProofRequirementInput, RecipeAcceptanceInput,
+    RecipeInput, RecipeProposalInput, RecipeRevisionInput, RecipeStepInput, RecipeStore,
+    ScheduleEvaluation, ScheduleKind, ScheduleSpec, ScheduledRecipeInvocation, ServiceRegistration,
+    ServiceRegistry, TimingMode, evaluate_preconditions, evaluate_schedule,
+    validate_container_authority,
 };
 
 fn reference(kind: &str) -> EntityRef {
@@ -630,4 +632,139 @@ fn scheduled_invocation_freezes_exact_caller_inputs_without_hidden_context() {
     ] {
         assert!(!encoded.to_string().contains(forbidden));
     }
+}
+
+fn service_registration(instance_ref: &EntityRef, generation: u64) -> ServiceRegistration {
+    ServiceRegistration {
+        registration_ref: reference("plugin.service_registration"),
+        service_key: "database.query".to_owned(),
+        provider_revision_ref: reference("runtime.provider_revision"),
+        provider_instance_ref: instance_ref.clone(),
+        provider_generation: generation,
+        freshness_token: format!("generation-{generation}"),
+        endpoint_alias: "loopback://database.query".to_owned(),
+        observed_at: "2026-09-02T14:00:00Z".to_owned(),
+        expires_at: Some("2026-09-02T16:00:00Z".to_owned()),
+        capability_refs: vec![reference("core.capability")],
+        limitations: Vec::new(),
+    }
+}
+
+fn port_registration() -> PortRegistration {
+    PortRegistration {
+        registration_ref: reference("plugin.port_registration"),
+        service_registration_ref: reference("plugin.service_registration"),
+        protocol: PortProtocol::Tcp,
+        port: 8443,
+        endpoint_alias: "127.0.0.1:8443".to_owned(),
+        exposure_policy_refs: vec![reference("core.policy")],
+        exposure_grant_refs: vec![reference("isolation.network_exposure_grant")],
+        observed_at: "2026-09-02T14:00:00Z".to_owned(),
+        expires_at: Some("2026-09-02T16:00:00Z".to_owned()),
+    }
+}
+
+#[test]
+fn stale_provider_generation_service_is_rejected() {
+    let instance = reference("runtime.provider_instance");
+    let mut registry = ServiceRegistry::default();
+    let result = registry.register(service_registration(&instance, 6), 7);
+    assert!(matches!(
+        result,
+        Err(D04Error::StaleProviderGeneration { .. })
+    ));
+}
+
+#[test]
+fn expired_service_is_unavailable() {
+    let instance = reference("runtime.provider_instance");
+    let mut registration = service_registration(&instance, 7);
+    registration.expires_at = Some("2026-09-02T14:30:00Z".to_owned());
+    let mut registry = ServiceRegistry::default();
+    registry.register(registration, 7).expect("register");
+    assert!(matches!(
+        registry.resolve("database.query", &instance, 7, "2026-09-02T15:00:00Z"),
+        Err(D04Error::ServiceUnavailable { .. })
+    ));
+}
+
+#[test]
+fn two_live_service_candidates_remain_ambiguous() {
+    let instance = reference("runtime.provider_instance");
+    let mut registry = ServiceRegistry::default();
+    registry
+        .register(service_registration(&instance, 7), 7)
+        .expect("first");
+    registry
+        .register(service_registration(&instance, 7), 7)
+        .expect("second");
+    let resolution = registry
+        .resolve("database.query", &instance, 7, "2026-09-02T15:00:00Z")
+        .expect("resolve");
+    assert!(resolution.is_ambiguous());
+    assert_eq!(resolution.candidates().len(), 2);
+}
+
+#[test]
+fn port_registration_requires_explicit_policy_and_grant_refs() {
+    let mut registration = port_registration();
+    registration.exposure_policy_refs.clear();
+    assert!(matches!(
+        registration.validate(),
+        Err(D04Error::ExposureAuthorityMissing)
+    ));
+    let mut registration = port_registration();
+    registration.exposure_grant_refs.clear();
+    assert!(matches!(
+        registration.validate(),
+        Err(D04Error::ExposureAuthorityMissing)
+    ));
+}
+
+#[test]
+fn bound_port_never_becomes_network_exposure_authority() {
+    let registration = port_registration();
+    registration.validate().expect("valid registration");
+    assert!(!registration.grants_network_exposure());
+}
+
+#[test]
+fn a10_network_and_mount_requests_cannot_widen_existing_authority() {
+    let network_grant = reference("isolation.network_exposure_grant");
+    let mount_grant = reference("isolation.filesystem_access_grant");
+    let baseline = ContainerAuthorityScope {
+        network: ContainerNetworkScope::Host {
+            grant_ref: network_grant.clone(),
+        },
+        mounts: vec![ContainerMountScope {
+            source_alias: "/srv/input".to_owned(),
+            destination: "/input".to_owned(),
+            access: ContainerMountAccess::ReadOnly,
+            grant_ref: mount_grant.clone(),
+        }],
+    };
+    assert!(validate_container_authority(&baseline, &baseline).is_ok());
+
+    let widened_network = ContainerAuthorityScope {
+        network: ContainerNetworkScope::Host {
+            grant_ref: reference("isolation.network_exposure_grant"),
+        },
+        mounts: baseline.mounts.clone(),
+    };
+    assert!(matches!(
+        validate_container_authority(&baseline, &widened_network),
+        Err(D04Error::AuthorityWidening { .. })
+    ));
+
+    let mut widened_mount = baseline.clone();
+    widened_mount.mounts.push(ContainerMountScope {
+        source_alias: "/srv/extra".to_owned(),
+        destination: "/extra".to_owned(),
+        access: ContainerMountAccess::ReadOnly,
+        grant_ref: reference("isolation.filesystem_access_grant"),
+    });
+    assert!(matches!(
+        validate_container_authority(&baseline, &widened_mount),
+        Err(D04Error::AuthorityWidening { .. })
+    ));
 }

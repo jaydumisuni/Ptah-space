@@ -86,6 +86,32 @@ pub enum D04Error {
     /// Caller-authored schedule data violates the D04 mechanical contract.
     #[error("invalid schedule: {0}")]
     InvalidSchedule(String),
+    /// Service evidence is stale relative to the explicit current Provider generation.
+    #[error("stale Provider generation: expected {expected}, observed {observed}")]
+    StaleProviderGeneration {
+        /// Explicit current Provider generation supplied by the caller.
+        expected: u64,
+        /// Generation retained by the service evidence.
+        observed: u64,
+    },
+    /// No exact current live service candidate satisfies the caller constraints.
+    #[error("service unavailable: {service_key}")]
+    ServiceUnavailable {
+        /// Exact requested service key.
+        service_key: String,
+    },
+    /// Service or port registration is structurally invalid.
+    #[error("invalid service registration: {0}")]
+    InvalidServiceRegistration(String),
+    /// Port observation lacks separately authoritative Policy or Grant references.
+    #[error("port registration lacks explicit Policy and Grant authority references")]
+    ExposureAuthorityMissing,
+    /// Requested A10 network/mount scope exceeds the existing exact authority envelope.
+    #[error("A10 authority widening: {reason}")]
+    AuthorityWidening {
+        /// Mechanical widening reason.
+        reason: String,
+    },
     /// Canonical descriptor serialization failed before a digest could be produced.
     #[error("descriptor serialization failed: {0}")]
     DescriptorSerialization(String),

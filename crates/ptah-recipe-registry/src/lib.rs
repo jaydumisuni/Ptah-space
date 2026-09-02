@@ -5,12 +5,14 @@
 //! primitives. It does not create a scheduler, semantic chooser, approval
 //! authority, Plugin lifecycle, or network-exposure authority.
 
+mod adapters;
 mod error;
 mod operation;
 mod plan;
 mod precondition;
 mod recipe_store;
 mod schedule;
+mod service_registry;
 
 pub use error::D04Error;
 pub use operation::{
@@ -33,4 +35,9 @@ pub use recipe_store::{
 pub use schedule::{
     ScheduleEvaluation, ScheduleKind, ScheduleSpec, ScheduledRecipeInvocation, TimingMode,
     evaluate_schedule,
+};
+pub use service_registry::{
+    ContainerAuthorityScope, ContainerMountAccess, ContainerMountScope, ContainerNetworkScope,
+    PortProtocol, PortRegistration, ServiceRegistration, ServiceRegistry, ServiceResolution,
+    validate_container_authority,
 };

@@ -3,6 +3,7 @@
 
 mod adapters;
 mod database;
+mod domain_pack;
 mod error;
 mod evidence;
 mod index;
@@ -21,6 +22,9 @@ pub use database::{
     DatabaseColumnObservation, DatabaseConnectionReference, DatabaseQueryProvider,
     DatabaseQueryResult, DatabaseSchemaObservation, DatabaseSnapshotEvidence,
     DatabaseTableObservation,
+};
+pub use domain_pack::{
+    ExportBundle, ExportFormat, KnowledgeQueryAuthority, ResultTableView, export, visualize,
 };
 pub use error::D03Error;
 pub use evidence::{CitationEvidence, KnowledgeLocator};

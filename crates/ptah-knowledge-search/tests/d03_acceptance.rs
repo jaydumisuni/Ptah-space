@@ -1,21 +1,28 @@
 //! D03 milestone acceptance tests.
 
-use ptah_identifiers::EntityRef;
+use ptah_ai_workspace::{
+    CALLER_RECORD_FORMAT_VERSION, CallerRecord, decode_caller_record, encode_caller_record,
+};
+use ptah_identifiers::{EntityId, EntityRef};
 use ptah_knowledge_search::{
     AggregateKind, AnchoredTextInput, C01InputProjection, C03InputProjection, C04InputProjection,
     C05InputProjection, C06InputProjection, CellValue, CitationEvidence, ColumnRef, ColumnType,
     D03Error, DatabaseColumnObservation, DatabaseConnectionReference, DatabaseQueryProvider,
     DatabaseQueryResult, DatabaseSchemaObservation, DatabaseSnapshotEvidence,
-    DatabaseTableObservation, FirmwareComponentEvidence, JoinKind, JoinSpec, KnowledgeField,
-    KnowledgeIndex, KnowledgeLimits, KnowledgeLocator, KnowledgeSearchDocument,
-    KnowledgeSearchDomain, KnowledgeSourceClass, KnowledgeSourceRevision,
-    KnowledgeSourceRevisionInput, KnowledgeTextQuery, PartitionEvidence, PartitionEvidenceInput,
-    RelationalExpr, RelationalOrder, RelationalPredicate, RelationalQueryPlan, SelectItem,
-    StructuredOrder, StructuredPredicate, StructuredQuery, TableRef, firmware_evidence_document,
-    from_c01_partition_report, from_c03_android_report, from_c04_apple_report,
-    from_c05_mediatek_report, from_c06_firmware_report, ingest_csv, ingest_json, ingest_json_lines,
+    DatabaseTableObservation, ExportFormat, FirmwareComponentEvidence, JoinKind, JoinSpec,
+    KnowledgeField, KnowledgeIndex, KnowledgeLimits, KnowledgeLocator, KnowledgeQueryAuthority,
+    KnowledgeResultRow, KnowledgeResultSet, KnowledgeSearchDocument, KnowledgeSearchDomain,
+    KnowledgeSourceClass, KnowledgeSourceRevision, KnowledgeSourceRevisionInput,
+    KnowledgeTextQuery, PartitionEvidence, PartitionEvidenceInput, RelationalExpr, RelationalOrder,
+    RelationalPredicate, RelationalQueryPlan, SelectItem, StructuredOrder, StructuredPredicate,
+    StructuredQuery, TableRef, export, firmware_evidence_document, from_c01_partition_report,
+    from_c03_android_report, from_c04_apple_report, from_c05_mediatek_report,
+    from_c06_firmware_report, ingest_csv, ingest_json, ingest_json_lines,
     partition_evidence_document, query_dataset, require_knowledge_schema, validate_current_source,
+    visualize,
 };
+use ptah_workspace::{CreateWorkspace, WorkspaceStore};
+use std::{fs, path::PathBuf, sync::Arc};
 
 const HASH_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const HASH_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -956,4 +963,185 @@ fn database_observation_and_provider_contract_are_provider_neutral() {
     schema
         .validate(KnowledgeLimits::default())
         .expect("schema observation");
+}
+
+fn workspace_db_path(label: &str) -> PathBuf {
+    let path =
+        std::env::temp_dir().join(format!("ptah-d03-{label}-{}.sqlite3", EntityId::new_v7()));
+    let _ = fs::remove_file(&path);
+    path
+}
+
+fn d03_clock() -> Arc<dyn Fn() -> String + Send + Sync> {
+    Arc::new(|| "2026-09-02T12:00:00Z".to_owned())
+}
+
+fn create_d03_workspace(store: &mut WorkspaceStore, key: &str) -> EntityRef {
+    store
+        .create_workspace(CreateWorkspace {
+            workspace_key: key.to_owned(),
+            title: format!("D03 {key}"),
+            description: None,
+            owner_ref: reference("identity.principal"),
+            authority_ref: reference("authority.owner"),
+            created_by_ref: reference("identity.principal"),
+            policy_refs: vec![reference("policy.workspace")],
+        })
+        .expect("create D03 workspace")
+        .workspace_ref
+}
+
+fn domain_pack_result() -> KnowledgeResultSet {
+    let workspace = reference("core.workspace");
+    let source = source_in(&workspace, KnowledgeSourceClass::Dataset, HASH_A);
+    let row0 = KnowledgeResultRow {
+        values: vec![CellValue::Integer(1), CellValue::Text("alpha".to_owned())],
+        citations: vec![
+            CitationEvidence::new(
+                source.clone(),
+                KnowledgeLocator::DatasetCell {
+                    table: "items".to_owned(),
+                    row: 0,
+                    column: "id".to_owned(),
+                },
+                "d03.structured.snapshot",
+                None,
+            )
+            .expect("id citation"),
+            CitationEvidence::new(
+                source.clone(),
+                KnowledgeLocator::DatasetCell {
+                    table: "items".to_owned(),
+                    row: 0,
+                    column: "name".to_owned(),
+                },
+                "d03.structured.snapshot",
+                None,
+            )
+            .expect("name citation"),
+        ],
+    };
+    let row1 = KnowledgeResultRow {
+        values: vec![
+            CellValue::Integer(2),
+            CellValue::Text("beta, quoted \"value\"".to_owned()),
+        ],
+        citations: vec![
+            CitationEvidence::new(
+                source.clone(),
+                KnowledgeLocator::DatasetCell {
+                    table: "items".to_owned(),
+                    row: 1,
+                    column: "id".to_owned(),
+                },
+                "d03.structured.snapshot",
+                None,
+            )
+            .expect("id citation"),
+            CitationEvidence::new(
+                source.clone(),
+                KnowledgeLocator::DatasetCell {
+                    table: "items".to_owned(),
+                    row: 1,
+                    column: "name".to_owned(),
+                },
+                "d03.structured.snapshot",
+                None,
+            )
+            .expect("name citation"),
+        ],
+    };
+    KnowledgeResultSet {
+        columns: vec!["id".to_owned(), "name".to_owned()],
+        rows: vec![row0, row1],
+        source_refs: vec![source],
+        query_plan_sha256: HASH_B.to_owned(),
+        complete: true,
+        authoritative: false,
+    }
+}
+
+#[test]
+fn a06_authority_facade_denies_cross_workspace_before_query_and_allows_same_workspace() {
+    let path = workspace_db_path("authority");
+    let mut store = WorkspaceStore::open(&path, d03_clock()).expect("open workspace store");
+    let source_workspace = create_d03_workspace(&mut store, "d03.source");
+    let target_workspace = create_d03_workspace(&mut store, "d03.target");
+    let actor = reference("identity.principal");
+    let authority = KnowledgeQueryAuthority::new(&store);
+
+    authority
+        .authorize(
+            &actor,
+            &source_workspace,
+            &source_workspace,
+            "workspace.read",
+            None,
+        )
+        .expect("same workspace");
+    assert!(matches!(
+        authority.authorize(
+            &actor,
+            &source_workspace,
+            &target_workspace,
+            "workspace.read",
+            None,
+        ),
+        Err(D03Error::WorkspaceAccessDenied)
+    ));
+    fs::remove_file(path).ok();
+}
+
+#[test]
+fn database_domain_pack_visualization_and_exports_are_deterministic_derived_outputs() {
+    let result = domain_pack_result();
+    let view = visualize(&result).expect("visualize");
+    assert_eq!(view.columns, result.columns);
+    assert_eq!(view.rows.len(), 2);
+    assert_eq!(view.citations.len(), 2);
+    assert!(view.complete);
+    assert!(!view.authoritative);
+
+    for (format, media_type) in [
+        (ExportFormat::Json, "application/json"),
+        (ExportFormat::JsonLines, "application/x-ndjson"),
+        (ExportFormat::Csv, "text/csv; charset=utf-8"),
+    ] {
+        let first = export(&result, format, KnowledgeLimits::default()).expect("first export");
+        let second = export(&result, format, KnowledgeLimits::default()).expect("second export");
+        assert_eq!(first, second);
+        assert_eq!(first.sha256.len(), 64);
+        assert_eq!(first.media_type, media_type);
+        assert_eq!(first.source_refs, result.source_refs);
+        assert_eq!(first.query_plan_sha256, result.query_plan_sha256);
+        assert!(!first.authoritative);
+        assert!(first.bytes.len() <= KnowledgeLimits::default().max_export_bytes);
+        if format == ExportFormat::Csv {
+            let csv = String::from_utf8(first.bytes).expect("CSV utf8");
+            assert!(csv.starts_with("id,name\n"));
+            assert!(csv.ends_with('\n'));
+            assert!(!csv.contains("\r\n"));
+            assert!(csv.contains("\"beta, quoted \"\"value\"\"\""));
+        }
+    }
+}
+
+#[test]
+fn export_bundle_is_not_an_artifact_and_d02_consumes_d03_source_refs_opaquely() {
+    let result = domain_pack_result();
+    let bundle = export(&result, ExportFormat::Json, KnowledgeLimits::default()).expect("export");
+    let encoded_bundle = serde_json::to_string(&bundle).expect("bundle JSON");
+    assert!(!encoded_bundle.to_ascii_lowercase().contains("artifact"));
+
+    let payload = serde_json::to_vec(&result.source_refs).expect("source refs JSON");
+    let caller = CallerRecord {
+        format_version: CALLER_RECORD_FORMAT_VERSION.to_owned(),
+        author_ref: reference("runtime.agent"),
+        labels: vec!["d03.source_refs".to_owned()],
+        payload_bytes: payload.clone(),
+    };
+    let roundtrip = decode_caller_record(&encode_caller_record(&caller).expect("D02 encode"))
+        .expect("D02 decode");
+    assert_eq!(roundtrip.payload_bytes, payload);
+    assert_eq!(roundtrip.labels, vec!["d03.source_refs"]);
 }

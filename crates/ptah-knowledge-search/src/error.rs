@@ -48,6 +48,15 @@ pub enum D03Error {
     /// Database provider failed mechanically.
     #[error("D03 database provider failure: {0}")]
     DatabaseProvider(String),
+    /// A06 denied the requested Workspace/source retrieval boundary.
+    #[error("D03 workspace access denied")]
+    WorkspaceAccessDenied,
+    /// A06 failed mechanically outside the expected denial cases.
+    #[error("D03 workspace adapter failure: {0}")]
+    WorkspaceAdapter(String),
+    /// Deterministic result export failed mechanically or exceeded its bound.
+    #[error("D03 export failure: {0}")]
+    Export(String),
     /// Canonical serialization used for deterministic derived identity failed.
     #[error("D03 serialization failure: {0}")]
     Serialization(String),

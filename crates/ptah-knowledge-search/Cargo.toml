@@ -21,6 +21,9 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+ptah-ai-workspace = { path = "../ptah-ai-workspace", version = "=0.0.0-phase0c" }
+
 [lib]
 path = "src/lib.rs"
 

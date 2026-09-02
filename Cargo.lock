@@ -560,6 +560,7 @@ dependencies = [
 name = "ptah-knowledge-search"
 version = "0.0.0-phase0c"
 dependencies = [
+ "ptah-ai-workspace",
  "ptah-archive-decomposition",
  "ptah-contracts",
  "ptah-identifiers",

@@ -1,5 +1,9 @@
 #![allow(missing_docs)]
-use ptah_activity_runtime::{IdempotencyClass, RetryClass, SideEffectClass};
+use container_oci::BackendStartAck;
+use ptah_activity_runtime::{
+    ActivityRuntime, AttemptContext, IdempotencyClass, MemoryJournal, OperationState, RetryClass,
+    SideEffectClass,
+};
 use ptah_identifiers::EntityRef;
 use ptah_recipe_registry::{
     AcceptanceDecision, CompiledPlanRecordInput, ContainerAuthorityScope, ContainerMountAccess,
@@ -8,11 +12,12 @@ use ptah_recipe_registry::{
     OperationCatalog, OperationDescriptorRevision, OperationEffectClass, ParameterBinding,
     ParameterValue, PlanRequirementResultInput, PlanStepMappingInput, PlannedOperation,
     PortProtocol, PortRegistration, PreconditionKind, ProofRequirementInput, RecipeAcceptanceInput,
-    RecipeInput, RecipeProposalInput, RecipeRevisionInput, RecipeStepInput, RecipeStore,
-    ScheduleEvaluation, ScheduleKind, ScheduleSpec, ScheduledRecipeInvocation, ServiceRegistration,
-    ServiceRegistry, TimingMode, evaluate_preconditions, evaluate_schedule,
-    validate_container_authority,
+    RecipeDispatchRequest, RecipeDispatcher, RecipeInput, RecipeProposalInput, RecipeRevisionInput,
+    RecipeStepInput, RecipeStore, ScheduleEvaluation, ScheduleKind, ScheduleSpec,
+    ScheduledRecipeInvocation, ServiceRegistration, ServiceRegistry, TimingMode,
+    evaluate_preconditions, evaluate_schedule, validate_container_authority,
 };
+use std::sync::Arc;
 
 fn reference(kind: &str) -> EntityRef {
     EntityRef::new(kind).expect("valid reference")
@@ -370,6 +375,7 @@ fn planned_operation(stage: ExecutionStage) -> PlannedOperation {
         recipe_step_key: "inspect".to_owned(),
         stage,
         operation_key: "test.inspect".to_owned(),
+        dependency_step_keys: Vec::new(),
         descriptor_digest: "sha256:descriptor".to_owned(),
         logical_target_refs: vec![reference("core.object_revision")],
         parameters: vec![ParameterBinding {
@@ -383,6 +389,8 @@ fn planned_operation(stage: ExecutionStage) -> PlannedOperation {
         }],
         service_refs: vec![reference("plugin.service_registration")],
         required_grant_refs: vec![reference("isolation.secure_grant")],
+        preconditions: Vec::new(),
+        caller_approval_ref: None,
         expected_output_refs: vec![reference("build.output_declaration")],
         limitations: Vec::new(),
     }
@@ -517,6 +525,16 @@ fn moved_target_conflict_retains_expected_observed_and_evidence() {
     assert_eq!(conflict.observed.as_deref(), Some("bbbbbbbb"));
     assert!(!conflict.expected_evidence_refs.is_empty());
     assert!(!conflict.observed_evidence_refs.is_empty());
+
+    let runtime = activity_runtime();
+    let dispatcher = RecipeDispatcher::new(&runtime);
+    let mut request = dispatch_request();
+    request.observed_preconditions[0].observed = "generation-8".to_owned();
+    assert!(matches!(
+        dispatcher.dispatch(&request),
+        Err(D04Error::DispatchPreconditionConflict(_))
+    ));
+    assert_eq!(runtime.activity_count().expect("count"), 0);
 }
 
 fn schedule(kind: ScheduleKind, timing_mode: TimingMode) -> ScheduleSpec {
@@ -767,4 +785,92 @@ fn a10_network_and_mount_requests_cannot_widen_existing_authority() {
         validate_container_authority(&baseline, &widened_mount),
         Err(D04Error::AuthorityWidening { .. })
     ));
+}
+
+fn activity_runtime() -> ActivityRuntime {
+    ActivityRuntime::new(
+        8,
+        Arc::new(MemoryJournal::default()),
+        Arc::new(|| "2026-09-02T15:00:00Z".to_owned()),
+    )
+    .expect("runtime")
+}
+
+fn attempt_context() -> AttemptContext {
+    AttemptContext {
+        node_ref: reference("core.node"),
+        node_generation: 3,
+        provider_ref: reference("runtime.provider_instance"),
+        provider_generation: 7,
+        workload_generation: 11,
+        connection_epoch: 5,
+        facility_ref: reference("runtime.facility_revision"),
+        producer_instance_ref: reference("runtime.provider_instance"),
+        producer_version: "d04-test".to_owned(),
+    }
+}
+
+fn dispatch_request() -> RecipeDispatchRequest {
+    let descriptor = descriptor("test.inspect", 7);
+    let mut plan = execution_plan(&[ExecutionStage::Observe]);
+    plan.operations[0].descriptor_digest = descriptor.digest().expect("descriptor digest");
+    plan.operations[0]
+        .operation_key
+        .clone_from(&descriptor.operation_key);
+    let mut invocation = scheduled_invocation(schedule(ScheduleKind::Recurring, TimingMode::Exact));
+    invocation.recipe_revision_ref = plan.recipe_revision_ref.clone();
+    invocation.acceptance_ref = plan.acceptance_ref.clone();
+    invocation.plan_digest = plan.digest().expect("plan digest");
+    invocation.provider_revision_refs = vec![descriptor.provider_revision_ref.clone()];
+    invocation
+        .grant_refs
+        .clone_from(&plan.operations[0].required_grant_refs);
+    let observed_preconditions = invocation
+        .preconditions
+        .iter()
+        .map(|precondition| observed_precondition(precondition, &precondition.expected))
+        .collect();
+    RecipeDispatchRequest {
+        invocation,
+        execution_plan: plan,
+        descriptors: vec![descriptor],
+        observed_preconditions,
+        attempt_context: attempt_context(),
+        activity_request_ref: reference("core.request"),
+        authority_ref: reference("core.actor"),
+        intent_ref: reference("core.intent"),
+        priority: 0,
+        max_attempts: 3,
+    }
+}
+
+#[test]
+fn each_scheduled_occurrence_creates_a_fresh_a04_attempt() {
+    let runtime = activity_runtime();
+    let dispatcher = RecipeDispatcher::new(&runtime);
+    let request = dispatch_request();
+    let first = dispatcher.dispatch(&request).expect("first dispatch");
+    let second = dispatcher.dispatch(&request).expect("second dispatch");
+    assert_eq!(first.operations.len(), 1);
+    assert_eq!(second.operations.len(), 1);
+    assert_ne!(first.activity_id, second.activity_id);
+    assert_ne!(
+        first.operations[0].attempt_id,
+        second.operations[0].attempt_id
+    );
+}
+
+#[test]
+fn a10_start_ack_cannot_mark_a04_operation_succeeded() {
+    let runtime = activity_runtime();
+    let dispatcher = RecipeDispatcher::new(&runtime);
+    let mapping = dispatcher.dispatch(&dispatch_request()).expect("dispatch");
+    let operation_id = mapping.operations[0].operation_id;
+    let _ack = BackendStartAck {
+        container_alias: "container-ack".to_owned(),
+        observed_at: "2026-09-02T15:00:01Z".to_owned(),
+        detail: "accepted".to_owned(),
+    };
+    let operation = runtime.operation(operation_id).unwrap().unwrap();
+    assert_eq!(operation.state(), OperationState::Dispatching);
 }

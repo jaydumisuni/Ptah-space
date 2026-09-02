@@ -6,6 +6,7 @@
 //! authority, Plugin lifecycle, or network-exposure authority.
 
 mod adapters;
+mod dispatcher;
 mod error;
 mod operation;
 mod plan;
@@ -14,6 +15,9 @@ mod recipe_store;
 mod schedule;
 mod service_registry;
 
+pub use dispatcher::{
+    RecipeDispatchMapping, RecipeDispatchRequest, RecipeDispatcher, RecipeOperationMapping,
+};
 pub use error::D04Error;
 pub use operation::{
     OperationCatalog, OperationDescriptorRevision, OperationEffectClass, OperationResolution,

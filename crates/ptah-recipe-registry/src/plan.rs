@@ -1,4 +1,4 @@
-use crate::D04Error;
+use crate::{D04Error, ExactPrecondition};
 use ptah_identifiers::EntityRef;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -79,6 +79,8 @@ pub struct PlannedOperation {
     pub stage: ExecutionStage,
     /// Exact caller-selected operation key.
     pub operation_key: String,
+    /// Immutable Recipe step dependencies that must complete before this operation becomes ready.
+    pub dependency_step_keys: Vec<String>,
     /// Exact descriptor digest resolved before planning.
     pub descriptor_digest: String,
     /// Exact logical targets.
@@ -91,6 +93,10 @@ pub struct PlannedOperation {
     pub service_refs: Vec<EntityRef>,
     /// Exact required Grants.
     pub required_grant_refs: Vec<EntityRef>,
+    /// Exact per-operation preconditions frozen by the plan.
+    pub preconditions: Vec<ExactPrecondition>,
+    /// Optional separate caller/application approval reference.
+    pub caller_approval_ref: Option<EntityRef>,
     /// Exact expected output declarations.
     pub expected_output_refs: Vec<EntityRef>,
     /// Explicit operation limitations.

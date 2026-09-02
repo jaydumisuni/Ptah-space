@@ -112,6 +112,15 @@ pub enum D04Error {
         /// Mechanical widening reason.
         reason: String,
     },
+    /// D04 dispatch binding does not match the frozen invocation/Plan/descriptor evidence.
+    #[error("dispatch binding mismatch: {0}")]
+    DispatchBindingMismatch(String),
+    /// Frozen precondition evidence conflicts before any A04 Activity is created.
+    #[error("dispatch precondition conflict")]
+    DispatchPreconditionConflict(Box<crate::PreconditionConflict>),
+    /// A04 rejected a mechanical D04 dispatch operation.
+    #[error("A04 dispatch failure: {0}")]
+    A04Adapter(String),
     /// Canonical descriptor serialization failed before a digest could be produced.
     #[error("descriptor serialization failed: {0}")]
     DescriptorSerialization(String),

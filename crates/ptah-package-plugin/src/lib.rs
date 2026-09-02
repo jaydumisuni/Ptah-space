@@ -7,6 +7,7 @@ mod error;
 mod install;
 mod package;
 mod plugin;
+mod runtime;
 mod store;
 
 pub use activation::{ActivationRequest, ActivationService};
@@ -22,3 +23,8 @@ pub use package::{
 pub use store::{PackageStore, PackageVerificationInput, VerificationDecision, VerificationScope};
 
 pub use plugin::PluginRevisionInput;
+
+pub use runtime::{
+    CapabilityGrantState, DependencyBinding, HealthObservation, PluginInstanceRecord,
+    PluginPortRegistration, PluginRuntime, PluginServiceRegistration,
+};

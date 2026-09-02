@@ -39,4 +39,13 @@ pub enum D05Error {
     /// Plugin activation lacks current explicit policy/Grant authority.
     #[error("plugin activation authority missing")]
     ActivationAuthorityMissing,
+    /// Plugin runtime evidence is stale or generation-mismatched.
+    #[error("stale plugin runtime evidence")]
+    StalePluginRuntime,
+    /// Plugin capability Grant is missing, expired, revoked, or mismatched.
+    #[error("plugin capability grant invalid")]
+    PluginGrantInvalid,
+    /// Plugin registration is structurally invalid.
+    #[error("plugin registration invalid")]
+    InvalidPluginRegistration,
 }

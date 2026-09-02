@@ -2,11 +2,12 @@
 use ptah_activity_runtime::{ActivityRuntime, AttemptContext, MemoryJournal};
 use ptah_identifiers::{EntityId, EntityRef};
 use ptah_package_plugin::{
-    ActivationRequest, ActivationService, AdmissionService, D05Error, DistributionClass,
-    InstallRequest, LicenceDecision, PackageAdmissionRequest, PackageCandidate, PackageCatalog,
-    PackageConstraint, PackageCoordinate, PackageInstallAck, PackageInstaller, PackageStore,
-    PackageVerificationInput, PluginRevisionInput, RegistrySource, VerificationDecision,
-    VerificationScope,
+    ActivationRequest, ActivationService, AdmissionService, CapabilityGrantState, D05Error,
+    DependencyBinding, DistributionClass, HealthObservation, InstallRequest, LicenceDecision,
+    PackageAdmissionRequest, PackageCandidate, PackageCatalog, PackageConstraint,
+    PackageCoordinate, PackageInstallAck, PackageInstaller, PackageStore, PackageVerificationInput,
+    PluginInstanceRecord, PluginPortRegistration, PluginRevisionInput, PluginRuntime,
+    PluginServiceRegistration, RegistrySource, VerificationDecision, VerificationScope,
 };
 use ptah_workspace::{CreateWorkspace, IssueGrant, WorkspaceStore};
 use std::{fs, path::PathBuf, sync::Arc};
@@ -513,4 +514,121 @@ fn expired_a06_grant_cannot_authorize_plugin_activation() {
         ActivationService::authorize(&reopened, &request),
         Err(D05Error::ActivationAuthorityMissing)
     );
+}
+
+fn plugin_instance() -> PluginInstanceRecord {
+    PluginInstanceRecord {
+        instance_ref: r("plugin.instance"),
+        plugin_revision_ref: r("plugin.revision"),
+        activation_ref: r("plugin.activation"),
+        provider_instance_ref: r("runtime.provider_instance"),
+        provider_generation: 7,
+        generation: 11,
+        runtime_aliases: vec!["pid:4242".into()],
+    }
+}
+
+fn live_capability_grant() -> CapabilityGrantState {
+    CapabilityGrantState {
+        grant_ref: r("plugin.capability_grant"),
+        expires_at_unix: 300,
+        revoked: false,
+    }
+}
+
+#[test]
+fn process_id_or_handle_cannot_become_plugin_instance_identity() {
+    let instance = plugin_instance();
+    assert_eq!(
+        instance.instance_ref.entity_kind.as_str(),
+        "plugin.instance"
+    );
+    assert!(
+        instance
+            .runtime_aliases
+            .iter()
+            .any(|alias| alias.starts_with("pid:"))
+    );
+    assert!(!instance.instance_ref.entity_id.to_string().contains("4242"));
+}
+
+#[test]
+fn stale_health_cannot_claim_ready() {
+    let instance = plugin_instance();
+    let health = HealthObservation {
+        provider_generation: 7,
+        instance_generation: 11,
+        readiness: true,
+        health: "healthy".into(),
+        observed_at_unix: 100,
+        valid_until_unix: 150,
+        evidence_refs: vec![r("core.evidence")],
+    };
+    assert_eq!(
+        PluginRuntime::validate_health(&instance, &health, 200),
+        Err(D05Error::StalePluginRuntime)
+    );
+}
+
+#[test]
+fn dependency_binding_is_fenced_by_provider_and_instance_generation() {
+    let instance = plugin_instance();
+    let binding = DependencyBinding {
+        plugin_instance_ref: instance.instance_ref.clone(),
+        dependency_key: "database.primary".into(),
+        bound_ref: r("runtime.service"),
+        provider_generation: 7,
+        instance_generation: 10,
+        valid_until_unix: 300,
+        evidence_refs: vec![r("core.evidence")],
+    };
+    assert_eq!(
+        PluginRuntime::validate_binding(&instance, &binding, 200),
+        Err(D05Error::StalePluginRuntime)
+    );
+}
+
+#[test]
+fn revoked_capability_grant_invalidates_service_registration() {
+    let instance = plugin_instance();
+    let mut grant = live_capability_grant();
+    let service = PluginServiceRegistration {
+        registration_ref: r("plugin.service_registration"),
+        plugin_instance_ref: instance.instance_ref.clone(),
+        service_key: "plugin.widget.service".into(),
+        provider_generation: 7,
+        instance_generation: 11,
+        capability_grant_refs: vec![grant.grant_ref.clone()],
+        valid_until_unix: 300,
+        evidence_refs: vec![r("core.evidence")],
+    };
+    assert!(PluginRuntime::validate_service(&instance, &service, &[grant.clone()], 200).is_ok());
+    grant.revoked = true;
+    assert_eq!(
+        PluginRuntime::validate_service(&instance, &service, &[grant], 200),
+        Err(D05Error::PluginGrantInvalid)
+    );
+}
+
+#[test]
+fn bound_plugin_port_never_becomes_network_exposure_authority() {
+    let instance = plugin_instance();
+    let grant = live_capability_grant();
+    let port = PluginPortRegistration {
+        registration_ref: r("plugin.port_registration"),
+        plugin_instance_ref: instance.instance_ref.clone(),
+        service_registration_ref: r("plugin.service_registration"),
+        provider_generation: 7,
+        instance_generation: 11,
+        network_scope: "workspace".into(),
+        protocol: "tcp".into(),
+        requested_port: 8080,
+        bound_endpoint_alias: "127.0.0.1:48080".into(),
+        exposure_policy_refs: vec![r("core.policy")],
+        capability_grant_refs: vec![grant.grant_ref.clone()],
+        valid_until_unix: 300,
+        observed_at: "2026-09-02T16:00:00Z".into(),
+    };
+    assert!(PluginRuntime::validate_port(&instance, &port, &[grant], 200).is_ok());
+    assert!(!port.grants_network_exposure());
 }

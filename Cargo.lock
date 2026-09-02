@@ -621,6 +621,7 @@ dependencies = [
  "ptah-activity-runtime",
  "ptah-identifiers",
  "ptah-ledger",
+ "ptah-recipe-registry",
  "ptah-workspace",
  "serde",
  "serde_json",

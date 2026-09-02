@@ -2,13 +2,13 @@
 
 use ptah_identifiers::EntityRef;
 use ptah_provenance::{
-    AttestationProjection, BoundMaterial, CoverageState, D06Error, DisclosureAcknowledgement,
-    DiscoveryMethod, EnvelopeType, ExactSubject, MaterialOrigin, OciDescriptor,
-    OciReferrerProjection, OfflinePolicy, PackageObservationProjection, SbomClaimScope,
-    SbomConversion, SbomCoverage, SbomFormat, SbomProjection, SbomProjectionInput,
-    SignatureProjection, SigningMethod, TransparencyEvidenceProjection, TransparencyMode,
-    TransparencyPolicy, TrustMode, TrustPolicyProjection, VerificationDecision,
-    verify_signature_binding,
+    AttestationProjection, BoundMaterial, BundleCoverage, CoverageState, D06Error,
+    DisclosureAcknowledgement, DiscoveryMethod, EnvelopeType, ExactSubject, MaterialOrigin,
+    OciDescriptor, OciReferrerProjection, OfflinePolicy, PackageObservationProjection,
+    ProofBundleManifest, ProofDomain, ProofEntry, SbomClaimScope, SbomConversion, SbomCoverage,
+    SbomFormat, SbomProjection, SbomProjectionInput, SignatureProjection, SigningMethod,
+    TransparencyEvidenceProjection, TransparencyMode, TransparencyPolicy, TrustMode,
+    TrustPolicyProjection, VerificationDecision, verify_signature_binding,
 };
 
 fn er(kind: &str) -> EntityRef {
@@ -405,4 +405,91 @@ fn oci_oras_referrer_discovery_does_not_imply_trust() {
     )
     .unwrap();
     assert!(!relation.grants_trust());
+}
+
+fn proof_entry(domain: ProofDomain, decision: VerificationDecision) -> ProofEntry {
+    ProofEntry {
+        domain,
+        record_ref: er("provenance.verification_run"),
+        decision,
+    }
+}
+
+#[test]
+fn proof_bundle_retains_separate_proof_domains() {
+    let bundle = ProofBundleManifest::new(
+        vec![exact_subject()],
+        er("core.artifact"),
+        er("core.principal"),
+        vec![
+            proof_entry(ProofDomain::Execution, VerificationDecision::Valid),
+            proof_entry(ProofDomain::Integrity, VerificationDecision::Valid),
+            proof_entry(ProofDomain::Signature, VerificationDecision::Valid),
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        bundle.coverage(&[
+            ProofDomain::Execution,
+            ProofDomain::Integrity,
+            ProofDomain::Signature
+        ]),
+        BundleCoverage::Complete
+    );
+    assert_eq!(
+        bundle.coverage(&[ProofDomain::FunctionalTest]),
+        BundleCoverage::Missing(vec![ProofDomain::FunctionalTest])
+    );
+}
+
+#[test]
+fn signed_output_may_still_fail_independent_review() {
+    let bundle = ProofBundleManifest::new(
+        vec![exact_subject()],
+        er("core.artifact"),
+        er("core.principal"),
+        vec![
+            proof_entry(ProofDomain::Signature, VerificationDecision::Valid),
+            proof_entry(ProofDomain::Review, VerificationDecision::Invalid),
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        bundle.decision_for(ProofDomain::Signature),
+        Some(VerificationDecision::Valid)
+    );
+    assert_eq!(
+        bundle.decision_for(ProofDomain::Review),
+        Some(VerificationDecision::Invalid)
+    );
+    assert!(!bundle.grants_universal_acceptance());
+}
+
+#[test]
+fn downstream_sbom_or_signing_failure_preserves_prior_valid_output_evidence() {
+    let output_record = er("build.output_record");
+    let bundle = ProofBundleManifest::new(
+        vec![exact_subject()],
+        er("core.artifact"),
+        er("core.principal"),
+        vec![
+            ProofEntry {
+                domain: ProofDomain::Execution,
+                record_ref: output_record.clone(),
+                decision: VerificationDecision::Valid,
+            },
+            proof_entry(ProofDomain::Sbom, VerificationDecision::Invalid),
+            proof_entry(ProofDomain::Signature, VerificationDecision::Unavailable),
+        ],
+    )
+    .unwrap();
+    assert!(bundle.retains_record(&output_record));
+    assert_eq!(
+        bundle.decision_for(ProofDomain::Sbom),
+        Some(VerificationDecision::Invalid)
+    );
+    assert_eq!(
+        bundle.decision_for(ProofDomain::Signature),
+        Some(VerificationDecision::Unavailable)
+    );
 }

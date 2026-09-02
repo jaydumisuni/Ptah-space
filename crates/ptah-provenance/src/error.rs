@@ -24,6 +24,9 @@ pub enum D06Error {
     /// OCI descriptor or referrer relationship is not exact.
     #[error("invalid OCI descriptor")]
     InvalidOciDescriptor,
+    /// Proof bundle structure or domain evidence is invalid.
+    #[error("invalid proof bundle")]
+    InvalidProofBundle,
     /// Deterministic evidence encoding failed.
     #[error("encoding error: {0}")]
     Encoding(String),

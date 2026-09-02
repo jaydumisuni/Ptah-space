@@ -4,6 +4,7 @@
 mod attestation;
 mod error;
 mod oci;
+mod proof_bundle;
 mod sbom;
 mod signature;
 mod store;
@@ -13,6 +14,7 @@ mod trust;
 pub use attestation::{AttestationProjection, BoundMaterial, EnvelopeType, MaterialOrigin};
 pub use error::D06Error;
 pub use oci::{DiscoveryMethod, OciDescriptor, OciReferrerProjection};
+pub use proof_bundle::{BundleCoverage, ProofBundleManifest, ProofDomain, ProofEntry};
 pub use sbom::{
     CoverageState, PackageObservationProjection, SbomClaimScope, SbomConversion, SbomCoverage,
     SbomFormat, SbomProjection, SbomProjectionInput,

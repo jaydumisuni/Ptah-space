@@ -6,6 +6,9 @@ pub enum D06Error {
     /// A proof subject is mutable, missing, or lacks exact digest evidence.
     #[error("inexact provenance subject")]
     InexactSubject,
+    /// SBOM coverage binding or completeness is invalid.
+    #[error("invalid SBOM coverage")]
+    InvalidCoverage,
     /// A canonical record is outside the D06 WP07 boundary or malformed.
     #[error("invalid D06 canonical record")]
     InvalidCanonicalRecord,

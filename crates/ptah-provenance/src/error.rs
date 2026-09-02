@@ -12,6 +12,15 @@ pub enum D06Error {
     /// A canonical record is outside the D06 WP07 boundary or malformed.
     #[error("invalid D06 canonical record")]
     InvalidCanonicalRecord,
+    /// Public transparency would disclose identity without an explicit acknowledgement.
+    #[error("identity disclosure acknowledgement required")]
+    DisclosureRequired,
+    /// Transparency evidence contradicts the selected no-log mode.
+    #[error("fabricated transparency evidence")]
+    FabricatedTransparency,
+    /// Signature, subject, or policy binding is inconsistent.
+    #[error("invalid verification binding")]
+    InvalidVerificationBinding,
     /// Deterministic evidence encoding failed.
     #[error("encoding error: {0}")]
     Encoding(String),

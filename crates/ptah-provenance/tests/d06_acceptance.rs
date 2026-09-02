@@ -2,9 +2,12 @@
 
 use ptah_identifiers::EntityRef;
 use ptah_provenance::{
-    AttestationProjection, BoundMaterial, CoverageState, D06Error, EnvelopeType, ExactSubject,
-    MaterialOrigin, PackageObservationProjection, SbomClaimScope, SbomConversion, SbomCoverage,
-    SbomFormat, SbomProjection, SbomProjectionInput,
+    AttestationProjection, BoundMaterial, CoverageState, D06Error, DisclosureAcknowledgement,
+    EnvelopeType, ExactSubject, MaterialOrigin, OfflinePolicy, PackageObservationProjection,
+    SbomClaimScope, SbomConversion, SbomCoverage, SbomFormat, SbomProjection, SbomProjectionInput,
+    SignatureProjection, SigningMethod, TransparencyEvidenceProjection, TransparencyMode,
+    TransparencyPolicy, TrustMode, TrustPolicyProjection, VerificationDecision,
+    verify_signature_binding,
 };
 
 fn er(kind: &str) -> EntityRef {
@@ -224,4 +227,128 @@ fn in_toto_dsse_projection_preserves_exact_subjects_materials_and_products() {
     assert_eq!(attestation.products, vec![product]);
     assert_eq!(attestation.envelope_type, EnvelopeType::Dsse);
     assert_eq!(attestation.statement_digest_sha256().unwrap().len(), 64);
+}
+
+fn trust_policy() -> TrustPolicyProjection {
+    TrustPolicyProjection {
+        policy_ref: er("provenance.trust_policy"),
+        policy_version: "1".into(),
+        trust_mode: TrustMode::ProjectKeypair,
+        trusted_root_refs: vec![er("core.object_revision")],
+        transparency_policy: TransparencyPolicy::Optional,
+        offline_policy: OfflinePolicy::Allowed,
+    }
+}
+
+fn signature() -> SignatureProjection {
+    SignatureProjection {
+        signature_ref: er("provenance.signature"),
+        subject: exact_subject(),
+        signature_artifact_ref: er("core.artifact"),
+        signing_method: SigningMethod::ProjectKeypair,
+        signer_identity_or_key_ref: er("core.object_revision"),
+    }
+}
+
+#[test]
+fn signature_creation_is_not_verification() {
+    assert!(!signature().is_verified());
+}
+
+#[test]
+fn valid_signature_binding_proves_digest_binding_only() {
+    let signature = signature();
+    let observed = signature.subject.clone();
+    let result = verify_signature_binding(&signature, &observed, &trust_policy()).unwrap();
+    assert_eq!(result.decision, VerificationDecision::Valid);
+    assert!(!result.proves_correctness());
+    assert!(!result.proves_release_acceptance());
+}
+
+#[test]
+fn signature_verification_requires_exact_trust_policy() {
+    let policy = trust_policy();
+    let mut wrong = policy.clone();
+    wrong.policy_ref = er("provenance.trust_policy");
+    wrong.policy_version = "2".into();
+    let signature = signature();
+    let observed = signature.subject.clone();
+    let result = verify_signature_binding(&signature, &observed, &wrong).unwrap();
+    assert_eq!(result.trust_policy_ref, wrong.policy_ref);
+    assert_eq!(result.trust_policy_version, "2");
+}
+
+#[test]
+fn changed_trust_policy_creates_new_verification_history() {
+    let signature = signature();
+    let observed = signature.subject.clone();
+    let first = verify_signature_binding(&signature, &observed, &trust_policy()).unwrap();
+    let mut changed = trust_policy();
+    changed.policy_ref = er("provenance.trust_policy");
+    changed.policy_version = "2".into();
+    changed.offline_policy = OfflinePolicy::Required;
+    let second = verify_signature_binding(&signature, &observed, &changed).unwrap();
+    assert_ne!(first.trust_policy_ref, second.trust_policy_ref);
+    assert_ne!(first.trust_policy_version, second.trust_policy_version);
+}
+
+#[test]
+fn offline_verification_needs_no_fabricated_transparency_log() {
+    let evidence = TransparencyEvidenceProjection::new(
+        exact_subject(),
+        TransparencyMode::OfflineNoLog,
+        VerificationDecision::Valid,
+        vec![],
+        None,
+    )
+    .unwrap();
+    assert!(evidence.entry_refs.is_empty());
+    assert_eq!(evidence.mode, TransparencyMode::OfflineNoLog);
+}
+
+#[test]
+fn public_transparency_requires_identity_disclosure_acknowledgement() {
+    let without_ack = TransparencyEvidenceProjection::new(
+        exact_subject(),
+        TransparencyMode::PublicLog,
+        VerificationDecision::Valid,
+        vec![er("core.object_revision")],
+        None,
+    );
+    assert_eq!(without_ack, Err(D06Error::DisclosureRequired));
+
+    let ack = DisclosureAcknowledgement {
+        principal_ref: er("core.principal"),
+        policy_ref: er("core.policy_revision"),
+        acknowledged_at: "2026-09-02T20:00:00Z".into(),
+    };
+    assert!(
+        TransparencyEvidenceProjection::new(
+            exact_subject(),
+            TransparencyMode::PublicLog,
+            VerificationDecision::Valid,
+            vec![er("core.object_revision")],
+            Some(ack),
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn transparency_negative_and_inconclusive_outcomes_remain_explicit() {
+    for decision in [
+        VerificationDecision::Invalid,
+        VerificationDecision::Unavailable,
+        VerificationDecision::Inconclusive,
+    ] {
+        let evidence = TransparencyEvidenceProjection::new(
+            exact_subject(),
+            TransparencyMode::PrivateLog,
+            decision,
+            vec![er("core.object_revision")],
+            None,
+        )
+        .unwrap();
+        assert_eq!(evidence.decision, decision);
+    }
 }

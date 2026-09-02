@@ -1,0 +1,250 @@
+name: D03 Knowledge Data Search v2 exact-head proof
+
+on:
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "D03_KNOWLEDGE_DATA_SEARCH_V2.md"
+      - "crates/ptah-knowledge-search/**"
+      - "adapters/database-sqlite/**"
+      - "docs/superpowers/plans/2026-09-02-d03-knowledge-data-search-v2.md"
+      - "docs/superpowers/specs/2026-09-02-d03-knowledge-data-search-v2-design.md"
+      - ".github/workflows/d03-knowledge-data-search-v2-proof.yml"
+
+permissions:
+  contents: read
+
+env:
+  PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha }}
+  PTAH_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  PTAH_D02_SHA: aa933d9d42ac451c941fa359711e949df8d8cd8d
+  CARGO_TERM_COLOR: always
+
+jobs:
+  d03-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out exact D03 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Lock exact D02 predecessor and D03 scope
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test "$PTAH_BASE_SHA" = "$PTAH_D02_SHA"
+          git merge-base --is-ancestor "$PTAH_D02_SHA" "$PTAH_EXACT_SHA"
+          test -z "$(git rev-list --merges "$PTAH_D02_SHA..$PTAH_EXACT_SHA")"
+          python - <<'PY'
+          import os, subprocess
+          base=os.environ["PTAH_D02_SHA"]
+          head=os.environ["PTAH_EXACT_SHA"]
+          files=set(subprocess.check_output(["git","diff","--name-only",base,head], text=True).splitlines())
+          allowed=lambda p: (
+              p in {
+                  "Cargo.toml", "Cargo.lock", "D03_KNOWLEDGE_DATA_SEARCH_V2.md",
+                  ".github/workflows/d03-knowledge-data-search-v2-proof.yml",
+                  "docs/superpowers/plans/2026-09-02-d03-knowledge-data-search-v2.md",
+                  "docs/superpowers/specs/2026-09-02-d03-knowledge-data-search-v2-design.md",
+              }
+              or p.startswith("crates/ptah-knowledge-search/")
+              or p.startswith("adapters/database-sqlite/")
+          )
+          bad=sorted(p for p in files if not allowed(p))
+          assert not bad, f"D03 scope drift: {bad}"
+          required={
+              "Cargo.toml", "Cargo.lock", "D03_KNOWLEDGE_DATA_SEARCH_V2.md",
+              ".github/workflows/d03-knowledge-data-search-v2-proof.yml",
+              "docs/superpowers/plans/2026-09-02-d03-knowledge-data-search-v2.md",
+              "docs/superpowers/specs/2026-09-02-d03-knowledge-data-search-v2-design.md",
+              "crates/ptah-knowledge-search/Cargo.toml",
+              "crates/ptah-knowledge-search/src/lib.rs",
+              "crates/ptah-knowledge-search/src/source.rs",
+              "crates/ptah-knowledge-search/src/evidence.rs",
+              "crates/ptah-knowledge-search/src/index.rs",
+              "crates/ptah-knowledge-search/src/structured.rs",
+              "crates/ptah-knowledge-search/src/database.rs",
+              "crates/ptah-knowledge-search/src/domain_pack.rs",
+              "crates/ptah-knowledge-search/src/adapters/b07.rs",
+              "crates/ptah-knowledge-search/src/adapters/programme_c.rs",
+              "crates/ptah-knowledge-search/tests/d03_acceptance.rs",
+              "adapters/database-sqlite/Cargo.toml",
+              "adapters/database-sqlite/src/compiler.rs",
+              "adapters/database-sqlite/src/provider.rs",
+              "adapters/database-sqlite/tests/d03_sqlite.rs",
+          }
+          missing=sorted(required-files)
+          assert not missing, f"missing D03 surface: {missing}"
+          frozen=[p for p in files if p.startswith(("contracts/","schemas/","migrations/")) or p=="crates/ptah-contracts/src/generated.rs"]
+          assert not frozen, f"frozen contract/migration drift: {frozen}"
+          PY
+          git diff --check "$PTAH_D02_SHA" "$PTAH_EXACT_SHA"
+
+      - name: Prove D03-only Cargo lock delta
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, subprocess, tomllib
+          base=os.environ["PTAH_D02_SHA"]
+          old=tomllib.loads(subprocess.check_output(["git","show",f"{base}:Cargo.lock"], text=True))
+          with open("Cargo.lock","rb") as f:
+              new=tomllib.load(f)
+          key=lambda p:(p["name"],p["version"],p.get("source"))
+          before={key(p):p for p in old["package"]}
+          after={key(p):p for p in new["package"]}
+          assert not (set(before)-set(after))
+          added=sorted(set(after)-set(before))
+          assert added == [
+              ("ptah-database-sqlite","0.0.0-phase0c",None),
+              ("ptah-knowledge-search","0.0.0-phase0c",None),
+          ], added
+          assert not [k for k in before.keys() & after.keys() if before[k] != after[k]]
+          expected_knowledge={
+              "ptah-ai-workspace", "ptah-archive-decomposition", "ptah-contracts",
+              "ptah-identifiers", "ptah-ledger", "ptah-object-store", "ptah-workspace",
+              "serde", "serde_json", "sha2", "thiserror 2.0.17",
+          }
+          expected_sqlite={"ptah-identifiers","ptah-knowledge-search","rusqlite","sha2"}
+          assert set(after[("ptah-knowledge-search","0.0.0-phase0c",None)].get("dependencies",[])) == expected_knowledge
+          assert set(after[("ptah-database-sqlite","0.0.0-phase0c",None)].get("dependencies",[])) == expected_sqlite
+          PY
+
+      - name: Install pinned Rust 1.97.1
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          mkdir -p /tmp/d03-proof
+          rustc -V | tee /tmp/d03-proof/rustc-version.txt
+          cargo -V | tee /tmp/d03-proof/cargo-version.txt
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+
+      - name: Prove dependency and static policy
+        run: |
+          set -euo pipefail
+          cp Cargo.lock /tmp/d03-proof/Cargo.lock.repository
+          cargo metadata --locked --format-version 1 > /tmp/d03-proof/cargo-metadata.json
+          cmp -s Cargo.lock /tmp/d03-proof/Cargo.lock.repository
+          python tools/check_rust_dependency_lock.py --output /tmp/d03-proof/dependency-lock-report.json
+          python -c 'import json; p=json.load(open("/tmp/d03-proof/dependency-lock-report.json")); assert p["git_dependency_count"] == 0, p'
+          cargo fmt --all -- --check
+          cargo clippy -p ptah-knowledge-search -p ptah-database-sqlite --all-targets --locked -- -D warnings -W clippy::pedantic
+          grep -q '^#!\[forbid(unsafe_code)\]' crates/ptah-knowledge-search/src/lib.rs
+          ! grep -R -n -E 'TODO|FIXME|todo!\(|unimplemented!\(|unsafe[[:space:]]*\{' crates/ptah-knowledge-search/src crates/ptah-knowledge-search/tests adapters/database-sqlite/src adapters/database-sqlite/tests
+          python - <<'PY'
+          from pathlib import Path
+          roots=[Path("crates/ptah-knowledge-search/src"), Path("adapters/database-sqlite/src")]
+          public=[]
+          for root in roots:
+              for path in root.rglob("*.rs"):
+                  for line in path.read_text().splitlines():
+                      stripped=line.strip()
+                      if stripped.startswith("pub "):
+                          public.append((str(path), stripped))
+          text="\n".join(line for _,line in public)
+          assert "ptah_archive_decomposition::" not in text
+          for name in ["DiskImageReport","AndroidReport","AppleFirmwareReport","MediatekReport","QualcommBundleReport","UnisocPacReport"]:
+              assert name not in text, name
+          db=Path("crates/ptah-knowledge-search/src/database.rs").read_text()
+          for field in ["password", "secret", "token", "dsn"]:
+              assert f"pub {field}:" not in db
+          import re
+          guarded=[
+              Path("crates/ptah-knowledge-search/src/database.rs"),
+              Path("crates/ptah-knowledge-search/src/domain_pack.rs"),
+              Path("adapters/database-sqlite/src/provider.rs"),
+              Path("adapters/database-sqlite/src/compiler.rs"),
+          ]
+          public_names=set()
+          for path in guarded:
+              public_names.update(re.findall(r"(?m)^\s*pub\s+fn\s+([a-zA-Z0-9_]+)", path.read_text()))
+          allowed_names={
+              "new", "authorize", "visualize", "export", "validate", "query_plan_sha256",
+              "bind_materialized_snapshot", "compile_for_inspection", "sql",
+          }
+          assert public_names <= allowed_names, sorted(public_names-allowed_names)
+          trait=db.split("pub trait DatabaseQueryProvider",1)[1].split("}\n",1)[0]
+          trait_methods=set(re.findall(r"(?m)^\s*fn\s+([a-zA-Z0-9_]+)", trait))
+          assert trait_methods == {"inspect_schema", "snapshot_evidence", "execute"}, trait_methods
+          root=Path("Cargo.toml").read_text()
+          expected='rusqlite = { version = "=0.37.0", default-features = false, features = ["backup", "blob", "hooks", "limits", "trace"] }'
+          assert expected in root
+          PY
+
+      - name: Prove D03 runtime counts and inherited regressions
+        run: |
+          set -euo pipefail
+          d03_count=$(cargo test -p ptah-knowledge-search --test d03_acceptance --locked -- --list | grep -c ': test$')
+          unit_count=$(cargo test -p ptah-knowledge-search --lib --locked -- --list | grep -c ': test$')
+          sqlite_count=$(cargo test -p ptah-database-sqlite --test d03_sqlite --locked -- --list | grep -c ': test$')
+          test "$d03_count" -eq 23
+          test "$unit_count" -eq 6
+          test "$sqlite_count" -eq 4
+          printf '%s\n' "$d03_count" > /tmp/d03-proof/d03-test-count.txt
+          printf '%s\n' "$unit_count" > /tmp/d03-proof/d03-unit-count.txt
+          printf '%s\n' "$sqlite_count" > /tmp/d03-proof/sqlite-test-count.txt
+          cargo test -p ptah-knowledge-search -p ptah-database-sqlite --locked
+          cargo test -p ptah-archive-decomposition --test b07 --test c01 --test c03 --test c04 --test c05 --test c06 --locked
+          cargo test -p ptah-ai-workspace -p ptah-workspace -p ptah-object-store -p ptah-control --locked
+
+      - name: Prove complete locked workspace
+        run: |
+          set -euo pipefail
+          workspace_count=$(cargo test --workspace --locked -- --list | grep -c ': test$')
+          printf '%s\n' "$workspace_count" > /tmp/d03-proof/workspace-test-count.txt
+          cargo test --workspace --locked
+
+      - name: Build exact-head proof record
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path("/tmp/d03-proof")
+          base=os.environ["PTAH_D02_SHA"]
+          head=os.environ["PTAH_EXACT_SHA"]
+          files=subprocess.check_output(["git","diff","--name-only",base,head], text=True).splitlines()
+          hashes={p:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in files}
+          payload={
+            "record_type":"ptah.programme_d.d03.knowledge_data_search_v2_exact_head_proof",
+            "schema_version":"0.1.0",
+            "created_at":datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "implementation_commit":head,
+            "implementation_tree":subprocess.check_output(["git","rev-parse","HEAD^{tree}"],text=True).strip(),
+            "base_commit":base,
+            "exact_head_match":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()==head,
+            "linear_from_d02":not bool(subprocess.check_output(["git","rev-list","--merges",f"{base}..{head}"],text=True).strip()),
+            "commit_count":int(subprocess.check_output(["git","rev-list","--count",f"{base}..{head}"],text=True).strip()),
+            "cargo_lock_sha256":hashlib.sha256(Path("Cargo.lock").read_bytes()).hexdigest(),
+            "d03_acceptance_count":int((root/"d03-test-count.txt").read_text()),
+            "d03_programme_c_unit_count":int((root/"d03-unit-count.txt").read_text()),
+            "sqlite_acceptance_count":int((root/"sqlite-test-count.txt").read_text()),
+            "workspace_test_count":int((root/"workspace-test-count.txt").read_text()),
+            "changed_file_sha256":hashes,
+            "status":"exact_head_d03_proof_passed",
+          }
+          assert payload["exact_head_match"] and payload["linear_from_d02"]
+          assert payload["d03_acceptance_count"] == 23
+          assert payload["d03_programme_c_unit_count"] == 6
+          assert payload["sqlite_acceptance_count"] == 4
+          (root/"d03-proof.json").write_text(json.dumps(payload,indent=2)+"\n")
+          (root/"repository-hashes.sha256").write_text("".join(f"{digest}  {path}\n" for path,digest in sorted(hashes.items())))
+          PY
+          sha256sum /tmp/d03-proof/d03-proof.json | tee /tmp/d03-proof/d03-proof.sha256
+          git status --porcelain=v1 > /tmp/d03-proof/git-status.txt
+          test ! -s /tmp/d03-proof/git-status.txt
+
+      - name: Upload retained D03 proof
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: d03-knowledge-data-search-v2-${{ env.PTAH_EXACT_SHA }}
+          path: /tmp/d03-proof/
+          if-no-files-found: error
+          retention-days: 30

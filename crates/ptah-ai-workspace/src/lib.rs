@@ -31,9 +31,9 @@ pub use retrieval::{
     RecordClass, RetrievalRequest, RetrievedRecord, WorkspaceClock, WorkspaceReader,
 };
 pub use search::{
-    WorkspaceSearchDocument, WorkspaceSearchDomain, WorkspaceSearchHit, WorkspaceSearchIndex,
-    WorkspaceSearchIndexRevision, WorkspaceSearchLimits, WorkspaceSearchMatch,
-    WorkspaceSearchMetadata, WorkspaceSearchRequest, WorkspaceSearchResponse,
+    WorkspaceSearchDocument, WorkspaceSearchDomain, WorkspaceSearchFailure, WorkspaceSearchHit,
+    WorkspaceSearchIndex, WorkspaceSearchIndexRevision, WorkspaceSearchLimits,
+    WorkspaceSearchMatch, WorkspaceSearchMetadata, WorkspaceSearchRequest, WorkspaceSearchResponse,
     WorkspaceSearchSource, WorkspaceSearchText, query_workspace_index,
 };
 pub use sessions::{
@@ -52,9 +52,9 @@ pub enum D02Error {
     /// Workspace authority or projection access failed.
     #[error(transparent)]
     Workspace(#[from] ptah_workspace::WorkspaceError),
-    /// Derived B07 search failed.
+    /// Derived search adapter failed mechanically.
     #[error(transparent)]
-    Search(#[from] ptah_archive_decomposition::SearchError),
+    Search(search::WorkspaceSearchFailure),
     /// Caller-owned JSON container encoding or decoding failed.
     #[error(transparent)]
     Json(#[from] serde_json::Error),

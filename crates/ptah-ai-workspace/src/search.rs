@@ -2,12 +2,35 @@
 
 use crate::{D02Error, WorkspaceReader};
 use ptah_archive_decomposition::{
-    AnchoredText, SearchDocument, SearchDocumentKind, SearchDomain, SearchIndex, SearchLimits,
-    SearchMetadata, SearchQuery, SearchSourceBinding, SourceAnchor, activity_search_document,
-    artifact_search_document, document_text_search_document, filename_metadata_document,
-    log_search_document, source_symbol_search_document,
+    AnchoredText, SearchDocument, SearchDocumentKind, SearchDomain, SearchError, SearchIndex,
+    SearchLimits, SearchMetadata, SearchQuery, SearchSourceBinding, SourceAnchor,
+    activity_search_document, artifact_search_document, document_text_search_document,
+    filename_metadata_document, log_search_document, source_symbol_search_document,
 };
 use ptah_identifiers::EntityRef;
+
+/// D02-owned mechanical failures from the derived search adapter.
+#[derive(Debug, thiserror::Error, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspaceSearchFailure {
+    /// Search resource/configuration bounds are invalid.
+    #[error("D02 search configuration is invalid")]
+    InvalidConfiguration,
+    /// Canonical source or revision binding is invalid.
+    #[error("D02 search source binding is invalid")]
+    InvalidBinding,
+    /// A copied search document is structurally invalid.
+    #[error("D02 search document is invalid")]
+    InvalidDocument,
+    /// Query text or requested result bound is invalid.
+    #[error("D02 search query is invalid")]
+    InvalidQuery,
+    /// A bounded search resource or revision limit was exceeded.
+    #[error("D02 search capacity was exceeded")]
+    CapacityExceeded,
+    /// Derived index serialization failed.
+    #[error("D02 search serialization failed")]
+    Serialization,
+}
 
 /// D02-owned B07 resource limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,7 +260,8 @@ impl WorkspaceSearchIndex {
                 max_field_bytes: limits.max_field_bytes,
                 max_query_bytes: limits.max_query_bytes,
                 max_results: limits.max_results,
-            })?,
+            })
+            .map_err(|error| map_search_error(&error))?,
         })
     }
 
@@ -251,7 +275,10 @@ impl WorkspaceSearchIndex {
     ) -> Result<WorkspaceSearchIndexRevision, D02Error> {
         let mapped: Result<Vec<SearchDocument>, D02Error> =
             documents.iter().map(map_document).collect();
-        let revision = self.inner.rebuild(&mapped?)?;
+        let revision = self
+            .inner
+            .rebuild(&mapped?)
+            .map_err(|error| map_search_error(&error))?;
         Ok(WorkspaceSearchIndexRevision {
             revision: revision.revision,
             content_sha256: revision.content_sha256,
@@ -276,12 +303,15 @@ pub fn query_workspace_index(
         &request.required_scope,
         request.grant_ref.as_ref(),
     )?;
-    let response = index.inner.query(&SearchQuery {
-        workspace_ref: request.target_workspace_ref.clone(),
-        text: request.text.clone(),
-        domains: request.domains.iter().copied().map(map_domain).collect(),
-        limit: request.limit,
-    })?;
+    let response = index
+        .inner
+        .query(&SearchQuery {
+            workspace_ref: request.target_workspace_ref.clone(),
+            text: request.text.clone(),
+            domains: request.domains.iter().copied().map(map_domain).collect(),
+            limit: request.limit,
+        })
+        .map_err(|error| map_search_error(&error))?;
     Ok(WorkspaceSearchResponse {
         index_revision: response.index.revision,
         index_sha256: response.index.content_sha256,
@@ -337,7 +367,8 @@ fn map_document(document: &WorkspaceSearchDocument) -> Result<SearchDocument, D0
                     source: item.source.clone(),
                 })
                 .collect::<Vec<_>>(),
-        )?,
+        )
+        .map_err(|error| map_search_error(&error))?,
         WorkspaceSearchDocument::DocumentText { source, spans } => {
             let revision = source
                 .object_revision_ref
@@ -357,21 +388,49 @@ fn map_document(document: &WorkspaceSearchDocument) -> Result<SearchDocument, D0
                         },
                     })
                     .collect::<Vec<_>>(),
-            )?
+            )
+            .map_err(|error| map_search_error(&error))?
         }
         WorkspaceSearchDocument::SourceSymbols { source, values } => {
-            source_symbol_search_document(map_source(source), values)?
+            source_symbol_search_document(map_source(source), values)
+                .map_err(|error| map_search_error(&error))?
         }
         WorkspaceSearchDocument::Log { source, values } => {
-            log_search_document(map_source(source), values)?
+            log_search_document(map_source(source), values)
+                .map_err(|error| map_search_error(&error))?
         }
         WorkspaceSearchDocument::Activity { source, values } => {
-            activity_search_document(map_source(source), values)?
+            activity_search_document(map_source(source), values)
+                .map_err(|error| map_search_error(&error))?
         }
         WorkspaceSearchDocument::Artifact { source, values } => {
-            artifact_search_document(map_source(source), values)?
+            artifact_search_document(map_source(source), values)
+                .map_err(|error| map_search_error(&error))?
         }
     })
+}
+
+fn map_search_error(error: &SearchError) -> D02Error {
+    let failure = match error {
+        SearchError::InvalidLimits => WorkspaceSearchFailure::InvalidConfiguration,
+        SearchError::InvalidWorkspaceRef
+        | SearchError::InvalidObjectRevisionRef
+        | SearchError::InvalidSourceRecordRevision
+        | SearchError::MissingObjectRevisionBinding
+        | SearchError::AnchorMismatch => WorkspaceSearchFailure::InvalidBinding,
+        SearchError::InvalidText(_)
+        | SearchError::FieldTooLarge
+        | SearchError::InvalidDocumentDomain
+        | SearchError::DuplicateDocument => WorkspaceSearchFailure::InvalidDocument,
+        SearchError::InvalidQuery | SearchError::InvalidResultLimit => {
+            WorkspaceSearchFailure::InvalidQuery
+        }
+        SearchError::TooManyFields
+        | SearchError::TooManyDocuments
+        | SearchError::RevisionOverflow => WorkspaceSearchFailure::CapacityExceeded,
+        SearchError::Serialization(_) => WorkspaceSearchFailure::Serialization,
+    };
+    D02Error::Search(failure)
 }
 
 const fn map_domain(domain: WorkspaceSearchDomain) -> SearchDomain {

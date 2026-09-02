@@ -7,8 +7,15 @@
 
 mod error;
 mod operation;
+mod recipe_store;
 
 pub use error::D04Error;
 pub use operation::{
     OperationCatalog, OperationDescriptorRevision, OperationEffectClass, OperationResolution,
+};
+pub use recipe_store::{
+    AcceptanceDecision, AcceptedRevision, CompiledPlanRecordInput, CreatedRecipe,
+    MaterialBindingInput, PlanRequirementResultInput, PlanStepMappingInput, ProofRequirementInput,
+    RecipeAcceptanceInput, RecipeInput, RecipeProposalInput, RecipeRecordView, RecipeRevisionInput,
+    RecipeStepInput, RecipeStore,
 };

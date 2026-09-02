@@ -223,7 +223,9 @@ fn valid_operation_key(value: &str) -> bool {
         return false;
     };
     first.is_ascii_lowercase()
-        && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '.' | '_' | '-'))
+        && chars.all(|ch| {
+            ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '.' | '_' | '-')
+        })
         && value.contains('.')
 }
 

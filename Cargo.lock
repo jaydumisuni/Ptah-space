@@ -634,6 +634,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptah-recipe-registry"
+version = "0.0.0-phase0c"
+dependencies = [
+ "container-oci",
+ "ptah-activity-runtime",
+ "ptah-ai-workspace",
+ "ptah-archive-decomposition",
+ "ptah-contracts",
+ "ptah-identifiers",
+ "ptah-knowledge-search",
+ "ptah-ledger",
+ "ptah-provider-api",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "ptah-rust-dependency-lock"
 version = "0.0.0-phase0c"
 dependencies = [

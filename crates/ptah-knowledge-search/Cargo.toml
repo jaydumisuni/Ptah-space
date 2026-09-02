@@ -1,0 +1,32 @@
+[package]
+name = "ptah-knowledge-search"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+ptah-contracts = { path = "../ptah-contracts", version = "=0.0.0-phase0c" }
+ptah-identifiers = { path = "../ptah-identifiers", version = "=0.0.0-phase0c" }
+ptah-workspace = { path = "../ptah-workspace", version = "=0.0.0-phase0c" }
+ptah-ledger = { path = "../ptah-ledger", version = "=0.0.0-phase0c" }
+ptah-object-store = { path = "../ptah-object-store", version = "=0.0.0-phase0c" }
+ptah-archive-decomposition = { path = "../ptah-archive-decomposition", version = "=0.0.0-phase0c" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+ptah-ai-workspace = { path = "../ptah-ai-workspace", version = "=0.0.0-phase0c" }
+
+[lib]
+path = "src/lib.rs"
+
+[[test]]
+name = "d03_acceptance"
+path = "tests/d03_acceptance.rs"

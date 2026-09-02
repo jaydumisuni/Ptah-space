@@ -142,7 +142,7 @@ fn admission_request(
         actor_ref: r("identity.principal"),
         source_workspace_id: source.entity_id,
         target_workspace_id: target.entity_id,
-        package_revision_ref: r("knowledge.package_revision"),
+        package_revision_ref: r("package.revision"),
         distribution,
         licence_decision,
         trust_policy_refs: vec![r("policy.package_trust")],

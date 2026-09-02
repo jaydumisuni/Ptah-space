@@ -81,7 +81,7 @@ impl AdmissionService {
         store: &WorkspaceStore,
         request: &PackageAdmissionRequest,
     ) -> Result<PackageAdmission, D05Error> {
-        if request.package_revision_ref.entity_kind != "knowledge.package_revision"
+        if request.package_revision_ref.entity_kind != "package.revision"
             || request.trust_policy_refs.is_empty()
             || request.licence_record_refs.is_empty()
             || request.evidence_refs.is_empty()

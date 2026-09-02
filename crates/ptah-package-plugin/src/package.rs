@@ -147,8 +147,8 @@ impl PackageCatalog {
     pub fn resolve_exact(&self, candidate: &PackageCandidate) -> Result<ResolvedGraph, D05Error> {
         candidate.coordinate.validate_exact()?;
         self.validate_registry(candidate)?;
-        let package_revision_ref = EntityRef::new("knowledge.package_revision")
-            .map_err(|_| D05Error::InexactPackageCoordinate)?;
+        let package_revision_ref =
+            EntityRef::new("package.revision").map_err(|_| D05Error::InexactPackageCoordinate)?;
         let node = ResolvedPackageNode {
             package_revision_ref,
             coordinate: candidate.coordinate.clone(),

@@ -9,6 +9,7 @@ members = [
   "crates/ptah-node-agent",
   "crates/ptah-activity-runtime",
   "crates/ptah-workspace",
+  "crates/ptah-ai-workspace",
   "crates/ptah-object-store",
   "crates/ptah-transfer",
   "crates/ptah-provider-api",

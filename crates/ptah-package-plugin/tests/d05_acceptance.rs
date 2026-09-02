@@ -6,8 +6,9 @@ use ptah_package_plugin::{
     DependencyBinding, DistributionClass, HealthObservation, InstallRequest, LicenceDecision,
     PackageAdmissionRequest, PackageCandidate, PackageCatalog, PackageConstraint,
     PackageCoordinate, PackageInstallAck, PackageInstaller, PackageStore, PackageVerificationInput,
-    PluginChangeExecutor, PluginChangeRequest, PluginInstanceRecord, PluginPortRegistration,
-    PluginRevisionInput, PluginRuntime, PluginServiceRegistration, PluginUninstallAck,
+    PluginChangeExecutor, PluginChangeRequest, PluginCompatibilityInput, PluginIdentityInput,
+    PluginInstallationInput, PluginInstanceRecord, PluginPortRegistration, PluginRevisionInput,
+    PluginRuntime, PluginServiceRegistration, PluginStore, PluginUninstallAck,
     PluginUpdateDecision, RegistrySource, RemovalProof, RemovalStage, UpdateDecision,
     VerificationDecision, VerificationScope,
 };
@@ -412,6 +413,46 @@ fn workspace_store_with_clock(label: &str, now: &'static str) -> (PathBuf, Works
     (path, store)
 }
 
+fn plugin_store(label: &str) -> (PathBuf, PluginStore) {
+    let path = std::env::temp_dir().join(format!(
+        "ptah-d05-plugin-{label}-{}.sqlite3",
+        EntityId::new_v7()
+    ));
+    let _ = fs::remove_file(&path);
+    let store = PluginStore::open(&path).unwrap();
+    (path, store)
+}
+
+fn create_canonical_plugin(
+    store: &mut PluginStore,
+    revision: &PluginRevisionInput,
+) -> (EntityRef, EntityRef, EntityRef) {
+    let identity = PluginIdentityInput {
+        plugin_key: "widget.plugin".into(),
+        name: "Widget Plugin".into(),
+        authority_ref: r("authority.owner"),
+        created_at: "2026-09-02T15:45:00Z".into(),
+    };
+    let (plugin_ref, revision_ref) = store
+        .create_plugin_with_revision(&identity, revision)
+        .unwrap();
+    let compatibility_ref = store
+        .record_compatibility(
+            &revision_ref,
+            &identity.authority_ref,
+            &PluginCompatibilityInput {
+                target_context: serde_json::json!({"platform": "linux"}),
+                required_capabilities: vec!["plugin.execute".into()],
+                decision: "compatible".into(),
+                checked_at: "2026-09-02T15:46:00Z".into(),
+                valid_until: "2026-09-03T15:46:00Z".into(),
+                evidence_refs: vec![r("core.evidence")],
+            },
+        )
+        .unwrap();
+    (plugin_ref, revision_ref, compatibility_ref)
+}
+
 fn plugin_revision_input() -> PluginRevisionInput {
     PluginRevisionInput {
         revision: "1.0.0".into(),
@@ -426,15 +467,57 @@ fn plugin_revision_input() -> PluginRevisionInput {
 fn plugin_revision_binds_exact_manifest_objects_and_package_locks() {
     let input = plugin_revision_input();
     assert!(input.validate_exact().is_ok());
-    let mut bad = input.clone();
+    let (_path, mut store) = plugin_store("revision");
+    let (plugin_ref, revision_ref, compatibility_ref) = create_canonical_plugin(&mut store, &input);
+    assert_eq!(plugin_ref.entity_kind.as_str(), "plugin.plugin");
+    assert_eq!(revision_ref.entity_kind.as_str(), "plugin.revision");
+    assert_eq!(
+        compatibility_ref.entity_kind.as_str(),
+        "plugin.compatibility"
+    );
+    let revision_doc = store.record_document(&revision_ref).unwrap();
+    assert_eq!(
+        revision_doc["manifest_ref"],
+        serde_json::to_value(&input.manifest_ref).unwrap()
+    );
+    assert_eq!(
+        revision_doc["package_lock_refs"].as_array().unwrap().len(),
+        1
+    );
+    let mut bad = input;
     bad.package_lock_refs.clear();
     assert_eq!(bad.validate_exact(), Err(D05Error::InvalidLifecycleRecord));
 }
 
 #[test]
 fn plugin_installation_does_not_imply_activation() {
-    let installation_ref = r("plugin.installation");
-    let value = serde_json::json!({"installation_ref": installation_ref});
+    let (_path, mut store) = plugin_store("install-separate");
+    let (plugin_ref, revision_ref, compatibility_ref) =
+        create_canonical_plugin(&mut store, &plugin_revision_input());
+    let installation_ref = store
+        .record_installation(&PluginInstallationInput {
+            plugin_ref,
+            plugin_revision_ref: revision_ref,
+            compatibility_ref,
+            package_installation_refs: vec![r("package.installation")],
+            workspace_ref: r("core.workspace"),
+            provider_instance_ref: r("runtime.provider_instance"),
+            provider_generation: 7,
+            activity_ref: r("core.activity"),
+            operation_ref: r("core.operation"),
+            attempt_ref: r("core.attempt"),
+            verification_refs: vec![],
+            started_at: "2026-09-02T15:47:00Z".into(),
+            authority_ref: r("authority.owner"),
+        })
+        .unwrap();
+    let value = store.record_document(&installation_ref).unwrap();
+    assert_eq!(
+        value
+            .pointer("/lifecycle/current_state")
+            .and_then(|v| v.as_str()),
+        Some("installed_unverified")
+    );
     assert!(value.get("activation_ref").is_none());
     assert!(value.get("active").is_none());
 }
@@ -470,6 +553,13 @@ fn activation_requires_explicit_policy_and_scoped_a06_grant() {
         decided_at: "2026-09-02T16:00:01Z".into(),
     };
     assert!(ActivationService::authorize(&store, &request).is_ok());
+    let (_plugin_path, mut plugin_store) = plugin_store("activation");
+    let activation_ref = plugin_store
+        .record_activation(&request, &r("authority.owner"))
+        .unwrap();
+    assert_eq!(activation_ref.entity_kind.as_str(), "plugin.activation");
+    let activation_doc = plugin_store.record_document(&activation_ref).unwrap();
+    assert_eq!(activation_doc["decision"], "approved");
     let mut missing_policy = request.clone();
     missing_policy.policy_refs.clear();
     assert_eq!(
@@ -751,4 +841,31 @@ fn plugin_host_replacement_preserves_plugin_identity_and_creates_new_generation(
     );
     assert_eq!(replacement.provider_generation, 8);
     assert_eq!(replacement.generation, 12);
+}
+
+#[test]
+fn framework_and_plugin_host_aliases_never_replace_ptah_core_identities() {
+    let mut instance = plugin_instance();
+    instance.runtime_aliases = vec![
+        "mcp:server-17".into(),
+        "workflow:run-44".into(),
+        "plugin-host:pid-4242".into(),
+    ];
+    let activity_ref = r("core.activity");
+    let object_ref = r("core.object_revision");
+    assert_eq!(
+        instance.instance_ref.entity_kind.as_str(),
+        "plugin.instance"
+    );
+    assert_eq!(
+        instance.plugin_revision_ref.entity_kind.as_str(),
+        "plugin.revision"
+    );
+    assert_eq!(activity_ref.entity_kind.as_str(), "core.activity");
+    assert_eq!(object_ref.entity_kind.as_str(), "core.object_revision");
+    assert!(instance.runtime_aliases.iter().all(|alias| {
+        !alias.starts_with("plugin.instance:")
+            && !alias.starts_with("core.activity:")
+            && !alias.starts_with("core.object_revision:")
+    }));
 }

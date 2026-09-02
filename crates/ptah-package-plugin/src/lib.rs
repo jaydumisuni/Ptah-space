@@ -8,6 +8,7 @@ mod error;
 mod install;
 mod package;
 mod plugin;
+mod plugin_store;
 mod runtime;
 mod store;
 
@@ -34,4 +35,8 @@ pub use change::{
     PluginChangeEvidence, PluginChangeExecutor, PluginChangeHandle, PluginChangeKind,
     PluginChangeRequest, PluginUninstallAck, PluginUpdateDecision, RemovalProof, RemovalStage,
     UpdateDecision,
+};
+
+pub use plugin_store::{
+    PluginCompatibilityInput, PluginIdentityInput, PluginInstallationInput, PluginStore,
 };

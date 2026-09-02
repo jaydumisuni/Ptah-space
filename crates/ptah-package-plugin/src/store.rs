@@ -10,6 +10,34 @@ use crate::{D05Error, InstallRequest, PackageInstallHandle};
 const INSTALL_SCHEMA: &str = "urn:ptah:schema:knowledge:package-installation:0.1.0";
 const VERIFY_SCHEMA: &str = "urn:ptah:schema:knowledge:package-verification:0.1.0";
 
+const PACKAGE_CATALOG_SCHEMAS: &[(&str, &str)] = &[
+    ("urn:ptah:schema:knowledge:package:0.1.0", "package.package"),
+    (
+        "urn:ptah:schema:knowledge:package-revision:0.1.0",
+        "package.revision",
+    ),
+    (
+        "urn:ptah:schema:knowledge:package-manifest:0.1.0",
+        "package.manifest",
+    ),
+    (
+        "urn:ptah:schema:knowledge:package-dependency-constraint:0.1.0",
+        "package.dependency_constraint",
+    ),
+    (
+        "urn:ptah:schema:knowledge:package-resolved-graph:0.1.0",
+        "package.resolved_graph",
+    ),
+    (
+        "urn:ptah:schema:knowledge:package-lock-record:0.1.0",
+        "package.lock_record",
+    ),
+    (
+        "urn:ptah:schema:knowledge:package-registry-source:0.1.0",
+        "package.registry_source",
+    ),
+];
+
 /// Independent package-verification scope from frozen WP10.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -250,6 +278,29 @@ impl PackageStore {
         Ok(verification_ref)
     }
 
+    /// Persist one complete frozen WP10 package-catalog document through A03.
+    ///
+    /// The method is intentionally bounded to the seven D05 package catalog schema/kind pairs;
+    /// A03 performs the complete frozen-schema validation before storage.
+    ///
+    /// # Errors
+    /// Returns [`D05Error`] for any non-D05 schema/kind pair or invalid canonical document.
+    pub fn record_catalog_document(&mut self, document: Value) -> Result<EntityRef, D05Error> {
+        let record = canonical(document)?;
+        let allowed = PACKAGE_CATALOG_SCHEMAS.iter().any(|(schema, kind)| {
+            record.schema_id() == *schema && record.entity_kind().as_str() == *kind
+        });
+        if !allowed {
+            return Err(D05Error::InvalidLifecycleRecord);
+        }
+        let entity_ref = EntityRef::from_id(record.entity_id(), record.entity_kind().as_str())
+            .map_err(identifier_error)?;
+        let write = self.ledger.begin_write().map_err(ledger_error)?;
+        write.insert(&record).map_err(ledger_error)?;
+        write.commit().map_err(ledger_error)?;
+        Ok(entity_ref)
+    }
+
     /// Read the current canonical installation lifecycle state.
     ///
     /// # Errors
@@ -313,20 +364,10 @@ fn ledger_error(error: impl std::fmt::Display) -> D05Error {
     D05Error::Ledger(error.to_string())
 }
 
-fn identifier_error(error: impl std::fmt::Display) -> D05Error {
-    D05Error::InvalidLifecycleRecord.tap(|_| {
-        let _ = error.to_string();
-    })
+fn identifier_error(_error: impl std::fmt::Display) -> D05Error {
+    D05Error::InvalidLifecycleRecord
 }
 
 fn json_error(error: impl std::fmt::Display) -> D05Error {
     D05Error::Ledger(error.to_string())
 }
-
-trait Tap: Sized {
-    fn tap(self, f: impl FnOnce(&Self)) -> Self {
-        f(&self);
-        self
-    }
-}
-impl<T> Tap for T {}

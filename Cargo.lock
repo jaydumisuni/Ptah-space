@@ -516,6 +516,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptah-database-sqlite"
+version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-identifiers",
+ "ptah-knowledge-search",
+ "rusqlite",
+ "sha2",
+]
+
+[[package]]
 name = "ptah-device-runtime"
 version = "0.0.0-phase0c"
 dependencies = [

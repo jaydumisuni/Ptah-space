@@ -24,6 +24,7 @@ members = [
   "adapters/container-oci",
   "adapters/git-cli",
   "adapters/decomposition-libarchive",
+  "adapters/database-sqlite",
   "adapters/native-process",
   "adapters/ttg-device-xray",
   "adapters/ttg-device-workloads",

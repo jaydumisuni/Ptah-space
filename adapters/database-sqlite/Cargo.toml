@@ -1,0 +1,22 @@
+[package]
+name = "ptah-database-sqlite"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ptah-knowledge-search = { path = "../../crates/ptah-knowledge-search", version = "=0.0.0-phase0c" }
+ptah-identifiers = { path = "../../crates/ptah-identifiers", version = "=0.0.0-phase0c" }
+rusqlite = { workspace = true }
+sha2 = { workspace = true }
+
+[lib]
+path = "src/lib.rs"
+
+[[test]]
+name = "d03_sqlite"
+path = "tests/d03_sqlite.rs"

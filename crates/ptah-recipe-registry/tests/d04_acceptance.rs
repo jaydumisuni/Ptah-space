@@ -19,6 +19,14 @@ use ptah_recipe_registry::{
 };
 use std::sync::Arc;
 
+use ptah_ai_workspace::{AuthorityOwner, ai_project_profile, operations_profile};
+use ptah_archive_decomposition::{
+    SearchDocumentKind, SearchHit, SearchIndexRevision, SearchResponse, SearchSourceBinding,
+};
+use ptah_knowledge_search::{
+    KnowledgeSourceClass, KnowledgeSourceRevision, KnowledgeSourceRevisionInput,
+};
+
 fn reference(kind: &str) -> EntityRef {
     EntityRef::new(kind).expect("valid reference")
 }
@@ -873,4 +881,119 @@ fn a10_start_ack_cannot_mark_a04_operation_succeeded() {
     };
     let operation = runtime.operation(operation_id).unwrap().unwrap();
     assert_eq!(operation.state(), OperationState::Dispatching);
+}
+
+#[test]
+fn d03_source_revision_is_consumed_only_as_exact_recipe_material() {
+    let source = KnowledgeSourceRevision::new(KnowledgeSourceRevisionInput {
+        workspace_ref: reference("core.workspace"),
+        source_ref: reference("object.view"),
+        source_record_revision: 7,
+        object_revision_ref: Some(reference("object.revision")),
+        content_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            .to_owned(),
+        class: KnowledgeSourceClass::Document,
+        provenance_ref: reference("evidence.receipt"),
+        schema_id: "urn:ptah:schema:knowledge:source-revision:0.1.0".to_owned(),
+    })
+    .expect("source");
+    let material = MaterialBindingInput {
+        binding_key: "knowledge.source".to_owned(),
+        material_class: "deterministic_bound".to_owned(),
+        subject_ref: source.object_revision_ref.clone().expect("object revision"),
+        resolved_at: "2026-09-02T15:00:00Z".to_owned(),
+        evidence_refs: vec![source.provenance_ref.clone()],
+    };
+    assert_eq!(material.subject_ref, source.object_revision_ref.unwrap());
+    assert_eq!(material.evidence_refs, vec![source.provenance_ref]);
+}
+
+#[test]
+fn b07_search_result_never_implies_recipe_acceptance() {
+    let path = ledger_path("b07-not-acceptance");
+    let mut store = RecipeStore::open(&path).expect("open");
+    let (_, revision_ref, _) = create_recipe_revision_and_proposal(&mut store, "d04.b07");
+    let response = SearchResponse {
+        index: SearchIndexRevision {
+            revision: 1,
+            content_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                .to_owned(),
+            document_count: 1,
+        },
+        hits: vec![SearchHit {
+            source: SearchSourceBinding {
+                workspace_ref: reference("core.workspace"),
+                source_ref: reference("object.view"),
+                source_record_revision: 1,
+                object_revision_ref: Some(reference("object.revision")),
+            },
+            kind: SearchDocumentKind::ObjectMetadata,
+            score: 1,
+            matches: Vec::new(),
+        }],
+    };
+    assert_eq!(response.hits.len(), 1);
+    assert!(matches!(
+        store.accepted_revision_at(&revision_ref, "2026-09-02T15:00:00Z"),
+        Err(D04Error::AcceptanceMissing { .. })
+    ));
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn predecessor_integration_contracts_preserve_caller_authority() {
+    let ai_profile = ai_project_profile();
+    assert_eq!(ai_profile.authority.decision, AuthorityOwner::Caller);
+    assert_eq!(
+        ai_profile.authority.context_selection,
+        AuthorityOwner::Caller
+    );
+    assert_eq!(ai_profile.authority.approval, AuthorityOwner::Caller);
+    let operations = operations_profile();
+    assert_eq!(operations.effect_classes.len(), 7);
+
+    let runtime = activity_runtime();
+    let mapping = RecipeDispatcher::new(&runtime)
+        .dispatch(&dispatch_request())
+        .expect("A04 integration");
+    assert_eq!(mapping.operations.len(), 1);
+    assert_eq!(
+        runtime
+            .operation(mapping.operations[0].operation_id)
+            .unwrap()
+            .unwrap()
+            .state(),
+        OperationState::Dispatching
+    );
+    assert!(!port_registration().grants_network_exposure());
+}
+
+#[test]
+fn d04_public_surface_has_no_semantic_chooser_approver_promoter_or_global_scheduler() {
+    let sources = [
+        include_str!("../src/dispatcher.rs"),
+        include_str!("../src/operation.rs"),
+        include_str!("../src/plan.rs"),
+        include_str!("../src/precondition.rs"),
+        include_str!("../src/recipe_store.rs"),
+        include_str!("../src/schedule.rs"),
+        include_str!("../src/service_registry.rs"),
+    ]
+    .join("\n");
+    for forbidden in [
+        "pub fn choose_provider",
+        "pub fn choose_operation",
+        "pub fn approve",
+        "pub fn promote",
+        "pub fn run_scheduler",
+        "pub fn start_scheduler",
+        "pub fn authorize_exposure",
+        "pub fn open_port",
+        "pub fn publish_port",
+    ] {
+        assert!(
+            !sources.contains(forbidden),
+            "forbidden public authority: {forbidden}"
+        );
+    }
 }

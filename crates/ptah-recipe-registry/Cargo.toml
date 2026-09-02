@@ -27,3 +27,8 @@ path = "src/lib.rs"
 [[test]]
 name = "d04_acceptance"
 path = "tests/d04_acceptance.rs"
+
+[dev-dependencies]
+ptah-ai-workspace = { path = "../ptah-ai-workspace", version = "=0.0.0-phase0c" }
+ptah-archive-decomposition = { path = "../ptah-archive-decomposition", version = "=0.0.0-phase0c" }
+ptah-knowledge-search = { path = "../ptah-knowledge-search", version = "=0.0.0-phase0c" }

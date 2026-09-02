@@ -78,6 +78,8 @@ Negative, partial, stale, disputed, rejected, failed and inconclusive records re
 
 A URL, repository, image, customer request, scanner configuration or discovered host cannot authorize itself. Expired/revoked Grants fail before A04 work is created. Newly discovered targets remain out of scope until caller authority is extended.
 
+A06 currently exposes cross-Workspace `authorize_retrieval`, which intentionally short-circuits same-Workspace access. D07 therefore adds one narrow A06 `authorize_grant` read helper that applies the existing Secure Grant subject/grantee/lifecycle/revocation/expiry/scope checks even when source and target Workspace are identical. This is API exposure of existing authority semantics, not a new Grant model.
+
 ### 3. Assessment plan, target and machinery
 
 `AssessmentTarget` binds an exact Ptah revision/Artifact/Object plus SHA-256 digest and a scoped locator when needed. Mutable URL, branch, tag, deployment name, package name, issue ID or hostname is a resolution input only.

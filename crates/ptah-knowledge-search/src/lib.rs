@@ -8,6 +8,13 @@ mod index;
 mod query;
 mod source;
 
+pub use adapters::programme_c::{
+    C01InputProjection, C03InputProjection, C04InputProjection, C05InputProjection,
+    C06InputProjection, FirmwareComponentEvidence, PartitionEvidence, PartitionEvidenceInput,
+    firmware_evidence_document, from_c01_partition_report, from_c03_android_report,
+    from_c04_apple_report, from_c05_mediatek_report, from_c06_firmware_report,
+    partition_evidence_document,
+};
 pub use error::D03Error;
 pub use evidence::{CitationEvidence, KnowledgeLocator};
 pub use index::{

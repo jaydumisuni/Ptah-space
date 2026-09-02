@@ -2,10 +2,14 @@
 
 use ptah_identifiers::EntityRef;
 use ptah_knowledge_search::{
-    AnchoredTextInput, CitationEvidence, D03Error, KnowledgeField, KnowledgeIndex, KnowledgeLimits,
-    KnowledgeLocator, KnowledgeSearchDocument, KnowledgeSearchDomain, KnowledgeSourceClass,
-    KnowledgeSourceRevision, KnowledgeSourceRevisionInput, KnowledgeTextQuery,
-    require_knowledge_schema, validate_current_source,
+    AnchoredTextInput, C01InputProjection, C03InputProjection, C04InputProjection,
+    C05InputProjection, C06InputProjection, CitationEvidence, D03Error, FirmwareComponentEvidence,
+    KnowledgeField, KnowledgeIndex, KnowledgeLimits, KnowledgeLocator, KnowledgeSearchDocument,
+    KnowledgeSearchDomain, KnowledgeSourceClass, KnowledgeSourceRevision,
+    KnowledgeSourceRevisionInput, KnowledgeTextQuery, PartitionEvidence, PartitionEvidenceInput,
+    firmware_evidence_document, from_c01_partition_report, from_c03_android_report,
+    from_c04_apple_report, from_c05_mediatek_report, from_c06_firmware_report,
+    partition_evidence_document, require_knowledge_schema, validate_current_source,
 };
 
 const HASH_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -13,6 +17,16 @@ const HASH_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
 fn reference(kind: &str) -> EntityRef {
     EntityRef::new(kind).expect("valid reference")
+}
+
+fn document_source(document: &KnowledgeSearchDocument) -> &KnowledgeSourceRevision {
+    match document {
+        KnowledgeSearchDocument::ObjectMetadata { source, .. }
+        | KnowledgeSearchDocument::B03DocumentText { source, .. }
+        | KnowledgeSearchDocument::SourceSymbols { source, .. }
+        | KnowledgeSearchDocument::FirmwareFields { source, .. }
+        | KnowledgeSearchDocument::PartitionFields { source, .. } => source,
+    }
 }
 
 fn source(class: KnowledgeSourceClass) -> KnowledgeSourceRevision {
@@ -365,5 +379,227 @@ fn ranking_changes_do_not_change_source_or_citation_truth() {
     assert_eq!(
         broad.rows[0].citations[0].source.content_sha256,
         narrow.rows[0].citations[0].source.content_sha256
+    );
+}
+
+#[test]
+fn same_source_firmware_and_partition_evidence_share_one_private_b07_metadata_document() {
+    let workspace = reference("core.workspace");
+    let source = source_in(&workspace, KnowledgeSourceClass::FirmwareManifest, HASH_A);
+    let firmware = firmware_evidence_document(
+        source.clone(),
+        &[FirmwareComponentEvidence::new(
+            "boot.img",
+            Some(HASH_B.to_owned()),
+            Some((4096, 8192)),
+            "c03.component",
+        )
+        .expect("firmware evidence")],
+    )
+    .expect("firmware document");
+    let partition = partition_evidence_document(
+        source.clone(),
+        &[PartitionEvidence::new(PartitionEvidenceInput {
+            name: Some("system".to_owned()),
+            index: Some("1".to_owned()),
+            byte_start: 8192,
+            byte_end_exclusive: 16384,
+            first_lba: Some(16),
+            last_lba_inclusive: Some(31),
+            storage: Some("UFS".to_owned()),
+            physical_partition: Some(0),
+            evidence_source: "c01.partition".to_owned(),
+        })
+        .expect("partition evidence")],
+    )
+    .expect("partition document");
+
+    let mut index = KnowledgeIndex::new(KnowledgeLimits::default()).expect("index");
+    index
+        .rebuild(&[firmware, partition])
+        .expect("same-source rebuild");
+
+    let firmware_hits = index
+        .search(
+            &KnowledgeTextQuery::new(
+                workspace.clone(),
+                "boot",
+                vec![KnowledgeSearchDomain::Firmware],
+                10,
+            )
+            .expect("query"),
+        )
+        .expect("firmware search");
+    assert_eq!(firmware_hits.rows.len(), 1);
+    assert!(
+        firmware_hits.rows[0]
+            .citations
+            .iter()
+            .any(|citation| matches!(
+                citation.locator,
+                KnowledgeLocator::FirmwareComponent { ref component } if component == "boot.img"
+            ))
+    );
+
+    let partition_hits = index
+        .search(
+            &KnowledgeTextQuery::new(
+                workspace,
+                "system",
+                vec![KnowledgeSearchDomain::Partition],
+                10,
+            )
+            .expect("query"),
+        )
+        .expect("partition search");
+    assert_eq!(partition_hits.rows.len(), 1);
+    assert!(
+        partition_hits.rows[0]
+            .citations
+            .iter()
+            .any(|citation| matches!(
+                citation.locator,
+                KnowledgeLocator::PartitionRange {
+                    ref name,
+                    byte_start: 8192,
+                    byte_end_exclusive: 16384
+                } if name.as_deref() == Some("system")
+            ))
+    );
+}
+
+#[test]
+fn programme_c_evidence_types_do_not_expose_write_semantics() {
+    let partition = PartitionEvidence::new(PartitionEvidenceInput {
+        name: Some("boot".to_owned()),
+        index: Some("SYS0".to_owned()),
+        byte_start: 0x1000,
+        byte_end_exclusive: 0x2000,
+        first_lba: None,
+        last_lba_inclusive: None,
+        storage: Some("EMMC".to_owned()),
+        physical_partition: None,
+        evidence_source: "c05.scatter".to_owned(),
+    })
+    .expect("partition");
+    let json = serde_json::to_string(&partition).expect("serialize");
+    for forbidden in [
+        "is_download",
+        "flash",
+        "erase",
+        "write",
+        "programmer",
+        "fdl",
+    ] {
+        assert!(!json.to_ascii_lowercase().contains(forbidden));
+    }
+}
+
+#[test]
+fn programme_c_projection_contracts_bind_source_digest_and_remain_derived() {
+    let workspace = reference("core.workspace");
+    let source = source_in(&workspace, KnowledgeSourceClass::FirmwareManifest, HASH_A);
+    let partition = PartitionEvidence::new(PartitionEvidenceInput {
+        name: Some("system".to_owned()),
+        index: Some("1".to_owned()),
+        byte_start: 4096,
+        byte_end_exclusive: 8192,
+        first_lba: Some(8),
+        last_lba_inclusive: Some(15),
+        storage: Some("UFS".to_owned()),
+        physical_partition: Some(0),
+        evidence_source: "c01.partition".to_owned(),
+    })
+    .expect("partition");
+    let firmware = FirmwareComponentEvidence::new(
+        "boot.img",
+        Some(HASH_B.to_owned()),
+        Some((8192, 12288)),
+        "c03.component",
+    )
+    .expect("firmware")
+    .with_manifest_sha256(HASH_B)
+    .expect("manifest binding");
+
+    let c01 = C01InputProjection {
+        source_sha256: HASH_A.to_owned(),
+        partitions: vec![partition.clone()],
+    };
+    let c03 = C03InputProjection {
+        source_sha256: HASH_A.to_owned(),
+        firmware: vec![firmware.clone()],
+        partitions: vec![partition.clone()],
+    };
+    let c04 = C04InputProjection {
+        source_sha256: HASH_A.to_owned(),
+        firmware: vec![firmware.clone()],
+    };
+    let c05 = C05InputProjection {
+        source_sha256: HASH_A.to_owned(),
+        firmware: vec![firmware.clone()],
+        partitions: vec![partition.clone()],
+    };
+    let c06 = C06InputProjection {
+        source_sha256: HASH_A.to_owned(),
+        firmware: vec![firmware],
+        partitions: vec![partition],
+    };
+
+    for docs in [
+        from_c01_partition_report(source.clone(), &c01).expect("c01"),
+        from_c03_android_report(source.clone(), &c03).expect("c03"),
+        from_c04_apple_report(source.clone(), &c04).expect("c04"),
+        from_c05_mediatek_report(source.clone(), &c05).expect("c05"),
+        from_c06_firmware_report(source.clone(), &c06).expect("c06"),
+    ] {
+        assert!(!docs.is_empty());
+        assert!(docs.iter().all(|doc| document_source(doc) == &source));
+    }
+
+    let mut stale = c01.clone();
+    stale.source_sha256 = HASH_B.to_owned();
+    assert_eq!(
+        from_c01_partition_report(source, &stale),
+        Err(D03Error::SourceDigestMismatch)
+    );
+}
+
+#[test]
+fn c03_manifest_binding_is_explicit_and_search_citation_stays_source_bound() {
+    let workspace = reference("core.workspace");
+    let source = source_in(&workspace, KnowledgeSourceClass::FirmwareManifest, HASH_A);
+    let component =
+        FirmwareComponentEvidence::new("system", Some(HASH_B.to_owned()), None, "c03.ota_manifest")
+            .expect("component")
+            .with_manifest_sha256(HASH_B)
+            .expect("manifest binding");
+    assert_eq!(component.manifest_sha256.as_deref(), Some(HASH_B));
+
+    let projection = C03InputProjection {
+        source_sha256: HASH_A.to_owned(),
+        firmware: vec![component],
+        partitions: Vec::new(),
+    };
+    let docs = from_c03_android_report(source.clone(), &projection).expect("projection");
+    let mut index = KnowledgeIndex::new(KnowledgeLimits::default()).expect("index");
+    index.rebuild(&docs).expect("rebuild");
+    let result = index
+        .search(
+            &KnowledgeTextQuery::new(
+                workspace,
+                "system",
+                vec![KnowledgeSearchDomain::Firmware],
+                10,
+            )
+            .expect("query"),
+        )
+        .expect("search");
+    assert_eq!(result.rows.len(), 1);
+    assert!(!result.authoritative);
+    assert!(
+        result.rows[0]
+            .citations
+            .iter()
+            .all(|citation| citation.source == source)
     );
 }

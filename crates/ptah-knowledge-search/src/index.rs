@@ -231,10 +231,11 @@ impl KnowledgeIndex {
         if docs.len() > self.limits.max_sources.saturating_mul(5) {
             return Err(D03Error::InvalidIndexInput("document limit"));
         }
+        let normalized = normalize_documents(docs, self.limits)?;
         let mut documents = BTreeMap::new();
         let mut sources = BTreeMap::new();
-        for doc in docs {
-            validate_document(doc, self.limits)?;
+        for doc in normalized {
+            validate_document(&doc, self.limits)?;
             let source_key = source_key(doc.source())?;
             match sources.get(&source_key) {
                 Some(existing) if existing != doc.source() => {
@@ -244,14 +245,13 @@ impl KnowledgeIndex {
                     sources.insert(source_key.clone(), doc.source().clone());
                 }
             }
-            let key = document_key(doc)?;
-            if documents.insert(key, doc.clone()).is_some() {
+            let key = document_key(&doc)?;
+            if documents.insert(key, doc).is_some() {
                 return Err(D03Error::InvalidIndexInput("duplicate document"));
             }
         }
-        let revision = self
-            .adapter
-            .rebuild(documents.values().cloned().collect::<Vec<_>>().as_slice())?;
+        let indexed = documents.values().cloned().collect::<Vec<_>>();
+        let revision = self.adapter.rebuild(&indexed)?;
         self.documents = documents;
         self.sources = sources;
         Ok(KnowledgeIndexRevision {
@@ -281,19 +281,19 @@ impl KnowledgeIndex {
                 continue;
             }
             let source = document.source().clone();
-            let citations = hit
-                .matches
-                .iter()
-                .map(|matched| citation_for_match(document, matched, &response.index))
-                .collect::<Result<Vec<_>, _>>()?;
+            let mut citations = Vec::new();
+            let mut values = Vec::new();
+            for matched in &hit.matches {
+                if let Some(citation) =
+                    citation_for_match(document, matched, &response.index, &request.domains)?
+                {
+                    values.push(KnowledgeValue::Text(matched.value.clone()));
+                    citations.push(citation);
+                }
+            }
             if citations.is_empty() {
                 continue;
             }
-            let values = hit
-                .matches
-                .iter()
-                .map(|matched| KnowledgeValue::Text(matched.value.clone()))
-                .collect();
             rows.push(KnowledgeResultRow { values, citations });
             let source_key = source_key(&source)?;
             if seen_sources.insert(source_key) {
@@ -310,6 +310,91 @@ impl KnowledgeIndex {
             authoritative: false,
         })
     }
+}
+
+fn normalize_documents(
+    docs: &[KnowledgeSearchDocument],
+    limits: KnowledgeLimits,
+) -> Result<Vec<KnowledgeSearchDocument>, D03Error> {
+    let mut merged = BTreeMap::<String, KnowledgeSearchDocument>::new();
+    for doc in docs {
+        validate_document(doc, limits)?;
+        let key = match doc {
+            KnowledgeSearchDocument::ObjectMetadata { .. }
+            | KnowledgeSearchDocument::FirmwareFields { .. }
+            | KnowledgeSearchDocument::PartitionFields { .. } => {
+                format!("{}|object_metadata", source_key(doc.source())?)
+            }
+            _ => document_key(doc)?,
+        };
+        if matches!(
+            doc,
+            KnowledgeSearchDocument::ObjectMetadata { .. }
+                | KnowledgeSearchDocument::FirmwareFields { .. }
+                | KnowledgeSearchDocument::PartitionFields { .. }
+        ) {
+            merge_metadata_document(&mut merged, key, doc)?;
+        } else if merged.insert(key, doc.clone()).is_some() {
+            return Err(D03Error::InvalidIndexInput("duplicate document"));
+        }
+    }
+    for doc in merged.values() {
+        validate_document(doc, limits)?;
+    }
+    Ok(merged.into_values().collect())
+}
+
+fn merge_metadata_document(
+    merged: &mut BTreeMap<String, KnowledgeSearchDocument>,
+    key: String,
+    incoming: &KnowledgeSearchDocument,
+) -> Result<(), D03Error> {
+    let source = incoming.source().clone();
+    let entry = merged
+        .entry(key)
+        .or_insert_with(|| KnowledgeSearchDocument::ObjectMetadata {
+            source: source.clone(),
+            filename: None,
+            metadata: Vec::new(),
+        });
+    let KnowledgeSearchDocument::ObjectMetadata {
+        source: existing_source,
+        filename,
+        metadata,
+    } = entry
+    else {
+        return Err(D03Error::InvalidIndexInput("metadata merge target"));
+    };
+    if existing_source != &source {
+        return Err(D03Error::InvalidIndexInput("conflicting source binding"));
+    }
+    match incoming {
+        KnowledgeSearchDocument::ObjectMetadata {
+            filename: incoming_filename,
+            metadata: fields,
+            ..
+        } => {
+            if let Some(incoming_filename) = incoming_filename {
+                if filename
+                    .as_ref()
+                    .is_some_and(|existing| existing != incoming_filename)
+                {
+                    return Err(D03Error::InvalidIndexInput("conflicting filename"));
+                }
+                *filename = Some(incoming_filename.clone());
+            }
+            metadata.extend(fields.iter().cloned());
+        }
+        KnowledgeSearchDocument::FirmwareFields { fields, .. }
+        | KnowledgeSearchDocument::PartitionFields { fields, .. } => {
+            metadata.extend(fields.iter().cloned());
+        }
+        KnowledgeSearchDocument::B03DocumentText { .. }
+        | KnowledgeSearchDocument::SourceSymbols { .. } => {
+            return Err(D03Error::InvalidIndexInput("non-metadata merge input"));
+        }
+    }
+    Ok(())
 }
 
 fn validate_document(
@@ -332,7 +417,7 @@ fn validate_document(
             if let Some(name) = filename {
                 require_bounded(name, "filename", limits.max_field_bytes)?;
             }
-            validate_fields(metadata, KnowledgeSearchDomain::Metadata, limits)
+            validate_metadata_fields(metadata, limits)
         }
         KnowledgeSearchDocument::B03DocumentText { source, spans } => {
             let expected = source
@@ -369,6 +454,35 @@ fn validate_document(
     }
 }
 
+fn validate_metadata_fields(
+    fields: &[KnowledgeField],
+    limits: KnowledgeLimits,
+) -> Result<(), D03Error> {
+    if fields.len() > limits.max_fields_per_source {
+        return Err(D03Error::InvalidIndexInput("field count"));
+    }
+    for field in fields {
+        if !matches!(
+            field.domain(),
+            KnowledgeSearchDomain::Metadata
+                | KnowledgeSearchDomain::Firmware
+                | KnowledgeSearchDomain::Partition
+        ) {
+            return Err(D03Error::InvalidIndexInput("metadata field domain"));
+        }
+        require_bounded(field.value(), "field value", limits.max_field_bytes)?;
+        require_bounded(
+            field.evidence_source(),
+            "evidence source",
+            limits.max_field_bytes,
+        )?;
+        if let Some(key) = field.key() {
+            require_bounded(key, "field key", limits.max_field_bytes)?;
+        }
+    }
+    Ok(())
+}
+
 fn validate_fields(
     fields: &[KnowledgeField],
     expected: KnowledgeSearchDomain,
@@ -400,7 +514,10 @@ fn projection_requested(kind: B07ProjectionKind, domains: &[KnowledgeSearchDomai
             (kind, domain),
             (
                 B07ProjectionKind::ObjectMetadata,
-                KnowledgeSearchDomain::Filename | KnowledgeSearchDomain::Metadata,
+                KnowledgeSearchDomain::Filename
+                    | KnowledgeSearchDomain::Metadata
+                    | KnowledgeSearchDomain::Firmware
+                    | KnowledgeSearchDomain::Partition,
             ) | (
                 B07ProjectionKind::DocumentText,
                 KnowledgeSearchDomain::DocumentText
@@ -420,7 +537,8 @@ fn citation_for_match(
     document: &KnowledgeSearchDocument,
     matched: &crate::adapters::b07::B07Match,
     index: &crate::adapters::b07::B07IndexRevision,
-) -> Result<CitationEvidence, D03Error> {
+    requested_domains: &[KnowledgeSearchDomain],
+) -> Result<Option<CitationEvidence>, D03Error> {
     let locator = match document {
         KnowledgeSearchDocument::SourceSymbols { .. } => KnowledgeLocator::SourceSymbol {
             symbol: matched.value.clone(),
@@ -443,6 +561,9 @@ fn citation_for_match(
             filename, metadata, ..
         } => {
             if matched.domain == KnowledgeSearchDomain::Filename {
+                if !requested_domains.contains(&KnowledgeSearchDomain::Filename) {
+                    return Ok(None);
+                }
                 if filename.as_deref() != Some(matched.value.as_str()) {
                     return Err(D03Error::InvalidCitationBinding("filename mismatch"));
                 }
@@ -450,12 +571,18 @@ fn citation_for_match(
                     key: Some("filename".to_owned()),
                 }
             } else {
-                matching_field(metadata, matched)?.locator().clone()
+                let Some(field) = matching_field(metadata, matched, requested_domains)? else {
+                    return Ok(None);
+                };
+                field.locator().clone()
             }
         }
         KnowledgeSearchDocument::FirmwareFields { fields, .. }
         | KnowledgeSearchDocument::PartitionFields { fields, .. } => {
-            matching_field(fields, matched)?.locator().clone()
+            let Some(field) = matching_field(fields, matched, requested_domains)? else {
+                return Ok(None);
+            };
+            field.locator().clone()
         }
     };
     let mut citation = CitationEvidence::new(
@@ -466,25 +593,27 @@ fn citation_for_match(
     )?;
     citation.index_revision = Some(index.revision);
     citation.index_sha256 = Some(index.content_sha256.clone());
-    Ok(citation)
+    Ok(Some(citation))
 }
 
 fn matching_field<'a>(
     fields: &'a [KnowledgeField],
     matched: &crate::adapters::b07::B07Match,
-) -> Result<&'a KnowledgeField, D03Error> {
+    requested_domains: &[KnowledgeSearchDomain],
+) -> Result<Option<&'a KnowledgeField>, D03Error> {
     let mut values = fields.iter().filter(|field| {
-        field.value() == matched.value
+        requested_domains.contains(&field.domain())
+            && field.value() == matched.value
             && field.key() == matched.key.as_deref()
             && field.evidence_source() == matched.evidence_source
     });
-    let first = values
-        .next()
-        .ok_or(D03Error::InvalidCitationBinding("field locator missing"))?;
+    let Some(first) = values.next() else {
+        return Ok(None);
+    };
     if values.next().is_some() {
         return Err(D03Error::InvalidCitationBinding("field locator ambiguous"));
     }
-    Ok(first)
+    Ok(Some(first))
 }
 
 fn b03_key(span: &AnchoredTextInput) -> Option<String> {

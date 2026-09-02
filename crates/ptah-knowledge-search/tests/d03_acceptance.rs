@@ -2,16 +2,19 @@
 
 use ptah_identifiers::EntityRef;
 use ptah_knowledge_search::{
-    AnchoredTextInput, C01InputProjection, C03InputProjection, C04InputProjection,
+    AggregateKind, AnchoredTextInput, C01InputProjection, C03InputProjection, C04InputProjection,
     C05InputProjection, C06InputProjection, CellValue, CitationEvidence, ColumnRef, ColumnType,
-    D03Error, FirmwareComponentEvidence, KnowledgeField, KnowledgeIndex, KnowledgeLimits,
-    KnowledgeLocator, KnowledgeSearchDocument, KnowledgeSearchDomain, KnowledgeSourceClass,
-    KnowledgeSourceRevision, KnowledgeSourceRevisionInput, KnowledgeTextQuery, PartitionEvidence,
-    PartitionEvidenceInput, StructuredOrder, StructuredPredicate, StructuredQuery,
-    firmware_evidence_document, from_c01_partition_report, from_c03_android_report,
-    from_c04_apple_report, from_c05_mediatek_report, from_c06_firmware_report, ingest_csv,
-    ingest_json, ingest_json_lines, partition_evidence_document, query_dataset,
-    require_knowledge_schema, validate_current_source,
+    D03Error, DatabaseColumnObservation, DatabaseConnectionReference, DatabaseQueryProvider,
+    DatabaseQueryResult, DatabaseSchemaObservation, DatabaseSnapshotEvidence,
+    DatabaseTableObservation, FirmwareComponentEvidence, JoinKind, JoinSpec, KnowledgeField,
+    KnowledgeIndex, KnowledgeLimits, KnowledgeLocator, KnowledgeSearchDocument,
+    KnowledgeSearchDomain, KnowledgeSourceClass, KnowledgeSourceRevision,
+    KnowledgeSourceRevisionInput, KnowledgeTextQuery, PartitionEvidence, PartitionEvidenceInput,
+    RelationalExpr, RelationalOrder, RelationalPredicate, RelationalQueryPlan, SelectItem,
+    StructuredOrder, StructuredPredicate, StructuredQuery, TableRef, firmware_evidence_document,
+    from_c01_partition_report, from_c03_android_report, from_c04_apple_report,
+    from_c05_mediatek_report, from_c06_firmware_report, ingest_csv, ingest_json, ingest_json_lines,
+    partition_evidence_document, query_dataset, require_knowledge_schema, validate_current_source,
 };
 
 const HASH_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -722,4 +725,235 @@ fn structured_query_filter_order_projection_and_limit_are_deterministic() {
     let full = query_dataset(&snapshot, &full_query, KnowledgeLimits::default()).expect("full");
     assert!(full.complete);
     assert_ne!(result.query_plan_sha256, full.query_plan_sha256);
+}
+
+fn database_connection(read_only: bool) -> DatabaseConnectionReference {
+    DatabaseConnectionReference {
+        provider_kind: "sqlite".to_owned(),
+        source_ref: reference("knowledge.source"),
+        object_revision_ref: reference("object.revision"),
+        expected_sha256: HASH_A.to_owned(),
+        logical_name: "fixture_db".to_owned(),
+        credential_ref: Some(reference("core.evidence")),
+        read_only,
+    }
+}
+
+fn base_relational_plan() -> RelationalQueryPlan {
+    RelationalQueryPlan {
+        from: TableRef {
+            name: "users".to_owned(),
+            alias: Some("u".to_owned()),
+        },
+        joins: Vec::new(),
+        projection: vec![SelectItem {
+            expr: RelationalExpr::Column(ColumnRef {
+                table: Some("u".to_owned()),
+                column: "id".to_owned(),
+            }),
+            alias: Some("user_id".to_owned()),
+            aggregate: None,
+        }],
+        predicate: Some(RelationalPredicate::Ge(
+            RelationalExpr::Column(ColumnRef {
+                table: Some("u".to_owned()),
+                column: "id".to_owned(),
+            }),
+            RelationalExpr::Value(CellValue::Integer(1)),
+        )),
+        group_by: Vec::new(),
+        order: vec![RelationalOrder {
+            expr: RelationalExpr::Column(ColumnRef {
+                table: Some("u".to_owned()),
+                column: "id".to_owned(),
+            }),
+            descending: false,
+        }],
+        limit: 10,
+        offset: 0,
+    }
+}
+
+#[test]
+fn database_connection_reference_is_read_only_and_contains_no_raw_credentials() {
+    let connection = database_connection(true);
+    connection
+        .validate()
+        .expect("read-only database connection reference");
+    let json = serde_json::to_string(&connection).expect("serialize connection");
+    let lower = json.to_ascii_lowercase();
+    for forbidden in ["password", "secret", "token", "dsn"] {
+        assert!(!lower.contains(forbidden));
+    }
+    assert!(lower.contains("credential_ref"));
+
+    let mut writable = connection.clone();
+    writable.read_only = false;
+    assert!(matches!(
+        writable.validate(),
+        Err(D03Error::ReadOnlyPolicyViolation(_))
+    ));
+
+    let mut wrong_revision = connection.clone();
+    wrong_revision.object_revision_ref = reference("object.object");
+    assert!(matches!(
+        wrong_revision.validate(),
+        Err(D03Error::InvalidRelationalPlan(_))
+    ));
+
+    let mut bad_hash = connection;
+    bad_hash.expected_sha256 = "ABC".repeat(21) + "A";
+    assert!(matches!(
+        bad_hash.validate(),
+        Err(D03Error::InvalidRelationalPlan(_))
+    ));
+}
+
+#[test]
+fn relational_plan_validation_rejects_unsafe_or_unbounded_shapes() {
+    let limits = KnowledgeLimits::default();
+    let plan = base_relational_plan();
+    plan.validate(limits).expect("valid relational plan");
+    let first_digest = plan.query_plan_sha256().expect("digest");
+    assert_eq!(first_digest.len(), 64);
+    assert_eq!(
+        first_digest,
+        plan.query_plan_sha256().expect("stable digest")
+    );
+
+    let mut zero = plan.clone();
+    zero.limit = 0;
+    assert!(matches!(
+        zero.validate(limits),
+        Err(D03Error::InvalidRelationalPlan(_))
+    ));
+
+    let mut oversized = plan.clone();
+    oversized.limit = limits.max_results + 1;
+    assert!(matches!(
+        oversized.validate(limits),
+        Err(D03Error::InvalidRelationalPlan(_))
+    ));
+
+    let mut empty_projection = plan.clone();
+    empty_projection.projection.clear();
+    assert!(matches!(
+        empty_projection.validate(limits),
+        Err(D03Error::InvalidRelationalPlan(_))
+    ));
+
+    let mut duplicate_alias = plan.clone();
+    duplicate_alias.projection.push(SelectItem {
+        expr: RelationalExpr::Value(CellValue::Integer(1)),
+        alias: Some("user_id".to_owned()),
+        aggregate: Some(AggregateKind::Count),
+    });
+    assert!(matches!(
+        duplicate_alias.validate(limits),
+        Err(D03Error::InvalidRelationalPlan(_))
+    ));
+
+    let mut unsafe_identifier = plan.clone();
+    unsafe_identifier.from.name = "users;drop".to_owned();
+    assert!(matches!(
+        unsafe_identifier.validate(limits),
+        Err(D03Error::InvalidRelationalPlan(_))
+    ));
+
+    let mut too_many_joins = plan.clone();
+    too_many_joins.joins = (0..=limits.max_joins)
+        .map(|index| JoinSpec {
+            kind: JoinKind::Inner,
+            table: TableRef {
+                name: format!("join_{index}"),
+                alias: Some(format!("j{index}")),
+            },
+            on: RelationalPredicate::Eq(
+                RelationalExpr::Value(CellValue::Integer(1)),
+                RelationalExpr::Value(CellValue::Integer(1)),
+            ),
+        })
+        .collect();
+    assert!(matches!(
+        too_many_joins.validate(limits),
+        Err(D03Error::InvalidRelationalPlan(_))
+    ));
+
+    let mut too_many_predicates = plan;
+    too_many_predicates.predicate = Some(RelationalPredicate::And(
+        (0..=limits.max_predicates)
+            .map(|_| {
+                RelationalPredicate::Eq(
+                    RelationalExpr::Value(CellValue::Integer(1)),
+                    RelationalExpr::Value(CellValue::Integer(1)),
+                )
+            })
+            .collect(),
+    ));
+    assert!(matches!(
+        too_many_predicates.validate(limits),
+        Err(D03Error::InvalidRelationalPlan(_))
+    ));
+}
+
+#[test]
+fn database_observation_and_provider_contract_are_provider_neutral() {
+    struct FixtureProvider;
+
+    impl DatabaseQueryProvider for FixtureProvider {
+        fn inspect_schema(
+            &self,
+            _connection: &DatabaseConnectionReference,
+        ) -> Result<DatabaseSchemaObservation, D03Error> {
+            Err(D03Error::DatabaseProviderUnavailable("fixture".to_owned()))
+        }
+
+        fn snapshot_evidence(
+            &self,
+            _connection: &DatabaseConnectionReference,
+        ) -> Result<DatabaseSnapshotEvidence, D03Error> {
+            Err(D03Error::DatabaseProviderUnavailable("fixture".to_owned()))
+        }
+
+        fn execute(
+            &self,
+            _connection: &DatabaseConnectionReference,
+            _plan: &RelationalQueryPlan,
+            _limits: KnowledgeLimits,
+        ) -> Result<DatabaseQueryResult, D03Error> {
+            Err(D03Error::DatabaseProviderUnavailable("fixture".to_owned()))
+        }
+    }
+
+    let provider: &dyn DatabaseQueryProvider = &FixtureProvider;
+    assert!(matches!(
+        provider.snapshot_evidence(&database_connection(true)),
+        Err(D03Error::DatabaseProviderUnavailable(_))
+    ));
+    let source = source_in(
+        &reference("core.workspace"),
+        KnowledgeSourceClass::Database,
+        HASH_A,
+    );
+    let snapshot = DatabaseSnapshotEvidence {
+        source,
+        schema_sha256: HASH_B.to_owned(),
+        provider_kind: "sqlite".to_owned(),
+    };
+    snapshot.validate().expect("snapshot evidence");
+    let schema = DatabaseSchemaObservation {
+        snapshot,
+        tables: vec![DatabaseTableObservation {
+            name: "users".to_owned(),
+            columns: vec![DatabaseColumnObservation {
+                name: "id".to_owned(),
+                declared_type: "INTEGER".to_owned(),
+                nullable: false,
+                primary_key: true,
+            }],
+        }],
+    };
+    schema
+        .validate(KnowledgeLimits::default())
+        .expect("schema observation");
 }

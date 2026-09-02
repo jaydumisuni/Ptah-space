@@ -33,6 +33,21 @@ pub enum D03Error {
     /// Structured dataset ingestion/query failed mechanically.
     #[error("D03 structured data failure: {0}")]
     StructuredData(String),
+    /// Relational connection or query plan is invalid.
+    #[error("D03 invalid relational plan: {0}")]
+    InvalidRelationalPlan(String),
+    /// Database operation violates the required read-only mode.
+    #[error("D03 read-only policy violation: {0}")]
+    ReadOnlyPolicyViolation(String),
+    /// Requested database provider is unavailable.
+    #[error("D03 database provider unavailable: {0}")]
+    DatabaseProviderUnavailable(String),
+    /// Exact database bytes differ from the bound snapshot.
+    #[error("D03 database snapshot mismatch")]
+    DatabaseSnapshotMismatch,
+    /// Database provider failed mechanically.
+    #[error("D03 database provider failure: {0}")]
+    DatabaseProvider(String),
     /// Canonical serialization used for deterministic derived identity failed.
     #[error("D03 serialization failure: {0}")]
     Serialization(String),

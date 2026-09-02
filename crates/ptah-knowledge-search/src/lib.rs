@@ -2,6 +2,7 @@
 //! D03 Knowledge, Data and Search v2 neutral derived-query substrate.
 
 mod adapters;
+mod database;
 mod error;
 mod evidence;
 mod index;
@@ -16,6 +17,11 @@ pub use adapters::programme_c::{
     from_c04_apple_report, from_c05_mediatek_report, from_c06_firmware_report,
     partition_evidence_document,
 };
+pub use database::{
+    DatabaseColumnObservation, DatabaseConnectionReference, DatabaseQueryProvider,
+    DatabaseQueryResult, DatabaseSchemaObservation, DatabaseSnapshotEvidence,
+    DatabaseTableObservation,
+};
 pub use error::D03Error;
 pub use evidence::{CitationEvidence, KnowledgeLocator};
 pub use index::{
@@ -23,8 +29,9 @@ pub use index::{
     KnowledgeSearchDocument,
 };
 pub use query::{
-    ColumnRef, KnowledgeResultRow, KnowledgeResultSet, KnowledgeSearchDomain, KnowledgeTextQuery,
-    KnowledgeValue,
+    AggregateKind, ColumnRef, JoinKind, JoinSpec, KnowledgeResultRow, KnowledgeResultSet,
+    KnowledgeSearchDomain, KnowledgeTextQuery, KnowledgeValue, RelationalExpr, RelationalOrder,
+    RelationalPredicate, RelationalQueryPlan, SelectItem, TableRef,
 };
 pub use source::{
     KnowledgeSourceClass, KnowledgeSourceRevision, KnowledgeSourceRevisionInput,

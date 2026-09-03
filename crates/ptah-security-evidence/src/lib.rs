@@ -1,9 +1,15 @@
 #![forbid(unsafe_code)]
 #![doc = "D07 provider-neutral security evidence and reproduction composition."]
 
+mod assessment;
 mod error;
 mod store;
 
+pub use assessment::{
+    AssessmentAdmission, AssessmentAdmissionRequest, AssessmentAuthorization, AssessmentPlan,
+    AssessmentRunMapping, AssessmentTarget, CoverageProjection, RawReportAlias, ScannerRevision,
+    SecurityTestClass,
+};
 pub use error::D07Error;
 pub use store::SecurityEvidenceStore;
 

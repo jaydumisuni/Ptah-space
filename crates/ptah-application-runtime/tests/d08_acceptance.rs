@@ -64,12 +64,12 @@ fn attempt_context(compatibility: &NodeLocalCompatibility) -> AttemptContext {
     AttemptContext {
         node_ref: compatibility.node_ref.clone(),
         node_generation: compatibility.node_generation,
-        provider_ref: compatibility.provider_instance_ref.clone(),
+        provider_ref: entity("runtime.provider"),
         provider_generation: compatibility.provider_generation.value(),
         workload_generation: 2,
         connection_epoch: 3,
         facility_ref: entity("runtime.facility"),
-        producer_instance_ref: entity("runtime.producer_instance"),
+        producer_instance_ref: compatibility.provider_instance_ref.clone(),
         producer_version: String::from("d08-test"),
     }
 }

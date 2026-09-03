@@ -34,7 +34,7 @@ jobs:
               raise SystemExit('expected unused import shape not found exactly once')
           path.write_text(text.replace(old, new))
           PY
-          cargo fmt --all -- --check
+          cargo fmt --all
           git diff --check
       - name: Commit test-hygiene correction
         shell: bash

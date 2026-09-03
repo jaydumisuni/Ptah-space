@@ -19,9 +19,13 @@ ptah-provider-api = { path = "../ptah-provider-api", version = "=0.0.0-phase0c" 
 serde = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+ptah-archive-decomposition = { path = "../ptah-archive-decomposition", version = "=0.0.0-phase0c" }
+ptah-device-runtime = { path = "../ptah-device-runtime", version = "=0.0.0-phase0c" }
+
 [lib]
 path = "src/lib.rs"
 
 [[test]]
 name = "d08_acceptance"
-path = "tests/d08_acceptance.rs"
+path = "tests/d08_acceptance/mod.rs"

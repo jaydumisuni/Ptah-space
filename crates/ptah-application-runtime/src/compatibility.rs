@@ -253,7 +253,7 @@ pub struct RemoteNodeRequirement {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExecutionDisposition {
     /// Exact current local compatibility permits Node-local execution admission.
-    NodeLocalReady(NodeLocalCompatibility),
+    NodeLocalReady(Box<NodeLocalCompatibility>),
     /// Device-local execution is owned by an existing Device runtime such as C10.
     DeviceLocalReady,
     /// Execution cannot be admitted until Programme E supplies a compatible remote Node.
@@ -284,7 +284,7 @@ impl ExecutionDisposition {
                     return Err(D08Error::CompatibilityOperationMismatch);
                 }
                 compatibility.validate_at(now)?;
-                Ok(Self::NodeLocalReady(compatibility))
+                Ok(Self::NodeLocalReady(Box::new(compatibility)))
             }
             PlatformClass::Android => Ok(Self::Unknown),
             PlatformClass::WindowsNode

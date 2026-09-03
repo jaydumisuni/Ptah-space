@@ -34,7 +34,7 @@ jobs:
           count="$(cargo test -p ptah-application-runtime --test d08_acceptance -- --list 2>/dev/null | grep -c ': test$')"
           test "$count" -eq 12
           echo "D08_RUNTIME_CASES=$count"
-      - name: Strict D08 Clippy
+      - name: Strict D08 Clippy without suppressions
         run: cargo clippy -p ptah-application-runtime --all-targets -- -D warnings -W clippy::pedantic
       - name: Upload generated lockfile
         uses: actions/upload-artifact@v4

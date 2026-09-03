@@ -1,8 +1,8 @@
 use ptah_android_runtime::{
     ApplicationLaunchReadBack, ApplicationLaunchRequest,
     ApplicationSession as C10ApplicationSession, ApplicationSessionState as C10ApplicationState,
-    DeviceSession as C10DeviceSession, DeviceSessionRequest, PackageInstallRequest, PackageReadBack,
-    VerifiedPackageInstallation, admit_application_launch, admit_package_install,
+    DeviceSession as C10DeviceSession, DeviceSessionRequest, PackageInstallRequest,
+    PackageReadBack, VerifiedPackageInstallation, admit_application_launch, admit_package_install,
     open_device_session, verify_application_launch, verify_package_install,
 };
 use ptah_application_runtime::{
@@ -189,7 +189,10 @@ fn d08_19_verified_c10_pair_projects_full_android_availability() {
     .expect("verified C10 pair should project read-only");
 
     assert_eq!(projected.session_ref, application_session.session_ref);
-    assert_eq!(projected.application_ref, application_session.application_ref);
+    assert_eq!(
+        projected.application_ref,
+        application_session.application_ref
+    );
     assert_eq!(
         projected.application_revision_ref,
         application_session.application_revision_ref
@@ -269,10 +272,7 @@ fn d08_22_android_projection_is_read_only_and_preserves_c10_authority() {
     let mut stopped = application_session.clone();
     stopped.state = C10ApplicationState::Stopped;
     assert_eq!(
-        project_android_application_session(android_projection_request(
-            &device_session,
-            &stopped,
-        )),
+        project_android_application_session(android_projection_request(&device_session, &stopped,)),
         Err(D08Error::AndroidApplicationUnavailable)
     );
 }

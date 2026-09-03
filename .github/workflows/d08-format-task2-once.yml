@@ -1,0 +1,38 @@
+name: D08 Task2 One-Shot Rustfmt
+
+on:
+  push:
+    branches:
+      - d08-application-platform-expansion
+    paths:
+      - .github/workflows/d08-format-task2-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rustfmt-task2-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: d08-application-platform-expansion
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt
+      - name: Apply exact Rustfmt to D08 sources
+        run: cargo fmt --all
+      - name: Commit formatter-only test correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/ptah-application-runtime/tests/d08_acceptance.rs
+          if git diff --cached --quiet; then
+            echo "NO_FORMAT_DELTA"
+            exit 0
+          fi
+          git commit -m "style(d08): format task2 red cases"
+          git push origin HEAD:d08-application-platform-expansion

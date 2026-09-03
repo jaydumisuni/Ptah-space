@@ -25,7 +25,7 @@ jobs:
           components: rustfmt, clippy
       - name: Check D08 formatting
         run: cargo fmt --all -- --check
-      - name: Run D08 acceptance target
+      - name: Run D08 Task 2 acceptance target
         run: cargo test -p ptah-application-runtime --test d08_acceptance --locked
       - name: Prove D08 acceptance count
         shell: bash

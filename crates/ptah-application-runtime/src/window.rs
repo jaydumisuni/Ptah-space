@@ -1,6 +1,8 @@
 //! D08 canonical Application Window identity and observation validation.
 
-use crate::{ApplicationSessionLifecycle, ApplicationSessionProjection, D08Error, ensure_fresh_interval};
+use crate::{
+    ApplicationSessionLifecycle, ApplicationSessionProjection, D08Error, ensure_fresh_interval,
+};
 use ptah_identifiers::EntityRef;
 use ptah_provider_api::{EndpointAlias, ProviderGeneration};
 use serde::{Deserialize, Serialize};
@@ -145,7 +147,10 @@ pub fn apply_window_observation(
         .contains(&WindowStateClaim::Destroyed)
     {
         WindowLifecycle::Closed
-    } else if observation.state_claims.contains(&WindowStateClaim::Visible) {
+    } else if observation
+        .state_claims
+        .contains(&WindowStateClaim::Visible)
+    {
         WindowLifecycle::Visible
     } else if observation.state_claims.contains(&WindowStateClaim::Hidden)
         || observation
@@ -153,7 +158,10 @@ pub fn apply_window_observation(
             .contains(&WindowStateClaim::Minimized)
     {
         WindowLifecycle::Hidden
-    } else if observation.state_claims.contains(&WindowStateClaim::Unknown) {
+    } else if observation
+        .state_claims
+        .contains(&WindowStateClaim::Unknown)
+    {
         WindowLifecycle::Unknown
     } else {
         WindowLifecycle::Degraded

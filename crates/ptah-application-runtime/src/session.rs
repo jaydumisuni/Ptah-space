@@ -1,8 +1,8 @@
 //! D08 local Application Session preparation and read-back verification.
 
 use crate::{
-    ApplicationOperation, CompatibilityDecision, D08Error, DisplayLifecycle,
-    DisplaySessionProjection, NodeLocalCompatibility, WindowLifecycle, ApplicationWindowProjection,
+    ApplicationOperation, ApplicationWindowProjection, CompatibilityDecision, D08Error,
+    DisplayLifecycle, DisplaySessionProjection, NodeLocalCompatibility, WindowLifecycle,
 };
 use native_process::{ProcessRecord, ProcessState};
 use ptah_activity_runtime::AttemptContext;
@@ -300,8 +300,12 @@ pub fn verify_local_application_session(
 
     match preparing.launch_mode {
         LaunchMode::Graphical => {
-            let window = read_back.window.ok_or(D08Error::GraphicalReadinessMissing)?;
-            let display = read_back.display.ok_or(D08Error::GraphicalReadinessMissing)?;
+            let window = read_back
+                .window
+                .ok_or(D08Error::GraphicalReadinessMissing)?;
+            let display = read_back
+                .display
+                .ok_or(D08Error::GraphicalReadinessMissing)?;
             validate_graphical_window(&preparing, window, &read_back.observed_at)?;
             validate_graphical_display(&preparing, display, &read_back.observed_at)?;
             preparing.lifecycle = ApplicationSessionLifecycle::Running;

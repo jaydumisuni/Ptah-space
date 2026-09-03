@@ -6,13 +6,29 @@
 //! replace the lower-level Providers that own mechanical execution.
 
 mod compatibility;
+mod display;
 mod error;
+mod session;
+mod window;
 
 pub use compatibility::{
     ApplicationOperation, CompatibilityDecision, CompatibilityRequirement, ExecutionDisposition,
     NodeLocalCompatibility, PlatformClass, RemoteNodeRequirement, RequirementOutcome,
 };
+pub use display::{
+    DisplayLifecycle, DisplayObservation, DisplaySessionProjection, DisplaySessionRequest,
+    InputCapability, apply_display_observation, prepare_display_session,
+};
 pub use error::D08Error;
+pub use session::{
+    ApplicationAvailability, ApplicationSessionLifecycle, ApplicationSessionProjection, LaunchMode,
+    LocalLaunchRequest, LocalReadBack, SessionLocality, prepare_local_application_session,
+    verify_local_application_session,
+};
+pub use window::{
+    ApplicationWindowProjection, WindowLifecycle, WindowObservation, WindowStateClaim,
+    apply_window_observation, create_application_window,
+};
 
 /// Frozen Application schema identifier.
 pub const APPLICATION_SCHEMA_ID: &str = "urn:ptah:schema:application:application:0.1.0";

@@ -77,6 +77,15 @@ pub enum D08Error {
     /// Window/Display observation is expired, future-dated, or otherwise stale.
     #[error("D08 observation is stale")]
     StaleObservation,
+    /// C10 Device Session does not own the supplied Android Application Session.
+    #[error("D08 Android Device/Application Session binding mismatch")]
+    AndroidSessionMismatch,
+    /// C10 Provider instance/generation/connection epoch is not current across the Android pair.
+    #[error("D08 Android Provider context mismatch")]
+    AndroidProviderContextMismatch,
+    /// C10 Android Application Session is not verified visible/current enough for full availability.
+    #[error("D08 Android Application Session is unavailable")]
+    AndroidApplicationUnavailable,
     /// Canonical identity could not be constructed for a D08 projection.
     #[error("D08 canonical identity construction failed")]
     IdentityConstructionFailed,

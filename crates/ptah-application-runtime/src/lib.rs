@@ -5,12 +5,14 @@
 //! manufacture remote Node authority, reinterpret static package analysis as execution success, or
 //! replace the lower-level Providers that own mechanical execution.
 
+mod android;
 mod compatibility;
 mod display;
 mod error;
 mod session;
 mod window;
 
+pub use android::{AndroidProjectionRequest, project_android_application_session};
 pub use compatibility::{
     ApplicationOperation, CompatibilityDecision, CompatibilityRequirement, ExecutionDisposition,
     NodeLocalCompatibility, PlatformClass, RemoteNodeRequirement, RequirementOutcome,

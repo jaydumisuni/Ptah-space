@@ -30,6 +30,21 @@ pub enum D07Error {
     /// Coverage projection overclaims completeness.
     #[error("assessment coverage overclaims completeness")]
     CoverageOverclaim,
+    /// Finding confirmation requires explicit bounded review authority.
+    #[error("finding confirmation requires explicit bounded review")]
+    ReviewRequired,
+    /// Finding candidate is structurally incomplete or mechanically invalid.
+    #[error("invalid security finding draft")]
+    InvalidFindingDraft,
+    /// Claim lacks claimant, authority scope, subjects or evidence.
+    #[error("invalid bounded security claim")]
+    InvalidClaim,
+    /// Evidence Item lacks an exact content/digest/collector/A04 binding.
+    #[error("invalid security evidence binding")]
+    InvalidEvidenceBinding,
+    /// Evidence Bundle claims complete coverage beyond the retained assessment evidence.
+    #[error("security evidence bundle overclaims coverage")]
+    EvidenceCoverageOverclaim,
     /// Underlying A06 authority check failed.
     #[error("A06 authority rejection: {0}")]
     A06(String),

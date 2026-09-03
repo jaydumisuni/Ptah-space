@@ -290,3 +290,143 @@ fn raw_report_path_and_backend_run_id_are_aliases_not_identity() {
     assert!(!alias.grants_identity());
     assert!(!alias.grants_authority());
 }
+
+use ptah_security_evidence::{
+    ClaimProjection, CorrelationRelation, EvidenceBundleProjection, EvidenceCoverage,
+    EvidenceItemBinding, FindingDraft, ObservationCorrelation, ObservationProjection,
+};
+
+#[test]
+fn observation_is_not_a_finding_identity() {
+    let observation = ObservationProjection {
+        observation_ref: er("security.observation"),
+        subject_refs: vec![er("core.object_revision")],
+        evidence_refs: vec![er("security.evidence_item")],
+        scanner_aliases: vec!["scanner-rule-7".into()],
+        observed_facts: vec!["bounded fact".into()],
+    };
+    assert!(observation.finding_identity().is_none());
+}
+
+#[test]
+fn scanner_candidate_requires_explicit_bounded_review_before_confirmation() {
+    let observation_ref = er("security.observation");
+    let draft = FindingDraft {
+        subject_refs: vec![er("core.object_revision")],
+        observation_refs: vec![observation_ref.clone()],
+        correlations: vec![ObservationCorrelation {
+            observation_ref,
+            relation: CorrelationRelation::Supports,
+        }],
+        severity: "high".into(),
+        confidence: 0.9,
+        exploitability: "conditional".into(),
+    };
+    assert!(matches!(
+        draft.validate_confirmation(None),
+        Err(D07Error::ReviewRequired)
+    ));
+    draft
+        .validate_confirmation(Some(&er("security.review_decision")))
+        .expect("bounded review permits confirmation");
+}
+
+#[test]
+fn contradictory_observations_both_remain_visible() {
+    let supports = er("security.observation");
+    let contradicts = er("security.observation");
+    let draft = FindingDraft {
+        subject_refs: vec![er("core.object_revision")],
+        observation_refs: vec![supports.clone(), contradicts.clone()],
+        correlations: vec![
+            ObservationCorrelation {
+                observation_ref: supports.clone(),
+                relation: CorrelationRelation::Supports,
+            },
+            ObservationCorrelation {
+                observation_ref: contradicts.clone(),
+                relation: CorrelationRelation::Contradicts,
+            },
+        ],
+        severity: "medium".into(),
+        confidence: 0.5,
+        exploitability: "unknown".into(),
+    };
+    draft
+        .validate_confirmation(Some(&er("security.review_decision")))
+        .expect("contradiction is retained, not erased");
+    let retained = draft.correlated_observation_refs();
+    assert!(retained.contains(&supports));
+    assert!(retained.contains(&contradicts));
+    assert_eq!(retained.len(), 2);
+}
+
+#[test]
+fn bounded_claim_requires_claimant_authority_scope_and_evidence() {
+    assert!(matches!(
+        ClaimProjection::new(
+            "bounded security claim".into(),
+            None,
+            Vec::new(),
+            vec![er("core.object_revision")],
+            vec![er("security.evidence_bundle")],
+        ),
+        Err(D07Error::InvalidClaim)
+    ));
+    let claim = ClaimProjection::new(
+        "bounded security claim".into(),
+        Some(er("identity.principal")),
+        vec!["security.review".into()],
+        vec![er("core.object_revision")],
+        vec![er("security.evidence_bundle")],
+    )
+    .expect("valid bounded claim");
+    assert_eq!(claim.statement, "bounded security claim");
+    assert_eq!(claim.evidence_bundle_refs.len(), 1);
+}
+
+#[test]
+fn evidence_item_binds_exact_content_digest_collector_activity_and_attempt() {
+    let binding = EvidenceItemBinding::new(
+        er("core.object_revision"),
+        "aa".repeat(32),
+        er("identity.agent"),
+        er("core.activity"),
+        er("core.attempt"),
+    )
+    .expect("exact evidence binding");
+    assert_eq!(binding.sha256, "aa".repeat(32));
+    assert!(matches!(
+        EvidenceItemBinding::new(
+            er("core.object_revision"),
+            "not-a-digest".into(),
+            er("identity.agent"),
+            er("core.activity"),
+            er("core.attempt"),
+        ),
+        Err(D07Error::InvalidEvidenceBinding)
+    ));
+}
+
+#[test]
+fn evidence_bundle_cannot_overclaim_partial_or_unknown_coverage() {
+    let coverage = CoverageProjection {
+        expected_scope: BTreeSet::from(["a".into(), "b".into()]),
+        resolved_scope: BTreeSet::from(["a".into(), "b".into()]),
+        scanned_scope: BTreeSet::from(["a".into()]),
+        skipped_scope: BTreeSet::from(["b".into()]),
+        unsupported_scope: BTreeSet::new(),
+        error_scope: BTreeMap::new(),
+        limitations: vec!["b skipped".into()],
+        complete: false,
+    };
+    let bundle = EvidenceBundleProjection {
+        evidence_item_refs: vec![er("security.evidence_item")],
+        coverage: EvidenceCoverage::CompleteForClaimScope,
+        limitations: Vec::new(),
+    };
+    assert!(matches!(
+        bundle.validate_against(&coverage),
+        Err(D07Error::EvidenceCoverageOverclaim)
+    ));
+}

@@ -3,6 +3,7 @@
 
 mod assessment;
 mod error;
+mod evidence;
 mod store;
 
 pub use assessment::{
@@ -11,6 +12,10 @@ pub use assessment::{
     SecurityTestClass,
 };
 pub use error::D07Error;
+pub use evidence::{
+    ClaimProjection, CorrelationRelation, EvidenceBundleProjection, EvidenceCoverage,
+    EvidenceItemBinding, FindingDraft, ObservationCorrelation, ObservationProjection,
+};
 pub use store::SecurityEvidenceStore;
 
 #[cfg(test)]

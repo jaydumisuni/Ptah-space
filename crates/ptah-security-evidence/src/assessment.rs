@@ -427,7 +427,7 @@ impl AssessmentAdmission {
     }
 }
 
-fn require_sha256(value: &str) -> Result<(), D07Error> {
+pub(crate) fn require_sha256(value: &str) -> Result<(), D07Error> {
     let valid = value.len() == 64
         && value
             .bytes()

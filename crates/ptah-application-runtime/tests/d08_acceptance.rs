@@ -7,15 +7,16 @@ use ptah_activity_runtime::AttemptContext;
 use ptah_application_runtime::{
     APPLICATION_COMPATIBILITY_SCHEMA_ID, APPLICATION_REVISION_SCHEMA_ID, APPLICATION_SCHEMA_ID,
     APPLICATION_SESSION_LIFECYCLE, APPLICATION_SESSION_SCHEMA_ID, APPLICATION_WINDOW_LIFECYCLE,
-    APPLICATION_WINDOW_OBSERVATION_SCHEMA_ID, APPLICATION_WINDOW_SCHEMA_ID, ApplicationAvailability,
-    ApplicationOperation, ApplicationSessionLifecycle, ApplicationWindowProjection,
-    CompatibilityDecision, CompatibilityRequirement, D08Error, DISPLAY_OBSERVATION_SCHEMA_ID,
-    DISPLAY_SESSION_LIFECYCLE, DISPLAY_SESSION_SCHEMA_ID, DisplayLifecycle, DisplayObservation,
-    DisplaySessionProjection, DisplaySessionRequest, ExecutionDisposition, InputCapability,
-    LaunchMode, LocalLaunchRequest, LocalReadBack, NodeLocalCompatibility, PlatformClass,
-    RequirementOutcome, SessionLocality, WindowLifecycle, WindowObservation, WindowStateClaim,
-    apply_display_observation, apply_window_observation, create_application_window,
-    prepare_display_session, prepare_local_application_session, verify_local_application_session,
+    APPLICATION_WINDOW_OBSERVATION_SCHEMA_ID, APPLICATION_WINDOW_SCHEMA_ID,
+    ApplicationAvailability, ApplicationOperation, ApplicationSessionLifecycle,
+    ApplicationWindowProjection, CompatibilityDecision, CompatibilityRequirement, D08Error,
+    DISPLAY_OBSERVATION_SCHEMA_ID, DISPLAY_SESSION_LIFECYCLE, DISPLAY_SESSION_SCHEMA_ID,
+    DisplayLifecycle, DisplayObservation, DisplaySessionProjection, DisplaySessionRequest,
+    ExecutionDisposition, InputCapability, LaunchMode, LocalLaunchRequest, LocalReadBack,
+    NodeLocalCompatibility, PlatformClass, RequirementOutcome, SessionLocality, WindowLifecycle,
+    WindowObservation, WindowStateClaim, apply_display_observation, apply_window_observation,
+    create_application_window, prepare_display_session, prepare_local_application_session,
+    verify_local_application_session,
 };
 use ptah_contracts::generated;
 use ptah_identifiers::EntityRef;
@@ -108,9 +109,7 @@ fn preparing_graphical() -> ptah_application_runtime::ApplicationSessionProjecti
     .expect("valid graphical preparation")
 }
 
-fn process_for(
-    session: &ptah_application_runtime::ApplicationSessionProjection,
-) -> ProcessRecord {
+fn process_for(session: &ptah_application_runtime::ApplicationSessionProjection) -> ProcessRecord {
     ProcessRecord {
         process_ref: entity("runtime.native_process"),
         terminal_ref: None,
@@ -119,10 +118,7 @@ fn process_for(
         provider_generation: session.provider_generation,
         node_ref: session.node_ref.clone().expect("node-local session"),
         node_generation: session.node_generation.expect("node-local generation"),
-        aliases: vec![EndpointAlias::process_id(
-            4242,
-            "2026-09-03T13:01:00Z",
-        )],
+        aliases: vec![EndpointAlias::process_id(4242, "2026-09-03T13:01:00Z")],
         spec: ProcessSpec {
             program: String::from("/usr/bin/d08-test-app"),
             args: Vec::new(),
@@ -431,12 +427,9 @@ fn d08_13_local_preparation_binds_exact_context_and_mints_one_preparing_session(
     let expected_revision = request.application_revision_ref.clone();
     let expected_attempt = request.attempt_ref.clone();
 
-    let session = prepare_local_application_session(
-        request,
-        &compatibility,
-        "2026-09-03T13:00:00Z",
-    )
-    .expect("exact current compatibility should prepare a session");
+    let session =
+        prepare_local_application_session(request, &compatibility, "2026-09-03T13:00:00Z")
+            .expect("exact current compatibility should prepare a session");
 
     assert_eq!(session.workspace_ref, expected_workspace);
     assert_eq!(session.application_revision_ref, expected_revision);
@@ -481,11 +474,7 @@ fn d08_14_non_admissible_or_foreign_compatibility_is_rejected_before_execution()
     let mut foreign_request = local_request(&compatibility, &context, LaunchMode::Graphical);
     foreign_request.application_revision_ref = entity("application.foreign_revision");
     assert_eq!(
-        prepare_local_application_session(
-            foreign_request,
-            &compatibility,
-            "2026-09-03T13:00:00Z",
-        ),
+        prepare_local_application_session(foreign_request, &compatibility, "2026-09-03T13:00:00Z",),
         Err(D08Error::ApplicationRevisionMismatch)
     );
 }
@@ -626,11 +615,8 @@ fn d08_23_display_preparation_requires_exact_session_provider_surface_and_privac
 fn d08_24_stale_or_foreign_display_observation_cannot_stream() {
     let preparing = preparing_graphical();
     let surface = entity("application.display_surface");
-    let display = prepare_display_session(
-        &preparing,
-        display_request(&preparing, surface.clone()),
-    )
-    .expect("display preparation");
+    let display = prepare_display_session(&preparing, display_request(&preparing, surface.clone()))
+        .expect("display preparation");
     assert_eq!(display.lifecycle, DisplayLifecycle::Preparing);
 
     let foreign = DisplayObservation {

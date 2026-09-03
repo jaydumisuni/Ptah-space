@@ -1,0 +1,245 @@
+name: D07 Security Evidence Reproduction Exact Head Proof
+
+on:
+  push:
+    branches:
+      - d07-security-evidence-reproduction
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - crates/ptah-workspace/**
+      - crates/ptah-security-evidence/**
+      - docs/superpowers/specs/2026-09-02-d07-security-evidence-reproduction-design.md
+      - docs/superpowers/plans/2026-09-02-d07-security-evidence-reproduction.md
+      - D07_SECURITY_EVIDENCE_REPRODUCTION.md
+      - .github/workflows/d07-security-evidence-reproduction-proof.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - crates/ptah-workspace/**
+      - crates/ptah-security-evidence/**
+      - docs/superpowers/specs/2026-09-02-d07-security-evidence-reproduction-design.md
+      - docs/superpowers/plans/2026-09-02-d07-security-evidence-reproduction.md
+      - D07_SECURITY_EVIDENCE_REPRODUCTION.md
+      - .github/workflows/d07-security-evidence-reproduction-proof.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-head-proof:
+    runs-on: ubuntu-latest
+    env:
+      D06_BASE: 29755a63d3dabeb2a108a14c1a4b9dee97efe98c
+      TARGET_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.TARGET_SHA }}
+
+      - name: Pin Rust 1.97.1
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+
+      - name: Prove exact SHA, predecessor and linear history
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(rustc --version | awk '{print $2}')" = "1.97.1"
+          git fetch origin main d07-security-evidence-reproduction
+          test "$(git rev-parse origin/main)" = "$D06_BASE"
+          test "$(git merge-base "$D06_BASE" HEAD)" = "$D06_BASE"
+          test -z "$(git rev-list --min-parents=2 "$D06_BASE"..HEAD)"
+          remote_head="$(git rev-parse origin/d07-security-evidence-reproduction)"
+          test "$remote_head" = "$TARGET_SHA"
+          echo "EXACT_HEAD_OK=$TARGET_SHA"
+
+      - name: Prove approved D07 surface only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import subprocess
+
+          base = '29755a63d3dabeb2a108a14c1a4b9dee97efe98c'
+          changed = subprocess.check_output(
+              ['git', 'diff', '--name-only', f'{base}...HEAD'], text=True
+          ).splitlines()
+
+          exact = {
+              'Cargo.toml',
+              'Cargo.lock',
+              'crates/ptah-workspace/src/lib.rs',
+              'crates/ptah-workspace/tests/a06_acceptance.rs',
+              'docs/superpowers/specs/2026-09-02-d07-security-evidence-reproduction-design.md',
+              'docs/superpowers/plans/2026-09-02-d07-security-evidence-reproduction.md',
+              'D07_SECURITY_EVIDENCE_REPRODUCTION.md',
+              '.github/workflows/d07-security-evidence-reproduction-proof.yml',
+          }
+          bad = [
+              path for path in changed
+              if path not in exact and not path.startswith('crates/ptah-security-evidence/')
+          ]
+          if bad:
+              raise SystemExit(f'unapproved D07 surface: {bad}')
+
+          forbidden = [
+              path for path in changed
+              if path.startswith(('schemas/', 'migrations/'))
+              or path == 'crates/ptah-contracts/src/generated.rs'
+          ]
+          if forbidden:
+              raise SystemExit(f'frozen contract/schema/migration surface changed: {forbidden}')
+
+          required = {
+              'Cargo.toml',
+              'Cargo.lock',
+              'crates/ptah-workspace/src/lib.rs',
+              'crates/ptah-workspace/tests/a06_acceptance.rs',
+              'docs/superpowers/specs/2026-09-02-d07-security-evidence-reproduction-design.md',
+              'docs/superpowers/plans/2026-09-02-d07-security-evidence-reproduction.md',
+              'D07_SECURITY_EVIDENCE_REPRODUCTION.md',
+              '.github/workflows/d07-security-evidence-reproduction-proof.yml',
+          }
+          missing = sorted(required - set(changed))
+          if missing:
+              raise SystemExit(f'required D07 proof surface absent from final diff: {missing}')
+
+          print('D07_SURFACE_OK')
+          PY
+
+      - name: Prove Cargo.lock delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import subprocess
+          import tomllib
+
+          base = '29755a63d3dabeb2a108a14c1a4b9dee97efe98c'
+          old = tomllib.loads(
+              subprocess.check_output(['git', 'show', f'{base}:Cargo.lock'], text=True)
+          )['package']
+          new = tomllib.loads(open('Cargo.lock', 'rb').read().decode())['package']
+
+          def key(package):
+              return (package['name'], package['version'], package.get('source'))
+
+          old_map = {key(package): package for package in old}
+          new_map = {key(package): package for package in new}
+          added = set(new_map) - set(old_map)
+          removed = set(old_map) - set(new_map)
+          expected = {('ptah-security-evidence', '0.0.0-phase0c', None)}
+
+          if added != expected or removed:
+              raise SystemExit(f'lock package delta mismatch: added={added} removed={removed}')
+
+          drift = [package for package in old_map if old_map[package] != new_map[package]]
+          if drift:
+              raise SystemExit(f'existing lock entries changed: {drift}')
+
+          print('LOCK_DELTA_OK=ptah-security-evidence')
+          PY
+
+      - name: Prove static security boundaries and exact WP12 map
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if grep -R -n -E '#\[(allow|expect)\(' crates/ptah-security-evidence; then
+            echo 'D07 lint suppression detected' >&2
+            exit 1
+          fi
+
+          if grep -R -n -E 'pub fn (approve_release|certify|grant_authority|mark_authoritative)' crates/ptah-security-evidence/src; then
+            echo 'D07 public authority method detected' >&2
+            exit 1
+          fi
+
+          if grep -R -n -E 'pub (credential|[^:]*token|[^:]*cookie|private_payload|exploit_payload|proprietary_source|private_host_topology|customer_private_data):' crates/ptah-security-evidence/src; then
+            echo 'D07 raw restricted field detected' >&2
+            exit 1
+          fi
+
+          if grep -R -n -E 'pub public_fields:' crates/ptah-security-evidence/src/card.rs; then
+            echo 'Evidence Card retains unsanitized public field map' >&2
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          store = Path('crates/ptah-security-evidence/src/store.rs').read_text()
+          generated = Path('crates/ptah-contracts/src/generated.rs').read_text()
+
+          pairs = re.findall(
+              r'\(\s*"(urn:ptah:schema:security:[^"]+)"\s*,\s*"(security\.[^"]+)"\s*,?\s*\)',
+              store,
+          )
+          generated_security_schemas = set(
+              re.findall(r'schema_id:\s*"(urn:ptah:schema:security:[^"]+)"', generated)
+          )
+
+          if len(pairs) != 18 or len(set(pairs)) != 18:
+              raise SystemExit(f'expected exact 18 unique WP12 pairs, got {len(pairs)} / {len(set(pairs))}')
+
+          for schema, kind in pairs:
+              if schema not in generated_security_schemas:
+                  raise SystemExit(f'missing generated SchemaBinding: {schema}')
+              slug = schema.removeprefix('urn:ptah:schema:security:').removesuffix(':0.1.0')
+              expected_kind = 'security.' + slug.replace('-', '_')
+              if kind != expected_kind:
+                  raise SystemExit(f'kind mismatch: {schema} -> {kind}; expected {expected_kind}')
+
+          print('WP12_AUDIT_OK=18')
+          PY
+
+      - name: Run exact D07 and predecessor proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo clippy -p ptah-security-evidence --all-targets --locked -- -D warnings -W clippy::pedantic
+          cargo test -p ptah-security-evidence --locked
+          case_count="$(cargo test -p ptah-security-evidence --test d07_acceptance --locked -- --list 2>/dev/null | grep -c ': test$')"
+          test "$case_count" -eq 30
+          cargo test -p ptah-security-evidence --test store_roundtrip --locked
+          cargo test -p ptah-ledger -p ptah-activity-runtime -p ptah-workspace -p ptah-object-store -p ptah-recipe-registry -p ptah-package-plugin -p ptah-provenance --locked
+          cargo test --workspace --locked
+          test -z "$(git status --porcelain)"
+          echo "D07_ACCEPTANCE_CASES=$case_count"
+          echo 'D07_FULL_PROOF_OK'
+
+      - name: Retain exact-head proof artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/d07-proof"
+          {
+            echo "D07_EXACT_HEAD=$TARGET_SHA"
+            echo "D06_PREDECESSOR=$(git rev-parse origin/main)"
+            echo "D07_REMOTE_HEAD=$(git rev-parse origin/d07-security-evidence-reproduction)"
+            echo "RUSTC=$(rustc --version)"
+            echo "D07_ACCEPTANCE_CASES=30"
+            echo "WP12_SCHEMA_KIND_PAIRS=18"
+            echo "WORKTREE_STATUS=$(git status --porcelain | wc -l)"
+            sha256sum Cargo.toml Cargo.lock D07_SECURITY_EVIDENCE_REPRODUCTION.md .github/workflows/d07-security-evidence-reproduction-proof.yml
+          } > "$RUNNER_TEMP/d07-proof/exact-head-proof.txt"
+          cat "$RUNNER_TEMP/d07-proof/exact-head-proof.txt"
+
+      - name: Upload retained proof artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: d07-exact-head-${{ env.TARGET_SHA }}
+          path: ${{ runner.temp }}/d07-proof/exact-head-proof.txt
+          if-no-files-found: error
+          retention-days: 90

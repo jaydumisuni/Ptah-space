@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   d08-tdd:
@@ -31,66 +31,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          count=$(cargo test -p ptah-application-runtime --test d08_acceptance -- --list | grep -c ': test$')
+          count=$(cargo test -p ptah-application-runtime --test d08_acceptance --locked -- --list | grep -c ': test$')
           test "$count" -eq 24
-          printf '%s\n' "$count" > /tmp/d08-runtime-count.txt
-          cargo test -p ptah-application-runtime --test d08_acceptance
+          cargo test -p ptah-application-runtime --test d08_acceptance --locked
       - name: Prove C10 regression
-        run: cargo test -p ptah-android-runtime --test c10
+        run: cargo test -p ptah-android-runtime --test c10 --locked
       - name: Prove strict D08 lint and no suppressions
         shell: bash
         run: |
           set -euo pipefail
-          cargo clippy -p ptah-application-runtime --all-targets -- -D warnings -W clippy::pedantic
+          cargo clippy -p ptah-application-runtime --all-targets --locked -- -D warnings -W clippy::pedantic
           if grep -R -n -E '#\[(allow|expect)\(' crates/ptah-application-runtime/src crates/ptah-application-runtime/tests; then
             echo 'D08 lint suppression found' >&2
             exit 1
           fi
-      - name: Prove Task 3 lock delta or steady state
+      - name: Prove promoted lock is stable
         shell: bash
         run: |
           set -euo pipefail
+          cmp Cargo.lock /tmp/Cargo.lock.before
+          git diff --exit-code -- Cargo.lock
           python3 - <<'PY'
           import tomllib
           from pathlib import Path
-
-          old = tomllib.loads(Path('/tmp/Cargo.lock.before').read_text())
-          new = tomllib.loads(Path('Cargo.lock').read_text())
-          key = lambda p: (p['name'], p['version'], p.get('source'))
-          before = {key(p): p for p in old['package']}
-          after = {key(p): p for p in new['package']}
-          assert set(before) == set(after), (set(after) - set(before), set(before) - set(after))
-          changed = sorted(k for k in before.keys() & after.keys() if before[k] != after[k])
-          expected = ('ptah-application-runtime', '0.0.0-phase0c', None)
-          assert changed in ([], [expected]), changed
-          deps = set(after[expected].get('dependencies', []))
+          lock = tomllib.loads(Path('Cargo.lock').read_text())
+          package = next(p for p in lock['package'] if p['name'] == 'ptah-application-runtime')
+          deps = set(package.get('dependencies', []))
           assert {'ptah-archive-decomposition', 'ptah-device-runtime'} <= deps, deps
-          if changed:
-              old_deps = set(before[expected].get('dependencies', []))
-              assert deps - old_deps == {'ptah-archive-decomposition', 'ptah-device-runtime'}, deps - old_deps
-              assert not (old_deps - deps), old_deps - deps
           PY
-          git diff -- Cargo.lock > /tmp/Cargo.lock.diff
-      - name: Upload exact Task 3 lock evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: d08-task3-lock-${{ github.sha }}
-          path: |
-            Cargo.lock
-            /tmp/Cargo.lock.before
-            /tmp/Cargo.lock.diff
-            /tmp/d08-runtime-count.txt
-          if-no-files-found: error
-          retention-days: 7
-      - name: Promote exact Task 3 lockfile
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git diff --quiet -- Cargo.lock; then
-            exit 0
-          fi
-          git config user.name 'THE TECH GUY'
-          git config user.email '65334711+jaydumisuni@users.noreply.github.com'
-          git add Cargo.lock
-          git commit -m 'chore(d08): promote exact task3 lock delta'
-          git push origin HEAD:d08-application-platform-expansion

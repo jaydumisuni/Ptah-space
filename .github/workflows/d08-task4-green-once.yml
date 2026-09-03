@@ -1,0 +1,258 @@
+name: D08 Task4 Green Once
+
+on:
+  push:
+    branches:
+      - d08-application-platform-expansion
+    paths:
+      - .github/workflows/d08-task4-green-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  task4-green:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Preserve pre-Task4 lock
+        run: cp Cargo.lock /tmp/Cargo.lock.before
+      - name: Apply minimal D01 read-only application projection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('services/ptah-control/src/lib.rs')
+          text = path.read_text()
+
+          view = '''/// One read-only D08 Application platform row attached to the D01 shell.\n#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]\npub struct ApplicationPlatformView {\n    /// Stable Application identity.\n    pub application_id: String,\n    /// Exact Application Revision identity.\n    pub application_revision: String,\n    /// D08 roadmap platform class.\n    pub platform: String,\n    /// Mechanical D08 source/disposition.\n    pub disposition: String,\n    /// Stable Application Session identity when one exists.\n    pub session_id: Option<String>,\n    /// Application Session lifecycle when one exists.\n    pub lifecycle: Option<String>,\n    /// Application execution locality when one exists.\n    pub locality: Option<String>,\n    /// Current bounded Application availability.\n    pub availability: String,\n    /// Stable Display Session identity when one exists.\n    pub display_session_id: Option<String>,\n    /// Display Session lifecycle when one exists.\n    pub display_lifecycle: Option<String>,\n    /// Retained evidence references rendered as canonical IDs.\n    pub evidence: Vec<String>,\n    /// Explicit limitations retained from the owning D08 runtime.\n    pub limitations: Vec<String>,\n}\n\n'''
+          marker = '/// Read-only D01 Human Workspace shell v2 projection built from a validated A14 snapshot.\n'
+          if 'pub struct ApplicationPlatformView' not in text:
+              assert marker in text
+              text = text.replace(marker, view + marker, 1)
+
+          field_anchor = '    /// Exact canonical authority stamp inherited from A14.\n    pub authority: AuthorityStamp,\n'
+          field = field_anchor + '    /// Supplemental validated D08 Application platform projections.\n    pub applications: Vec<ApplicationPlatformView>,\n'
+          if 'pub applications: Vec<ApplicationPlatformView>' not in text:
+              assert field_anchor in text
+              text = text.replace(field_anchor, field, 1)
+
+          builder_anchor = '        authority: snapshot.authority.clone(),\n        operations: operation_catalog(),\n'
+          builder = '        authority: snapshot.authority.clone(),\n        applications: Vec::new(),\n        operations: operation_catalog(),\n'
+          if '        applications: Vec::new(),\n' not in text:
+              assert builder_anchor in text
+              text = text.replace(builder_anchor, builder, 1)
+
+          projection = r'''
+
+fn d08_platform_label(platform: ptah_application_runtime::PlatformClass) -> &'static str {
+    use ptah_application_runtime::PlatformClass;
+    match platform {
+        PlatformClass::LinuxNative => "linux_native",
+        PlatformClass::LinuxPackaged => "linux_packaged",
+        PlatformClass::Android => "android",
+        PlatformClass::WindowsNode => "windows_node",
+        PlatformClass::WindowsVm => "windows_vm",
+        PlatformClass::MacOsNode => "mac_os_node",
+        PlatformClass::IosSimulator => "ios_simulator",
+    }
+}
+
+fn d08_session_lifecycle_label(
+    lifecycle: ptah_application_runtime::ApplicationSessionLifecycle,
+) -> &'static str {
+    use ptah_application_runtime::ApplicationSessionLifecycle;
+    match lifecycle {
+        ApplicationSessionLifecycle::Preparing => "preparing",
+        ApplicationSessionLifecycle::Running => "running",
+        ApplicationSessionLifecycle::Degraded => "degraded",
+        ApplicationSessionLifecycle::Detached => "detached",
+        ApplicationSessionLifecycle::Checkpointing => "checkpointing",
+        ApplicationSessionLifecycle::Recovering => "recovering",
+        ApplicationSessionLifecycle::Stopped => "stopped",
+        ApplicationSessionLifecycle::Failed => "failed",
+        ApplicationSessionLifecycle::Uncertain => "uncertain",
+    }
+}
+
+fn d08_locality_label(locality: ptah_application_runtime::SessionLocality) -> &'static str {
+    use ptah_application_runtime::SessionLocality;
+    match locality {
+        SessionLocality::NodeLocal => "node_local",
+        SessionLocality::DeviceLocal => "device_local",
+        SessionLocality::RemoteService => "remote_service",
+    }
+}
+
+fn d08_availability_label(
+    availability: ptah_application_runtime::ApplicationAvailability,
+) -> &'static str {
+    use ptah_application_runtime::ApplicationAvailability;
+    match availability {
+        ApplicationAvailability::Full => "full",
+        ApplicationAvailability::HeadlessOnly => "headless_only",
+        ApplicationAvailability::DisplayOnly => "display_only",
+        ApplicationAvailability::SemanticOnly => "semantic_only",
+        ApplicationAvailability::Partial => "partial",
+        ApplicationAvailability::Recovering => "recovering",
+        ApplicationAvailability::Unavailable => "unavailable",
+        ApplicationAvailability::Unknown => "unknown",
+    }
+}
+
+fn d08_display_lifecycle_label(
+    lifecycle: ptah_application_runtime::DisplayLifecycle,
+) -> &'static str {
+    use ptah_application_runtime::DisplayLifecycle;
+    match lifecycle {
+        DisplayLifecycle::Preparing => "preparing",
+        DisplayLifecycle::Streaming => "streaming",
+        DisplayLifecycle::Degraded => "degraded",
+        DisplayLifecycle::Detached => "detached",
+        DisplayLifecycle::Recovering => "recovering",
+        DisplayLifecycle::Closed => "closed",
+        DisplayLifecycle::Failed => "failed",
+    }
+}
+
+/// Attach validated D08 Application platform snapshots to an existing read-only D01 shell projection.
+///
+/// This function changes presentation data only. It does not mutate D08 runtime state, create
+/// controls, change the D01 authority stamp, or infer backing sessions that were not supplied.
+pub fn project_application_platform_views(
+    shell: &mut WorkspaceShellV2Projection,
+    snapshots: &[ptah_application_runtime::ApplicationPlatformSnapshot],
+) {
+    shell.applications = snapshots
+        .iter()
+        .map(|snapshot| match snapshot {
+            ptah_application_runtime::ApplicationPlatformSnapshot::Session {
+                platform,
+                session,
+                display,
+            } => {
+                let mut evidence = session
+                    .evidence_refs
+                    .iter()
+                    .map(|reference| reference.entity_id.to_string())
+                    .collect::<Vec<_>>();
+                let mut limitations = session.limitations.clone();
+                if let Some(display) = display {
+                    evidence.extend(
+                        display
+                            .evidence_refs
+                            .iter()
+                            .map(|reference| reference.entity_id.to_string()),
+                    );
+                    limitations.extend(display.limitations.iter().cloned());
+                }
+                ApplicationPlatformView {
+                    application_id: session.application_ref.entity_id.to_string(),
+                    application_revision: session.application_revision_ref.entity_id.to_string(),
+                    platform: String::from(d08_platform_label(*platform)),
+                    disposition: String::from("session"),
+                    session_id: Some(session.session_ref.entity_id.to_string()),
+                    lifecycle: Some(String::from(d08_session_lifecycle_label(session.lifecycle))),
+                    locality: Some(String::from(d08_locality_label(session.locality))),
+                    availability: String::from(d08_availability_label(session.availability)),
+                    display_session_id: display
+                        .as_ref()
+                        .map(|item| item.display_session_ref.entity_id.to_string()),
+                    display_lifecycle: display
+                        .as_ref()
+                        .map(|item| String::from(d08_display_lifecycle_label(item.lifecycle))),
+                    evidence,
+                    limitations,
+                }
+            }
+            ptah_application_runtime::ApplicationPlatformSnapshot::RemoteRequirement {
+                application_ref,
+                application_revision_ref,
+                requirement,
+            } => ApplicationPlatformView {
+                application_id: application_ref.entity_id.to_string(),
+                application_revision: application_revision_ref.entity_id.to_string(),
+                platform: String::from(d08_platform_label(requirement.platform)),
+                disposition: String::from("requires_remote_node"),
+                session_id: None,
+                lifecycle: None,
+                locality: None,
+                availability: String::from("unavailable"),
+                display_session_id: None,
+                display_lifecycle: None,
+                evidence: requirement
+                    .evidence_refs
+                    .iter()
+                    .map(|reference| reference.entity_id.to_string())
+                    .collect(),
+                limitations: requirement.limitations.clone(),
+            },
+        })
+        .collect();
+}
+'''
+          if 'pub fn project_application_platform_views(' not in text:
+              text += projection
+
+          path.write_text(text)
+          PY
+      - name: Format Task4 implementation
+        run: cargo fmt --all
+      - name: Prove Task4 runtime and shell GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime_count=$(cargo test -p ptah-application-runtime --test d08_acceptance -- --list | grep -c ': test$')
+          shell_count=$(cargo test -p ptah-control --test d08_application_projection -- --list | grep -c ': test$')
+          test "$runtime_count" -eq 25
+          test "$shell_count" -eq 3
+          test "$((runtime_count + shell_count))" -eq 28
+          cargo test -p ptah-application-runtime --test d08_acceptance
+          cargo test -p ptah-control --test d08_application_projection
+      - name: Prove D01 regression
+        run: cargo test -p ptah-control --test d01_acceptance
+      - name: Prove strict Task4 lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ptah-application-runtime -p ptah-control --all-targets -- -D warnings -W clippy::pedantic
+          if grep -R -n -E '#\[(allow|expect)\(' crates/ptah-application-runtime/src crates/ptah-application-runtime/tests services/ptah-control/src services/ptah-control/tests/d08_application_projection.rs; then
+            echo 'D08 lint suppression found' >&2
+            exit 1
+          fi
+      - name: Prove exact Task4 lock delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import tomllib
+          from pathlib import Path
+          old = tomllib.loads(Path('/tmp/Cargo.lock.before').read_text())
+          new = tomllib.loads(Path('Cargo.lock').read_text())
+          key = lambda p: (p['name'], p['version'], p.get('source'))
+          before = {key(p): p for p in old['package']}
+          after = {key(p): p for p in new['package']}
+          assert set(before) == set(after)
+          changed = sorted(k for k in before if before[k] != after[k])
+          expected = [('ptah-control', '0.0.0-phase0c', None)]
+          assert changed == expected, changed
+          old_deps = set(before[expected[0]].get('dependencies', []))
+          new_deps = set(after[expected[0]].get('dependencies', []))
+          assert new_deps - old_deps == {'ptah-application-runtime'}
+          assert not (old_deps - new_deps)
+          PY
+      - name: Commit proven Task4 implementation and lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name 'THE TECH GUY'
+          git config user.email '65334711+jaydumisuni@users.noreply.github.com'
+          git add Cargo.lock crates/ptah-application-runtime services/ptah-control
+          git commit -m 'feat(d08): project application platform into human shell'
+          git push origin HEAD:d08-application-platform-expansion

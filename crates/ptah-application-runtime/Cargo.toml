@@ -1,0 +1,27 @@
+[package]
+name = "ptah-application-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+native-process = { path = "../../adapters/native-process", version = "=0.0.0-phase0c" }
+ptah-activity-runtime = { path = "../ptah-activity-runtime", version = "=0.0.0-phase0c" }
+ptah-android-runtime = { path = "../ptah-android-runtime", version = "=0.0.0-phase0c" }
+ptah-contracts = { path = "../ptah-contracts", version = "=0.0.0-phase0c" }
+ptah-identifiers = { path = "../ptah-identifiers", version = "=0.0.0-phase0c" }
+ptah-provider-api = { path = "../ptah-provider-api", version = "=0.0.0-phase0c" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lib]
+path = "src/lib.rs"
+
+[[test]]
+name = "d08_acceptance"
+path = "tests/d08_acceptance.rs"

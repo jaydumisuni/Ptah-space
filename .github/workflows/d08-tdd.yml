@@ -23,7 +23,61 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
+      - name: Preserve repository lock
+        run: cp Cargo.lock /tmp/Cargo.lock.before
       - name: Check D08 formatting
         run: cargo fmt --all -- --check
-      - name: Run D08 Task 3 RED target with test dependency resolution
-        run: cargo test -p ptah-application-runtime --test d08_acceptance
+      - name: Prove exact D08 runtime count and Task 3 behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=$(cargo test -p ptah-application-runtime --test d08_acceptance -- --list | grep -c ': test$')
+          test "$count" -eq 24
+          printf '%s\n' "$count" > /tmp/d08-runtime-count.txt
+          cargo test -p ptah-application-runtime --test d08_acceptance
+      - name: Prove C10 regression
+        run: cargo test -p ptah-android-runtime --test c10
+      - name: Prove strict D08 lint and no suppressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ptah-application-runtime --all-targets -- -D warnings -W clippy::pedantic
+          if grep -R -n -E '#\[(allow|expect)\(' crates/ptah-application-runtime/src crates/ptah-application-runtime/tests; then
+            echo 'D08 lint suppression found' >&2
+            exit 1
+          fi
+      - name: Prove Task 3 lock delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          old = tomllib.loads(Path('/tmp/Cargo.lock.before').read_text())
+          new = tomllib.loads(Path('Cargo.lock').read_text())
+          key = lambda p: (p['name'], p['version'], p.get('source'))
+          before = {key(p): p for p in old['package']}
+          after = {key(p): p for p in new['package']}
+          assert set(before) == set(after), (set(after) - set(before), set(before) - set(after))
+          changed = sorted(k for k in before.keys() & after.keys() if before[k] != after[k])
+          expected = [('ptah-application-runtime', '0.0.0-phase0c', None)]
+          assert changed == expected, changed
+          k = expected[0]
+          old_deps = set(before[k].get('dependencies', []))
+          new_deps = set(after[k].get('dependencies', []))
+          assert new_deps - old_deps == {'ptah-archive-decomposition', 'ptah-device-runtime'}, new_deps - old_deps
+          assert not (old_deps - new_deps), old_deps - new_deps
+          PY
+          git diff -- Cargo.lock > /tmp/Cargo.lock.diff
+      - name: Upload exact Task 3 lock evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: d08-task3-lock-${{ github.sha }}
+          path: |
+            Cargo.lock
+            /tmp/Cargo.lock.before
+            /tmp/Cargo.lock.diff
+            /tmp/d08-runtime-count.txt
+          if-no-files-found: error
+          retention-days: 7

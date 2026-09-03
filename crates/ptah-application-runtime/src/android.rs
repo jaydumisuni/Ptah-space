@@ -6,8 +6,8 @@ use crate::{
 };
 use ptah_android_runtime::{
     ApplicationSession as AndroidApplicationSession,
-    ApplicationSessionState as AndroidApplicationSessionState, DeviceSession as AndroidDeviceSession,
-    DeviceSessionState as AndroidDeviceSessionState,
+    ApplicationSessionState as AndroidApplicationSessionState,
+    DeviceSession as AndroidDeviceSession, DeviceSessionState as AndroidDeviceSessionState,
 };
 use ptah_identifiers::EntityRef;
 
@@ -57,8 +57,10 @@ pub fn project_android_application_session(
     if request.device_session.state != AndroidDeviceSessionState::Connected {
         return Err(D08Error::AndroidSessionMismatch);
     }
-    if request.application_session.provider_instance_ref != request.device_session.provider_instance_ref
-        || request.application_session.provider_generation != request.device_session.provider_generation
+    if request.application_session.provider_instance_ref
+        != request.device_session.provider_instance_ref
+        || request.application_session.provider_generation
+            != request.device_session.provider_generation
         || request.application_session.connection_epoch != request.device_session.connection_epoch
     {
         return Err(D08Error::AndroidProviderContextMismatch);

@@ -69,6 +69,18 @@ pub enum D07Error {
     /// Post-fix verification lacks fresh attempt or exact evidence boundaries.
     #[error("invalid security post-fix verification")]
     InvalidPostFixVerification,
+    /// Reproduction Protocol is structurally incomplete.
+    #[error("invalid security reproduction protocol")]
+    InvalidReproductionProtocol,
+    /// Reproduction Request/Run binding is structurally incomplete.
+    #[error("invalid security reproduction request")]
+    InvalidReproductionRequest,
+    /// Reproduction independence is asserted without the required mechanical evidence.
+    #[error("independent reproduction is not proven")]
+    IndependenceNotProven,
+    /// Reproduction Comparison lacks original claim/run/outcome history.
+    #[error("invalid security reproduction comparison")]
+    InvalidReproductionComparison,
     /// Underlying A06 authority check failed.
     #[error("A06 authority rejection: {0}")]
     A06(String),

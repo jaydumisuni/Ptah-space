@@ -623,3 +623,141 @@ fn post_fix_verification_requires_fresh_attempt_and_retains_regression_after_pri
         vec![PostFixDecision::FixedVerified, PostFixDecision::Regressed]
     );
 }
+
+use ptah_security_evidence::{
+    ReproductionComparisonDecision, ReproductionComparisonProjection, ReproductionIndependence,
+    ReproductionOutcome, ReproductionProtocolProjection, ReproductionRequestProjection,
+    ReproductionRunRequest,
+};
+
+#[test]
+fn reproduction_protocol_digest_changes_with_scope_environment_or_independence() {
+    let base = ReproductionProtocolProjection {
+        protocol_key: "security.repro.v1".into(),
+        claim_scope: vec!["claim.dimension".into()],
+        required_inputs: vec![er("core.object_revision")],
+        environment_requirements: vec!["linux-amd64".into()],
+        independence_requirements: vec!["fresh-cache".into()],
+        success_criteria: vec!["same-observed-fact".into()],
+        failure_criteria: vec!["claim-not-observed".into()],
+    };
+    let mut scope = base.clone();
+    scope.claim_scope.push("second-dimension".into());
+    let mut environment = base.clone();
+    environment
+        .environment_requirements
+        .push("isolated-network".into());
+    let mut independence = base.clone();
+    independence
+        .independence_requirements
+        .push("distinct-authority".into());
+    let digest = base.digest().expect("base digest");
+    assert_ne!(digest, scope.digest().expect("scope digest"));
+    assert_ne!(digest, environment.digest().expect("environment digest"));
+    assert_ne!(digest, independence.digest().expect("independence digest"));
+}
+
+#[test]
+fn reproduction_request_is_not_execution_and_exposes_no_activity_identity() {
+    let request = ReproductionRequestProjection {
+        claim_refs: vec![er("security.claim")],
+        finding_refs: vec![er("security.finding")],
+        protocol_ref: er("security.reproduction_protocol"),
+        requested_environment_constraints: vec!["isolated".into()],
+        independence_requirements: vec!["fresh-cache".into()],
+        requested_by_ref: er("identity.principal"),
+        requested_at: "2026-09-03T07:00:00Z".into(),
+    };
+    request.validate().expect("bounded request");
+    assert!(!request.is_execution());
+    assert!(request.activity_ref().is_none());
+}
+
+#[test]
+fn same_cache_mutable_environment_or_hidden_shared_authority_cannot_claim_independence() {
+    let invalid = ReproductionIndependence {
+        fresh_cache: false,
+        immutable_environment: true,
+        distinct_authority: true,
+        evidence_refs: vec![er("security.evidence_item")],
+    };
+    assert!(matches!(
+        invalid.validate(),
+        Err(D07Error::IndependenceNotProven)
+    ));
+    let mutable = ReproductionIndependence {
+        fresh_cache: true,
+        immutable_environment: false,
+        distinct_authority: true,
+        evidence_refs: vec![er("security.evidence_item")],
+    };
+    assert!(matches!(
+        mutable.validate(),
+        Err(D07Error::IndependenceNotProven)
+    ));
+    let shared = ReproductionIndependence {
+        fresh_cache: true,
+        immutable_environment: true,
+        distinct_authority: false,
+        evidence_refs: vec![er("security.evidence_item")],
+    };
+    assert!(matches!(
+        shared.validate(),
+        Err(D07Error::IndependenceNotProven)
+    ));
+}
+
+#[test]
+fn reproduction_retry_requires_a_fresh_a04_attempt() {
+    let prior = er("core.attempt");
+    let run = ReproductionRunRequest {
+        request_ref: er("security.reproduction_request"),
+        protocol_ref: er("security.reproduction_protocol"),
+        environment_refs: vec![er("core.object_revision")],
+        independence_evidence_refs: vec![er("security.evidence_item")],
+        prior_attempt_refs: vec![prior.clone()],
+        activity_request_ref: er("core.activity_request"),
+        workspace_ref: er("core.workspace"),
+        caller_ref: er("identity.principal"),
+        authority_ref: er("identity.principal"),
+        intent_ref: er("knowledge.intent"),
+        attempt_context: context(),
+        independence: ReproductionIndependence {
+            fresh_cache: true,
+            immutable_environment: true,
+            distinct_authority: true,
+            evidence_refs: vec![er("security.evidence_item")],
+        },
+    };
+    assert!(matches!(
+        run.validate_attempt(&prior),
+        Err(D07Error::FreshAttemptRequired)
+    ));
+    run.validate_attempt(&er("core.attempt"))
+        .expect("fresh reproduction Attempt");
+}
+
+#[test]
+fn negative_partial_failed_and_inconclusive_reproduction_history_is_retained() {
+    let comparison = ReproductionComparisonProjection {
+        original_claim_refs: vec![er("security.claim")],
+        reproduction_run_ref: er("security.reproduction_run"),
+        outcome_history: vec![
+            ReproductionOutcome::NotReproduced,
+            ReproductionOutcome::PartiallyReproduced,
+            ReproductionOutcome::Failed,
+            ReproductionOutcome::Inconclusive,
+        ],
+        decision: ReproductionComparisonDecision::Inconclusive,
+    };
+    comparison.validate().expect("retained comparison");
+    assert_eq!(comparison.outcome_history.len(), 4);
+    assert_eq!(
+        comparison.outcome_history[0],
+        ReproductionOutcome::NotReproduced
+    );
+    assert_eq!(
+        comparison.outcome_history[3],
+        ReproductionOutcome::Inconclusive
+    );
+}

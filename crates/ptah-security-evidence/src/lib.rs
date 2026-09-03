@@ -6,6 +6,7 @@ mod disclosure;
 mod error;
 mod evidence;
 mod remediation;
+mod reproduction;
 mod review;
 mod store;
 
@@ -23,6 +24,11 @@ pub use evidence::{
 pub use remediation::{
     PatchBinding, PostFixDecision, PostFixVerificationRequest, RemediationAcknowledgement,
     RemediationExecutionRequest,
+};
+pub use reproduction::{
+    ReproductionComparisonDecision, ReproductionComparisonProjection, ReproductionIndependence,
+    ReproductionOutcome, ReproductionProtocolProjection, ReproductionRequestProjection,
+    ReproductionRunRequest,
 };
 pub use review::{
     AcceptedRiskProjection, DisputeProjection, ReviewDecisionProjection, ReviewOutcome,

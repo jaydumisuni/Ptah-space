@@ -228,7 +228,7 @@ fn cross_workspace_retrieval_requires_membership_or_secure_grant() {
 #[test]
 fn expired_secure_grant_fails_closed_after_clock_advances() {
     let path = db_path("expired-grant");
-    let (source_id, target_id, actor, grant) = {
+    let (source_id, target_ref, actor, grant) = {
         let mut store =
             WorkspaceStore::open(&path, clock_at("2026-08-17T03:00:00Z")).expect("open");
         let source = create_workspace(&mut store, "expired.source");
@@ -246,9 +246,12 @@ fn expired_secure_grant_fails_closed_after_clock_advances() {
                 authority_ref: reference("authority.owner"),
             })
             .expect("grant");
+        store
+            .authorize_grant(&actor, &target.workspace_ref, "workspace.read", &grant)
+            .expect("current explicit grant");
         (
             source.workspace_ref.entity_id,
-            target.workspace_ref.entity_id,
+            target.workspace_ref.clone(),
             actor,
             grant,
         )
@@ -256,7 +259,17 @@ fn expired_secure_grant_fails_closed_after_clock_advances() {
 
     let reopened = WorkspaceStore::open(&path, clock_at("2026-08-17T05:00:00Z")).expect("reopen");
     assert!(matches!(
-        reopened.authorize_retrieval(&actor, source_id, target_id, "workspace.read", Some(&grant),),
+        reopened.authorize_retrieval(
+            &actor,
+            source_id,
+            target_ref.entity_id,
+            "workspace.read",
+            Some(&grant),
+        ),
+        Err(WorkspaceError::InvalidGrant)
+    ));
+    assert!(matches!(
+        reopened.authorize_grant(&actor, &target_ref, "workspace.read", &grant),
         Err(WorkspaceError::InvalidGrant)
     ));
 }

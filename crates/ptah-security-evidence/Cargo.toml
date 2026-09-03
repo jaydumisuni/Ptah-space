@@ -1,0 +1,24 @@
+[package]
+name = "ptah-security-evidence"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ptah-activity-runtime = { path = "../ptah-activity-runtime" }
+ptah-contracts = { path = "../ptah-contracts" }
+ptah-identifiers = { path = "../ptah-identifiers" }
+ptah-ledger = { path = "../ptah-ledger" }
+ptah-object-store = { path = "../ptah-object-store" }
+ptah-package-plugin = { path = "../ptah-package-plugin" }
+ptah-provenance = { path = "../ptah-provenance" }
+ptah-recipe-registry = { path = "../ptah-recipe-registry" }
+ptah-workspace = { path = "../ptah-workspace" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

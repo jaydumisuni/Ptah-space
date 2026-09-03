@@ -862,6 +862,45 @@ impl WorkspaceStore {
         Ok(grant_ref)
     }
 
+    /// Authorize an explicit Secure Grant regardless of Workspace equality.
+    ///
+    /// This applies the existing exact Grant subject, grantee, lifecycle, revocation,
+    /// expiry and scope checks without the same-Workspace retrieval shortcut.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceError::InvalidGrant`] when the Grant is absent, stale,
+    /// expired, revoked, mismatched or missing the requested scope.
+    pub fn authorize_grant(
+        &self,
+        actor_ref: &EntityRef,
+        subject_ref: &EntityRef,
+        required_scope: &str,
+        grant_ref: &EntityRef,
+    ) -> Result<(), WorkspaceError> {
+        require_scope(required_scope)?;
+        let record = self.latest(grant_ref.entity_id)?;
+        if record.schema_id() != SECURE_GRANT_SCHEMA_ID {
+            return Err(WorkspaceError::InvalidGrant);
+        }
+        let doc = record.document();
+        let expires_at = field_string(doc, "expires_at")?;
+        let now = (self.clock)();
+        let valid = field_ref(doc, "subject_ref")? == *subject_ref
+            && field_ref(doc, "grantee_ref")? == *actor_ref
+            && lifecycle_state(doc)? == "active"
+            && doc.get("revoked_at").is_none()
+            && utc_is_after(expires_at, &now)
+            && field_strings(doc, "scopes")?
+                .iter()
+                .any(|scope| scope == required_scope);
+        if valid {
+            Ok(())
+        } else {
+            Err(WorkspaceError::InvalidGrant)
+        }
+    }
+
     /// Authorize/reject retrieval across Workspace authority boundaries.
     ///
     /// Same-Workspace retrieval succeeds. Cross-Workspace retrieval requires an
@@ -902,22 +941,8 @@ impl WorkspaceStore {
         if let Some(grant_ref) = grant_ref {
             let record = self.latest(grant_ref.entity_id)?;
             if record.schema_id() == SECURE_GRANT_SCHEMA_ID {
-                let doc = record.document();
                 let target_ref = ref_with_kind(target_workspace_id, "core.workspace")?;
-                let expires_at = field_string(doc, "expires_at")?;
-                let now = (self.clock)();
-                let valid = field_ref(doc, "subject_ref")? == target_ref
-                    && field_ref(doc, "grantee_ref")? == *actor_ref
-                    && lifecycle_state(doc)? == "active"
-                    && doc.get("revoked_at").is_none()
-                    && utc_is_after(expires_at, &now)
-                    && field_strings(doc, "scopes")?
-                        .iter()
-                        .any(|scope| scope == required_scope);
-                if valid {
-                    return Ok(());
-                }
-                return Err(WorkspaceError::InvalidGrant);
+                return self.authorize_grant(actor_ref, &target_ref, required_scope, grant_ref);
             }
         }
         Err(WorkspaceError::CrossWorkspaceDenied)

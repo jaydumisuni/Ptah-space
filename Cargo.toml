@@ -14,6 +14,7 @@ members = [
   "crates/ptah-recipe-registry",
   "crates/ptah-package-plugin",
   "crates/ptah-provenance",
+  "crates/ptah-security-evidence",
   "crates/ptah-object-store",
   "crates/ptah-transfer",
   "crates/ptah-provider-api",

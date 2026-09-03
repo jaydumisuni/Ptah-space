@@ -697,6 +697,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptah-security-evidence"
+version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-activity-runtime",
+ "ptah-contracts",
+ "ptah-identifiers",
+ "ptah-ledger",
+ "ptah-object-store",
+ "ptah-package-plugin",
+ "ptah-provenance",
+ "ptah-recipe-registry",
+ "ptah-workspace",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "ptah-transfer"
 version = "0.0.0-phase0c"
 dependencies = [

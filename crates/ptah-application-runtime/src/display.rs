@@ -1,9 +1,7 @@
 //! D08 provider-neutral Display Session preparation and frame observation validation.
 
-use crate::{
-    ApplicationSessionLifecycle, ApplicationSessionProjection, D08Error, SessionLocality,
-    ensure_fresh_interval,
-};
+use crate::session::ensure_fresh_interval;
+use crate::{ApplicationSessionLifecycle, ApplicationSessionProjection, D08Error, SessionLocality};
 use ptah_identifiers::EntityRef;
 use ptah_provider_api::ProviderGeneration;
 use serde::{Deserialize, Serialize};

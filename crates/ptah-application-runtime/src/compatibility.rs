@@ -162,7 +162,10 @@ impl NodeLocalCompatibility {
     /// Returns [`D08Error`] when required evidence is absent, time bounds are invalid/stale,
     /// conditions are missing, or mandatory requirement truth contradicts compatibility.
     pub fn validate_at(&self, now: &str) -> Result<(), D08Error> {
-        if self.evidence_refs.is_empty() || self.requirements.is_empty() || self.node_generation == 0 {
+        if self.evidence_refs.is_empty()
+            || self.requirements.is_empty()
+            || self.node_generation == 0
+        {
             return Err(D08Error::MissingCompatibilityEvidence);
         }
         if self
@@ -173,8 +176,10 @@ impl NodeLocalCompatibility {
             return Err(D08Error::MissingCompatibilityEvidence);
         }
 
-        let evaluated_at = parse_utc_datetime(&self.evaluated_at).ok_or(D08Error::InvalidTimestamp)?;
-        let valid_until = parse_utc_datetime(&self.valid_until).ok_or(D08Error::InvalidTimestamp)?;
+        let evaluated_at =
+            parse_utc_datetime(&self.evaluated_at).ok_or(D08Error::InvalidTimestamp)?;
+        let valid_until =
+            parse_utc_datetime(&self.valid_until).ok_or(D08Error::InvalidTimestamp)?;
         let now = parse_utc_datetime(now).ok_or(D08Error::InvalidTimestamp)?;
         if evaluated_at > now || valid_until <= now || valid_until <= evaluated_at {
             return Err(D08Error::StaleCompatibility);
@@ -205,16 +210,18 @@ impl NodeLocalCompatibility {
             return Err(D08Error::MandatoryRequirementUnsatisfied);
         }
 
-        if matches!(self.decision, CompatibilityDecision::CompatibleWithConditions)
-            && (self.condition_refs.is_empty()
-                || self.requirements.iter().any(|requirement| {
-                    requirement.mandatory
-                        && matches!(
-                            requirement.outcome,
-                            RequirementOutcome::SatisfiedWithConditions
-                        )
-                        && requirement.condition_refs.is_empty()
-                }))
+        if matches!(
+            self.decision,
+            CompatibilityDecision::CompatibleWithConditions
+        ) && (self.condition_refs.is_empty()
+            || self.requirements.iter().any(|requirement| {
+                requirement.mandatory
+                    && matches!(
+                        requirement.outcome,
+                        RequirementOutcome::SatisfiedWithConditions
+                    )
+                    && requirement.condition_refs.is_empty()
+            }))
         {
             return Err(D08Error::MissingCompatibilityConditions);
         }
@@ -272,8 +279,7 @@ impl ExecutionDisposition {
     ) -> Result<Self, D08Error> {
         match platform {
             PlatformClass::LinuxNative | PlatformClass::LinuxPackaged => {
-                let compatibility =
-                    compatibility.ok_or(D08Error::MissingNodeLocalCompatibility)?;
+                let compatibility = compatibility.ok_or(D08Error::MissingNodeLocalCompatibility)?;
                 if compatibility.operation != operation {
                     return Err(D08Error::CompatibilityOperationMismatch);
                 }
@@ -325,15 +331,22 @@ fn remote_requirement(
         ),
         PlatformClass::WindowsVm => (
             "windows_vm",
-            &["windows", "virtualization", "remote_node", "graphical_display"],
+            &[
+                "windows",
+                "virtualization",
+                "remote_node",
+                "graphical_display",
+            ],
         ),
-        PlatformClass::MacOsNode => (
-            "macos_node",
-            &["macos", "remote_node", "graphical_display"],
-        ),
+        PlatformClass::MacOsNode => ("macos_node", &["macos", "remote_node", "graphical_display"]),
         PlatformClass::IosSimulator => (
             "ios_simulator",
-            &["macos", "xcode_simulator", "graphical_display", "remote_node"],
+            &[
+                "macos",
+                "xcode_simulator",
+                "graphical_display",
+                "remote_node",
+            ],
         ),
         PlatformClass::LinuxNative | PlatformClass::LinuxPackaged | PlatformClass::Android => {
             unreachable!("remote requirement is only created for remote roadmap platforms")

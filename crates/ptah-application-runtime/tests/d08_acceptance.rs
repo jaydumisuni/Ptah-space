@@ -3,10 +3,10 @@
 use ptah_application_runtime::{
     APPLICATION_COMPATIBILITY_SCHEMA_ID, APPLICATION_REVISION_SCHEMA_ID, APPLICATION_SCHEMA_ID,
     APPLICATION_SESSION_LIFECYCLE, APPLICATION_SESSION_SCHEMA_ID, APPLICATION_WINDOW_LIFECYCLE,
-    APPLICATION_WINDOW_OBSERVATION_SCHEMA_ID, APPLICATION_WINDOW_SCHEMA_ID,
-    ApplicationOperation, CompatibilityDecision, CompatibilityRequirement, D08Error,
-    DISPLAY_OBSERVATION_SCHEMA_ID, DISPLAY_SESSION_LIFECYCLE, DISPLAY_SESSION_SCHEMA_ID,
-    ExecutionDisposition, NodeLocalCompatibility, PlatformClass, RequirementOutcome,
+    APPLICATION_WINDOW_OBSERVATION_SCHEMA_ID, APPLICATION_WINDOW_SCHEMA_ID, ApplicationOperation,
+    CompatibilityDecision, CompatibilityRequirement, D08Error, DISPLAY_OBSERVATION_SCHEMA_ID,
+    DISPLAY_SESSION_LIFECYCLE, DISPLAY_SESSION_SCHEMA_ID, ExecutionDisposition,
+    NodeLocalCompatibility, PlatformClass, RequirementOutcome,
 };
 use ptah_contracts::generated;
 use ptah_identifiers::EntityRef;
@@ -61,7 +61,10 @@ fn d08_01_frozen_application_contract_and_lifecycle_ids_are_exact() {
         DISPLAY_SESSION_SCHEMA_ID,
         DISPLAY_OBSERVATION_SCHEMA_ID,
     ] {
-        assert!(generated::schema_by_id(schema).is_some(), "missing {schema}");
+        assert!(
+            generated::schema_by_id(schema).is_some(),
+            "missing {schema}"
+        );
     }
     for machine in [
         APPLICATION_SESSION_LIFECYCLE,
@@ -125,7 +128,10 @@ fn d08_06_linux_native_graphical_can_be_node_local_ready() {
         "2026-09-03T13:00:00Z",
     )
     .expect("current Linux compatibility should be usable");
-    assert!(matches!(disposition, ExecutionDisposition::NodeLocalReady(_)));
+    assert!(matches!(
+        disposition,
+        ExecutionDisposition::NodeLocalReady(_)
+    ));
 }
 
 #[test]
@@ -138,7 +144,10 @@ fn d08_07_linux_packaged_graphical_can_be_node_local_ready() {
         "2026-09-03T13:00:00Z",
     )
     .expect("current packaged Linux compatibility should be usable");
-    assert!(matches!(disposition, ExecutionDisposition::NodeLocalReady(_)));
+    assert!(matches!(
+        disposition,
+        ExecutionDisposition::NodeLocalReady(_)
+    ));
 }
 
 #[test]
@@ -155,7 +164,12 @@ fn d08_08_windows_node_is_explicitly_remote_node_dependent() {
         panic!("Windows Node must remain remote-node dependent");
     };
     assert_eq!(requirement.roadmap_dependency, "Programme E");
-    assert!(requirement.required_capabilities.iter().any(|v| v == "windows"));
+    assert!(
+        requirement
+            .required_capabilities
+            .iter()
+            .any(|v| v == "windows")
+    );
 }
 
 #[test]
@@ -192,7 +206,12 @@ fn d08_10_macos_node_is_explicitly_remote_node_dependent() {
     let ExecutionDisposition::RequiresRemoteNode(requirement) = disposition else {
         panic!("macOS must remain remote-node dependent");
     };
-    assert!(requirement.required_capabilities.iter().any(|v| v == "macos"));
+    assert!(
+        requirement
+            .required_capabilities
+            .iter()
+            .any(|v| v == "macos")
+    );
 }
 
 #[test]

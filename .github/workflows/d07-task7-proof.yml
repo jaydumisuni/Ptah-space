@@ -1,0 +1,398 @@
+name: D07 Task 7 Acceptance Closure Proof
+
+on:
+  push:
+    branches:
+      - d07-security-evidence-reproduction
+    paths:
+      - .github/workflows/d07-task7-proof.yml
+
+permissions:
+  contents: write
+
+jobs:
+  task7:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: d07-security-evidence-reproduction
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Add cases 29 and 30 RED
+        run: |
+          cat >> crates/ptah-security-evidence/tests/d07_acceptance.rs <<'EOF'
+
+          use std::collections::BTreeMap as EvidenceCardFields;
+
+          use ptah_security_evidence::{
+              BackendReplacementProjection, EvidenceCardView, SecurityAdapterObservation,
+          };
+
+          #[test]
+          fn evidence_card_is_sanitized_derived_presentation_without_acceptance_or_release_authority() {
+              let safe_fields = EvidenceCardFields::from([(
+                  "public_summary".to_owned(),
+                  "bounded public-safe result".to_owned(),
+              )]);
+              let card = EvidenceCardView::new(
+                  er("security.claim"),
+                  "The bounded claim is supported within the stated scope.".into(),
+                  vec![er("security.evidence_bundle")],
+                  "supported".into(),
+                  "reviewed".into(),
+                  "independently_reproduced".into(),
+                  "accepted_with_limitations".into(),
+                  vec!["scope is bounded".into()],
+                  &safe_fields,
+              )
+              .expect("sanitized evidence card");
+              assert!(!card.authoritative);
+              assert!(!card.release_approved);
+
+              for restricted_key in [
+                  "credential",
+                  "api_token",
+                  "session_cookie",
+                  "private_payload",
+                  "exploit_payload",
+                  "proprietary_source",
+                  "private_host_topology",
+                  "customer_private_data",
+              ] {
+                  let restricted = EvidenceCardFields::from([(
+                      restricted_key.to_owned(),
+                      "must never enter a public card".to_owned(),
+                  )]);
+                  assert!(matches!(
+                      EvidenceCardView::new(
+                          er("security.claim"),
+                          "bounded claim".into(),
+                          vec![er("security.evidence_bundle")],
+                          "supported".into(),
+                          "reviewed".into(),
+                          "not_requested".into(),
+                          "reviewed".into(),
+                          Vec::new(),
+                          &restricted,
+                      ),
+                      Err(D07Error::RestrictedEvidenceCardField)
+                  ));
+              }
+          }
+
+          #[test]
+          fn backend_replacement_preserves_ptah_identity_and_creates_new_provider_and_evidence() {
+              let finding_ref = er("security.finding");
+              let claim_ref = er("security.claim");
+              let subject_ref = er("core.object_revision");
+              let original = SecurityAdapterObservation {
+                  backend_alias: "scanner-a-run-17".into(),
+                  provider_revision_ref: er("runtime.provider_revision"),
+                  subject_refs: vec![subject_ref.clone()],
+                  facts: vec!["bounded fact".into()],
+                  evidence_refs: vec![er("security.evidence_item")],
+              };
+              let replacement = SecurityAdapterObservation {
+                  backend_alias: "scanner-b-run-91".into(),
+                  provider_revision_ref: er("runtime.provider_revision"),
+                  subject_refs: vec![subject_ref],
+                  facts: vec!["bounded fact".into()],
+                  evidence_refs: vec![er("security.evidence_item")],
+              };
+              let proof = BackendReplacementProjection::new(
+                  finding_ref.clone(),
+                  claim_ref.clone(),
+                  original,
+                  replacement,
+              )
+              .expect("valid provider-neutral replacement");
+              assert_eq!(proof.finding_ref(), &finding_ref);
+              assert_eq!(proof.claim_ref(), &claim_ref);
+              assert_ne!(
+                  proof.original().provider_revision_ref,
+                  proof.replacement().provider_revision_ref
+              );
+              assert_ne!(
+                  proof.original().evidence_refs,
+                  proof.replacement().evidence_refs
+              );
+              assert!(proof.original().backend_alias_as_finding_ref().is_none());
+              assert!(proof.replacement().backend_alias_as_finding_ref().is_none());
+          }
+          EOF
+          cargo fmt --all
+          if cargo test -p ptah-security-evidence --test d07_acceptance --locked; then
+            echo 'Task 7 RED unexpectedly passed' >&2
+            exit 1
+          fi
+      - name: Implement sanitized card and adapter replacement boundary
+        run: |
+          cat > crates/ptah-security-evidence/src/card.rs <<'EOF'
+          use std::collections::BTreeMap;
+
+          use ptah_identifiers::EntityRef;
+
+          use crate::D07Error;
+
+          const RESTRICTED_PUBLIC_FIELD_TOKENS: &[&str] = &[
+              "credential",
+              "token",
+              "cookie",
+              "private_payload",
+              "exploit_payload",
+              "proprietary_source",
+              "private_host",
+              "topology",
+              "customer_private",
+          ];
+
+          /// Derived, sanitized Evidence Card presentation with no acceptance or release authority.
+          #[derive(Debug, Clone, PartialEq, Eq)]
+          pub struct EvidenceCardView {
+              /// Exact bounded Claim represented by the card.
+              pub claim_ref: EntityRef,
+              /// Public-safe sentence the caller has explicitly allowed.
+              pub allowed_claim_sentence: String,
+              /// Exact public-safe evidence references.
+              pub evidence_refs: Vec<EntityRef>,
+              /// Bounded result status.
+              pub result_status: String,
+              /// Bounded verification level.
+              pub verification_level: String,
+              /// Bounded reproduction level.
+              pub reproduction_level: String,
+              /// Bounded review status.
+              pub review_status: String,
+              /// Explicit limitations retained with the view.
+              pub limitations: Vec<String>,
+              /// Always false: an Evidence Card is never canonical authority.
+              pub authoritative: bool,
+              /// Always false: an Evidence Card cannot approve a release.
+              pub release_approved: bool,
+          }
+
+          impl EvidenceCardView {
+              /// Construct a sanitized derived Evidence Card.
+              ///
+              /// `public_fields` is inspected only as a sanitation boundary; raw restricted field
+              /// families are rejected and are never retained in the returned card.
+              ///
+              /// # Errors
+              /// Returns [`D07Error`] when the view is incomplete or a restricted public field is supplied.
+              #[allow(clippy::too_many_arguments)]
+              pub fn new(
+                  claim_ref: EntityRef,
+                  allowed_claim_sentence: String,
+                  evidence_refs: Vec<EntityRef>,
+                  result_status: String,
+                  verification_level: String,
+                  reproduction_level: String,
+                  review_status: String,
+                  limitations: Vec<String>,
+                  public_fields: &BTreeMap<String, String>,
+              ) -> Result<Self, D07Error> {
+                  if claim_ref.entity_kind.as_str() != "security.claim"
+                      || allowed_claim_sentence.trim().is_empty()
+                      || evidence_refs.is_empty()
+                      || result_status.trim().is_empty()
+                      || verification_level.trim().is_empty()
+                      || reproduction_level.trim().is_empty()
+                      || review_status.trim().is_empty()
+                  {
+                      return Err(D07Error::InvalidEvidenceCard);
+                  }
+                  if public_fields.keys().any(|key| {
+                      let normalized = key.to_ascii_lowercase();
+                      RESTRICTED_PUBLIC_FIELD_TOKENS
+                          .iter()
+                          .any(|token| normalized.contains(token))
+                  }) {
+                      return Err(D07Error::RestrictedEvidenceCardField);
+                  }
+                  Ok(Self {
+                      claim_ref,
+                      allowed_claim_sentence,
+                      evidence_refs,
+                      result_status,
+                      verification_level,
+                      reproduction_level,
+                      review_status,
+                      limitations,
+                      authoritative: false,
+                      release_approved: false,
+                  })
+              }
+          }
+          EOF
+
+          cat > crates/ptah-security-evidence/src/adapters.rs <<'EOF'
+          use ptah_identifiers::EntityRef;
+
+          use crate::D07Error;
+
+          /// Provider-neutral normalized observation from a replaceable private security backend.
+          #[derive(Debug, Clone, PartialEq, Eq)]
+          pub struct SecurityAdapterObservation {
+              /// Provider-local alias retained as evidence only.
+              pub backend_alias: String,
+              /// Exact provider revision that produced this normalized observation.
+              pub provider_revision_ref: EntityRef,
+              /// Exact canonical subjects observed by the backend.
+              pub subject_refs: Vec<EntityRef>,
+              /// Bounded normalized facts.
+              pub facts: Vec<String>,
+              /// Fresh evidence references produced by this backend/work run.
+              pub evidence_refs: Vec<EntityRef>,
+          }
+
+          impl SecurityAdapterObservation {
+              /// A backend alias can never be converted into canonical Finding identity.
+              #[must_use]
+              pub const fn backend_alias_as_finding_ref(&self) -> Option<&EntityRef> {
+                  None
+              }
+
+              fn validate(&self) -> Result<(), D07Error> {
+                  if self.backend_alias.trim().is_empty()
+                      || self.provider_revision_ref.entity_kind.as_str() != "runtime.provider_revision"
+                      || self.subject_refs.is_empty()
+                      || self.facts.is_empty()
+                      || self.evidence_refs.is_empty()
+                  {
+                      return Err(D07Error::InvalidAdapterObservation);
+                  }
+                  Ok(())
+              }
+          }
+
+          /// Mechanical proof that backend replacement changes machinery/evidence without replacing Ptah identity.
+          #[derive(Debug, Clone, PartialEq, Eq)]
+          pub struct BackendReplacementProjection {
+              finding_ref: EntityRef,
+              claim_ref: EntityRef,
+              original: SecurityAdapterObservation,
+              replacement: SecurityAdapterObservation,
+          }
+
+          impl BackendReplacementProjection {
+              /// Build a replacement proof over two normalized backend observations.
+              ///
+              /// # Errors
+              /// Returns [`D07Error`] unless canonical subjects stay equal while backend/provider/evidence change.
+              pub fn new(
+                  finding_ref: EntityRef,
+                  claim_ref: EntityRef,
+                  original: SecurityAdapterObservation,
+                  replacement: SecurityAdapterObservation,
+              ) -> Result<Self, D07Error> {
+                  original.validate()?;
+                  replacement.validate()?;
+                  if finding_ref.entity_kind.as_str() != "security.finding"
+                      || claim_ref.entity_kind.as_str() != "security.claim"
+                      || original.subject_refs != replacement.subject_refs
+                      || original.backend_alias == replacement.backend_alias
+                      || original.provider_revision_ref == replacement.provider_revision_ref
+                      || original.evidence_refs == replacement.evidence_refs
+                  {
+                      return Err(D07Error::InvalidBackendReplacement);
+                  }
+                  Ok(Self {
+                      finding_ref,
+                      claim_ref,
+                      original,
+                      replacement,
+                  })
+              }
+
+              /// Canonical Finding identity preserved across backend replacement.
+              #[must_use]
+              pub const fn finding_ref(&self) -> &EntityRef {
+                  &self.finding_ref
+              }
+
+              /// Canonical Claim identity preserved across backend replacement.
+              #[must_use]
+              pub const fn claim_ref(&self) -> &EntityRef {
+                  &self.claim_ref
+              }
+
+              /// Original normalized backend observation.
+              #[must_use]
+              pub const fn original(&self) -> &SecurityAdapterObservation {
+                  &self.original
+              }
+
+              /// Replacement normalized backend observation.
+              #[must_use]
+              pub const fn replacement(&self) -> &SecurityAdapterObservation {
+                  &self.replacement
+              }
+          }
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('crates/ptah-security-evidence/src/lib.rs')
+          text = path.read_text()
+          text = text.replace('mod assessment;\n', 'mod adapters;\nmod assessment;\nmod card;\n', 1)
+          text = text.replace(
+              'pub use assessment::{\n',
+              'pub use adapters::{BackendReplacementProjection, SecurityAdapterObservation};\npub use assessment::{\n',
+              1,
+          )
+          text = text.replace(
+              'pub use disclosure::DisclosurePolicy;\n',
+              'pub use card::EvidenceCardView;\npub use disclosure::DisclosurePolicy;\n',
+              1,
+          )
+          path.write_text(text)
+
+          path = Path('crates/ptah-security-evidence/src/error.rs')
+          text = path.read_text()
+          marker = '    /// Underlying A06 authority check failed.\n'
+          variants = '''    /// Evidence Card projection is incomplete.\n    #[error("invalid derived security Evidence Card")]\n    InvalidEvidenceCard,\n    /// Public Evidence Card input contains a restricted raw field family.\n    #[error("restricted raw field is not allowed in a public Evidence Card")]\n    RestrictedEvidenceCardField,\n    /// Normalized private backend observation is incomplete.\n    #[error("invalid provider-neutral security adapter observation")]\n    InvalidAdapterObservation,\n    /// Backend replacement changed canonical subjects or failed to create fresh machinery/evidence.\n    #[error("invalid security backend replacement projection")]\n    InvalidBackendReplacement,\n'''
+          if 'InvalidEvidenceCard' not in text:
+              assert marker in text
+              text = text.replace(marker, variants + marker, 1)
+          path.write_text(text)
+          PY
+      - name: Prove exactly 30 acceptance cases and canonical store
+        run: |
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo test -p ptah-security-evidence --test d07_acceptance --locked
+          test "$(cargo test -p ptah-security-evidence --test d07_acceptance --locked -- --list 2>/dev/null | grep -c ': test$')" -eq 30
+          cargo test -p ptah-security-evidence --test store_roundtrip --locked
+          cargo test -p ptah-security-evidence --locked
+      - name: Audit exact 18 WP12 schema kind bindings
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          store = Path('crates/ptah-security-evidence/src/store.rs').read_text()
+          generated = Path('crates/ptah-contracts/src/generated.rs').read_text()
+          pairs = re.findall(r'\("(urn:ptah:schema:security:[^"]+)",\s*"(security\.[^"]+)"\)', store)
+          if len(pairs) != 18 or len(set(pairs)) != 18:
+              raise SystemExit(f'expected exact 18 unique WP12 pairs, got {len(pairs)} / {len(set(pairs))}')
+          missing = [(schema, kind) for schema, kind in pairs if schema not in generated or kind not in generated]
+          if missing:
+              raise SystemExit(f'WP12 pairs missing from generated bindings: {missing}')
+          print('WP12_AUDIT_OK=18')
+          PY
+      - name: Strict lint and predecessor regressions
+        run: |
+          cargo clippy -p ptah-security-evidence --all-targets --locked -- -D warnings -W clippy::pedantic
+          ! grep -R -n -E '#\[(allow|expect)\(' crates/ptah-security-evidence
+          cargo test -p ptah-ledger -p ptah-activity-runtime -p ptah-workspace -p ptah-object-store -p ptah-recipe-registry -p ptah-package-plugin -p ptah-provenance --locked
+      - name: Commit proven Task 7
+        run: |
+          git config user.name "TENFOLD Foreman"
+          git config user.email "jaydumi12@gmail.com"
+          git add crates/ptah-security-evidence
+          git commit -m "feat(d07): close security evidence acceptance corpus"
+          git push origin HEAD:d07-security-evidence-reproduction

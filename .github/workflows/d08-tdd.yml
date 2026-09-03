@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   d08-tdd:
@@ -46,7 +46,7 @@ jobs:
             echo 'D08 lint suppression found' >&2
             exit 1
           fi
-      - name: Prove Task 3 lock delta
+      - name: Prove Task 3 lock delta or steady state
         shell: bash
         run: |
           set -euo pipefail
@@ -61,13 +61,14 @@ jobs:
           after = {key(p): p for p in new['package']}
           assert set(before) == set(after), (set(after) - set(before), set(before) - set(after))
           changed = sorted(k for k in before.keys() & after.keys() if before[k] != after[k])
-          expected = [('ptah-application-runtime', '0.0.0-phase0c', None)]
-          assert changed == expected, changed
-          k = expected[0]
-          old_deps = set(before[k].get('dependencies', []))
-          new_deps = set(after[k].get('dependencies', []))
-          assert new_deps - old_deps == {'ptah-archive-decomposition', 'ptah-device-runtime'}, new_deps - old_deps
-          assert not (old_deps - new_deps), old_deps - new_deps
+          expected = ('ptah-application-runtime', '0.0.0-phase0c', None)
+          assert changed in ([], [expected]), changed
+          deps = set(after[expected].get('dependencies', []))
+          assert {'ptah-archive-decomposition', 'ptah-device-runtime'} <= deps, deps
+          if changed:
+              old_deps = set(before[expected].get('dependencies', []))
+              assert deps - old_deps == {'ptah-archive-decomposition', 'ptah-device-runtime'}, deps - old_deps
+              assert not (old_deps - deps), old_deps - deps
           PY
           git diff -- Cargo.lock > /tmp/Cargo.lock.diff
       - name: Upload exact Task 3 lock evidence
@@ -81,3 +82,15 @@ jobs:
             /tmp/d08-runtime-count.txt
           if-no-files-found: error
           retention-days: 7
+      - name: Promote exact Task 3 lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- Cargo.lock; then
+            exit 0
+          fi
+          git config user.name 'THE TECH GUY'
+          git config user.email '65334711+jaydumisuni@users.noreply.github.com'
+          git add Cargo.lock
+          git commit -m 'chore(d08): promote exact task3 lock delta'
+          git push origin HEAD:d08-application-platform-expansion

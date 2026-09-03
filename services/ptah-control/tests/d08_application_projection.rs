@@ -137,7 +137,10 @@ fn absent_or_preparing_backing_stays_unavailable_and_cannot_change_d01_authority
 
     assert_eq!(shell.applications.len(), 1);
     assert_eq!(shell.applications[0].availability, "unavailable");
-    assert_eq!(shell.applications[0].lifecycle.as_deref(), Some("preparing"));
+    assert_eq!(
+        shell.applications[0].lifecycle.as_deref(),
+        Some("preparing")
+    );
     assert_eq!(shell.authority, authority);
     assert_eq!(shell.operations, operations);
 }

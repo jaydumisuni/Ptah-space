@@ -18,7 +18,7 @@ pub use assessment::{
     AssessmentRunMapping, AssessmentTarget, CoverageProjection, RawReportAlias, ScannerRevision,
     SecurityTestClass,
 };
-pub use card::EvidenceCardView;
+pub use card::{EvidenceCardContent, EvidenceCardView};
 pub use disclosure::DisclosurePolicy;
 pub use error::D07Error;
 pub use evidence::{

@@ -765,7 +765,7 @@ fn negative_partial_failed_and_inconclusive_reproduction_history_is_retained() {
 use std::collections::BTreeMap as EvidenceCardFields;
 
 use ptah_security_evidence::{
-    BackendReplacementProjection, EvidenceCardView, SecurityAdapterObservation,
+    BackendReplacementProjection, EvidenceCardContent, EvidenceCardView, SecurityAdapterObservation,
 };
 
 #[test]
@@ -775,14 +775,17 @@ fn evidence_card_is_sanitized_derived_presentation_without_acceptance_or_release
         "bounded public-safe result".to_owned(),
     )]);
     let card = EvidenceCardView::new(
-        er("security.claim"),
-        "The bounded claim is supported within the stated scope.".into(),
-        vec![er("security.evidence_bundle")],
-        "supported".into(),
-        "reviewed".into(),
-        "independently_reproduced".into(),
-        "accepted_with_limitations".into(),
-        vec!["scope is bounded".into()],
+        EvidenceCardContent {
+            claim_ref: er("security.claim"),
+            allowed_claim_sentence: "The bounded claim is supported within the stated scope."
+                .into(),
+            evidence_refs: vec![er("security.evidence_bundle")],
+            result_status: "supported".into(),
+            verification_level: "reviewed".into(),
+            reproduction_level: "independently_reproduced".into(),
+            review_status: "accepted_with_limitations".into(),
+            limitations: vec!["scope is bounded".into()],
+        },
         &safe_fields,
     )
     .expect("sanitized evidence card");
@@ -805,14 +808,16 @@ fn evidence_card_is_sanitized_derived_presentation_without_acceptance_or_release
         )]);
         assert!(matches!(
             EvidenceCardView::new(
-                er("security.claim"),
-                "bounded claim".into(),
-                vec![er("security.evidence_bundle")],
-                "supported".into(),
-                "reviewed".into(),
-                "not_requested".into(),
-                "reviewed".into(),
-                Vec::new(),
+                EvidenceCardContent {
+                    claim_ref: er("security.claim"),
+                    allowed_claim_sentence: "bounded claim".into(),
+                    evidence_refs: vec![er("security.evidence_bundle")],
+                    result_status: "supported".into(),
+                    verification_level: "reviewed".into(),
+                    reproduction_level: "not_requested".into(),
+                    review_status: "reviewed".into(),
+                    limitations: Vec::new(),
+                },
                 &restricted,
             ),
             Err(D07Error::RestrictedEvidenceCardField)

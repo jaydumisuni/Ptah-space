@@ -16,6 +16,27 @@ const RESTRICTED_PUBLIC_FIELD_TOKENS: &[&str] = &[
     "customer_private",
 ];
 
+/// Caller-authored public-safe content used to derive one Evidence Card.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EvidenceCardContent {
+    /// Exact bounded Claim represented by the card.
+    pub claim_ref: EntityRef,
+    /// Public-safe sentence the caller has explicitly allowed.
+    pub allowed_claim_sentence: String,
+    /// Exact public-safe evidence references.
+    pub evidence_refs: Vec<EntityRef>,
+    /// Bounded result status.
+    pub result_status: String,
+    /// Bounded verification level.
+    pub verification_level: String,
+    /// Bounded reproduction level.
+    pub reproduction_level: String,
+    /// Bounded review status.
+    pub review_status: String,
+    /// Explicit limitations retained with the view.
+    pub limitations: Vec<String>,
+}
+
 /// Derived, sanitized Evidence Card presentation with no acceptance or release authority.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EvidenceCardView {
@@ -49,25 +70,17 @@ impl EvidenceCardView {
     ///
     /// # Errors
     /// Returns [`D07Error`] when the view is incomplete or a restricted public field is supplied.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        claim_ref: EntityRef,
-        allowed_claim_sentence: String,
-        evidence_refs: Vec<EntityRef>,
-        result_status: String,
-        verification_level: String,
-        reproduction_level: String,
-        review_status: String,
-        limitations: Vec<String>,
+        content: EvidenceCardContent,
         public_fields: &BTreeMap<String, String>,
     ) -> Result<Self, D07Error> {
-        if claim_ref.entity_kind.as_str() != "security.claim"
-            || allowed_claim_sentence.trim().is_empty()
-            || evidence_refs.is_empty()
-            || result_status.trim().is_empty()
-            || verification_level.trim().is_empty()
-            || reproduction_level.trim().is_empty()
-            || review_status.trim().is_empty()
+        if content.claim_ref.entity_kind.as_str() != "security.claim"
+            || content.allowed_claim_sentence.trim().is_empty()
+            || content.evidence_refs.is_empty()
+            || content.result_status.trim().is_empty()
+            || content.verification_level.trim().is_empty()
+            || content.reproduction_level.trim().is_empty()
+            || content.review_status.trim().is_empty()
         {
             return Err(D07Error::InvalidEvidenceCard);
         }
@@ -80,14 +93,14 @@ impl EvidenceCardView {
             return Err(D07Error::RestrictedEvidenceCardField);
         }
         Ok(Self {
-            claim_ref,
-            allowed_claim_sentence,
-            evidence_refs,
-            result_status,
-            verification_level,
-            reproduction_level,
-            review_status,
-            limitations,
+            claim_ref: content.claim_ref,
+            allowed_claim_sentence: content.allowed_claim_sentence,
+            evidence_refs: content.evidence_refs,
+            result_status: content.result_status,
+            verification_level: content.verification_level,
+            reproduction_level: content.reproduction_level,
+            review_status: content.review_status,
+            limitations: content.limitations,
             authoritative: false,
             release_approved: false,
         })

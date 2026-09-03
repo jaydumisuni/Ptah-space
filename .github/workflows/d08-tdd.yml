@@ -1,0 +1,27 @@
+name: D08 TDD
+
+on:
+  push:
+    branches:
+      - d08-application-platform-expansion
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - crates/ptah-application-runtime/**
+      - services/ptah-control/**
+      - .github/workflows/d08-tdd.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  d08-tdd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Run D08 acceptance target
+        run: cargo test -p ptah-application-runtime --test d08_acceptance

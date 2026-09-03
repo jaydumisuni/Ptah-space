@@ -1,8 +1,7 @@
 //! D08 canonical Application Window identity and observation validation.
 
-use crate::{
-    ApplicationSessionLifecycle, ApplicationSessionProjection, D08Error, ensure_fresh_interval,
-};
+use crate::session::ensure_fresh_interval;
+use crate::{ApplicationSessionLifecycle, ApplicationSessionProjection, D08Error};
 use ptah_identifiers::EntityRef;
 use ptah_provider_api::{EndpointAlias, ProviderGeneration};
 use serde::{Deserialize, Serialize};

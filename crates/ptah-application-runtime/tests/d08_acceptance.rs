@@ -13,8 +13,8 @@ use ptah_application_runtime::{
     DISPLAY_OBSERVATION_SCHEMA_ID, DISPLAY_SESSION_LIFECYCLE, DISPLAY_SESSION_SCHEMA_ID,
     DisplayLifecycle, DisplayObservation, DisplaySessionProjection, DisplaySessionRequest,
     ExecutionDisposition, InputCapability, LaunchMode, LocalLaunchRequest, LocalReadBack,
-    NodeLocalCompatibility, PlatformClass, RequirementOutcome, SessionLocality, WindowLifecycle,
-    WindowObservation, WindowStateClaim, apply_display_observation, apply_window_observation,
+    NodeLocalCompatibility, PlatformClass, RequirementOutcome, SessionLocality, WindowObservation,
+    WindowStateClaim, apply_display_observation, apply_window_observation,
     create_application_window, prepare_display_session, prepare_local_application_session,
     verify_local_application_session,
 };

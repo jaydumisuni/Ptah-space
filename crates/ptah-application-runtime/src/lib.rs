@@ -9,7 +9,9 @@ mod android;
 mod compatibility;
 mod display;
 mod error;
+mod remote_display;
 mod session;
+mod snapshot;
 mod window;
 
 pub use android::{AndroidProjectionRequest, project_android_application_session};
@@ -22,11 +24,13 @@ pub use display::{
     InputCapability, apply_display_observation, prepare_display_session,
 };
 pub use error::D08Error;
+pub use remote_display::require_remote_display;
 pub use session::{
     ApplicationAvailability, ApplicationSessionLifecycle, ApplicationSessionProjection, LaunchMode,
     LocalLaunchRequest, LocalReadBack, SessionLocality, prepare_local_application_session,
     verify_local_application_session,
 };
+pub use snapshot::ApplicationPlatformSnapshot;
 pub use window::{
     ApplicationWindowProjection, WindowLifecycle, WindowObservation, WindowStateClaim,
     apply_window_observation, create_application_window,

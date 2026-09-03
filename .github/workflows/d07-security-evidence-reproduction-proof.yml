@@ -1,0 +1,946 @@
+name: D07 Security Evidence Recovery Proof
+
+on:
+  push:
+    branches:
+      - d07-security-evidence-reproduction
+
+permissions:
+  contents: write
+
+jobs:
+  recover-task1-task2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: d07-security-evidence-reproduction
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Configure repository identity
+        run: |
+          git config user.name "TENFOLD Foreman"
+          git config user.email "jaydumi12@gmail.com"
+      - name: Recover Task 1 source
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          root = Path('crates/ptah-security-evidence')
+          (root / 'src').mkdir(parents=True, exist_ok=True)
+          (root / 'tests').mkdir(parents=True, exist_ok=True)
+
+          cargo = Path('Cargo.toml')
+          s = cargo.read_text()
+          member = '  "crates/ptah-security-evidence",\n'
+          marker = '  "crates/ptah-provenance",\n'
+          if member not in s:
+              assert marker in s
+              s = s.replace(marker, marker + member, 1)
+              cargo.write_text(s)
+
+          lock = Path('Cargo.lock')
+          s = lock.read_text()
+          stanza = '''[[package]]\nname = "ptah-security-evidence"\nversion = "0.0.0-phase0c"\ndependencies = [\n "ptah-activity-runtime",\n "ptah-contracts",\n "ptah-identifiers",\n "ptah-ledger",\n "ptah-object-store",\n "ptah-package-plugin",\n "ptah-provenance",\n "ptah-recipe-registry",\n "ptah-workspace",\n "serde",\n "serde_json",\n "sha2",\n "thiserror 2.0.17",\n]\n\n'''
+          if 'name = "ptah-security-evidence"' not in s:
+              marker = '[[package]]\nname = "ptah-transfer"\n'
+              assert marker in s
+              s = s.replace(marker, stanza + marker, 1)
+              lock.write_text(s)
+
+          (root / 'Cargo.toml').write_text('''[package]\nname = "ptah-security-evidence"\nversion.workspace = true\nedition.workspace = true\nrust-version.workspace = true\npublish.workspace = true\n\n[dependencies]\nptah-activity-runtime = { path = "../ptah-activity-runtime" }\nptah-contracts = { path = "../ptah-contracts" }\nptah-identifiers = { path = "../ptah-identifiers" }\nptah-ledger = { path = "../ptah-ledger" }\nptah-object-store = { path = "../ptah-object-store" }\nptah-package-plugin = { path = "../ptah-package-plugin" }\nptah-provenance = { path = "../ptah-provenance" }\nptah-recipe-registry = { path = "../ptah-recipe-registry" }\nptah-workspace = { path = "../ptah-workspace" }\nserde = { workspace = true }\nserde_json = { workspace = true }\nsha2 = { workspace = true }\nthiserror = { workspace = true }\n\n[lints]\nworkspace = true\n''')
+
+          (root / 'src' / 'error.rs').write_text('''use thiserror::Error;\n\n/// Mechanical D07 failure.\n#[derive(Debug, Error, Clone, PartialEq, Eq)]\npub enum D07Error {\n    /// The submitted canonical record is not one of the frozen WP12 security records.\n    #[error("unsupported or invalid WP12 security record")]\n    UnsupportedSecuritySchema,\n    /// Underlying canonical ledger operation failed.\n    #[error("security ledger failure: {0}")]\n    Ledger(String),\n}\n''')
+
+          (root / 'src' / 'store.rs').write_text('''use std::path::Path;\n\nuse ptah_identifiers::EntityRef;\nuse ptah_ledger::{CanonicalRecord, EntityRecordRepository, Ledger};\nuse serde_json::Value;\n\nuse crate::D07Error;\n\nconst WP12_SCHEMAS: &[(&str, &str)] = &[\n    ("urn:ptah:schema:security:accepted-risk:0.1.0", "security.accepted_risk"),\n    ("urn:ptah:schema:security:claim:0.1.0", "security.claim"),\n    ("urn:ptah:schema:security:disclosure-record:0.1.0", "security.disclosure_record"),\n    ("urn:ptah:schema:security:dispute:0.1.0", "security.dispute"),\n    ("urn:ptah:schema:security:evidence-bundle:0.1.0", "security.evidence_bundle"),\n    ("urn:ptah:schema:security:evidence-item:0.1.0", "security.evidence_item"),\n    ("urn:ptah:schema:security:finding:0.1.0", "security.finding"),\n    ("urn:ptah:schema:security:observation:0.1.0", "security.observation"),\n    ("urn:ptah:schema:security:patch:0.1.0", "security.patch"),\n    ("urn:ptah:schema:security:post-fix-verification:0.1.0", "security.post_fix_verification"),\n    ("urn:ptah:schema:security:remediation-proposal:0.1.0", "security.remediation_proposal"),\n    ("urn:ptah:schema:security:remediation-run:0.1.0", "security.remediation_run"),\n    ("urn:ptah:schema:security:reproduction-comparison:0.1.0", "security.reproduction_comparison"),\n    ("urn:ptah:schema:security:reproduction-protocol:0.1.0", "security.reproduction_protocol"),\n    ("urn:ptah:schema:security:reproduction-request:0.1.0", "security.reproduction_request"),\n    ("urn:ptah:schema:security:reproduction-run:0.1.0", "security.reproduction_run"),\n    ("urn:ptah:schema:security:review-decision:0.1.0", "security.review_decision"),\n    ("urn:ptah:schema:security:validation-run:0.1.0", "security.validation_run"),\n];\n\n/// A03-backed store bounded to the frozen WP12 security catalog.\npub struct SecurityEvidenceStore {\n    ledger: Ledger,\n}\n\nimpl SecurityEvidenceStore {\n    /// Open or create the underlying canonical A03 ledger.\n    ///\n    /// # Errors\n    /// Returns [`D07Error`] when the ledger cannot be opened.\n    pub fn open(path: impl AsRef<Path>) -> Result<Self, D07Error> {\n        Ok(Self {\n            ledger: Ledger::open(path).map_err(ledger_error)?,\n        })\n    }\n\n    /// Persist one complete frozen WP12 canonical document.\n    ///\n    /// # Errors\n    /// Returns [`D07Error`] when canonical validation fails or the schema/kind is outside WP12.\n    pub fn record_document(&mut self, document: Value) -> Result<EntityRef, D07Error> {\n        let record = CanonicalRecord::from_document(document).map_err(ledger_error)?;\n        if !WP12_SCHEMAS.iter().any(|(schema, kind)| {\n            record.schema_id() == *schema && record.entity_kind().as_str() == *kind\n        }) {\n            return Err(D07Error::UnsupportedSecuritySchema);\n        }\n        let entity_ref = EntityRef::from_id(record.entity_id(), record.entity_kind().as_str())\n            .map_err(|_| D07Error::UnsupportedSecuritySchema)?;\n        let write = self.ledger.begin_write().map_err(ledger_error)?;\n        write.insert(&record).map_err(ledger_error)?;\n        write.commit().map_err(ledger_error)?;\n        Ok(entity_ref)\n    }\n\n    /// Read the latest canonical document for one exact security entity.\n    ///\n    /// # Errors\n    /// Returns [`D07Error`] when the record is absent or unreadable.\n    pub fn read(&self, entity_ref: &EntityRef) -> Result<Value, D07Error> {\n        self.ledger\n            .latest_record(entity_ref.entity_id)\n            .map_err(ledger_error)?\n            .map(|record| record.document().clone())\n            .ok_or(D07Error::UnsupportedSecuritySchema)\n    }\n}\n\n#[cfg(test)]\npub(crate) fn wp12_schema_pairs() -> &'static [(&'static str, &'static str)] {\n    WP12_SCHEMAS\n}\n\nfn ledger_error(error: impl std::fmt::Display) -> D07Error {\n    D07Error::Ledger(error.to_string())\n}\n''')
+
+          (root / 'src' / 'lib.rs').write_text('''#![forbid(unsafe_code)]\n#![doc = "D07 provider-neutral security evidence and reproduction composition."]\n\nmod error;\nmod store;\n\npub use error::D07Error;\npub use store::SecurityEvidenceStore;\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn frozen_wp12_store_contains_exactly_eighteen_entity_pairs() {\n        assert_eq!(super::store::wp12_schema_pairs().len(), 18);\n    }\n}\n''')
+          (root / 'tests' / 'd07_acceptance.rs').write_text('''//! D07 milestone acceptance corpus.\n''')
+          (root / 'tests' / 'store_roundtrip.rs').write_text('''//! Canonical A03 persistence and store-boundary proof for D07.\n\nuse std::{\n    ffi::OsString,\n    fs,\n    path::{Path, PathBuf},\n    process,\n    sync::atomic::{AtomicU64, Ordering},\n};\n\nuse ptah_identifiers::EntityRef;\nuse ptah_security_evidence::{D07Error, SecurityEvidenceStore};\nuse serde_json::json;\n\nstatic NEXT_DB: AtomicU64 = AtomicU64::new(0);\n\nstruct TempDb(PathBuf);\nimpl TempDb {\n    fn new() -> Self {\n        let n = NEXT_DB.fetch_add(1, Ordering::Relaxed);\n        Self(std::env::temp_dir().join(format!("ptah-d07-store-{}-{n}.sqlite3", process::id())))\n    }\n    fn path(&self) -> &Path { &self.0 }\n}\nimpl Drop for TempDb {\n    fn drop(&mut self) {\n        let _ = fs::remove_file(&self.0);\n        for suffix in ["-wal", "-shm"] {\n            let mut side: OsString = self.0.as_os_str().to_owned();\n            side.push(suffix);\n            let _ = fs::remove_file(PathBuf::from(side));\n        }\n    }\n}\nfn er(kind: &str) -> EntityRef { EntityRef::new(kind).expect("valid kind") }\n\n#[test]\nfn frozen_security_observation_round_trips_through_a03() {\n    let db = TempDb::new();\n    let mut store = SecurityEvidenceStore::open(db.path()).expect("open");\n    let observation_ref = er("security.observation");\n    let document = json!({\n      "envelope":{"entity_id":observation_ref.entity_id,"entity_kind":observation_ref.entity_kind,"schema_id":"urn:ptah:schema:security:observation:0.1.0","schema_version":"0.1.0","record_revision":1,"authority_ref":er("identity.principal")},\n      "observer_ref":er("identity.agent"),"observation_type":"static_scan","subject_refs":[er("core.object_revision")],\n      "observed_facts":{"rule":"RULE-1","message":"bounded fact"},"confidence":0.8,"observed_at":"2026-09-03T00:00:00Z",\n      "evidence_refs":[er("core.evidence")],"limitations":[],"extensions":{}\n    });\n    let stored = store.record_document(document.clone()).expect("persist");\n    assert_eq!(stored, observation_ref);\n    assert_eq!(store.read(&stored).expect("read"), document);\n}\n\n#[test]\nfn non_wp12_canonical_document_is_rejected() {\n    let db = TempDb::new();\n    let mut store = SecurityEvidenceStore::open(db.path()).expect("open");\n    let observation_ref = er("provenance.package_observation");\n    let document = json!({\n      "envelope":{"entity_id":observation_ref.entity_id,"entity_kind":observation_ref.entity_kind,"schema_id":"urn:ptah:schema:build:package-observation:0.1.0","schema_version":"0.1.0","record_revision":1,"authority_ref":er("identity.principal")},\n      "subject_ref":er("core.object_revision"),"scanner_or_cataloguer_revision_ref":er("core.object_revision"),"package_name":"x","package_type":"cargo",\n      "locations":[{"location_type":"path","locator":"/tmp/x"}],"confidence":1.0,"observed_at":"2026-09-03T00:00:00Z","evidence_refs":[er("core.evidence")],"extensions":{}\n    });\n    assert!(matches!(\n        store.record_document(document),\n        Err(D07Error::UnsupportedSecuritySchema)\n    ));\n}\n''')
+
+          workspace = Path('crates/ptah-workspace/src/lib.rs')
+          s = workspace.read_text()
+          if 'pub fn authorize_grant(' not in s:
+              marker = '    /// Authorize/reject retrieval across Workspace authority boundaries.\n'
+              method = '''    /// Authorize an explicit Secure Grant regardless of Workspace equality.\n    ///\n    /// This applies the existing exact Grant subject, grantee, lifecycle, revocation,\n    /// expiry and scope checks without the same-Workspace retrieval shortcut.\n    ///\n    /// # Errors\n    ///\n    /// Returns [`WorkspaceError::InvalidGrant`] when the Grant is absent, stale,\n    /// expired, revoked, mismatched or missing the requested scope.\n    pub fn authorize_grant(\n        &self,\n        actor_ref: &EntityRef,\n        subject_ref: &EntityRef,\n        required_scope: &str,\n        grant_ref: &EntityRef,\n    ) -> Result<(), WorkspaceError> {\n        require_scope(required_scope)?;\n        let record = self.latest(grant_ref.entity_id)?;\n        if record.schema_id() != SECURE_GRANT_SCHEMA_ID {\n            return Err(WorkspaceError::InvalidGrant);\n        }\n        let doc = record.document();\n        let expires_at = field_string(doc, "expires_at")?;\n        let now = (self.clock)();\n        let valid = field_ref(doc, "subject_ref")? == *subject_ref\n            && field_ref(doc, "grantee_ref")? == *actor_ref\n            && lifecycle_state(doc)? == "active"\n            && doc.get("revoked_at").is_none()\n            && utc_is_after(expires_at, &now)\n            && field_strings(doc, "scopes")?\n                .iter()\n                .any(|scope| scope == required_scope);\n        if valid {\n            Ok(())\n        } else {\n            Err(WorkspaceError::InvalidGrant)\n        }\n    }\n\n'''
+              assert marker in s
+              s = s.replace(marker, method + marker, 1)
+              old = '''        if let Some(grant_ref) = grant_ref {\n            let record = self.latest(grant_ref.entity_id)?;\n            if record.schema_id() == SECURE_GRANT_SCHEMA_ID {\n                let doc = record.document();\n                let target_ref = ref_with_kind(target_workspace_id, "core.workspace")?;\n                let expires_at = field_string(doc, "expires_at")?;\n                let now = (self.clock)();\n                let valid = field_ref(doc, "subject_ref")? == target_ref\n                    && field_ref(doc, "grantee_ref")? == *actor_ref\n                    && lifecycle_state(doc)? == "active"\n                    && doc.get("revoked_at").is_none()\n                    && utc_is_after(expires_at, &now)\n                    && field_strings(doc, "scopes")?\n                        .iter()\n                        .any(|scope| scope == required_scope);\n                if valid {\n                    return Ok(());\n                }\n                return Err(WorkspaceError::InvalidGrant);\n            }\n        }\n'''
+              new = '''        if let Some(grant_ref) = grant_ref {\n            let record = self.latest(grant_ref.entity_id)?;\n            if record.schema_id() == SECURE_GRANT_SCHEMA_ID {\n                let target_ref = ref_with_kind(target_workspace_id, "core.workspace")?;\n                return self.authorize_grant(\n                    actor_ref,\n                    &target_ref,\n                    required_scope,\n                    grant_ref,\n                );\n            }\n        }\n'''
+              assert old in s
+              workspace.write_text(s.replace(old, new, 1))
+
+          test = Path('crates/ptah-workspace/tests/a06_acceptance.rs')
+          s = test.read_text()
+          if '.authorize_grant(&actor, &target.workspace_ref' not in s:
+              s = s.replace('let (source_id, target_id, actor, grant) = {', 'let (source_id, target_ref, actor, grant) = {', 1)
+              s = s.replace('            target.workspace_ref.entity_id,\n            actor,\n            grant,', '            target.workspace_ref.clone(),\n            actor,\n            grant,', 1)
+              s = s.replace('        (\n            source.workspace_ref.entity_id,\n            target.workspace_ref.clone(),', '        store\n            .authorize_grant(&actor, &target.workspace_ref, "workspace.read", &grant)\n            .expect("current explicit grant");\n        (\n            source.workspace_ref.entity_id,\n            target.workspace_ref.clone(),', 1)
+              s = s.replace('reopened.authorize_retrieval(&actor, source_id, target_id, "workspace.read", Some(&grant),),', 'reopened.authorize_retrieval(&actor, source_id, target_ref.entity_id, "workspace.read", Some(&grant),),', 1)
+              s = s.replace('        Err(WorkspaceError::InvalidGrant)\n    ));\n}\n\n#[test]\nfn worker_formation', '        Err(WorkspaceError::InvalidGrant)\n    ));\n    assert!(matches!(\n        reopened.authorize_grant(&actor, &target_ref, "workspace.read", &grant),\n        Err(WorkspaceError::InvalidGrant)\n    ));\n}\n\n#[test]\nfn worker_formation', 1)
+              test.write_text(s)
+          PY
+      - name: Prove Task 1
+        run: |
+          cargo fmt --all -- --check
+          cargo test -p ptah-workspace --test a06_acceptance --locked
+          cargo test -p ptah-security-evidence --locked
+          cargo clippy -p ptah-security-evidence -p ptah-workspace --all-targets --locked -- -D warnings -W clippy::pedantic
+          git diff -- Cargo.lock
+      - name: Commit Task 1
+        run: |
+          git add Cargo.toml Cargo.lock crates/ptah-workspace crates/ptah-security-evidence
+          git commit -m "feat(d07): add exact security grant and wp12 store"
+      - name: Recover Task 2 source
+        shell: bash
+        run: |
+          cat > crates/ptah-security-evidence/src/error.rs <<'EOF'
+          use thiserror::Error;
+
+          /// Mechanical D07 failure.
+          #[derive(Debug, Error, Clone, PartialEq, Eq)]
+          pub enum D07Error {
+              /// The submitted canonical record is not one of the frozen WP12 security records.
+              #[error("unsupported or invalid WP12 security record")]
+              UnsupportedSecuritySchema,
+              /// Assessment target or plan digest is not canonical lowercase SHA-256.
+              #[error("invalid canonical digest")]
+              InvalidDigest,
+              /// Timestamp is outside the supported canonical UTC form.
+              #[error("invalid UTC timestamp")]
+              InvalidTimestamp,
+              /// Authorization has not reached its validity start.
+              #[error("assessment authorization is not yet valid")]
+              AuthorizationNotYetValid,
+              /// Authorization has expired.
+              #[error("assessment authorization expired")]
+              AuthorizationExpired,
+              /// Exact target is not present in the caller authorization.
+              #[error("assessment target is outside authorization scope")]
+              TargetOutOfScope,
+              /// Requested security test class is not caller-authorized.
+              #[error("security test class is outside authorization scope")]
+              TestClassOutOfScope,
+              /// Assessment Plan does not bind the exact Authorization/Target/Scanner inputs.
+              #[error("assessment plan binding mismatch")]
+              PlanBindingMismatch,
+              /// Coverage projection overclaims completeness.
+              #[error("assessment coverage overclaims completeness")]
+              CoverageOverclaim,
+              /// Underlying A06 authority check failed.
+              #[error("A06 authority rejection: {0}")]
+              A06(String),
+              /// Underlying A04 orchestration operation failed.
+              #[error("A04 security workload mapping failed: {0}")]
+              A04(String),
+              /// Identifier construction failed.
+              #[error("D07 identifier error: {0}")]
+              Identifier(String),
+              /// Deterministic projection serialization failed.
+              #[error("D07 serialization error: {0}")]
+              Serialization(String),
+              /// Underlying canonical ledger operation failed.
+              #[error("security ledger failure: {0}")]
+              Ledger(String),
+          }
+          EOF
+          cat > crates/ptah-security-evidence/src/lib.rs <<'EOF'
+          #![forbid(unsafe_code)]
+          #![doc = "D07 provider-neutral security evidence and reproduction composition."]
+
+          mod assessment;
+          mod error;
+          mod store;
+
+          pub use assessment::{
+              AssessmentAdmission, AssessmentAdmissionRequest, AssessmentAuthorization, AssessmentPlan,
+              AssessmentRunMapping, AssessmentTarget, CoverageProjection, RawReportAlias, ScannerRevision,
+              SecurityTestClass,
+          };
+          pub use error::D07Error;
+          pub use store::SecurityEvidenceStore;
+
+          #[cfg(test)]
+          mod tests {
+              #[test]
+              fn frozen_wp12_store_contains_exactly_eighteen_entity_pairs() {
+                  assert_eq!(super::store::wp12_schema_pairs().len(), 18);
+              }
+          }
+          EOF
+          cat > crates/ptah-security-evidence/src/assessment.rs <<'EOF'
+          use std::collections::{BTreeMap, BTreeSet};
+
+          use ptah_activity_runtime::{
+              ActivityRuntime, ActivitySpec, AttemptContext, IdempotencyClass, OperationSpec, RetryClass,
+              SideEffectClass,
+          };
+          use ptah_identifiers::{EntityId, EntityRef};
+          use ptah_workspace::WorkspaceStore;
+          use serde::{Deserialize, Serialize};
+          use sha2::{Digest, Sha256};
+
+          use crate::D07Error;
+
+          /// Caller-selected security test class. D07 never chooses one itself.
+          #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+          #[serde(rename_all = "snake_case")]
+          pub enum SecurityTestClass {
+              /// Source/static inspection.
+              SourceStatic,
+              /// Artifact/package inventory.
+              ArtifactInventory,
+              /// Vulnerability/advisory matching.
+              VulnerabilityMatch,
+              /// Configuration/policy observation.
+              ConfigurationPolicy,
+              /// Secret-detection observation.
+              SecretDetection,
+              /// Licence observation.
+              LicenceObservation,
+              /// Passive dynamic observation.
+              PassiveDynamic,
+              /// Active dynamic assessment.
+              ActiveDynamic,
+              /// Fuzz assessment.
+              Fuzz,
+              /// Explicit exploit-validation assessment.
+              ExploitValidation,
+              /// Explicit offensive agentic assessment.
+              OffensiveAgentic,
+              /// Supply-chain graph analysis.
+              SupplyChainGraphAnalysis,
+              /// Reproduction/replay assessment.
+              ReproductionOrReplay,
+          }
+
+          impl SecurityTestClass {
+              fn scope(self) -> &'static str {
+                  match self {
+                      Self::SourceStatic => "security.assess.source_static",
+                      Self::ArtifactInventory => "security.assess.artifact_inventory",
+                      Self::VulnerabilityMatch => "security.assess.vulnerability_match",
+                      Self::ConfigurationPolicy => "security.assess.configuration_policy",
+                      Self::SecretDetection => "security.assess.secret_detection",
+                      Self::LicenceObservation => "security.assess.licence_observation",
+                      Self::PassiveDynamic => "security.assess.passive_dynamic",
+                      Self::ActiveDynamic => "security.assess.active_dynamic",
+                      Self::Fuzz => "security.assess.fuzz",
+                      Self::ExploitValidation => "security.assess.exploit_validation",
+                      Self::OffensiveAgentic => "security.assess.offensive_agentic",
+                      Self::SupplyChainGraphAnalysis => "security.assess.supply_chain_graph",
+                      Self::ReproductionOrReplay => "security.assess.reproduction",
+                  }
+              }
+
+              fn side_effect(self) -> SideEffectClass {
+                  match self {
+                      Self::SourceStatic
+                      | Self::ArtifactInventory
+                      | Self::VulnerabilityMatch
+                      | Self::ConfigurationPolicy
+                      | Self::SecretDetection
+                      | Self::LicenceObservation
+                      | Self::PassiveDynamic
+                      | Self::SupplyChainGraphAnalysis => SideEffectClass::ObservationOnly,
+                      Self::ActiveDynamic | Self::Fuzz | Self::ReproductionOrReplay => {
+                          SideEffectClass::Reversible
+                      }
+                      Self::ExploitValidation | Self::OffensiveAgentic => {
+                          SideEffectClass::NonIdempotentMutation
+                      }
+                  }
+              }
+          }
+
+          /// Exact assessment target revision and digest. `locator` is an alias only.
+          #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+          pub struct AssessmentTarget {
+              /// Exact immutable target revision.
+              pub target_ref: EntityRef,
+              /// Canonical lowercase SHA-256 digest.
+              pub sha256: String,
+              /// Optional path/URL/location alias; never identity.
+              pub locator: Option<String>,
+          }
+
+          impl AssessmentTarget {
+              /// Build one exact target.
+              ///
+              /// # Errors
+              /// Returns [`D07Error::InvalidDigest`] for a non-canonical SHA-256 digest.
+              pub fn new(
+                  target_ref: EntityRef,
+                  sha256: String,
+                  locator: Option<String>,
+              ) -> Result<Self, D07Error> {
+                  require_sha256(&sha256)?;
+                  Ok(Self {
+                      target_ref,
+                      sha256,
+                      locator,
+                  })
+              }
+          }
+
+          /// Exact scanner/tool/rules/database/model revision inputs selected by the caller.
+          #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+          pub struct ScannerRevision {
+              /// Exact provider revision.
+              pub provider_revision_ref: EntityRef,
+              /// Optional exact Package/Plugin revision supplying the scanner.
+              pub package_or_plugin_revision_ref: Option<EntityRef>,
+              /// Exact ruleset revision when applicable.
+              pub ruleset_ref: Option<EntityRef>,
+              /// Exact advisory database revision when applicable.
+              pub advisory_database_ref: Option<EntityRef>,
+              /// Exact policy revision when applicable.
+              pub policy_ref: Option<EntityRef>,
+              /// Exact model revision when applicable.
+              pub model_ref: Option<EntityRef>,
+              /// Canonical digest of scanner configuration.
+              pub configuration_digest: String,
+          }
+
+          /// Explicit bounded assessment authorization. It never expands itself.
+          #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+          pub struct AssessmentAuthorization {
+              /// Workspace identity retained for audit/projection.
+              pub workspace_ref: EntityRef,
+              /// Exact caller/actor identity.
+              pub actor_ref: EntityRef,
+              /// Exact current A06 Secure Grant.
+              pub grant_ref: EntityRef,
+              /// Caller-selected policy authorities.
+              pub policy_refs: Vec<EntityRef>,
+              /// Exact authorized target revisions.
+              pub target_refs: Vec<EntityRef>,
+              /// Explicit test classes permitted by the caller.
+              pub allowed_test_classes: BTreeSet<SecurityTestClass>,
+              /// Explicitly forbidden action keys.
+              pub forbidden_action_keys: BTreeSet<String>,
+              /// Projection validity start.
+              pub valid_from: String,
+              /// Projection expiry.
+              pub expires_at: String,
+              /// Privacy policies governing evidence.
+              pub privacy_policy_refs: Vec<EntityRef>,
+              /// Whether the selected assessment requires an emergency-stop capability.
+              pub emergency_stop_required: bool,
+              /// Whether cleanup readback is required after side effects.
+              pub cleanup_readback_required: bool,
+          }
+
+          impl AssessmentAuthorization {
+              /// Deterministic digest over the caller-authored authorization projection.
+              ///
+              /// # Errors
+              /// Returns [`D07Error::Serialization`] if canonical serialization fails.
+              pub fn digest(&self) -> Result<String, D07Error> {
+                  digest_json(self)
+              }
+
+              /// Validate exact target/test-class/clock/A06 Grant authority.
+              ///
+              /// # Errors
+              /// Returns a fail-closed [`D07Error`] before any A04 work is created.
+              pub fn authorize_at(
+                  &self,
+                  workspace: &WorkspaceStore,
+                  target: &AssessmentTarget,
+                  class: SecurityTestClass,
+                  now: &str,
+              ) -> Result<(), D07Error> {
+                  if !valid_utc(now) || !valid_utc(&self.valid_from) || !valid_utc(&self.expires_at) {
+                      return Err(D07Error::InvalidTimestamp);
+                  }
+                  if now < self.valid_from.as_str() {
+                      return Err(D07Error::AuthorizationNotYetValid);
+                  }
+                  if now >= self.expires_at.as_str() {
+                      return Err(D07Error::AuthorizationExpired);
+                  }
+                  if !self.target_refs.contains(&target.target_ref) {
+                      return Err(D07Error::TargetOutOfScope);
+                  }
+                  if !self.allowed_test_classes.contains(&class) {
+                      return Err(D07Error::TestClassOutOfScope);
+                  }
+                  workspace
+                      .authorize_grant(
+                          &self.actor_ref,
+                          &target.target_ref,
+                          class.scope(),
+                          &self.grant_ref,
+                      )
+                      .map_err(|error| D07Error::A06(error.to_string()))
+              }
+          }
+
+          /// Immutable assessment execution plan projection.
+          #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+          pub struct AssessmentPlan {
+              /// Digest of the exact Authorization used to build this Plan.
+              pub authorization_digest: String,
+              /// Exact admitted targets.
+              pub targets: Vec<AssessmentTarget>,
+              /// Exact scanner/tool revision inputs.
+              pub scanner_revision: ScannerRevision,
+              /// Exact D04 Recipe Revision selected by caller.
+              pub recipe_revision_ref: EntityRef,
+              /// Exact D04 Compiled Plan selected by caller.
+              pub compiled_plan_ref: EntityRef,
+              /// Exact operation descriptor revision digests.
+              pub operation_descriptor_digests: Vec<String>,
+              /// Expected coverage scope.
+              pub expected_scope: BTreeSet<String>,
+              /// Caller-authored stop conditions.
+              pub stop_conditions: Vec<String>,
+              /// Output/evidence policies.
+              pub output_policy_refs: Vec<EntityRef>,
+          }
+
+          impl AssessmentPlan {
+              /// Validate mechanical plan bindings against one exact authorization.
+              ///
+              /// # Errors
+              /// Returns [`D07Error`] for drift, empty scope or malformed digests.
+              pub fn validate(&self, authorization: &AssessmentAuthorization) -> Result<(), D07Error> {
+                  if self.authorization_digest != authorization.digest()?
+                      || self.targets.is_empty()
+                      || self.expected_scope.is_empty()
+                  {
+                      return Err(D07Error::PlanBindingMismatch);
+                  }
+                  for target in &self.targets {
+                      require_sha256(&target.sha256)?;
+                      if !authorization.target_refs.contains(&target.target_ref) {
+                          return Err(D07Error::TargetOutOfScope);
+                      }
+                  }
+                  require_sha256(&self.scanner_revision.configuration_digest)?;
+                  if self.operation_descriptor_digests.is_empty() {
+                      return Err(D07Error::PlanBindingMismatch);
+                  }
+                  for digest in &self.operation_descriptor_digests {
+                      require_sha256(digest)?;
+                  }
+                  Ok(())
+              }
+
+              /// Deterministic identity digest for the full assessment plan projection.
+              ///
+              /// # Errors
+              /// Returns [`D07Error`] when serialization fails.
+              pub fn digest(&self) -> Result<String, D07Error> {
+                  digest_json(self)
+              }
+          }
+
+          /// Exact expected/resolved/scanned coverage projection.
+          #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+          pub struct CoverageProjection {
+              /// Caller-declared expected scope.
+              pub expected_scope: BTreeSet<String>,
+              /// Scope successfully resolved to exact targets.
+              pub resolved_scope: BTreeSet<String>,
+              /// Scope actually assessed.
+              pub scanned_scope: BTreeSet<String>,
+              /// Explicit skipped scope.
+              pub skipped_scope: BTreeSet<String>,
+              /// Explicit unsupported scope.
+              pub unsupported_scope: BTreeSet<String>,
+              /// Scope that produced an error and the retained error code.
+              pub error_scope: BTreeMap<String, String>,
+              /// Limitations retained for caller/reviewer use.
+              pub limitations: Vec<String>,
+              /// Whether this projection claims complete coverage.
+              pub complete: bool,
+          }
+
+          impl CoverageProjection {
+              /// Validate that completeness is never overclaimed.
+              ///
+              /// # Errors
+              /// Returns [`D07Error::CoverageOverclaim`] when any expected scope is missing or qualified.
+              pub fn validate(&self) -> Result<(), D07Error> {
+                  if self.complete {
+                      let all_scanned = self.expected_scope.is_subset(&self.scanned_scope);
+                      let no_gaps = self.skipped_scope.is_empty()
+                          && self.unsupported_scope.is_empty()
+                          && self.error_scope.is_empty();
+                      if !all_scanned || !no_gaps {
+                          return Err(D07Error::CoverageOverclaim);
+                      }
+                  }
+                  Ok(())
+              }
+          }
+
+          /// Raw scanner/report aliases retained as evidence, never identity or authority.
+          #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+          pub struct RawReportAlias {
+              /// Raw path/URL-like locator.
+              pub path: String,
+              /// Backend/provider-local run identifier.
+              pub backend_run_id: String,
+          }
+
+          impl RawReportAlias {
+              /// Raw scanner aliases can never grant Ptah identity.
+              #[must_use]
+              pub const fn grants_identity(&self) -> bool {
+                  false
+              }
+
+              /// Raw scanner aliases can never grant Ptah authority.
+              #[must_use]
+              pub const fn grants_authority(&self) -> bool {
+                  false
+              }
+          }
+
+          /// Fresh A04 identities allocated only after D07 preflight succeeds.
+          #[derive(Debug, Clone, PartialEq, Eq)]
+          pub struct AssessmentRunMapping {
+              /// Fresh A04 Activity.
+              pub activity_id: EntityId,
+              /// Fresh A04 Operation.
+              pub operation_id: EntityId,
+              /// Fresh A04 Attempt.
+              pub attempt_id: EntityId,
+          }
+
+          /// Borrowed admission inputs collected before D07 mutates A04.
+          pub struct AssessmentAdmissionRequest<'a> {
+              /// Exact authorization projection.
+              pub authorization: &'a AssessmentAuthorization,
+              /// Exact assessment plan.
+              pub plan: &'a AssessmentPlan,
+              /// Exact selected target.
+              pub target: &'a AssessmentTarget,
+              /// Exact caller-selected test class.
+              pub class: SecurityTestClass,
+              /// Explicit admission timestamp.
+              pub now: &'a str,
+              /// Exact physical A04 Attempt context.
+              pub attempt_context: AttemptContext,
+          }
+
+          /// Thin D07 admission facade borrowing A06 and A04 authorities.
+          pub struct AssessmentAdmission;
+
+          impl AssessmentAdmission {
+              /// Validate the entire D07 assessment envelope before creating A04 work.
+              ///
+              /// # Errors
+              /// Returns [`D07Error`] and creates no A04 Activity for any preflight failure.
+              pub fn admit(
+                  runtime: &ActivityRuntime,
+                  workspace: &WorkspaceStore,
+                  request: AssessmentAdmissionRequest<'_>,
+              ) -> Result<AssessmentRunMapping, D07Error> {
+                  let authorization = request.authorization;
+                  let plan = request.plan;
+                  let target = request.target;
+                  let class = request.class;
+                  authorization.authorize_at(workspace, target, class, request.now)?;
+                  plan.validate(authorization)?;
+                  if !plan.targets.contains(target) {
+                      return Err(D07Error::PlanBindingMismatch);
+                  }
+                  let activity_id = runtime
+                      .create_activity(ActivitySpec {
+                          request_ref: EntityRef::new("security.assessment_request").map_err(id_error)?,
+                          workspace_ref: authorization.workspace_ref.clone(),
+                          caller_ref: authorization.actor_ref.clone(),
+                          authority_ref: authorization.grant_ref.clone(),
+                          activity_kind: "security.assessment".to_owned(),
+                          intent_ref: plan.compiled_plan_ref.clone(),
+                          priority: 0,
+                          max_attempts: 1,
+                      })
+                      .map_err(a04_error)?;
+                  if runtime.admit_next().map_err(a04_error)? != Some(activity_id) {
+                      return Err(D07Error::A04(
+                          "new assessment Activity was not admitted".to_owned(),
+                      ));
+                  }
+                  let operation_id = runtime
+                      .create_operation(
+                          activity_id,
+                          OperationSpec {
+                              operation_kind: "security.assess".to_owned(),
+                              logical_target_refs: vec![target.target_ref.clone()],
+                              command_or_action_ref: plan.compiled_plan_ref.clone(),
+                              side_effect_class: class.side_effect(),
+                              retry_class: RetryClass::NonRetryable,
+                              idempotency_class: IdempotencyClass::OperationIdentity,
+                              idempotency_key: None,
+                              required_authority_refs: vec![authorization.grant_ref.clone()],
+                              precondition_refs: authorization.policy_refs.clone(),
+                              desired_proof_refs: plan.output_policy_refs.clone(),
+                              compensating_operation_ref: None,
+                          },
+                      )
+                      .map_err(a04_error)?;
+                  runtime.make_operation_ready(operation_id).map_err(a04_error)?;
+                  let attempt_id = runtime
+                      .create_attempt(operation_id, request.attempt_context)
+                      .map_err(a04_error)?;
+                  Ok(AssessmentRunMapping {
+                      activity_id,
+                      operation_id,
+                      attempt_id,
+                  })
+              }
+          }
+
+          fn require_sha256(value: &str) -> Result<(), D07Error> {
+              let valid = value.len() == 64
+                  && value
+                      .bytes()
+                      .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+              if valid {
+                  Ok(())
+              } else {
+                  Err(D07Error::InvalidDigest)
+              }
+          }
+
+          fn valid_utc(value: &str) -> bool {
+              value.len() == 20 && value.ends_with('Z') && value.as_bytes().get(10) == Some(&b'T')
+          }
+
+          fn digest_json(value: &impl Serialize) -> Result<String, D07Error> {
+              let bytes = serde_json::to_vec(value)
+                  .map_err(|error| D07Error::Serialization(error.to_string()))?;
+              Ok(format!("{:x}", Sha256::digest(bytes)))
+          }
+
+          fn a04_error(error: impl std::fmt::Display) -> D07Error {
+              D07Error::A04(error.to_string())
+          }
+
+          fn id_error(error: impl std::fmt::Display) -> D07Error {
+              D07Error::Identifier(error.to_string())
+          }
+          EOF
+          cat > crates/ptah-security-evidence/tests/d07_acceptance.rs <<'EOF'
+          //! D07 milestone acceptance corpus.
+
+          use std::{
+              collections::{BTreeMap, BTreeSet},
+              fs,
+              path::PathBuf,
+              sync::Arc,
+          };
+
+          use ptah_activity_runtime::{ActivityRuntime, AttemptContext, MemoryJournal};
+          use ptah_identifiers::{EntityId, EntityRef};
+          use ptah_security_evidence::{
+              AssessmentAdmission, AssessmentAdmissionRequest, AssessmentAuthorization, AssessmentPlan,
+              AssessmentTarget, CoverageProjection, D07Error, RawReportAlias, ScannerRevision,
+              SecurityTestClass,
+          };
+          use ptah_workspace::{IssueGrant, WorkspaceStore};
+
+          fn er(kind: &str) -> EntityRef {
+              EntityRef::new(kind).expect("valid ref")
+          }
+
+          fn db_path(label: &str) -> PathBuf {
+              let path = std::env::temp_dir()
+                  .join(format!("ptah-d07-{label}-{}.sqlite3", EntityId::new_v7()));
+              let _ = fs::remove_file(&path);
+              path
+          }
+
+          fn clock_at(value: &'static str) -> Arc<dyn Fn() -> String + Send + Sync> {
+              Arc::new(move || value.to_owned())
+          }
+
+          fn runtime() -> ActivityRuntime {
+              ActivityRuntime::new(
+                  2,
+                  Arc::new(MemoryJournal::default()),
+                  clock_at("2026-09-03T00:00:00Z"),
+              )
+              .expect("runtime")
+          }
+
+          fn context() -> AttemptContext {
+              AttemptContext {
+                  node_ref: er("core.node"),
+                  node_generation: 1,
+                  provider_ref: er("runtime.provider"),
+                  provider_generation: 1,
+                  workload_generation: 1,
+                  connection_epoch: 1,
+                  facility_ref: er("runtime.facility"),
+                  producer_instance_ref: er("runtime.provider_instance"),
+                  producer_version: "1.0.0".into(),
+              }
+          }
+
+          struct AuthFixture {
+              path: PathBuf,
+              target: AssessmentTarget,
+              authorization: AssessmentAuthorization,
+          }
+
+          fn auth_fixture() -> AuthFixture {
+              let path = db_path("assessment-auth");
+              let actor = er("identity.principal");
+              let target = AssessmentTarget::new(
+                  er("core.object_revision"),
+                  "11".repeat(32),
+                  Some("src/lib.rs:1-10".into()),
+              )
+              .expect("target");
+              let mut store = WorkspaceStore::open(&path, clock_at("2026-09-03T00:00:00Z"))
+                  .expect("workspace");
+              let grant = store
+                  .issue_grant(IssueGrant {
+                      subject_ref: target.target_ref.clone(),
+                      grantee_ref: actor.clone(),
+                      scopes: vec!["security.assess.source_static".into()],
+                      policy_ref: er("policy.security"),
+                      provider_generation: 1,
+                      fence_token: 77,
+                      expires_at: "2026-09-03T02:00:00Z".into(),
+                      authority_ref: er("authority.owner"),
+                  })
+                  .expect("grant");
+              let authorization = AssessmentAuthorization {
+                  workspace_ref: er("core.workspace"),
+                  actor_ref: actor,
+                  grant_ref: grant,
+                  policy_refs: vec![er("policy.security")],
+                  target_refs: vec![target.target_ref.clone()],
+                  allowed_test_classes: BTreeSet::from([SecurityTestClass::SourceStatic]),
+                  forbidden_action_keys: BTreeSet::from(["security.destructive".into()]),
+                  valid_from: "2026-09-02T23:00:00Z".into(),
+                  expires_at: "2026-09-03T01:00:00Z".into(),
+                  privacy_policy_refs: vec![er("policy.privacy")],
+                  emergency_stop_required: true,
+                  cleanup_readback_required: true,
+              };
+              AuthFixture {
+                  path,
+                  target,
+                  authorization,
+              }
+          }
+
+          fn scanner() -> ScannerRevision {
+              ScannerRevision {
+                  provider_revision_ref: er("runtime.provider_revision"),
+                  package_or_plugin_revision_ref: Some(er("package.revision")),
+                  ruleset_ref: Some(er("core.object_revision")),
+                  advisory_database_ref: Some(er("core.object_revision")),
+                  policy_ref: Some(er("policy.security")),
+                  model_ref: None,
+                  configuration_digest: "22".repeat(32),
+              }
+          }
+
+          fn plan(
+              auth: &AssessmentAuthorization,
+              target: &AssessmentTarget,
+              scanner: ScannerRevision,
+          ) -> AssessmentPlan {
+              AssessmentPlan {
+                  authorization_digest: auth.digest().expect("auth digest"),
+                  targets: vec![target.clone()],
+                  scanner_revision: scanner,
+                  recipe_revision_ref: er("build.recipe_revision"),
+                  compiled_plan_ref: er("build.compiled_plan"),
+                  operation_descriptor_digests: vec!["33".repeat(32)],
+                  expected_scope: BTreeSet::from(["src/lib.rs".into()]),
+                  stop_conditions: vec!["budget_exhausted".into()],
+                  output_policy_refs: vec![er("policy.evidence")],
+              }
+          }
+
+          #[test]
+          fn exact_target_and_current_grant_are_required_before_assessment_work() {
+              let f = auth_fixture();
+              let store = WorkspaceStore::open(&f.path, clock_at("2026-09-03T00:00:00Z"))
+                  .expect("reopen");
+              let rt = runtime();
+              let p = plan(&f.authorization, &f.target, scanner());
+              let mapping = AssessmentAdmission::admit(
+                  &rt,
+                  &store,
+                  AssessmentAdmissionRequest {
+                      authorization: &f.authorization,
+                      plan: &p,
+                      target: &f.target,
+                      class: SecurityTestClass::SourceStatic,
+                      now: "2026-09-03T00:00:00Z",
+                      attempt_context: context(),
+                  },
+              )
+              .expect("admit");
+              assert_eq!(rt.activity_count().expect("count"), 1);
+              assert!(rt.attempt(mapping.attempt_id).expect("attempt").is_some());
+          }
+
+          #[test]
+          fn expired_authorization_blocks_before_a04_activity_creation() {
+              let f = auth_fixture();
+              let store = WorkspaceStore::open(&f.path, clock_at("2026-09-03T01:30:00Z"))
+                  .expect("reopen");
+              let rt = runtime();
+              let p = plan(&f.authorization, &f.target, scanner());
+              assert!(matches!(
+                  AssessmentAdmission::admit(
+                      &rt,
+                      &store,
+                      AssessmentAdmissionRequest {
+                          authorization: &f.authorization,
+                          plan: &p,
+                          target: &f.target,
+                          class: SecurityTestClass::SourceStatic,
+                          now: "2026-09-03T01:30:00Z",
+                          attempt_context: context(),
+                      },
+                  ),
+                  Err(D07Error::AuthorizationExpired)
+              ));
+              assert_eq!(rt.activity_count().expect("count"), 0);
+          }
+
+          #[test]
+          fn out_of_scope_test_class_or_target_fails_before_workload_invocation() {
+              let f = auth_fixture();
+              let store = WorkspaceStore::open(&f.path, clock_at("2026-09-03T00:00:00Z"))
+                  .expect("reopen");
+              let rt = runtime();
+              let p = plan(&f.authorization, &f.target, scanner());
+              assert!(matches!(
+                  AssessmentAdmission::admit(
+                      &rt,
+                      &store,
+                      AssessmentAdmissionRequest {
+                          authorization: &f.authorization,
+                          plan: &p,
+                          target: &f.target,
+                          class: SecurityTestClass::ExploitValidation,
+                          now: "2026-09-03T00:00:00Z",
+                          attempt_context: context(),
+                      },
+                  ),
+                  Err(D07Error::TestClassOutOfScope)
+              ));
+              let other = AssessmentTarget::new(
+                  er("core.object_revision"),
+                  "44".repeat(32),
+                  None,
+              )
+              .expect("other");
+              assert!(matches!(
+                  f.authorization.authorize_at(
+                      &store,
+                      &other,
+                      SecurityTestClass::SourceStatic,
+                      "2026-09-03T00:00:00Z"
+                  ),
+                  Err(D07Error::TargetOutOfScope)
+              ));
+              assert_eq!(rt.activity_count().expect("count"), 0);
+          }
+
+          #[test]
+          fn newly_discovered_target_never_extends_its_own_authorization() {
+              let f = auth_fixture();
+              let store = WorkspaceStore::open(&f.path, clock_at("2026-09-03T00:00:00Z"))
+                  .expect("reopen");
+              let discovered = AssessmentTarget::new(
+                  er("core.object_revision"),
+                  "55".repeat(32),
+                  Some("https://new.example".into()),
+              )
+              .expect("discovered");
+              assert!(matches!(
+                  f.authorization.authorize_at(
+                      &store,
+                      &discovered,
+                      SecurityTestClass::SourceStatic,
+                      "2026-09-03T00:00:00Z"
+                  ),
+                  Err(D07Error::TargetOutOfScope)
+              ));
+              assert_eq!(f.authorization.target_refs.len(), 1);
+          }
+
+          #[test]
+          fn assessment_plan_binds_exact_authorization_target_and_scanner_revision() {
+              let f = auth_fixture();
+              let p = plan(&f.authorization, &f.target, scanner());
+              p.validate(&f.authorization).expect("valid plan");
+              assert_eq!(p.targets[0], f.target);
+              assert_eq!(
+                  p.authorization_digest,
+                  f.authorization.digest().expect("digest")
+              );
+          }
+
+          #[test]
+          fn scanner_rules_database_or_configuration_drift_changes_plan_identity() {
+              let f = auth_fixture();
+              let first = plan(&f.authorization, &f.target, scanner());
+              let mut changed_scanner = scanner();
+              changed_scanner.configuration_digest = "66".repeat(32);
+              let second = plan(&f.authorization, &f.target, changed_scanner);
+              assert_ne!(
+                  first.digest().expect("first"),
+                  second.digest().expect("second")
+              );
+          }
+
+          #[test]
+          fn zero_findings_cannot_claim_complete_coverage_with_gaps() {
+              let coverage = CoverageProjection {
+                  expected_scope: BTreeSet::from(["a".into(), "b".into()]),
+                  resolved_scope: BTreeSet::from(["a".into(), "b".into()]),
+                  scanned_scope: BTreeSet::from(["a".into()]),
+                  skipped_scope: BTreeSet::from(["b".into()]),
+                  unsupported_scope: BTreeSet::new(),
+                  error_scope: BTreeMap::new(),
+                  limitations: vec!["b skipped".into()],
+                  complete: true,
+              };
+              assert!(matches!(
+                  coverage.validate(),
+                  Err(D07Error::CoverageOverclaim)
+              ));
+          }
+
+          #[test]
+          fn raw_report_path_and_backend_run_id_are_aliases_not_identity() {
+              let alias = RawReportAlias {
+                  path: "/tmp/report.json".into(),
+                  backend_run_id: "scanner-run-42".into(),
+              };
+              assert!(!alias.grants_identity());
+              assert!(!alias.grants_authority());
+          }
+          EOF
+      - name: Prove Task 2
+        run: |
+          cargo fmt --all -- --check
+          cargo test -p ptah-security-evidence --test d07_acceptance --locked
+          test "$(cargo test -p ptah-security-evidence --test d07_acceptance --locked -- --list 2>/dev/null | grep -c ': test$')" -eq 8
+          cargo clippy -p ptah-security-evidence --all-targets --locked -- -D warnings -W clippy::pedantic
+          ! grep -R -n -E '#\[(allow|expect)\(' crates/ptah-security-evidence
+      - name: Commit Task 2 and push proven recovery
+        run: |
+          git add crates/ptah-security-evidence
+          git commit -m "feat(d07): add authorized assessment boundary"
+          git status --short
+          git push origin HEAD:d07-security-evidence-reproduction

@@ -26,20 +26,13 @@ jobs:
       - name: Check D08 formatting
         run: cargo fmt --all -- --check
       - name: Run D08 acceptance target
-        run: cargo test -p ptah-application-runtime --test d08_acceptance
+        run: cargo test -p ptah-application-runtime --test d08_acceptance --locked
       - name: Prove D08 acceptance count
         shell: bash
         run: |
           set -euo pipefail
-          count="$(cargo test -p ptah-application-runtime --test d08_acceptance -- --list 2>/dev/null | grep -c ': test$')"
-          test "$count" -eq 12
+          count="$(cargo test -p ptah-application-runtime --test d08_acceptance --locked -- --list 2>/dev/null | grep -c ': test$')"
+          test "$count" -eq 20
           echo "D08_RUNTIME_CASES=$count"
       - name: Strict D08 Clippy without suppressions
-        run: cargo clippy -p ptah-application-runtime --all-targets -- -D warnings -W clippy::pedantic
-      - name: Upload generated lockfile
-        uses: actions/upload-artifact@v4
-        with:
-          name: d08-generated-lock-${{ github.sha }}
-          path: Cargo.lock
-          if-no-files-found: error
-          retention-days: 7
+        run: cargo clippy -p ptah-application-runtime --all-targets --locked -- -D warnings -W clippy::pedantic

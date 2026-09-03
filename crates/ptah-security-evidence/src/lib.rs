@@ -5,6 +5,7 @@ mod assessment;
 mod disclosure;
 mod error;
 mod evidence;
+mod remediation;
 mod review;
 mod store;
 
@@ -18,6 +19,10 @@ pub use error::D07Error;
 pub use evidence::{
     ClaimProjection, CorrelationRelation, EvidenceBundleProjection, EvidenceCoverage,
     EvidenceItemBinding, FindingDraft, ObservationCorrelation, ObservationProjection,
+};
+pub use remediation::{
+    PatchBinding, PostFixDecision, PostFixVerificationRequest, RemediationAcknowledgement,
+    RemediationExecutionRequest,
 };
 pub use review::{
     AcceptedRiskProjection, DisputeProjection, ReviewDecisionProjection, ReviewOutcome,

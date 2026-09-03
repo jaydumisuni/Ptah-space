@@ -533,3 +533,93 @@ fn public_disclosure_requires_explicit_redacted_content_and_privacy_authority() 
         .authorize(&[restricted], &[er("core.object_revision")])
         .expect("explicit redacted disclosed content");
 }
+
+use ptah_security_evidence::{
+    PatchBinding, PostFixDecision, PostFixVerificationRequest, RemediationAcknowledgement,
+    RemediationExecutionRequest,
+};
+
+#[test]
+fn remediation_proposal_is_not_a_patch() {
+    assert!(matches!(
+        PatchBinding::new(
+            er("security.remediation_proposal"),
+            er("security.remediation_proposal"),
+            vec![er("core.object_revision")],
+            er("runtime.provider_revision"),
+            "aa".repeat(32),
+            Some("src/lib.rs".into()),
+        ),
+        Err(D07Error::InvalidPatchBinding)
+    ));
+}
+
+#[test]
+fn patch_requires_exact_a07_object_base_revision_and_digest_while_path_is_alias_only() {
+    let patch_object = er("core.object_revision");
+    let patch = PatchBinding::new(
+        er("security.remediation_proposal"),
+        patch_object.clone(),
+        vec![er("core.object_revision")],
+        er("runtime.provider_revision"),
+        "bb".repeat(32),
+        Some("/workspace/src/lib.rs".into()),
+    )
+    .expect("exact patch binding");
+    assert_eq!(patch.patch_identity(), &patch_object);
+    assert_eq!(patch.path_alias.as_deref(), Some("/workspace/src/lib.rs"));
+    assert!(matches!(
+        PatchBinding::new(
+            er("security.remediation_proposal"),
+            er("core.object_revision"),
+            Vec::new(),
+            er("runtime.provider_revision"),
+            "bad-digest".into(),
+            None,
+        ),
+        Err(D07Error::InvalidPatchBinding)
+    ));
+}
+
+#[test]
+fn patch_application_acknowledgement_remains_applied_unverified() {
+    let request = RemediationExecutionRequest {
+        proposal_ref: er("security.remediation_proposal"),
+        patch_ref: er("security.patch"),
+        target_refs: vec![er("core.object_revision")],
+        backup_refs: vec![er("core.object_revision")],
+        activity_request_ref: er("core.activity_request"),
+        authority_ref: er("identity.principal"),
+        attempt_context: context(),
+    };
+    request.validate().expect("bounded execution request");
+    let ack = RemediationAcknowledgement::applied_unverified(er("security.remediation_run"));
+    assert_eq!(ack.outcome(), "applied_unverified");
+    assert!(!ack.satisfies_post_fix_verification());
+}
+
+#[test]
+fn post_fix_verification_requires_fresh_attempt_and_retains_regression_after_prior_closure() {
+    let old_attempt = er("core.attempt");
+    let request = PostFixVerificationRequest {
+        remediation_run_ref: er("security.remediation_run"),
+        finding_refs: vec![er("security.finding")],
+        target_refs: vec![er("core.object_revision")],
+        environment_refs: vec![er("core.object_revision")],
+        prior_attempt_refs: vec![old_attempt.clone()],
+        decision: PostFixDecision::Regressed,
+        evidence_bundle_refs: vec![er("security.evidence_bundle")],
+    };
+    assert!(matches!(
+        request.validate_attempt(&old_attempt),
+        Err(D07Error::FreshAttemptRequired)
+    ));
+    request
+        .validate_attempt(&er("core.attempt"))
+        .expect("fresh verification Attempt");
+    let history = request.history_after(Some(PostFixDecision::FixedVerified));
+    assert_eq!(
+        history,
+        vec![PostFixDecision::FixedVerified, PostFixDecision::Regressed]
+    );
+}

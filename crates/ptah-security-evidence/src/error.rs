@@ -60,6 +60,15 @@ pub enum D07Error {
     /// Disclosure lacks explicit audience/redaction/privacy authority.
     #[error("security disclosure denied")]
     DisclosureDenied,
+    /// Patch lacks exact A07 object/base/digest binding.
+    #[error("invalid security patch binding")]
+    InvalidPatchBinding,
+    /// Remediation execution request lacks exact targets/backups/authority binding.
+    #[error("invalid security remediation request")]
+    InvalidRemediationRequest,
+    /// Post-fix verification lacks fresh attempt or exact evidence boundaries.
+    #[error("invalid security post-fix verification")]
+    InvalidPostFixVerification,
     /// Underlying A06 authority check failed.
     #[error("A06 authority rejection: {0}")]
     A06(String),

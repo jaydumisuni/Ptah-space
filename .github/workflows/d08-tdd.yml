@@ -31,8 +31,10 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          set +e
           cargo test -p ptah-application-runtime --test d08_acceptance > /tmp/runtime-red.log 2>&1
           status=$?
+          set -e
           cat /tmp/runtime-red.log
           test "$status" -ne 0
           grep -q 'require_remote_display' /tmp/runtime-red.log
@@ -40,8 +42,10 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          set +e
           cargo test -p ptah-control --test d08_application_projection > /tmp/shell-red.log 2>&1
           status=$?
+          set -e
           cat /tmp/shell-red.log
           test "$status" -ne 0
           grep -Eq 'ApplicationPlatformSnapshot|project_application_platform_views|applications' /tmp/shell-red.log

@@ -37,7 +37,7 @@ The primary frozen schemas are:
 
 The frozen compatibility contract already distinguishes operation, Provider revision/instance/generation, locality, Node/resource/capability evidence, compatibility decision, per-requirement results, conditions, evaluation time, validity and evidence. D08 preserves that structure instead of reducing compatibility to a boolean.
 
-The frozen Application Session contract already binds Workspace, materialization, Application/Revision, installation, Provider generation, locality, Activity/Operation/Attempt, availability, privacy policy and current execution locality. D08 follows that authority shape.
+The frozen Application Session contract binds Workspace, materialization, Application/Revision, installation, Provider generation, locality, Activity/Operation/Attempt, availability, privacy policy and current execution locality. Its lifecycle begins in `preparing` only after exact compatibility and a new Attempt exist. `running` requires current Process and application-readiness proof. The Display Session lifecycle likewise begins in `preparing`; `streaming` requires fresh display observation. Application Window lifecycle begins in `created`; `visible` requires fresh Window Observation. D08 follows these exact two-phase lifecycles.
 
 ## Predecessor reconciliation
 
@@ -53,7 +53,7 @@ A04 owns Activity/Operation/Attempt identity and exact physical `AttemptContext`
 
 A05 `native-process` owns mechanical process/PTY execution. Its `ProcessRecord` retains canonical process identity, Node and Provider generation, backend aliases such as OS PID, current process lifecycle and independent exit evidence.
 
-D08 does not create another process launcher. Linux launch is admitted by D08, executed by A05, then promoted to an Application Session only after D08 validates the resulting A05 process evidence together with current application window/display evidence.
+D08 does not create another process launcher. Linux launch admission creates a stable D08 Application Session identity in frozen lifecycle state `preparing`; A05 performs the mechanical process launch; fresh process/window/display evidence then promotes the same session to `running` or an explicitly bounded `degraded` state. Admission is not readiness.
 
 ### C10 — Android Device/Application Session
 
@@ -76,9 +76,9 @@ The crate owns provider-neutral D08 composition and validation only. Low-level p
 The crate is divided into five focused boundaries:
 
 1. platform/compatibility;
-2. local Linux launch and verification;
+2. local Linux launch lifecycle and verification;
 3. Android composition;
-4. application window/display evidence;
+4. application window/display lifecycle and evidence;
 5. read-only shell projection.
 
 No new database, schema family or network dependency is introduced.
@@ -164,9 +164,11 @@ For iOS Simulator the requirement explicitly includes a compatible macOS/Xcode S
 
 Linux native and packaged applications are the D08 executable Node-local path.
 
-### Launch admission
+### Preparing launch
 
-`LocalLaunchAdmission` binds:
+`prepare_local_application_session` consumes a `LocalLaunchRequest` and current `NodeLocalCompatibility` and returns `PreparingLocalApplicationSession`.
+
+The request binds:
 
 - Workspace and exact Workspace revision reference;
 - Application and exact Application Revision;
@@ -174,12 +176,14 @@ Linux native and packaged applications are the D08 executable Node-local path.
 - materialization ref and generation;
 - exact A04 Activity/Operation/Attempt references;
 - exact A04 `AttemptContext`;
-- current compatible `NodeLocalCompatibility` for launch operation;
+- current compatible `NodeLocalCompatibility` for the requested launch operation;
 - privacy policy references;
 - command/request evidence;
 - request timestamp.
 
-Admission fails before A05 execution when compatibility is stale/incompatible/blocked, Application Revision differs, Node/Provider generation differs, materialization identity/generation is missing, privacy/evidence is absent, or the requested compatibility operation does not cover the launch mode.
+Preparation fails before A05 execution when compatibility is stale/incompatible/blocked, Application Revision differs, Node/Provider generation differs, materialization identity/generation is missing, privacy/evidence is absent, or the compatibility operation does not cover the requested launch mode.
+
+A successful preparation creates one stable `application.session` identity in lifecycle `preparing` with availability `unavailable` or `unknown` until read-back proves otherwise. This identity allows subsequent Window and Display records to bind to the exact Session without claiming readiness.
 
 ### Execution
 
@@ -187,29 +191,41 @@ D08 does not spawn the process itself. The caller uses the already accepted A05 
 
 An A05 spawn return or `ProcessState::Running` is command/process evidence only. It is not graphical Application readiness.
 
+### Window preparation and observation
+
+Once the preparing Application Session exists, a Provider/control-plane observation may create a stable `application.window` identity in lifecycle `created`, bound to that exact Application Session and Provider generation. `created` is not visibility proof.
+
+A fresh `ApplicationWindowObservation` may then promote the Window to `visible`, `hidden`, `degraded`, `unknown`, `replaced` or `closed` according to the frozen lifecycle. Graphical readiness accepts only a current, same-generation visible Window.
+
+### Display preparation and observation
+
+For graphical launch, D08 may create a Display Session in lifecycle `preparing` only after the exact preparing Application Session, Provider context and at least one stable surface ref exist. `preparing` is not pixel/readiness proof.
+
+A fresh Display Observation from the same Provider generation/locality may promote that Display Session to `streaming` or an explicitly bounded `degraded` state. `streaming` requires fresh pixels/geometry evidence under the frozen lifecycle.
+
 ### Launch verification
 
-`verify_local_launch` consumes the frozen admission plus:
+`verify_local_application_session` consumes the stable preparing session plus:
 
 - current A05 `ProcessRecord`;
-- one current D08 Application Window observation;
-- one current D08 Display observation/session readiness input for graphical launch;
+- current same-session Window/Window Observation for graphical launch;
+- current same-session Display Session/Display Observation for graphical launch;
 - supporting read-back evidence and observation timestamp.
 
-The process must match the exact admitted Node, Node generation, Provider instance/generation and Application launch Attempt context. Backend PID is retained only in A05 aliases.
+The process must match the exact admitted Node, Node generation, Provider instance/generation and Application launch Attempt context. Backend PID remains only an A05 alias.
 
 For graphical launch, promotion requires:
 
 - a live matching canonical process ref;
-- a current canonical Application Window ref;
-- a current window observation with `visible` or otherwise explicitly accepted visible state evidence;
-- a current display surface/frame observation bound to the same Application Session candidate, Provider generation and execution locality;
+- a current same-session Window in `visible` state;
+- a current same-session Display Session in `streaming` state;
+- matching Provider generation and execution locality across the preparing session, process, Window and Display evidence;
 - non-empty supporting evidence;
-- non-stale observation time.
+- non-stale observations.
 
-For headless launch, a display/window is not invented. Availability is `headless_only`, and readiness requires independent process/service post-condition evidence appropriate to the admitted operation. D08 does not claim graphical availability.
+The same stable Application Session transitions from `preparing` to `running` with availability `full`; it is not rekeyed after verification.
 
-Only verification creates the D08 Application Session projection.
+For headless launch, no Window or Display records are invented. Independent process/service post-condition evidence promotes the same stable Application Session to explicit bounded availability `headless_only`, represented by the frozen `degraded` lifecycle state because only bounded headless scope is available.
 
 ## Android composition
 
@@ -232,7 +248,7 @@ Validation requires:
 
 D08 never calls Android install/launch/input/stop APIs as part of this projection. A stale or stopped C10 session cannot be promoted as a fresh fully-visible D08 session.
 
-Backend Android process names, activity strings, package-manager IDs and accessibility node aliases remain evidence/aliases, not D08 identity.
+The D08 Android projection retains the existing C10 Application Session identity as backing evidence while minting no alternate Android runtime identity. Backend Android process names, activity strings, package-manager IDs and accessibility node aliases remain evidence/aliases.
 
 ## Application window model
 
@@ -270,7 +286,7 @@ D08 defines a provider-neutral Display Session projection matching the frozen co
 - current observations/evidence;
 - lifecycle timestamps and limitations.
 
-A Display Session is not created merely because a Provider says a remote-desktop or streaming command started. Readiness requires at least one current Display Observation/frame/surface read-back from the same Provider generation and execution locality.
+A Provider acknowledgement may at most support a Display Session remaining in `preparing`. It cannot establish `streaming`. Streaming readiness requires at least one fresh current Display Observation/frame/surface read-back from the same Provider generation and execution locality.
 
 ### Pre-Programme-E remote display
 
@@ -279,8 +295,8 @@ The frozen contracts can describe remote display, but D08 must not claim a live 
 Before Programme E:
 
 - a remote-display compatibility request for Windows/macOS/iOS Simulator yields `RequiresRemoteNode` when the required remote Node is absent;
-- no remote Application Session is created;
-- no live remote Display Session is created;
+- no remote Application Session is created, even in `preparing`;
+- no remote Display Session is created, even in `preparing`;
 - no synthetic `remote_service_ref` is minted as a substitute for a missing Node;
 - shell projection shows the explicit dependency/blocker and supporting evidence.
 
@@ -296,15 +312,16 @@ Each view may expose:
 - platform class;
 - execution disposition;
 - Application Session ref when one truly exists;
+- lifecycle state;
 - locality;
 - availability (`full`, `headless_only`, `display_only`, `semantic_only`, `partial`, `recovering`, `unavailable`, `unknown`);
-- Display Session ref when one truly exists;
+- Display Session ref and lifecycle when one truly exists;
 - evidence refs;
 - limitations/blocker text.
 
 The shell does not create or mutate these records. No D08 launch/stop/input control is added to D01 in this milestone. Runtime controls continue to require their owning Facility/Grant/lease/fence boundary.
 
-An absent validated D08 session remains unavailable. A `RequiresRemoteNode` compatibility projection remains blocked and cannot render as a running Application card.
+A `preparing` Application Session must render as preparing/unavailable, not running. A `RequiresRemoteNode` compatibility projection remains blocked and cannot render as a running Application card.
 
 ## Backend-neutral identity rules
 
@@ -334,11 +351,12 @@ D08 fails closed on:
 - expired/stale compatibility used for launch;
 - Application Revision, Node, Provider or generation mismatch between compatibility, A04 Attempt and A05 read-back;
 - missing materialization identity/generation for a Node-local session;
+- `preparing` Application/Display/Window state presented as readiness;
 - A05 spawn/process-running acknowledgement presented as graphical readiness;
 - backend PID/window/simulator/VM/display IDs used as canonical identity;
-- stale/destroyed/foreign-generation window observation;
-- Display Session created without privacy/surface evidence;
-- display readiness without current frame/surface observation;
+- stale/destroyed/foreign-generation Window observation;
+- Display Session preparation without exact Application Session, privacy policy or surface evidence;
+- display `streaming` without fresh current frame/surface observation;
 - C10 Application Session detached from its Device Session;
 - stale C10 Provider generation/connection epoch;
 - stopped/crashed Android session presented as newly visible;
@@ -351,7 +369,7 @@ D08 fails closed on:
 
 D08 freezes exactly 28 milestone cases:
 
-1. D08 schema constants match the frozen Application/Compatibility/Session/Window/Display contract IDs;
+1. D08 schema/lifecycle constants match the frozen Application/Compatibility/Session/Window/Display contract identities;
 2. node-local compatibility requires exact Application Revision, Provider generation, Node generation and capability/resource evidence;
 3. stale/expired compatibility cannot admit new work;
 4. `compatible_with_conditions` requires explicit condition evidence;
@@ -362,21 +380,21 @@ D08 freezes exactly 28 milestone cases:
 9. Windows VM reports `RequiresRemoteNode` and retains virtualization requirements;
 10. macOS Node reports `RequiresRemoteNode` before Programme E remote authority exists;
 11. iOS Simulator reports `RequiresRemoteNode` with a compatible macOS/simulator requirement;
-12. `RequiresRemoteNode` cannot create an Application Session;
-13. local launch admission binds exact Workspace/materialization/Application/A04 Attempt/current compatibility;
+12. `RequiresRemoteNode` cannot create even a preparing Application/Display Session;
+13. local launch preparation binds exact Workspace/materialization/Application/A04 Attempt/current compatibility and creates one stable `preparing` Session;
 14. incompatible/stale/foreign-revision compatibility is rejected before A05 execution;
-15. A05 spawn/`Running` evidence without independent graphical window/display evidence is not Application readiness;
+15. A05 spawn/`Running` evidence leaves the Application Session `preparing` without independent graphical Window/Display evidence;
 16. A05 Node/Provider generation mismatch rejects local launch verification;
-17. current process + visible window + current display observation promotes one stable local Application Session;
+17. current process + visible same-session Window + streaming same-session Display promotes the same stable local Application Session to `running/full` without rekeying;
 18. PID/window-handle aliases remain non-canonical evidence;
 19. verified C10 Device/Application Session pair projects to D08 Android full availability;
 20. C10 Device Session/Application Session mismatch is rejected;
 21. stale C10 Provider generation or connection epoch is rejected;
 22. D08 Android projection does not perform install/launch/input/stop and preserves C10 authority;
-23. Display Session requires exact Application Session, Provider generation, surface and privacy evidence;
-24. stale/foreign Display Observation cannot establish readiness;
-25. remote-display intent without a live remote execution backing remains `RequiresRemoteNode` and creates no Display Session;
-26. D01 projects a validated local/Android Application Session without gaining launch authority;
+23. preparing Display Session requires exact Application Session, Provider generation, surface and privacy evidence;
+24. stale/foreign Display Observation cannot promote Display Session to `streaming`;
+25. remote-display intent without a live remote execution backing remains `RequiresRemoteNode` and creates no Application/Display Session;
+26. D01 projects validated preparing/running/degraded local or Android Application state without gaining launch authority;
 27. D01 projects remote-node blockers without manufacturing Application/Display sessions;
 28. absent/stale D08 backing remains unavailable and presentation state cannot authorize runtime work.
 
@@ -390,7 +408,7 @@ D08 follows the established milestone lane:
 2. isolated D08 branch from exact D07 merge;
 3. TDD implementation with exactly 28 `d08_acceptance` cases;
 4. strict formatting and Clippy with warnings denied for D08-touched packages;
-5. frozen application-contract ID/hash audit;
+5. frozen application-contract ID/hash/lifecycle audit;
 6. `Cargo.lock` audit showing only the expected new workspace path-package stanza unless an independently justified existing-package dependency edge is required;
 7. targeted B05/A04/A05/C10/D01 regressions;
 8. complete `cargo test --workspace --locked`;

@@ -45,6 +45,21 @@ pub enum D07Error {
     /// Evidence Bundle claims complete coverage beyond the retained assessment evidence.
     #[error("security evidence bundle overclaims coverage")]
     EvidenceCoverageOverclaim,
+    /// Validation must allocate a fresh A04 Attempt.
+    #[error("security validation requires a fresh A04 Attempt")]
+    FreshAttemptRequired,
+    /// Validation requires exact environment evidence.
+    #[error("security validation requires environment evidence")]
+    MissingEnvironmentEvidence,
+    /// Review Decision is structurally incomplete.
+    #[error("invalid security review decision")]
+    InvalidReviewDecision,
+    /// Dispute omits a competing Claim or Evidence position.
+    #[error("invalid security dispute projection")]
+    InvalidDispute,
+    /// Disclosure lacks explicit audience/redaction/privacy authority.
+    #[error("security disclosure denied")]
+    DisclosureDenied,
     /// Underlying A06 authority check failed.
     #[error("A06 authority rejection: {0}")]
     A06(String),

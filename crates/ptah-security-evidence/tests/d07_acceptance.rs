@@ -430,3 +430,106 @@ fn evidence_bundle_cannot_overclaim_partial_or_unknown_coverage() {
         Err(D07Error::EvidenceCoverageOverclaim)
     ));
 }
+
+use ptah_security_evidence::{
+    AcceptedRiskProjection, DisclosurePolicy, DisputeProjection, ReviewDecisionProjection,
+    ReviewOutcome, ValidationRequest,
+};
+
+#[test]
+fn validation_run_requires_fresh_attempt_and_exact_environment_evidence() {
+    let prior = er("core.attempt");
+    let request = ValidationRequest {
+        finding_refs: vec![er("security.finding")],
+        claim_refs: vec![er("security.claim")],
+        environment_refs: vec![er("core.object_revision")],
+        prior_attempt_refs: vec![prior.clone()],
+        attempt_context: context(),
+    };
+    assert!(matches!(
+        request.validate_attempt(&prior),
+        Err(D07Error::FreshAttemptRequired)
+    ));
+    request
+        .validate_attempt(&er("core.attempt"))
+        .expect("fresh exact Attempt accepted");
+    let mut missing_environment = request.clone();
+    missing_environment.environment_refs.clear();
+    assert!(matches!(
+        missing_environment.validate_attempt(&er("core.attempt")),
+        Err(D07Error::MissingEnvironmentEvidence)
+    ));
+}
+
+#[test]
+fn review_decision_references_but_never_rewrites_observation_or_evidence_history() {
+    let observation = ObservationProjection {
+        observation_ref: er("security.observation"),
+        subject_refs: vec![er("core.object_revision")],
+        evidence_refs: vec![er("security.evidence_item")],
+        scanner_aliases: vec!["scanner-1".into()],
+        observed_facts: vec!["immutable fact".into()],
+    };
+    let before = observation.clone();
+    let review = ReviewDecisionProjection {
+        finding_refs: vec![er("security.finding")],
+        claim_refs: vec![er("security.claim")],
+        validation_run_refs: vec![er("security.validation_run")],
+        reviewer_ref: er("identity.principal"),
+        authority_scope: vec!["security.review".into()],
+        outcome: ReviewOutcome::AcceptedWithLimitations,
+        reasons: vec!["bounded review".into()],
+    };
+    review.validate().expect("review projection");
+    assert_eq!(observation, before);
+}
+
+#[test]
+fn accepted_risk_expires_without_deleting_the_finding() {
+    let finding = er("security.finding");
+    let risk = AcceptedRiskProjection {
+        finding_refs: vec![finding.clone()],
+        authority_ref: er("identity.principal"),
+        expires_at: "2026-09-04T00:00:00Z".into(),
+    };
+    assert!(risk.is_active_at("2026-09-03T12:00:00Z").expect("active"));
+    assert!(!risk.is_active_at("2026-09-04T00:00:00Z").expect("expired"));
+    assert_eq!(risk.finding_refs, vec![finding]);
+}
+
+#[test]
+fn dispute_retains_all_competing_claims_and_evidence() {
+    let first_claim = er("security.claim");
+    let second_claim = er("security.claim");
+    let first_evidence = er("security.evidence_bundle");
+    let second_evidence = er("security.evidence_bundle");
+    let dispute = DisputeProjection {
+        finding_refs: vec![er("security.finding")],
+        claim_refs: vec![first_claim.clone(), second_claim.clone()],
+        evidence_bundle_refs: vec![first_evidence.clone(), second_evidence.clone()],
+    };
+    dispute.validate().expect("complete dispute");
+    assert_eq!(dispute.claim_refs, vec![first_claim, second_claim]);
+    assert_eq!(
+        dispute.evidence_bundle_refs,
+        vec![first_evidence, second_evidence]
+    );
+}
+
+#[test]
+fn public_disclosure_requires_explicit_redacted_content_and_privacy_authority() {
+    let restricted = er("security.evidence_item");
+    let policy = DisclosurePolicy {
+        audience: "public".into(),
+        redaction_policy_refs: vec![er("policy.redaction")],
+        privacy_policy_refs: vec![er("policy.privacy")],
+        authority_ref: er("identity.principal"),
+    };
+    assert!(matches!(
+        policy.authorize(std::slice::from_ref(&restricted), &[]),
+        Err(D07Error::DisclosureDenied)
+    ));
+    policy
+        .authorize(&[restricted], &[er("core.object_revision")])
+        .expect("explicit redacted disclosed content");
+}

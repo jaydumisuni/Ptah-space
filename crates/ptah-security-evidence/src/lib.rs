@@ -2,8 +2,10 @@
 #![doc = "D07 provider-neutral security evidence and reproduction composition."]
 
 mod assessment;
+mod disclosure;
 mod error;
 mod evidence;
+mod review;
 mod store;
 
 pub use assessment::{
@@ -11,10 +13,15 @@ pub use assessment::{
     AssessmentRunMapping, AssessmentTarget, CoverageProjection, RawReportAlias, ScannerRevision,
     SecurityTestClass,
 };
+pub use disclosure::DisclosurePolicy;
 pub use error::D07Error;
 pub use evidence::{
     ClaimProjection, CorrelationRelation, EvidenceBundleProjection, EvidenceCoverage,
     EvidenceItemBinding, FindingDraft, ObservationCorrelation, ObservationProjection,
+};
+pub use review::{
+    AcceptedRiskProjection, DisputeProjection, ReviewDecisionProjection, ReviewOutcome,
+    ValidationRequest,
 };
 pub use store::SecurityEvidenceStore;
 

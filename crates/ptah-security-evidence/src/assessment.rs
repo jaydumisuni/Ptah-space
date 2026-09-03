@@ -439,7 +439,7 @@ pub(crate) fn require_sha256(value: &str) -> Result<(), D07Error> {
     }
 }
 
-fn valid_utc(value: &str) -> bool {
+pub(crate) fn valid_utc(value: &str) -> bool {
     value.len() == 20 && value.ends_with('Z') && value.as_bytes().get(10) == Some(&b'T')
 }
 

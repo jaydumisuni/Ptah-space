@@ -1,0 +1,38 @@
+name: D08 Green One-Shot Rustfmt
+
+on:
+  push:
+    branches:
+      - d08-application-platform-expansion
+    paths:
+      - .github/workflows/d08-format-green-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rustfmt-green:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: d08-application-platform-expansion
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt
+      - name: Apply canonical Rustfmt
+        run: cargo fmt --all
+      - name: Commit formatter-only D08 correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/ptah-application-runtime
+          if git diff --cached --quiet; then
+            echo "NO_FORMAT_DELTA"
+            exit 0
+          fi
+          git commit -m "style(d08): format task2 green candidate"
+          git push origin HEAD:d08-application-platform-expansion

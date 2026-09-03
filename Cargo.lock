@@ -463,6 +463,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptah-application-runtime"
+version = "0.0.0-phase0c"
+dependencies = [
+ "native-process",
+ "ptah-activity-runtime",
+ "ptah-android-runtime",
+ "ptah-contracts",
+ "ptah-identifiers",
+ "ptah-provider-api",
+ "serde",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "ptah-archive-decomposition"
 version = "0.0.0-phase0c"
 dependencies = [

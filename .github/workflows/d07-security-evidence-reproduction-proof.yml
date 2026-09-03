@@ -85,6 +85,7 @@ jobs:
           PY
       - name: Prove Task 1
         run: |
+          cargo fmt --all
           cargo fmt --all -- --check
           cargo test -p ptah-workspace --test a06_acceptance --locked
           cargo test -p ptah-security-evidence --locked
@@ -933,6 +934,7 @@ jobs:
           EOF
       - name: Prove Task 2
         run: |
+          cargo fmt --all
           cargo fmt --all -- --check
           cargo test -p ptah-security-evidence --test d07_acceptance --locked
           test "$(cargo test -p ptah-security-evidence --test d07_acceptance --locked -- --list 2>/dev/null | grep -c ': test$')" -eq 8

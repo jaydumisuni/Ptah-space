@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 #![doc = "D07 provider-neutral security evidence and reproduction composition."]
 
+mod adapters;
 mod assessment;
+mod card;
 mod disclosure;
 mod error;
 mod evidence;
@@ -10,11 +12,13 @@ mod reproduction;
 mod review;
 mod store;
 
+pub use adapters::{BackendReplacementProjection, SecurityAdapterObservation};
 pub use assessment::{
     AssessmentAdmission, AssessmentAdmissionRequest, AssessmentAuthorization, AssessmentPlan,
     AssessmentRunMapping, AssessmentTarget, CoverageProjection, RawReportAlias, ScannerRevision,
     SecurityTestClass,
 };
+pub use card::EvidenceCardView;
 pub use disclosure::DisclosurePolicy;
 pub use error::D07Error;
 pub use evidence::{

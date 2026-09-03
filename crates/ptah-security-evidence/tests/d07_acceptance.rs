@@ -761,3 +761,101 @@ fn negative_partial_failed_and_inconclusive_reproduction_history_is_retained() {
         ReproductionOutcome::Inconclusive
     );
 }
+
+use std::collections::BTreeMap as EvidenceCardFields;
+
+use ptah_security_evidence::{
+    BackendReplacementProjection, EvidenceCardView, SecurityAdapterObservation,
+};
+
+#[test]
+fn evidence_card_is_sanitized_derived_presentation_without_acceptance_or_release_authority() {
+    let safe_fields = EvidenceCardFields::from([(
+        "public_summary".to_owned(),
+        "bounded public-safe result".to_owned(),
+    )]);
+    let card = EvidenceCardView::new(
+        er("security.claim"),
+        "The bounded claim is supported within the stated scope.".into(),
+        vec![er("security.evidence_bundle")],
+        "supported".into(),
+        "reviewed".into(),
+        "independently_reproduced".into(),
+        "accepted_with_limitations".into(),
+        vec!["scope is bounded".into()],
+        &safe_fields,
+    )
+    .expect("sanitized evidence card");
+    assert!(!card.authoritative);
+    assert!(!card.release_approved);
+
+    for restricted_key in [
+        "credential",
+        "api_token",
+        "session_cookie",
+        "private_payload",
+        "exploit_payload",
+        "proprietary_source",
+        "private_host_topology",
+        "customer_private_data",
+    ] {
+        let restricted = EvidenceCardFields::from([(
+            restricted_key.to_owned(),
+            "must never enter a public card".to_owned(),
+        )]);
+        assert!(matches!(
+            EvidenceCardView::new(
+                er("security.claim"),
+                "bounded claim".into(),
+                vec![er("security.evidence_bundle")],
+                "supported".into(),
+                "reviewed".into(),
+                "not_requested".into(),
+                "reviewed".into(),
+                Vec::new(),
+                &restricted,
+            ),
+            Err(D07Error::RestrictedEvidenceCardField)
+        ));
+    }
+}
+
+#[test]
+fn backend_replacement_preserves_ptah_identity_and_creates_new_provider_and_evidence() {
+    let finding_ref = er("security.finding");
+    let claim_ref = er("security.claim");
+    let subject_ref = er("core.object_revision");
+    let original = SecurityAdapterObservation {
+        backend_alias: "scanner-a-run-17".into(),
+        provider_revision_ref: er("runtime.provider_revision"),
+        subject_refs: vec![subject_ref.clone()],
+        facts: vec!["bounded fact".into()],
+        evidence_refs: vec![er("security.evidence_item")],
+    };
+    let replacement = SecurityAdapterObservation {
+        backend_alias: "scanner-b-run-91".into(),
+        provider_revision_ref: er("runtime.provider_revision"),
+        subject_refs: vec![subject_ref],
+        facts: vec!["bounded fact".into()],
+        evidence_refs: vec![er("security.evidence_item")],
+    };
+    let proof = BackendReplacementProjection::new(
+        finding_ref.clone(),
+        claim_ref.clone(),
+        original,
+        replacement,
+    )
+    .expect("valid provider-neutral replacement");
+    assert_eq!(proof.finding_ref(), &finding_ref);
+    assert_eq!(proof.claim_ref(), &claim_ref);
+    assert_ne!(
+        proof.original().provider_revision_ref,
+        proof.replacement().provider_revision_ref
+    );
+    assert_ne!(
+        proof.original().evidence_refs,
+        proof.replacement().evidence_refs
+    );
+    assert!(proof.original().backend_alias_as_finding_ref().is_none());
+    assert!(proof.replacement().backend_alias_as_finding_ref().is_none());
+}

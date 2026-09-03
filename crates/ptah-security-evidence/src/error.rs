@@ -81,6 +81,18 @@ pub enum D07Error {
     /// Reproduction Comparison lacks original claim/run/outcome history.
     #[error("invalid security reproduction comparison")]
     InvalidReproductionComparison,
+    /// Evidence Card projection is incomplete.
+    #[error("invalid derived security Evidence Card")]
+    InvalidEvidenceCard,
+    /// Public Evidence Card input contains a restricted raw field family.
+    #[error("restricted raw field is not allowed in a public Evidence Card")]
+    RestrictedEvidenceCardField,
+    /// Normalized private backend observation is incomplete.
+    #[error("invalid provider-neutral security adapter observation")]
+    InvalidAdapterObservation,
+    /// Backend replacement changed canonical subjects or failed to create fresh machinery/evidence.
+    #[error("invalid security backend replacement projection")]
+    InvalidBackendReplacement,
     /// Underlying A06 authority check failed.
     #[error("A06 authority rejection: {0}")]
     A06(String),

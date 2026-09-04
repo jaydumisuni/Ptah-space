@@ -53,18 +53,28 @@ The first D09 exact-head audit exposed eight inherited floating GitHub Action re
 
 A later proof attempt exposed that `tools/test_check_a01_scaffold.py` and `tools/check_a01_scaffold.py` encode the original A01 workspace/member and Cargo snapshot. Repository history already records those legacy A01/A02 exact-head checks as carrying historical workspace/dependency assumptions after later milestones legitimately expanded the workspace.
 
-The next proof showed the same distinction for `tools/check_phase0c_scaffold.py`: that historical retained-evidence checker intentionally freezes an earlier 81-package external Cargo universe, while the accepted D08 predecessor carries the later committed dependency selection of 116 resolved packages, 97 registry packages and zero Git dependencies.
+The next proof showed the same distinction for `tools/check_phase0c_scaffold.py`: that historical retained-evidence checker freezes an earlier 81-package external Cargo universe and therefore is not the current Full Workspace dependency baseline.
 
-D09 therefore does **not** mutate the accepted D08 workspace to satisfy either historical snapshot. The current release dependency/source/licence proof follows the accepted A15 exact-head dependency pattern and strengthens it relative to D08:
+The following exact-head run recovered the final distinction inside `dependencies/rust-direct-lock.json`: its 11 exact direct-dependency selections, purposes, expected licences, toolchain, registry and policy remain applicable, but its nested `cargo_lock` object is an older historical snapshot. The accepted D08-identical `Cargo.lock` itself, verified by the current `tools/check_rust_dependency_lock.py`, is:
+
+- SHA-256 `329f485f352afa35f3f6cb4df76ebf0c6e8b589a555386072f4a8750a5349987`;
+- 130 resolved packages;
+- 97 registry packages;
+- 0 Git dependencies;
+- 11 exact workspace direct dependencies.
+
+D09 therefore does **not** mutate the accepted D08 workspace or dependency files to satisfy earlier historical snapshots. The current release dependency/source/licence proof follows the accepted A15 exact-head dependency pattern and strengthens it relative to D08:
 
 - `Cargo.toml`, `Cargo.lock`, `deny.toml`, `dependencies/rust-direct-lock.json`, `dependencies/backend-artifact-lock.json`, the generated-contract manifest and generated Rust bindings must be byte-identical to the independently accepted D08 merge;
-- `tools/check_rust_dependency_lock.py` validates exact selected direct dependencies, the canonical crates.io source, registry checksums, zero Git dependencies and the current `Cargo.lock`;
-- D09 additionally checks the current committed dependency counts/digest, exact workspace/direct dependency set, `deny.toml` source/bans/licence policy, and every external package licence expression exposed by `cargo metadata --locked` against the committed licence allow-list;
+- `tools/check_rust_dependency_lock.py` validates the current D08-identical lock, exact selected direct dependencies, canonical crates.io source, registry checksums and zero Git dependencies;
+- D09 cross-checks the current verifier report against the exact D08 lock identity `329f485f…` / 130 / 97 / 0 and the 11 exact direct selections;
+- the older nested `cargo_lock` object in `rust-direct-lock.json` is retained and reported as historical evidence but is explicitly not used as the current D09 gate;
+- `deny.toml` source/bans/licence policy and every external package licence expression exposed by `cargo metadata --locked` must remain within the committed allow-list;
 - retained backend artifact/browser/signature identities remain exact;
 - every external GitHub Action reference must be a full 40-hex immutable pin;
 - the Apache-2.0 boundary validator and adversarial tests remain the operative public/private repository boundary.
 
-The A01 and Phase-0C package-universe checks remain historical evidence. They are not reinterpreted as the current D09 dependency baseline.
+The A01, Phase-0C package-universe and older nested Cargo snapshot remain historical evidence. They are not reinterpreted as the current D09 dependency baseline.
 
 ## Frozen D09 release corpus
 
@@ -151,7 +161,8 @@ The exact candidate must pass:
 - immutable 40-hex pin audit for every external GitHub Action;
 - exact `Cargo.lock` capture plus `cargo metadata --locked`;
 - `tools/check_rust_dependency_lock.py` exact direct-dependency/source/checksum/no-Git validation;
-- current committed 116/97/0 Cargo identity and exact direct dependency set;
+- current D08 lock identity: SHA `329f485f352afa35f3f6cb4df76ebf0c6e8b589a555386072f4a8750a5349987`, 130 resolved, 97 registry, 0 Git, 11 direct selections;
+- explicit non-use of the historical nested 116-package `cargo_lock` snapshot as the current gate;
 - `deny.toml` source, wildcard, yanked and licence-policy consistency;
 - current external dependency licence expressions constrained to the committed allow-list;
 - retained backend identity and evidence-count validation;
@@ -175,7 +186,7 @@ The permanent workflow must prove on one exact candidate SHA:
 3. exact seven-file D09 acceptance surface plus the three audited D07/D08 proof-hygiene path changes only;
 4. no Cargo/product/schema/migration/generated-contract movement and exact D08 bytes for the dependency/contract authority set;
 5. all external GitHub Actions immutably pinned;
-6. current D08-bound dependency/source/licence identity, exact Rust dependency lock and retained backend identities;
+6. current D08-bound dependency/source/licence identity, exact Rust dependency verification and retained backend identities;
 7. D09 checker regressions and exact ten-case corpus;
 8. deep Workspace 22/20/26 burden and non-authorizing AI validator;
 9. D01, D02 and A04 concurrent operation acceptance;

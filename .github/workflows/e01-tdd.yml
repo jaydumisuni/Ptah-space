@@ -9,6 +9,9 @@ on:
       - Cargo.lock
       - dependencies/rust-direct-lock.json
       - evidence/rust-dependency-lock/**
+      - conformance/e01/**
+      - tools/check_e01_secure_multi_node.py
+      - tools/test_check_e01_secure_multi_node.py
       - crates/ptah-node-link/**
       - services/ptah-node/**
       - services/ptah-control/**
@@ -33,6 +36,9 @@ jobs:
       - name: Verify frozen dependency evidence
         shell: bash
         run: python3 tools/check_rust_dependency_lock.py
+      - name: Run E01 acceptance checker regression
+        shell: bash
+        run: PYTHONPATH=tools python3 -m unittest -v tools/test_check_e01_secure_multi_node.py
       - name: Run E01 node-link tests
         shell: bash
         run: cargo test -p ptah-node-link --test protocol --test framing --test enrollment_session --test tls_transport --locked

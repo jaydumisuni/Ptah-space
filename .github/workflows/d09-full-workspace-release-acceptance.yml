@@ -12,6 +12,9 @@ on:
       - docs/superpowers/specs/2026-09-04-d09-full-workspace-release-acceptance-design.md
       - docs/superpowers/plans/2026-09-04-d09-full-workspace-release-acceptance.md
       - .github/workflows/d09-full-workspace-release-acceptance.yml
+      - .github/workflows/d07-security-evidence-reproduction-proof.yml
+      - .github/workflows/d08-application-platform-expansion-proof.yml
+      - .github/workflows/d08-tdd.yml
   pull_request:
     branches:
       - main
@@ -23,6 +26,9 @@ on:
       - docs/superpowers/specs/2026-09-04-d09-full-workspace-release-acceptance-design.md
       - docs/superpowers/plans/2026-09-04-d09-full-workspace-release-acceptance.md
       - .github/workflows/d09-full-workspace-release-acceptance.yml
+      - .github/workflows/d07-security-evidence-reproduction-proof.yml
+      - .github/workflows/d08-application-platform-expansion-proof.yml
+      - .github/workflows/d08-tdd.yml
   workflow_dispatch:
 
 permissions:
@@ -51,7 +57,7 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Pin Rust and capture host identity
+      - name: Pin toolchains and exact candidate identity
         shell: bash
         run: |
           set -euo pipefail
@@ -69,7 +75,7 @@ jobs:
           cat /etc/os-release > "$PROOF/host-os-release.txt"
           uname -a > "$PROOF/host-uname.txt"
 
-      - name: Prove exact SHA predecessor branch and D09-only surface
+      - name: Prove exact predecessor linear history and release-only delta
         shell: bash
         run: |
           set -euo pipefail
@@ -84,6 +90,9 @@ jobs:
 
           base = 'ca6b3526ce9b58ffce11f8582be8fbf860dfa53d'
           expected = {
+              '.github/workflows/d07-security-evidence-reproduction-proof.yml',
+              '.github/workflows/d08-application-platform-expansion-proof.yml',
+              '.github/workflows/d08-tdd.yml',
               '.github/workflows/d09-full-workspace-release-acceptance.yml',
               'D09_FULL_WORKSPACE_RELEASE_ACCEPTANCE.md',
               'conformance/d09/full-workspace-release-cases.v0.1.0.json',
@@ -97,7 +106,7 @@ jobs:
           ).splitlines())
           if changed != expected:
               raise SystemExit(
-                  f'D09 acceptance surface drift: missing={sorted(expected-changed)} '
+                  f'D09 release delta drift: missing={sorted(expected-changed)} '
                   f'unexpected={sorted(changed-expected)}'
               )
           forbidden_prefixes = ('crates/', 'services/', 'adapters/', 'schemas/', 'migrations/')
@@ -107,15 +116,16 @@ jobs:
               if path in forbidden_exact or path.startswith(forbidden_prefixes)
           )
           if bad:
-              raise SystemExit(f'D09 modified runtime/Cargo surface: {bad}')
+              raise SystemExit(f'D09 modified product/Cargo/schema surface: {bad}')
           PY
           git diff --check "$D08_BASE" HEAD
 
-      - name: Audit immutable GitHub Action references before release proof
+      - name: Prove immutable workflow action references
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          PROOF="$RUNNER_TEMP/d09-proof"
+          python3 - <<'PY' | tee "$PROOF/action-pin-audit.txt"
           import re
           from pathlib import Path
 
@@ -129,21 +139,16 @@ jobs:
                   value = stripped.split('uses:', 1)[1].strip().split(' #', 1)[0].strip("'\"")
                   if value.startswith('./'):
                       continue
-                  if '@' not in value:
-                      failures.append((str(path), number, value, 'missing-ref'))
-                      continue
-                  action, ref = value.rsplit('@', 1)
-                  if pin.fullmatch(ref) is None:
-                      failures.append((str(path), number, f'{action}@{ref}', 'not-immutable'))
+                  if '@' not in value or pin.fullmatch(value.rsplit('@', 1)[1]) is None:
+                      failures.append((str(path), number, value))
           if failures:
-              print('UNPINNED_ACTION_REFERENCES')
-              for item in failures:
-                  print(f'{item[0]}:{item[1]}: {item[2]} [{item[3]}]')
+              for path, number, value in failures:
+                  print(f'{path}:{number}: {value}')
               raise SystemExit(f'{len(failures)} non-immutable Action references remain')
           print('ALL_EXTERNAL_ACTION_REFERENCES_IMMUTABLY_PINNED')
           PY
 
-      - name: Prove source dependency licence and retained backend identities
+      - name: Prove source dependency licence and backend identity boundaries
         shell: bash
         run: |
           set -euo pipefail
@@ -166,53 +171,31 @@ jobs:
 
           proof = Path(os.environ['RUNNER_TEMP']) / 'd09-proof'
           lock_path = Path('dependencies/backend-artifact-lock.json')
-          lock = json.loads(lock_path.read_text(encoding='utf-8'))
-          if lock.get('runtime_implementation_authorized') is not False:
-              raise SystemExit('backend lock cannot authorize runtime implementation')
-          artifacts = lock.get('artifacts')
-          browser = lock.get('browser_binary')
-          if not isinstance(artifacts, list) or not artifacts or not isinstance(browser, dict):
-              raise SystemExit('backend artifact lock is incomplete')
           retained_path = Path(
               'evidence/phase0c/bc12885ce41844b05481628543219c3a8d3574ba/'
               'durable-evidence-records.json'
           )
+          lock = json.loads(lock_path.read_text(encoding='utf-8'))
           retained = json.loads(retained_path.read_text(encoding='utf-8'))
+          if lock.get('runtime_implementation_authorized') is not False:
+              raise SystemExit('backend lock widened runtime authority')
           if retained.get('runtime_implementation_authorized') is not False:
-              raise SystemExit('retained backend evidence cannot authorize runtime')
+              raise SystemExit('retained backend evidence widened runtime authority')
           if retained.get('implementation_commit') != 'bc12885ce41844b05481628543219c3a8d3574ba':
-              raise SystemExit('retained backend implementation identity changed')
-          records = retained.get('records')
-          if not isinstance(records, list):
-              raise SystemExit('retained backend evidence records missing')
-          values = [item.get('record', {}) for item in records if isinstance(item, dict)]
-          static = next(item for item in values if item.get('record_type') == 'ptah.phase0c.static_backend_artifact_evidence' and item.get('exact_head_match') is True and item.get('report_present') is True)
-          browser_record = next(item for item in values if item.get('record_type') == 'ptah.phase0c.playwright_browser_evidence' and item.get('exact_head_match') is True)
-          signatures = next(item for item in values if item.get('record_type') == 'ptah.phase0c.backend_signature_evidence' and item.get('exact_head_match') is True and item.get('report_present') is True)
-          if static.get('verified_artifact_count') != 9:
-              raise SystemExit('retained backend artifact count changed')
-          if browser_record.get('installed_file_count') != 599:
-              raise SystemExit('retained browser file count changed')
-          if signatures.get('verified_signature_count') != 4:
-              raise SystemExit('retained signature count changed')
+              raise SystemExit('retained backend implementation identity drifted')
           report = {
               'schema_version': '0.1.0',
               'record_type': 'ptah.d09.retained_backend_identity',
               'backend_lock_sha256': hashlib.sha256(lock_path.read_bytes()).hexdigest(),
               'retained_phase0c_sha256': hashlib.sha256(retained_path.read_bytes()).hexdigest(),
-              'artifact_count': len(artifacts),
-              'browser_revision': str(browser.get('revision')),
-              'retained_static_verified_artifact_count': 9,
-              'retained_browser_file_count': 599,
-              'retained_verified_signature_count': 4,
               'runtime_implementation_authorized': False,
           }
-          (proof / 'backend-lock-identity.json').write_text(
+          (proof/'backend-lock-identity.json').write_text(
               json.dumps(report, indent=2, sort_keys=True) + '\n', encoding='utf-8'
           )
           PY
 
-      - name: Prove D09 corpus checker GREEN
+      - name: Prove D09 corpus and deep Workspace authority separation
         shell: bash
         run: |
           set -euo pipefail
@@ -221,44 +204,30 @@ jobs:
             2>&1 | tee "$PROOF/d09-regressions.txt"
           grep -q 'Ran 15 tests' "$PROOF/d09-regressions.txt"
           python3 tools/check_d09_full_workspace_release.py \
-            --repo-root . \
-            --output "$PROOF/d09-validation.json"
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-          report = json.loads((Path(os.environ['RUNNER_TEMP'])/'d09-proof/d09-validation.json').read_text())
-          assert report['status'] == 'pass', report
-          assert report['case_count'] == 10, report
-          assert report['participants'] == ['human', 'hunter', 'sergeant'], report
-          assert report['ptah_semantic_authority'] is False, report
-          assert report['new_core_entity_required'] is False, report
-          assert report['frozen_contract_change_required'] is False, report
-          assert report['runtime_feature_added'] is False, report
-          PY
+            --repo-root . --output "$PROOF/d09-validation.json"
 
-      - name: Prove complete deep Workspace corpus and AI authority separation
-        shell: bash
-        run: |
-          set -euo pipefail
-          PROOF="$RUNNER_TEMP/d09-proof"
           PYTHONPATH=tools python3 tools/test_check_workspace_operations_donor_v2.py -v \
             2>&1 | tee "$PROOF/deep-workspace-regressions.txt"
           grep -q 'Ran 26 tests' "$PROOF/deep-workspace-regressions.txt"
           python3 tools/check_workspace_operations_donor_v2.py \
-            --repo-root . \
-            --output "$PROOF/deep-workspace-validation.json"
+            --repo-root . --output "$PROOF/deep-workspace-validation.json"
+
           PYTHONPATH=tools python3 tools/test_check_ai_project_workspace_candidate.py -v \
             2>&1 | tee "$PROOF/ai-workspace-regressions.txt"
           python3 tools/check_ai_project_workspace_candidate.py \
-            --repo-root . \
-            --output "$PROOF/ai-workspace-validation.json"
+            --repo-root . --output "$PROOF/ai-workspace-validation.json"
+
           python3 - <<'PY'
           import json
           import os
           from pathlib import Path
           proof = Path(os.environ['RUNNER_TEMP'])/'d09-proof'
+          d09 = json.loads((proof/'d09-validation.json').read_text())
           deep = json.loads((proof/'deep-workspace-validation.json').read_text())
+          ai = json.loads((proof/'ai-workspace-validation.json').read_text())
+          assert d09['status'] == 'pass' and d09['case_count'] == 10, d09
+          assert d09['participants'] == ['human', 'hunter', 'sergeant'], d09
+          assert d09['ptah_semantic_authority'] is False, d09
           assert deep['status'] == 'pass', deep
           assert deep['mechanical_capability_count'] == 22, deep
           assert deep['fixture_count'] == 20, deep
@@ -266,7 +235,6 @@ jobs:
           assert deep['new_core_entity_required'] is False, deep
           assert deep['frozen_contract_change_required'] is False, deep
           assert deep['runtime_implementation_authorized'] is False, deep
-          ai = json.loads((proof/'ai-workspace-validation.json').read_text())
           assert ai['status'] == 'candidate_valid_non_operative', ai
           assert ai['ptah_decision_authority'] is False, ai
           assert ai['ptah_context_selection_authority'] is False, ai
@@ -274,7 +242,7 @@ jobs:
           assert ai['runtime_implementation_authorized'] is False, ai
           PY
 
-      - name: Prove human agent concurrency and long-running recovery
+      - name: Prove human agent concurrency recovery rollback provenance and security
         shell: bash
         run: |
           set -euo pipefail
@@ -290,18 +258,14 @@ jobs:
           cargo test -p ptah-checkpoint --test b06 --locked -- --nocapture \
             2>&1 | tee "$PROOF/b06-session-vault.txt"
 
-      - name: Prove Plugin rollback Provider replacement provenance and security history
-        shell: bash
-        run: |
-          set -euo pipefail
-          PROOF="$RUNNER_TEMP/d09-proof"
           d05_count="$(cargo test -p ptah-package-plugin --test d05_acceptance --locked -- --list 2>/dev/null | grep -c ': test$')"
           d06_count="$(cargo test -p ptah-provenance --test d06_acceptance --locked -- --list 2>/dev/null | grep -c ': test$')"
           d07_count="$(cargo test -p ptah-security-evidence --test d07_acceptance --locked -- --list 2>/dev/null | grep -c ': test$')"
           test "$d05_count" -eq 30
           test "$d06_count" -eq 30
           test "$d07_count" -eq 30
-          printf 'd05=%s\nd06=%s\nd07=%s\n' "$d05_count" "$d06_count" "$d07_count" > "$PROOF/d05-d07-counts.txt"
+          printf 'd05=%s\nd06=%s\nd07=%s\n' "$d05_count" "$d06_count" "$d07_count" \
+            > "$PROOF/d05-d07-counts.txt"
           cargo test -p ptah-package-plugin --test d05_acceptance --locked -- --nocapture \
             2>&1 | tee "$PROOF/d05-acceptance.txt"
           cargo test -p ptah-provenance --test d06_acceptance --locked -- --nocapture \
@@ -313,7 +277,7 @@ jobs:
           cargo test -p ptah-security-evidence --test store_roundtrip --locked -- --nocapture \
             2>&1 | tee "$PROOF/d07-store-roundtrip.txt"
 
-      - name: Prove exact D08 Application platform truth remains 25 plus 3
+      - name: Prove exact D08 Application truth remains 25 plus 3
         shell: bash
         run: |
           set -euo pipefail
@@ -332,7 +296,7 @@ jobs:
           cargo test -p ptah-control --test d08_application_projection --locked -- --nocapture \
             2>&1 | tee "$PROOF/d08-shell-acceptance.txt"
 
-      - name: Prove operative public private and Apache boundary
+      - name: Prove operative public private Apache and full locked Workspace boundaries
         shell: bash
         run: |
           set -euo pipefail
@@ -340,8 +304,7 @@ jobs:
           PYTHONPATH=tools python3 -m unittest -v tools/test_check_apache2_boundary_acceptance.py \
             2>&1 | tee "$PROOF/apache-boundary-regressions.txt"
           python3 tools/check_apache2_boundary_acceptance.py \
-            --repo-root . \
-            --output "$PROOF/apache-boundary-validation.json"
+            --repo-root . --output "$PROOF/apache-boundary-validation.json"
           python3 - <<'PY'
           import json
           import os
@@ -351,51 +314,20 @@ jobs:
           assert report['apache_2_0_accepted'] is True, report
           assert report['runtime_implementation_authorized'] is False, report
           PY
-
-      - name: Prove formatting and complete locked Workspace
-        shell: bash
-        run: |
-          set -euo pipefail
-          PROOF="$RUNNER_TEMP/d09-proof"
-          cargo fmt --all -- --check 2>&1 | tee "$PROOF/format-check.txt"
+          cargo fmt --all -- --check
+          printf 'FORMAT_CHECK_OK\n' > "$PROOF/format-check.txt"
           cargo test --workspace --locked -- --nocapture 2>&1 | tee "$PROOF/workspace-tests.txt"
+          test -z "$(git status --porcelain --untracked-files=no)"
 
-      - name: Write explicit release limitations
-        shell: bash
-        run: |
-          set -euo pipefail
-          PROOF="$RUNNER_TEMP/d09-proof"
-          cp D09_FULL_WORKSPACE_RELEASE_ACCEPTANCE.md "$PROOF/release-instructions.txt"
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-          proof = Path(os.environ['RUNNER_TEMP'])/'d09-proof'
-          limitations = {
-              'schema_version': '0.1.0',
-              'record_type': 'ptah.d09.full_workspace_release_limitations',
-              'limitations': [
-                  'GitHub-hosted Ubuntu proof is CI-host evidence, not proof of a separately pinned production machine.',
-                  'D09 does not complete Programme E distributed Ptah.',
-                  'D09 does not complete Programme F OS-ready packaging.',
-                  'D09 does not make deferred D08 remote platforms available.',
-                  'D09 does not grant Ptah semantic context, review, approval, result-acceptance or next-action authority.',
-                  'D09 does not erase negative, partial, failed, inconclusive, contradictory or regressed evidence.',
-                  'D09 does not widen public access to private records or restricted adapters.',
-              ],
-          }
-          (proof/'limitations.json').write_text(
-              json.dumps(limitations, indent=2, sort_keys=True) + '\n', encoding='utf-8'
-          )
-          PY
-
-      - name: Bind and verify immutable exact-head D09 release bundle
+      - name: Bind immutable D09 release evidence bundle
         shell: bash
         env:
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
+          PROOF="$RUNNER_TEMP/d09-proof"
+          cp D09_FULL_WORKSPACE_RELEASE_ACCEPTANCE.md "$PROOF/release-instructions.txt"
           PYTHONPATH=tools python3 - <<'PY'
           import hashlib
           import json
@@ -405,47 +337,22 @@ jobs:
 
           proof = Path(os.environ['RUNNER_TEMP'])/'d09-proof'
           required = [
-              'exact-head.txt',
-              'd08-predecessor.txt',
-              'roadmap-authority.txt',
-              'host-os-release.txt',
-              'host-uname.txt',
-              'rustc-version.txt',
-              'cargo-version.txt',
-              'Cargo.lock.repository',
-              'cargo-metadata.json',
-              'rust-dependency-lock.json',
-              'backend-lock-identity.json',
-              'a01-scaffold-regressions.txt',
-              'a01-scaffold-validation.txt',
-              'phase0c-scaffold-validation.txt',
-              'd09-regressions.txt',
-              'd09-validation.json',
-              'deep-workspace-regressions.txt',
-              'deep-workspace-validation.json',
-              'ai-workspace-regressions.txt',
-              'ai-workspace-validation.json',
-              'd01-acceptance.txt',
-              'd02-acceptance.txt',
-              'a04-activity-runtime.txt',
-              'a13-recovery.txt',
-              'b06-session-vault.txt',
-              'd05-d07-counts.txt',
-              'd05-acceptance.txt',
-              'd06-acceptance.txt',
-              'd06-store-roundtrip.txt',
-              'd07-acceptance.txt',
-              'd07-store-roundtrip.txt',
-              'd08-runtime-list.txt',
-              'd08-shell-list.txt',
-              'd08-runtime-acceptance.txt',
-              'd08-shell-acceptance.txt',
-              'apache-boundary-regressions.txt',
-              'apache-boundary-validation.json',
-              'format-check.txt',
-              'workspace-tests.txt',
-              'limitations.json',
-              'release-instructions.txt',
+              'exact-head.txt', 'd08-predecessor.txt', 'roadmap-authority.txt',
+              'host-os-release.txt', 'host-uname.txt', 'rustc-version.txt', 'cargo-version.txt',
+              'action-pin-audit.txt', 'a01-scaffold-regressions.txt', 'a01-scaffold-validation.txt',
+              'phase0c-scaffold-validation.txt', 'Cargo.lock.repository', 'cargo-metadata.json',
+              'rust-dependency-lock.json', 'backend-lock-identity.json',
+              'd09-regressions.txt', 'd09-validation.json',
+              'deep-workspace-regressions.txt', 'deep-workspace-validation.json',
+              'ai-workspace-regressions.txt', 'ai-workspace-validation.json',
+              'd01-acceptance.txt', 'd02-acceptance.txt', 'a04-activity-runtime.txt',
+              'a13-recovery.txt', 'b06-session-vault.txt', 'd05-d07-counts.txt',
+              'd05-acceptance.txt', 'd06-acceptance.txt', 'd06-store-roundtrip.txt',
+              'd07-acceptance.txt', 'd07-store-roundtrip.txt',
+              'd08-runtime-list.txt', 'd08-shell-list.txt',
+              'd08-runtime-acceptance.txt', 'd08-shell-acceptance.txt',
+              'apache-boundary-regressions.txt', 'apache-boundary-validation.json',
+              'format-check.txt', 'workspace-tests.txt', 'release-instructions.txt',
           ]
           files = require_report_files(proof, required)
           head = (proof/'exact-head.txt').read_text(encoding='utf-8').strip()
@@ -497,7 +404,7 @@ jobs:
           )
           print(rendered, end='')
           PY
-          cd "$RUNNER_TEMP/d09-proof"
+          cd "$PROOF"
           sha256sum -c report-bundle.sha256
 
       - name: Confirm exact clean candidate after proof

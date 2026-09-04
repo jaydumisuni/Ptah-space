@@ -27,16 +27,25 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $oracleRoot = Join-Path $env:RUNNER_TEMP ('oracle-package-build-' + $env:GITHUB_RUN_ID)
-          if (Test-Path -LiteralPath $oracleRoot) {
-            Remove-Item -LiteralPath $oracleRoot -Recurse -Force
+          $releaseFamily = Join-Path $env:USERPROFILE 'oracle-release-work'
+          New-Item -ItemType Directory -Path $releaseFamily -Force | Out-Null
+          $oracleRoot = Join-Path $releaseFamily '0f2a3b0e1'
+          $previousRoot = Join-Path $env:RUNNER_TEMP 'oracle-package-build-33913906434'
+          if (-not (Test-Path -LiteralPath $oracleRoot) -and (Test-Path -LiteralPath (Join-Path $previousRoot '.git'))) {
+            Move-Item -LiteralPath $previousRoot -Destination $oracleRoot
           }
-          git -c core.autocrlf=false clone --quiet --no-checkout https://github.com/jaydumisuni/Oracle-.git $oracleRoot
-          if ($LASTEXITCODE -ne 0) { throw 'ORACLE_CLONE_FAILED' }
-          git -C $oracleRoot -c core.autocrlf=false checkout --quiet --detach $env:ORACLE_COMMIT
-          if ($LASTEXITCODE -ne 0) { throw 'ORACLE_CHECKOUT_FAILED' }
+          if (-not (Test-Path -LiteralPath (Join-Path $oracleRoot '.git') -PathType Container)) {
+            git -c core.autocrlf=false clone --quiet --no-checkout https://github.com/jaydumisuni/Oracle-.git $oracleRoot
+            if ($LASTEXITCODE -ne 0) { throw 'ORACLE_CLONE_FAILED' }
+            git -C $oracleRoot -c core.autocrlf=false checkout --quiet --detach $env:ORACLE_COMMIT
+            if ($LASTEXITCODE -ne 0) { throw 'ORACLE_CHECKOUT_FAILED' }
+          }
           $oracleHead = (git -C $oracleRoot rev-parse HEAD).Trim()
           if ($oracleHead -ne $env:ORACLE_COMMIT) { throw ('ORACLE_HEAD_MISMATCH:' + $oracleHead) }
+          git -C $oracleRoot diff --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'ORACLE_TRACKED_WORKTREE_DIRTY' }
+          git -C $oracleRoot diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) { throw 'ORACLE_INDEX_DIRTY' }
 
           $registeredBuilder = Join-Path $env:USERPROFILE 'oracle-builder-gate6-ae428f8'
           $builderRoot = $registeredBuilder
@@ -74,11 +83,17 @@ jobs:
           Write-Output ('HOST=' + $env:COMPUTERNAME)
           Write-Output ('USER=' + [Security.Principal.WindowsIdentity]::GetCurrent().Name)
           Write-Output ('SESSION=' + [Diagnostics.Process]::GetCurrentProcess().SessionId)
+          $existingZip = @(Get-ChildItem -LiteralPath (Join-Path $oracleRoot 'installer_output') -Filter '*.zip' -File -ErrorAction SilentlyContinue)
+          $existingRuntime = Join-Path $oracleRoot 'dist\desktop\win-unpacked\Oracle.exe'
+          $buildRequired = -not ($existingZip.Count -gt 0 -and (Test-Path -LiteralPath $existingRuntime -PathType Leaf))
+          Write-Output ('BUILD_REQUIRED=' + $buildRequired)
           "oracle_root=$oracleRoot" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "builder_root=$builderRoot" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "builder_python=$builderPython" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "build_required=$($buildRequired.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Build native Windows installer with Builder
+        if: steps.roots.outputs.build_required == 'true'
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -100,6 +115,12 @@ jobs:
           $oracleRoot = '${{ steps.roots.outputs.oracle_root }}'
           $app = Join-Path $oracleRoot 'dist\desktop\win-unpacked\Oracle.exe'
           if (-not (Test-Path -LiteralPath $app -PathType Leaf)) { throw ('ORACLE_EXE_MISSING:' + $app) }
+          @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+            [string]$_.ExecutablePath -eq $app
+          }) | ForEach-Object {
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+          }
+          Start-Sleep -Milliseconds 750
           $profile = Join-Path $oracleRoot 'build_config\windows-smoke-profile'
           New-Item -ItemType Directory -Path $profile -Force | Out-Null
           $process = Start-Process -FilePath $app -ArgumentList @("--user-data-dir=$profile") -PassThru
@@ -128,7 +149,11 @@ jobs:
             Write-Output ('ORACLE_GUI_PID=' + $process.Id)
             Write-Output ('ORACLE_GUI_SCREENSHOT=' + $screenshot)
           } finally {
-            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+            @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+              [string]$_.ExecutablePath -eq $app
+            }) | ForEach-Object {
+              Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+            }
           }
 
       - name: Freeze hashes and release evidence

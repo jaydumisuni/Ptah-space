@@ -30,6 +30,28 @@ jobs:
             'Oracle Desktop Input'
           )
 
+          $protectedNames = @('Oracle Always-On Node', 'Oracle Node Watchdog', 'Oracle Desktop Input')
+          $needsProtectedRepair = $false
+          foreach ($protectedName in $protectedNames) {
+            $protectedTask = Get-ScheduledTask -TaskName $protectedName -ErrorAction SilentlyContinue
+            if (-not $protectedTask -or $protectedTask.State -eq 'Disabled') {
+              $needsProtectedRepair = $true
+            }
+          }
+          if ($needsProtectedRepair) {
+            $submitterCandidates = @(
+              (Join-Path $env:USERPROFILE 'oracle-release-work\0f2a3b0e1\scripts\Submit-OracleElevatedInteractiveJob.ps1'),
+              (Join-Path $env:LOCALAPPDATA 'OracleNode\pointer-bootstrap-v4\source-full\scripts\Submit-OracleElevatedInteractiveJob.ps1')
+            )
+            $submitter = $submitterCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+            if (-not $submitter) { throw 'ORACLE_ELEVATED_SUBMITTER_MISSING' }
+            Write-Output ('ELEVATED_SUBMITTER=' + $submitter)
+            $elevatedOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $submitter -Operation oracle_desktop_pointer_install -TimeoutSeconds 180 2>&1)
+            $elevatedOutput | ForEach-Object { Write-Output ('ELEVATED=' + $_) }
+            if ($LASTEXITCODE -ne 0) { throw ('ORACLE_ELEVATED_REPAIR_FAILED:' + $LASTEXITCODE) }
+            Write-Output 'ORACLE_ELEVATED_REPAIR=PASS'
+          }
+
           foreach ($name in $taskNames) {
             $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
             if (-not $task) {

@@ -1,54 +1,54 @@
 [1m[92m    Updating[0m crates.io index
 [1m[92m Downloading[0m crates ...
-[1m[92m  Downloaded[0m cfg-if v1.0.4
 [1m[92m  Downloaded[0m block-buffer v0.10.4
-[1m[92m  Downloaded[0m bitflags v2.13.1
-[1m[92m  Downloaded[0m bytes v1.12.1
+[1m[92m  Downloaded[0m cfg-if v1.0.4
 [1m[92m  Downloaded[0m anyhow v1.0.104
-[1m[92m  Downloaded[0m hashlink v0.10.0
-[1m[92m  Downloaded[0m generic-array v0.14.7
-[1m[92m  Downloaded[0m downcast-rs v1.2.1
-[1m[92m  Downloaded[0m version_check v0.9.5
-[1m[92m  Downloaded[0m getrandom v0.3.4
-[1m[92m  Downloaded[0m pkg-config v0.3.34
-[1m[92m  Downloaded[0m portable-pty v0.9.0
-[1m[92m  Downloaded[0m quote v1.0.47
-[1m[92m  Downloaded[0m shell-words v1.1.1
+[1m[92m  Downloaded[0m bytes v1.12.1
+[1m[92m  Downloaded[0m bitflags v2.13.1
 [1m[92m  Downloaded[0m cfg_aliases v0.1.1
-[1m[92m  Downloaded[0m cpufeatures v0.2.17
-[1m[92m  Downloaded[0m crypto-common v0.1.7
-[1m[92m  Downloaded[0m hashbrown v0.15.5
-[1m[92m  Downloaded[0m itoa v1.0.18
-[1m[92m  Downloaded[0m tokio-macros v2.6.1
-[1m[92m  Downloaded[0m errno v0.3.14
-[1m[92m  Downloaded[0m filedescriptor v0.8.3
-[1m[92m  Downloaded[0m fallible-streaming-iterator v0.1.9
-[1m[92m  Downloaded[0m foldhash v0.1.5
-[1m[92m  Downloaded[0m sha2 v0.10.9
-[1m[92m  Downloaded[0m thiserror v1.0.69
-[1m[92m  Downloaded[0m proc-macro2 v1.0.107
-[1m[92m  Downloaded[0m signal-hook-registry v1.4.8
+[1m[92m  Downloaded[0m serde v1.0.228
 [1m[92m  Downloaded[0m thiserror v2.0.17
-[1m[92m  Downloaded[0m thiserror-impl v2.0.17
-[1m[92m  Downloaded[0m uuid v1.18.1
+[1m[92m  Downloaded[0m serial2 v0.2.38
+[1m[92m  Downloaded[0m downcast-rs v1.2.1
+[1m[92m  Downloaded[0m generic-array v0.14.7
+[1m[92m  Downloaded[0m thiserror v1.0.69
+[1m[92m  Downloaded[0m tokio-macros v2.6.1
+[1m[92m  Downloaded[0m version_check v0.9.5
+[1m[92m  Downloaded[0m itoa v1.0.18
+[1m[92m  Downloaded[0m fallible-streaming-iterator v0.1.9
 [1m[92m  Downloaded[0m fallible-iterator v0.3.0
+[1m[92m  Downloaded[0m shell-words v1.1.1
+[1m[92m  Downloaded[0m filedescriptor v0.8.3
+[1m[92m  Downloaded[0m cpufeatures v0.2.17
 [1m[92m  Downloaded[0m thiserror-impl v1.0.69
-[1m[92m  Downloaded[0m pin-project-lite v0.2.17
-[1m[92m  Downloaded[0m smallvec v1.15.2
-[1m[92m  Downloaded[0m ryu v1.0.23
+[1m[92m  Downloaded[0m crypto-common v0.1.7
 [1m[92m  Downloaded[0m digest v0.10.7
+[1m[92m  Downloaded[0m errno v0.3.14
+[1m[92m  Downloaded[0m hashlink v0.10.0
+[1m[92m  Downloaded[0m unicode-ident v1.0.24
+[1m[92m  Downloaded[0m pin-project-lite v0.2.17
+[1m[92m  Downloaded[0m mio v1.2.2
+[1m[92m  Downloaded[0m quote v1.0.47
+[1m[92m  Downloaded[0m signal-hook-registry v1.4.8
+[1m[92m  Downloaded[0m portable-pty v0.9.0
+[1m[92m  Downloaded[0m foldhash v0.1.5
+[1m[92m  Downloaded[0m serde_derive v1.0.228
+[1m[92m  Downloaded[0m thiserror-impl v2.0.17
+[1m[92m  Downloaded[0m pkg-config v0.3.34
+[1m[92m  Downloaded[0m smallvec v1.15.2
+[1m[92m  Downloaded[0m sha2 v0.10.9
 [1m[92m  Downloaded[0m log v0.4.33
 [1m[92m  Downloaded[0m serde_core v1.0.228
-[1m[92m  Downloaded[0m serde_derive v1.0.228
-[1m[92m  Downloaded[0m socket2 v0.6.5
-[1m[92m  Downloaded[0m unicode-ident v1.0.24
-[1m[92m  Downloaded[0m serde v1.0.228
-[1m[92m  Downloaded[0m serial2 v0.2.38
-[1m[92m  Downloaded[0m typenum v1.20.1
-[1m[92m  Downloaded[0m memchr v2.8.3
-[1m[92m  Downloaded[0m mio v1.2.2
-[1m[92m  Downloaded[0m rusqlite v0.37.0
 [1m[92m  Downloaded[0m serde_json v1.0.145
+[1m[92m  Downloaded[0m getrandom v0.3.4
+[1m[92m  Downloaded[0m ryu v1.0.23
+[1m[92m  Downloaded[0m uuid v1.18.1
+[1m[92m  Downloaded[0m proc-macro2 v1.0.107
+[1m[92m  Downloaded[0m socket2 v0.6.5
+[1m[92m  Downloaded[0m memchr v2.8.3
+[1m[92m  Downloaded[0m typenum v1.20.1
+[1m[92m  Downloaded[0m hashbrown v0.15.5
+[1m[92m  Downloaded[0m rusqlite v0.37.0
 [1m[92m  Downloaded[0m vcpkg v0.2.15
 [1m[92m  Downloaded[0m nix v0.28.0
 [1m[92m  Downloaded[0m syn v2.0.119
@@ -61,55 +61,55 @@
 [1m[92m   Compiling[0m libc v0.2.189
 [1m[92m    Checking[0m cfg-if v1.0.4
 [1m[92m   Compiling[0m serde_core v1.0.228
-[1m[92m   Compiling[0m getrandom v0.3.4
 [1m[92m   Compiling[0m serde v1.0.228
-[1m[92m   Compiling[0m version_check v0.9.5
+[1m[92m   Compiling[0m getrandom v0.3.4
 [1m[92m   Compiling[0m thiserror v2.0.17
+[1m[92m   Compiling[0m version_check v0.9.5
 [1m[92m   Compiling[0m syn v2.0.119
 [1m[92m   Compiling[0m generic-array v0.14.7
 [1m[92m    Checking[0m typenum v1.20.1
-[1m[92m   Compiling[0m vcpkg v0.2.15
 [1m[92m   Compiling[0m pkg-config v0.3.34
 [1m[92m   Compiling[0m serde_json v1.0.145
+[1m[92m   Compiling[0m vcpkg v0.2.15
 [1m[92m    Checking[0m ryu v1.0.23
 [1m[92m    Checking[0m itoa v1.0.18
 [1m[92m    Checking[0m bitflags v2.13.1
-[1m[92m    Checking[0m foldhash v0.1.5
-[1m[92m   Compiling[0m libsqlite3-sys v0.35.0
 [1m[92m    Checking[0m memchr v2.8.3
+[1m[92m    Checking[0m foldhash v0.1.5
 [1m[92m    Checking[0m hashbrown v0.15.5
+[1m[92m   Compiling[0m libsqlite3-sys v0.35.0
 [1m[92m    Checking[0m block-buffer v0.10.4
 [1m[92m    Checking[0m crypto-common v0.1.7
-[1m[92m    Checking[0m digest v0.10.7
 [1m[92m    Checking[0m hashlink v0.10.0
+[1m[92m    Checking[0m digest v0.10.7
 [1m[92m    Checking[0m smallvec v1.15.2
-[1m[92m    Checking[0m cpufeatures v0.2.17
-[1m[92m    Checking[0m fallible-iterator v0.3.0
 [1m[92m    Checking[0m fallible-streaming-iterator v0.1.9
+[1m[92m    Checking[0m fallible-iterator v0.3.0
+[1m[92m    Checking[0m cpufeatures v0.2.17
 [1m[92m    Checking[0m sha2 v0.10.9
-[1m[92m    Checking[0m rusqlite v0.37.0
 [1m[92m    Checking[0m ptah-contracts v0.0.0-phase0c (/home/runner/work/Ptah-space/Ptah-space/crates/ptah-contracts)
 [1m[92m    Checking[0m errno v0.3.14
-[1m[92m   Compiling[0m thiserror v1.0.69
+[1m[92m    Checking[0m rusqlite v0.37.0
 [1m[92m   Compiling[0m cfg_aliases v0.1.1
+[1m[92m   Compiling[0m thiserror v1.0.69
 [1m[92m   Compiling[0m nix v0.28.0
 [1m[92m    Checking[0m signal-hook-registry v1.4.8
-[1m[92m    Checking[0m mio v1.2.2
 [1m[92m    Checking[0m socket2 v0.6.5
-[1m[92m   Compiling[0m anyhow v1.0.104
-[1m[92m    Checking[0m pin-project-lite v0.2.17
+[1m[92m    Checking[0m mio v1.2.2
 [1m[92m    Checking[0m bytes v1.12.1
+[1m[92m    Checking[0m pin-project-lite v0.2.17
+[1m[92m   Compiling[0m anyhow v1.0.104
 [1m[92m    Checking[0m serial2 v0.2.38
-[1m[92m    Checking[0m log v0.4.33
-[1m[92m    Checking[0m shell-words v1.1.1
-[1m[92m    Checking[0m downcast-rs v1.2.1
 [1m[92m   Compiling[0m serde_derive v1.0.228
 [1m[92m   Compiling[0m thiserror-impl v2.0.17
-[1m[92m   Compiling[0m thiserror-impl v1.0.69
 [1m[92m   Compiling[0m tokio-macros v2.6.1
+[1m[92m   Compiling[0m thiserror-impl v1.0.69
+[1m[92m    Checking[0m tokio v1.48.0
+[1m[92m    Checking[0m downcast-rs v1.2.1
+[1m[92m    Checking[0m log v0.4.33
+[1m[92m    Checking[0m shell-words v1.1.1
 [1m[92m    Checking[0m filedescriptor v0.8.3
 [1m[92m    Checking[0m portable-pty v0.9.0
-[1m[92m    Checking[0m tokio v1.48.0
 [1m[92m    Checking[0m uuid v1.18.1
 [1m[92m    Checking[0m ptah-identifiers v0.0.0-phase0c (/home/runner/work/Ptah-space/Ptah-space/crates/ptah-identifiers)
 [1m[92m    Checking[0m ptah-ledger v0.0.0-phase0c (/home/runner/work/Ptah-space/Ptah-space/crates/ptah-ledger)
@@ -133,9 +133,9 @@
 [1m[94m14[0m [1m[94m|[0m [1m[91m|[0m [1m[94m|[0m         platform: PlatformClass,
 [1m[94m15[0m [1m[94m|[0m [1m[91m|[0m [1m[94m|[0m         /// Validated D08 Application Session projection.
 [1m[94m...[0m  [1m[91m|[0m [1m[94m|[0m
-[1m[94m18[0m [1m[94m|[0m [1m[91m|[0m [1m[94m|[0m         display: Option<DisplaySessionProjection>,
+[1m[94m18[0m [1m[94m|[0m [1m[91m|[0m [1m[94m|[0m         display: Option<Box<DisplaySessionProjection>>,
 [1m[94m19[0m [1m[94m|[0m [1m[91m|[0m [1m[94m|[0m     },
-   [1m[94m|[0m [1m[91m|[0m [1m[94m|_____-[0m [1m[94mthe largest variant contains at least 2769 bytes[0m
+   [1m[94m|[0m [1m[91m|[0m [1m[94m|_____-[0m [1m[94mthe second-largest variant contains at least 17 bytes[0m
 [1m[94m20[0m [1m[94m|[0m [1m[91m|[0m       /// An exact Application Revision that remains blocked on Programme E remote-Node authority.
 [1m[94m21[0m [1m[94m|[0m [1m[91m|[0m [1m[94m/[0m     RemoteRequirement {
 [1m[94m22[0m [1m[94m|[0m [1m[91m|[0m [1m[94m|[0m         /// Stable Application identity.
@@ -144,20 +144,20 @@
 [1m[94m...[0m  [1m[91m|[0m [1m[94m|[0m
 [1m[94m27[0m [1m[94m|[0m [1m[91m|[0m [1m[94m|[0m         requirement: RemoteNodeRequirement,
 [1m[94m28[0m [1m[94m|[0m [1m[91m|[0m [1m[94m|[0m     },
-   [1m[94m|[0m [1m[91m|[0m [1m[94m|_____-[0m [1m[94mthe second-largest variant contains at least 368 bytes[0m
+   [1m[94m|[0m [1m[91m|[0m [1m[94m|_____-[0m [1m[94mthe largest variant contains at least 368 bytes[0m
 [1m[94m29[0m [1m[94m|[0m [1m[91m|[0m   }
-   [1m[94m|[0m [1m[91m|___^[0m [1m[91mthe entire enum is at least 2776 bytes[0m
+   [1m[94m|[0m [1m[91m|___^[0m [1m[91mthe entire enum is at least 368 bytes[0m
    [1m[94m|[0m
    [1m[94m= [0m[1mhelp[0m: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#large_enum_variant
    [1m[94m= [0m[1mnote[0m: `-D clippy::large-enum-variant` implied by `-D warnings`
    [1m[94m= [0m[1mhelp[0m: to override `-D warnings` add `#[allow(clippy::large_enum_variant)]`
 [1m[96mhelp[0m: consider boxing the large fields or introducing indirection in some other way to reduce the total size of the enum
    [1m[94m|[0m
-[1m[94m16[0m [92m~ [0m        session: [92mBox<ApplicationSessionProjection>[0m,
-[1m[94m17[0m [1m[94m|[0m         /// Optional validated Display Session associated with the Application Session.
-[1m[94m18[0m [92m~ [0m        display: [92mBox<Option<DisplaySessionProjection>>[0m,
+[1m[94m25[0m [92m~ [0m        application_revision_ref: [92mBox<EntityRef>[0m,
+[1m[94m26[0m [1m[94m|[0m         /// Mechanical remote-Node requirement retained without synthetic runtime state.
+[1m[94m27[0m [92m~ [0m        requirement: [92mBox<RemoteNodeRequirement>[0m,
    [1m[94m|[0m
 
-[1m[91merror[0m: could not compile `ptah-application-runtime` (lib test) due to 1 previous error
-[1m[33mwarning[0m: build failed, waiting for other jobs to finish...
 [1m[91merror[0m: could not compile `ptah-application-runtime` (lib) due to 1 previous error
+[1m[33mwarning[0m: build failed, waiting for other jobs to finish...
+[1m[91merror[0m: could not compile `ptah-application-runtime` (lib test) due to 1 previous error

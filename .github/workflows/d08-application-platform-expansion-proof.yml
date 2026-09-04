@@ -48,15 +48,17 @@ jobs:
       TARGET_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout exact candidate head
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
           ref: ${{ env.TARGET_SHA }}
 
       - name: Pin Rust 1.97.1
-        uses: dtolnay/rust-toolchain@1.97.1
-        with:
-          components: rustfmt, clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
 
       - name: Prove exact SHA, predecessor and linear history
         shell: bash
@@ -368,7 +370,7 @@ jobs:
           cat "$RUNNER_TEMP/d08-proof/exact-head-proof.txt"
 
       - name: Upload retained proof artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: d08-exact-head-${{ env.TARGET_SHA }}
           path: ${{ runner.temp }}/d08-proof/exact-head-proof.txt

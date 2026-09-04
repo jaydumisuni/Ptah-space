@@ -527,6 +527,7 @@ version = "0.0.0-phase0c"
 name = "ptah-control"
 version = "0.0.0-phase0c"
 dependencies = [
+ "ptah-application-runtime",
  "serde",
  "serde_json",
 ]

@@ -148,8 +148,8 @@ jobs:
                   if '@' not in value or pin.fullmatch(value.rsplit('@', 1)[1]) is None:
                       failures.append((str(path), number, value))
           if failures:
-              for item in failures:
-                  print(f'{item[0]}:{item[1]}: {item[2]}')
+              for path, number, value in failures:
+                  print(f'{path}:{number}: {value}')
               raise SystemExit(f'{len(failures)} non-immutable Action references remain')
           print('ALL_EXTERNAL_ACTION_REFERENCES_IMMUTABLY_PINNED')
           PY
@@ -269,10 +269,27 @@ jobs:
           if verified.get('direct_dependency_count') != len(selected):
               raise SystemExit('current dependency verifier direct count mismatch')
 
-          # Evaluate the SPDX boolean structure rather than requiring every
-          # identifier in every OR alternative to be allowed. WITH exceptions
-          # remain fail-closed because deny.toml does not authorize exceptions.
-          def licence_allowed(expression: str) -> bool:
+          legacy_slash_pattern = re.compile(
+              r'(?P<left>[A-Za-z0-9][A-Za-z0-9.+-]*)\s*/\s*'
+              r'(?P<right>[A-Za-z0-9][A-Za-z0-9.+-]*)'
+          )
+
+          def normalise_legacy_slash(expression: str) -> tuple[str, int]:
+              normalised = expression
+              replacements = 0
+              while '/' in normalised:
+                  normalised, count = legacy_slash_pattern.subn(
+                      r'\g<left> OR \g<right>', normalised, count=1
+                  )
+                  if count == 0:
+                      raise ValueError(
+                          f'unsupported slash licence syntax: {expression}'
+                      )
+                  replacements += count
+              return normalised, replacements
+
+          def licence_allowed(expression: str) -> tuple[bool, int]:
+              expression, slash_replacements = normalise_legacy_slash(expression)
               tokens = re.findall(
                   r'\(|\)|\bAND\b|\bOR\b|\bWITH\b|[A-Za-z0-9][A-Za-z0-9.+-]*',
                   expression,
@@ -315,22 +332,20 @@ jobs:
                   value = parse_with()
                   while peek() == 'AND':
                       consume('AND')
-                      rhs = parse_with()
-                      value = value and rhs
+                      value = value and parse_with()
                   return value
 
               def parse_or():
                   value = parse_and()
                   while peek() == 'OR':
                       consume('OR')
-                      rhs = parse_and()
-                      value = value or rhs
+                      value = value or parse_and()
                   return value
 
               result = parse_or()
               if pos != len(tokens):
                   raise ValueError(f'unconsumed SPDX tokens: {expression}')
-              return result
+              return result, slash_replacements
 
           external_metadata = [
               item for item in metadata.get('packages', [])
@@ -340,6 +355,7 @@ jobs:
               raise SystemExit(
                   f'cargo metadata external count mismatch: metadata={len(external_metadata)} lock={registry_count}'
               )
+          slash_normalisations = 0
           for package in external_metadata:
               if package.get('source') != canonical_source:
                   raise SystemExit(f"metadata source is not canonical: {package.get('source')}")
@@ -347,9 +363,10 @@ jobs:
               if not isinstance(licence, str) or not licence.strip():
                   raise SystemExit(f"external dependency licence missing: {package.get('name')}@{package.get('version')}")
               try:
-                  accepted = licence_allowed(licence)
+                  accepted, normalised_count = licence_allowed(licence)
               except ValueError as exc:
                   raise SystemExit(str(exc)) from exc
+              slash_normalisations += normalised_count
               if not accepted:
                   raise SystemExit(
                       f"dependency licence expression has no allowed satisfiable branch: "
@@ -370,6 +387,7 @@ jobs:
               'allowed_transitive_licences': sorted(allowed),
               'external_metadata_licence_count': len(external_metadata),
               'spdx_boolean_semantics_applied': True,
+              'legacy_slash_alternatives_normalised': slash_normalisations,
               'predecessor_bytes_unchanged': True,
               'historical_selection_snapshot_sha256': historical_cargo.get('sha256'),
               'historical_selection_snapshot_resolved_package_count': historical_cargo.get('resolved_package_count'),

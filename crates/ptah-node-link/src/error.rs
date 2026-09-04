@@ -56,7 +56,7 @@ pub enum LinkError {
         /// Requested stale generation.
         requested: u64,
     },
-    /// Requested ConnectionEpoch is not newer within the current generation.
+    /// Requested `ConnectionEpoch` is not newer within the current generation.
     #[error("stale ConnectionEpoch: current={current}, requested={requested}")]
     StaleConnectionEpoch {
         /// Current accepted epoch.

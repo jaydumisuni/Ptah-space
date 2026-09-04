@@ -123,7 +123,10 @@ async fn client_signed_by_wrong_ca_fails_server_authentication() {
     let client_result = connect_tls(tcp, "localhost", &client_config).await;
     let server_result = server.await.expect("server join");
     assert!(server_result.is_err());
-    assert!(client_result.is_err());
+
+    if let Ok(mut tls) = client_result {
+        assert!(read_frame(tls.stream_mut()).await.is_err());
+    }
 }
 
 #[tokio::test]

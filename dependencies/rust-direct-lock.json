@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.4.0",
+  "schema_version": "0.5.0",
   "status": "exact_versions_and_policy_selected_e01_lock_frozen",
   "toolchain": "1.97.1",
   "registry": "https://github.com/rust-lang/crates.io-index",
@@ -10,6 +10,7 @@
     "git_dependencies_allowed": false,
     "unknown_registries_allowed": false,
     "wildcards_allowed": false,
+    "private_workspace_path_wildcards_allowed": true,
     "private_workspace_licences_ignored_until_owner_decision": true,
     "public_licence_acceptance_required_before_runtime_authorization": true
   },
@@ -46,18 +47,9 @@
       "expected_licence": "Apache-2.0 OR ISC OR MIT",
       "features": ["ring", "std"],
       "name": "rustls",
-      "purpose": "TLS 1.3 mutual authentication and certificate verification for the E01 Node link",
+      "purpose": "TLS 1.3 mutual authentication, certificate verification and PKI PEM decoding for the E01 Node link",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "version": "0.23.43"
-    },
-    {
-      "checksum": "dce314e5fee3f39953d46bb63bb8a46d40c2f8fb7cc5a3b6cab2bde9721d6e50",
-      "expected_licence": "Apache-2.0 OR ISC OR MIT",
-      "features": ["std"],
-      "name": "rustls-pemfile",
-      "purpose": "bounded PEM credential parsing for E01 service configuration",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "2.2.0"
     },
     {
       "checksum": "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e",
@@ -143,9 +135,9 @@
   ],
   "cargo_lock": {
     "repository_path": "Cargo.lock",
-    "sha256": "4669e16f7ffc983525a7bfbc0d201d1bf134c2e75a7784c0831f37c4470f9dfd",
-    "resolved_package_count": 154,
-    "registry_package_count": 120,
+    "sha256": "19f525eff68550d94bb0d19eb7d08bef2b6a5d66d678e47d70b811c8686cfdef",
+    "resolved_package_count": 153,
+    "registry_package_count": 119,
     "git_dependency_count": 0
   },
   "policy": {
@@ -153,7 +145,7 @@
     "version": "0.19.4",
     "config_path": "deny.toml",
     "required_checks": ["advisories", "bans", "licenses", "sources"],
-    "private_workspace_policy": "unpublished workspace members ignored; no public licence granted",
+    "private_workspace_policy": "unpublished workspace members are ignored for public licence decisions and may use path-only wildcard syntax; registry wildcards remain denied",
     "allowed_transitive_licences": ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib"]
   },
   "evidence_path": "dependencies/rust-policy-evidence.json",

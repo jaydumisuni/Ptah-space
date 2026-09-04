@@ -35,6 +35,37 @@ jobs:
           Path('/tmp/d08_task4_patch.py').write_bytes(base64.b64decode(match.group(1)))
           PY
           python3 /tmp/d08_task4_patch.py
+      - name: Apply structural large-enum correction candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          snapshot = Path('crates/ptah-application-runtime/src/snapshot.rs')
+          text = snapshot.read_text()
+          text = text.replace(
+              '        session: ApplicationSessionProjection,\n',
+              '        session: Box<ApplicationSessionProjection>,\n',
+          )
+          text = text.replace(
+              '        display: Option<DisplaySessionProjection>,\n',
+              '        display: Option<Box<DisplaySessionProjection>>,\n',
+          )
+          snapshot.write_text(text)
+
+          test = Path('services/ptah-control/tests/d08_application_projection.rs')
+          text = test.read_text()
+          for old, new in [
+              ('session: session("running", "full"),', 'session: Box::new(session("running", "full")),'),
+              ('session: session("degraded", "headless_only"),', 'session: Box::new(session("degraded", "headless_only")),'),
+              ('session: session("preparing", "unavailable"),', 'session: Box::new(session("preparing", "unavailable")),'),
+          ]:
+              if old not in text:
+                  raise SystemExit(f'missing expected constructor: {old}')
+              text = text.replace(old, new)
+          test.write_text(text)
+          PY
           cargo fmt --all
           git diff --check
       - name: Capture strict Clippy diagnostic
@@ -50,7 +81,7 @@ jobs:
             git config user.name 'THE TECH GUY'
             git config user.email '65334711+jaydumisuni@users.noreply.github.com'
             git add -f d08-task4-clippy-diagnostic.txt
-            git commit -m 'diag(d08): capture task4 strict clippy failure'
+            git commit -m 'diag(d08): capture corrected task4 clippy failure'
             git push origin HEAD:d08-application-platform-expansion
           fi
           exit "$status"

@@ -73,6 +73,18 @@ pub enum LinkError {
     /// Credential fingerprint text is malformed.
     #[error("invalid credential fingerprint")]
     InvalidCredentialFingerprint,
+    /// TLS identity, trust-root, or certificate configuration is invalid.
+    #[error("invalid E01 TLS configuration: {0}")]
+    TlsConfiguration(String),
+    /// TLS mutual-authentication handshake failed.
+    #[error("E01 TLS handshake failed: {0}")]
+    TlsHandshake(String),
+    /// The authenticated TLS session did not expose an end-entity peer certificate.
+    #[error("E01 TLS peer certificate is missing")]
+    TlsPeerCertificateMissing,
+    /// The configured TLS server name is not a valid Rustls server name.
+    #[error("invalid E01 TLS server name")]
+    InvalidServerName,
     /// Async transport I/O failed.
     #[error("E01 transport I/O failed: {0}")]
     Io(String),

@@ -133,3 +133,28 @@ fn superseded_session_cannot_publish_capability() {
         Err(LinkError::SupersededConnection)
     );
 }
+
+#[test]
+fn control_restart_fences_previous_in_memory_binding() {
+    let agent = NodeAgent::bootstrap().expect("node");
+    let fingerprint = CredentialFingerprint::from_der(b"credential-restart");
+    let approved = enrollment(&agent, fingerprint);
+    let enrollment_ref = approved.enrollment_ref().clone();
+    let mut first_control = NodeLinkControl::new(
+        ProtocolVersion { major: 1, minor: 0 },
+        vec![approved.clone()],
+    );
+    let binding = first_control
+        .accept_hello(&hello(&agent, enrollment_ref), fingerprint, 0)
+        .expect("accepted before restart");
+
+    let restarted_control = NodeLinkControl::new(
+        ProtocolVersion { major: 1, minor: 0 },
+        vec![approved],
+    );
+    assert!(restarted_control.current_session(agent.node_id()).is_none());
+    assert_eq!(
+        restarted_control.accept_capability(&binding, &capability(&agent)),
+        Err(LinkError::SupersededConnection)
+    );
+}

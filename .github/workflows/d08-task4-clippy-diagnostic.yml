@@ -155,7 +155,7 @@ jobs:
           d01_count=$(cargo test -p ptah-control --test d01_acceptance --locked -- --list | grep -c ': test$')
           c10_count=$(cargo test -p ptah-android-runtime --test c10 --locked -- --list | grep -c ': test$')
           test "$d01_count" -eq 13
-          test "$c10_count" -eq 14
+          test "$c10_count" -eq 26
           cargo test -p ptah-control --test d01_acceptance --locked
           cargo test -p ptah-android-runtime --test c10 --locked
           cargo test -p ptah-control --test a14_acceptance --locked

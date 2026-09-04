@@ -33,7 +33,7 @@ D09 is an acceptance-only composition layer modeled on the accepted A15 exact-he
 
 D09 does not add a `ptah-d09` Rust crate or any other runtime package. It composes already-proven public acceptance surfaces and produces a retained exact-head release bundle. Product source may change during D09 only if a D09 proof exposes a real defect; any such repair invalidates the frozen candidate and requires Review → Freeze → Prove again.
 
-The D09 implementation surface is limited to:
+The normal D09 implementation surface is limited to:
 
 - this design;
 - the D09 implementation plan;
@@ -43,7 +43,17 @@ The D09 implementation surface is limited to:
 - `tools/test_check_d09_full_workspace_release.py`;
 - `.github/workflows/d09-full-workspace-release-acceptance.yml`.
 
-No `Cargo.toml`, `Cargo.lock`, schema, migration, generated binding or existing product crate is part of the normal D09 delta.
+No `Cargo.toml`, `Cargo.lock`, schema, migration, generated binding or existing product crate is part of the D09 delta.
+
+### Release-audit proof-hygiene correction
+
+The first permanent D09 exact-head run exposed eight inherited non-immutable GitHub Action references, all confined to completed D07/D08 proof machinery. D09 retains that failed run as evidence and corrects the inherited release-proof surface without changing Ptah runtime behavior:
+
+- `.github/workflows/d07-security-evidence-reproduction-proof.yml` — pin checkout/upload actions and replace the floating Rust action with explicit Rust 1.97.1 installation;
+- `.github/workflows/d08-application-platform-expansion-proof.yml` — the same immutable proof correction;
+- `.github/workflows/d08-tdd.yml` — retire the completed Task-4 auto-promotion lane entirely rather than carry a write-capable obsolete workflow into the Full Workspace release.
+
+These three paths are the only audited exception to the normal seven-file D09 acceptance surface. The final D08→D09 release delta is therefore exactly ten paths: seven D09 evidence/proof files plus those three inherited proof-hygiene corrections. No Rust product source, Cargo metadata, schema, migration or generated contract changes as part of this remediation.
 
 ## Reused proof authorities
 
@@ -153,24 +163,25 @@ The proof must:
 2. pin Python 3.13 and Rust/Cargo 1.97.1;
 3. prove `origin/main` is exact D08 merge `ca6b3526ce9b58ffce11f8582be8fbf860dfa53d` for the frozen proof run;
 4. prove linear D09 history and remote branch equality;
-5. prove the delta is limited to the seven D09 acceptance files listed above;
+5. prove the D08→D09 delta is exactly the seven D09 acceptance files plus the three audited D07/D08 proof-hygiene paths described above;
 6. prove Cargo/schema/migration/generated-contract/product-runtime trees are unchanged from D08;
-7. run D09 checker unit tests and validate the exact ten-case corpus;
-8. run the accepted deep Workspace 26-case validator and require 22 capabilities/20 fixtures/no new Core/no contract reopening;
-9. run the AI Project Workspace validator and its regressions, requiring no Ptah decision/context/review authority;
-10. run D01 human acceptance and D02 AI Workspace acceptance;
-11. run A04 Activity runtime acceptance/concurrency coverage;
-12. run A13 and B06 checkpoint/recovery acceptance;
-13. run D05 Package/Plugin acceptance including rollback/replacement cases;
-14. run D06 provenance acceptance and store round-trip;
-15. run D07 security evidence acceptance and store round-trip;
-16. run D08 25 runtime + 3 shell integration cases exactly;
-17. run Apache/public-private boundary checker and its unit tests;
-18. run `cargo fmt --all -- --check` and complete `cargo test --workspace --locked`;
-19. require a clean worktree;
-20. create a D09 report bundle containing exact candidate/predecessor identities, frozen counts, limitations and SHA-256 for every required report;
-21. verify the report bundle digest;
-22. upload retained artifact `d09-full-workspace-release-${TARGET_SHA}`.
+7. prove every remaining external GitHub Action reference is an immutable 40-hex commit pin;
+8. run D09 checker unit tests and validate the exact ten-case corpus;
+9. run the accepted deep Workspace 26-case validator and require 22 capabilities/20 fixtures/no new Core/no contract reopening;
+10. run the AI Project Workspace validator and its regressions, requiring no Ptah decision/context/review authority;
+11. run D01 human acceptance and D02 AI Workspace acceptance;
+12. run A04 Activity runtime acceptance/concurrency coverage;
+13. run A13 and B06 checkpoint/recovery acceptance;
+14. run D05 Package/Plugin acceptance including rollback/replacement cases;
+15. run D06 provenance acceptance and store round-trip;
+16. run D07 security evidence acceptance and store round-trip;
+17. run D08 25 runtime + 3 shell integration cases exactly;
+18. run A01/source/dependency checks and Apache/public-private boundary checks;
+19. run `cargo fmt --all -- --check` and complete `cargo test --workspace --locked`;
+20. require a clean worktree;
+21. create a D09 report bundle containing exact candidate/predecessor identities, frozen counts and SHA-256 for every required report;
+22. verify the report bundle digest;
+23. upload retained artifact `d09-full-workspace-release-${TARGET_SHA}`.
 
 Green status without the retained bundle is not D09 acceptance.
 

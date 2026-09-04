@@ -1,0 +1,278 @@
+use ptah_android_runtime::{
+    ApplicationLaunchReadBack, ApplicationLaunchRequest,
+    ApplicationSession as C10ApplicationSession, ApplicationSessionState as C10ApplicationState,
+    DeviceSession as C10DeviceSession, DeviceSessionRequest, PackageInstallRequest,
+    PackageReadBack, VerifiedPackageInstallation, admit_application_launch, admit_package_install,
+    open_device_session, verify_application_launch, verify_package_install,
+};
+use ptah_application_runtime::{
+    AndroidProjectionRequest, ApplicationAvailability, ApplicationSessionLifecycle, D08Error,
+    SessionLocality, project_android_application_session,
+};
+use ptah_archive_decomposition::{SignatureObservation, SignatureStatus};
+use ptah_device_runtime::{
+    DeviceInterfaceRecord, DeviceKind, DeviceLease, DeviceLeaseRequest, DeviceRecord,
+    InterfaceLocality, InterfaceTransport, Reachability,
+};
+use ptah_identifiers::EntityRef;
+use ptah_provider_api::ProviderGeneration;
+
+fn entity(kind: &str) -> EntityRef {
+    EntityRef::new(kind).expect("test entity kind must be valid")
+}
+
+fn c10_device() -> DeviceRecord {
+    DeviceRecord {
+        device_ref: entity("device.device"),
+        device_kind: DeviceKind::PhysicalAndroid,
+        identity_basis_refs: vec![entity("proof.evidence")],
+        current_profile_revision_ref: entity("device.profile_revision"),
+        profile_revision_refs: vec![entity("device.profile_revision")],
+        limitations: Vec::new(),
+    }
+}
+
+fn c10_interface(device_ref: EntityRef, generation: u64, epoch: u64) -> DeviceInterfaceRecord {
+    DeviceInterfaceRecord {
+        interface_ref: entity("device.interface"),
+        device_ref,
+        transport: InterfaceTransport::AdbUsb,
+        mode_or_protocol: String::from("adb"),
+        protocol_version: Some(String::from("1.0.41")),
+        observed_aliases: vec![String::from("D08-C10-FIXTURE")],
+        topology_or_address: Some(String::from("usb:d08-fixture")),
+        endpoint_claims: vec![String::from("18d1:4ee7")],
+        provider_instance_ref: entity("runtime.provider_instance"),
+        provider_generation: ProviderGeneration::new(generation).expect("positive generation"),
+        locality: InterfaceLocality::NodeLocal,
+        node_ref: entity("core.node"),
+        node_generation: 1,
+        provider_connection_epoch: epoch,
+        connection_epoch: epoch,
+        connection_ref: entity("device.connection"),
+        continuity_basis_refs: vec![entity("proof.evidence")],
+        capability_claim_refs: vec![entity("proof.evidence")],
+        reachability: Reachability::Reachable,
+        evidence_refs: vec![entity("proof.evidence")],
+        first_observed_at: String::from("2026-09-03T12:00:00Z"),
+        last_observed_at: String::from("2026-09-03T12:00:01Z"),
+    }
+}
+
+fn c10_lease(device_ref: EntityRef, generation: u64, epoch: u64) -> DeviceLease {
+    DeviceLease::issue(DeviceLeaseRequest {
+        device_ref,
+        holder_ref: entity("core.workspace"),
+        scope: vec![
+            String::from("android.session.control"),
+            String::from("android.package.install"),
+            String::from("android.application.launch"),
+        ],
+        fence_token: 9,
+        provider_generation: ProviderGeneration::new(generation).expect("positive generation"),
+        connection_epoch: epoch,
+        issued_at: String::from("2026-09-03T12:00:01Z"),
+        expires_at: String::from("2026-09-03T14:00:01Z"),
+    })
+    .expect("current C08 lease")
+}
+
+fn c10_verified_package(
+    session: &C10DeviceSession,
+    interface: &DeviceInterfaceRecord,
+    lease: &DeviceLease,
+) -> VerifiedPackageInstallation {
+    let attempt = admit_package_install(PackageInstallRequest {
+        session,
+        interface,
+        lease,
+        observed_fence_token: 9,
+        package_object_ref: entity("object.object"),
+        package_revision_ref: entity("object.revision"),
+        package_id: String::from("com.example.d08"),
+        expected_version: String::from("3.8.0"),
+        expected_signer: String::from("CN=D08 Fixture"),
+        command_evidence_refs: vec![entity("proof.evidence")],
+        requested_at: String::from("2026-09-03T12:10:00Z"),
+    })
+    .expect("C10 package admission");
+    verify_package_install(
+        &attempt,
+        PackageReadBack {
+            provider_generation: interface.provider_generation,
+            connection_epoch: interface.connection_epoch,
+            package_id: String::from("com.example.d08"),
+            installed_version: String::from("3.8.0"),
+            signatures: vec![SignatureObservation {
+                scheme: String::from("apk-v3"),
+                signer: Some(String::from("CN=D08 Fixture")),
+                status: SignatureStatus::Verified,
+            }],
+            evidence_refs: vec![entity("proof.evidence")],
+            observed_at: String::from("2026-09-03T12:10:02Z"),
+        },
+    )
+    .expect("C10 verified package")
+}
+
+fn c10_verified_pair() -> (C10DeviceSession, C10ApplicationSession) {
+    let device = c10_device();
+    let interface = c10_interface(device.device_ref.clone(), 4, 7);
+    let lease = c10_lease(device.device_ref.clone(), 4, 7);
+    let device_session = open_device_session(DeviceSessionRequest {
+        workspace_ref: entity("core.workspace"),
+        device: &device,
+        interface: &interface,
+        lease: &lease,
+        observed_fence_token: 9,
+        capability_snapshot_ref: entity("runtime.capability_snapshot"),
+        privacy_policy_refs: vec![entity("policy.privacy")],
+        evidence_refs: vec![entity("proof.evidence")],
+        started_at: String::from("2026-09-03T12:00:02Z"),
+    })
+    .expect("current C10 Device Session");
+    let installation = c10_verified_package(&device_session, &interface, &lease);
+    let attempt = admit_application_launch(ApplicationLaunchRequest {
+        session: &device_session,
+        interface: &interface,
+        lease: &lease,
+        observed_fence_token: 9,
+        installation: &installation,
+        application_ref: entity("application.application"),
+        application_revision_ref: entity("application.revision"),
+        command_evidence_refs: vec![entity("proof.evidence")],
+        requested_at: String::from("2026-09-03T12:20:00Z"),
+    })
+    .expect("C10 application launch admission");
+    let application_session = verify_application_launch(
+        &attempt,
+        ApplicationLaunchReadBack {
+            provider_generation: interface.provider_generation,
+            connection_epoch: interface.connection_epoch,
+            package_id: String::from("com.example.d08"),
+            process_aliases: vec![String::from("pid:4242")],
+            activity_or_context: String::from("com.example.d08/.MainActivity"),
+            visible_frame_ref: Some(entity("proof.evidence")),
+            semantic_context_ref: Some(entity("application.semantic_context")),
+            evidence_refs: vec![entity("proof.evidence")],
+            observed_at: String::from("2026-09-03T12:20:02Z"),
+        },
+    )
+    .expect("C10 verified visible Application Session");
+    (device_session, application_session)
+}
+
+fn android_projection_request<'a>(
+    device_session: &'a C10DeviceSession,
+    application_session: &'a C10ApplicationSession,
+) -> AndroidProjectionRequest<'a> {
+    AndroidProjectionRequest {
+        device_session,
+        application_session,
+        workspace_ref: device_session.workspace_ref.clone(),
+        workspace_revision_ref: entity("core.workspace_revision"),
+        materialization_ref: entity("storage.materialization"),
+        materialization_generation: 6,
+        activity_ref: entity("core.activity"),
+        operation_ref: entity("core.operation"),
+        attempt_ref: entity("core.attempt"),
+    }
+}
+
+#[test]
+fn d08_19_verified_c10_pair_projects_full_android_availability() {
+    let (device_session, application_session) = c10_verified_pair();
+    let projected = project_android_application_session(android_projection_request(
+        &device_session,
+        &application_session,
+    ))
+    .expect("verified C10 pair should project read-only");
+
+    assert_eq!(projected.session_ref, application_session.session_ref);
+    assert_eq!(
+        projected.application_ref,
+        application_session.application_ref
+    );
+    assert_eq!(
+        projected.application_revision_ref,
+        application_session.application_revision_ref
+    );
+    assert_eq!(projected.locality, SessionLocality::DeviceLocal);
+    assert_eq!(projected.lifecycle, ApplicationSessionLifecycle::Running);
+    assert_eq!(projected.availability, ApplicationAvailability::Full);
+    assert_eq!(
+        projected.device_session_ref,
+        Some(device_session.session_ref.clone())
+    );
+    assert_eq!(
+        projected.semantic_context_refs,
+        vec![application_session.semantic_context_ref.clone()]
+    );
+}
+
+#[test]
+fn d08_20_c10_device_and_application_session_mismatch_is_rejected() {
+    let (_first_device, first_application) = c10_verified_pair();
+    let (second_device, _second_application) = c10_verified_pair();
+    assert_eq!(
+        project_android_application_session(android_projection_request(
+            &second_device,
+            &first_application,
+        )),
+        Err(D08Error::AndroidSessionMismatch)
+    );
+}
+
+#[test]
+fn d08_21_stale_c10_provider_generation_or_connection_epoch_is_rejected() {
+    let (device_session, application_session) = c10_verified_pair();
+
+    let mut stale_generation = application_session.clone();
+    stale_generation.provider_generation = stale_generation
+        .provider_generation
+        .next()
+        .expect("generation can advance");
+    assert_eq!(
+        project_android_application_session(android_projection_request(
+            &device_session,
+            &stale_generation,
+        )),
+        Err(D08Error::AndroidProviderContextMismatch)
+    );
+
+    let mut stale_epoch = application_session.clone();
+    stale_epoch.connection_epoch += 1;
+    assert_eq!(
+        project_android_application_session(android_projection_request(
+            &device_session,
+            &stale_epoch,
+        )),
+        Err(D08Error::AndroidProviderContextMismatch)
+    );
+}
+
+#[test]
+fn d08_22_android_projection_is_read_only_and_preserves_c10_authority() {
+    let (device_session, application_session) = c10_verified_pair();
+    let original_device = device_session.clone();
+    let original_application = application_session.clone();
+    let projected = project_android_application_session(android_projection_request(
+        &device_session,
+        &application_session,
+    ))
+    .expect("read-only projection");
+
+    assert_eq!(device_session, original_device);
+    assert_eq!(application_session, original_application);
+    assert_eq!(projected.session_ref, application_session.session_ref);
+    assert!(projected.process_refs.is_empty());
+    assert!(projected.window_refs.is_empty());
+    assert!(projected.display_session_refs.is_empty());
+
+    let mut stopped = application_session.clone();
+    stopped.state = C10ApplicationState::Stopped;
+    assert_eq!(
+        project_android_application_session(android_projection_request(&device_session, &stopped,)),
+        Err(D08Error::AndroidApplicationUnavailable)
+    );
+}

@@ -15,6 +15,7 @@ members = [
   "crates/ptah-package-plugin",
   "crates/ptah-provenance",
   "crates/ptah-security-evidence",
+  "crates/ptah-application-runtime",
   "crates/ptah-object-store",
   "crates/ptah-transfer",
   "crates/ptah-provider-api",

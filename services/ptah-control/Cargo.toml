@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+ptah-application-runtime = { path = "../../crates/ptah-application-runtime", version = "=0.0.0-phase0c" }
 serde.workspace = true
 serde_json.workspace = true
 
@@ -19,3 +20,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "ptah-control"
 path = "src/main.rs"
+
+[[test]]
+name = "d08_application_projection"
+path = "tests/d08_application_projection.rs"

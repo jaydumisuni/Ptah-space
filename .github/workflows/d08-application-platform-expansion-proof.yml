@@ -1,0 +1,376 @@
+name: D08 Application Platform Expansion Exact Head Proof
+
+on:
+  push:
+    branches:
+      - d08-application-platform-expansion
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - crates/ptah-application-runtime/**
+      - services/ptah-control/Cargo.toml
+      - services/ptah-control/src/lib.rs
+      - services/ptah-control/src/main.rs
+      - services/ptah-control/tests/a14_acceptance.rs
+      - services/ptah-control/tests/d08_application_projection.rs
+      - docs/superpowers/specs/2026-09-03-d08-application-platform-expansion-design.md
+      - docs/superpowers/plans/2026-09-03-d08-application-platform-expansion.md
+      - D08_APPLICATION_PLATFORM_EXPANSION.md
+      - .github/workflows/d08-tdd.yml
+      - .github/workflows/d08-application-platform-expansion-proof.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - crates/ptah-application-runtime/**
+      - services/ptah-control/Cargo.toml
+      - services/ptah-control/src/lib.rs
+      - services/ptah-control/src/main.rs
+      - services/ptah-control/tests/a14_acceptance.rs
+      - services/ptah-control/tests/d08_application_projection.rs
+      - docs/superpowers/specs/2026-09-03-d08-application-platform-expansion-design.md
+      - docs/superpowers/plans/2026-09-03-d08-application-platform-expansion.md
+      - D08_APPLICATION_PLATFORM_EXPANSION.md
+      - .github/workflows/d08-tdd.yml
+      - .github/workflows/d08-application-platform-expansion-proof.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-head-proof:
+    runs-on: ubuntu-latest
+    env:
+      D07_BASE: d979e0ecfc6dba3b370206833ac13b3189d725e3
+      TARGET_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.TARGET_SHA }}
+
+      - name: Pin Rust 1.97.1
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+
+      - name: Prove exact SHA, predecessor and linear history
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(rustc --version | awk '{print $2}')" = "1.97.1"
+          git fetch origin main d08-application-platform-expansion
+          test "$(git rev-parse origin/main)" = "$D07_BASE"
+          test "$(git merge-base "$D07_BASE" HEAD)" = "$D07_BASE"
+          test -z "$(git rev-list --min-parents=2 "$D07_BASE"..HEAD)"
+          remote_head="$(git rev-parse origin/d08-application-platform-expansion)"
+          test "$remote_head" = "$TARGET_SHA"
+          echo "EXACT_HEAD_OK=$TARGET_SHA"
+
+      - name: Prove approved D08 surface only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import subprocess
+
+          base = 'd979e0ecfc6dba3b370206833ac13b3189d725e3'
+          changed = subprocess.check_output(
+              ['git', 'diff', '--name-only', f'{base}...HEAD'], text=True
+          ).splitlines()
+
+          exact = {
+              'Cargo.toml',
+              'Cargo.lock',
+              '.github/workflows/d08-tdd.yml',
+              '.github/workflows/d08-application-platform-expansion-proof.yml',
+              'docs/superpowers/specs/2026-09-03-d08-application-platform-expansion-design.md',
+              'docs/superpowers/plans/2026-09-03-d08-application-platform-expansion.md',
+              'D08_APPLICATION_PLATFORM_EXPANSION.md',
+              'services/ptah-control/Cargo.toml',
+              'services/ptah-control/src/lib.rs',
+              'services/ptah-control/src/main.rs',
+              'services/ptah-control/tests/a14_acceptance.rs',
+              'services/ptah-control/tests/d08_application_projection.rs',
+          }
+          bad = [
+              path for path in changed
+              if path not in exact and not path.startswith('crates/ptah-application-runtime/')
+          ]
+          if bad:
+              raise SystemExit(f'unapproved D08 surface: {bad}')
+
+          forbidden = [
+              path for path in changed
+              if path.startswith(('schemas/', 'migrations/'))
+              or path == 'crates/ptah-contracts/src/generated.rs'
+          ]
+          if forbidden:
+              raise SystemExit(f'frozen contract/schema/migration surface changed: {forbidden}')
+
+          required = {
+              'Cargo.toml',
+              'Cargo.lock',
+              '.github/workflows/d08-tdd.yml',
+              '.github/workflows/d08-application-platform-expansion-proof.yml',
+              'docs/superpowers/specs/2026-09-03-d08-application-platform-expansion-design.md',
+              'docs/superpowers/plans/2026-09-03-d08-application-platform-expansion.md',
+              'D08_APPLICATION_PLATFORM_EXPANSION.md',
+              'crates/ptah-application-runtime/Cargo.toml',
+              'crates/ptah-application-runtime/src/lib.rs',
+              'crates/ptah-application-runtime/tests/d08_acceptance.rs',
+              'services/ptah-control/Cargo.toml',
+              'services/ptah-control/src/lib.rs',
+              'services/ptah-control/tests/d08_application_projection.rs',
+          }
+          missing = sorted(required - set(changed))
+          if missing:
+              raise SystemExit(f'required D08 proof surface absent from final diff: {missing}')
+
+          print('D08_SURFACE_OK')
+          PY
+
+      - name: Prove Cargo.lock exact D08 delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import copy
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          base = 'd979e0ecfc6dba3b370206833ac13b3189d725e3'
+          old = tomllib.loads(
+              subprocess.check_output(['git', 'show', f'{base}:Cargo.lock'], text=True)
+          )['package']
+          new = tomllib.loads(Path('Cargo.lock').read_text())['package']
+
+          def key(package):
+              return (package['name'], package['version'], package.get('source'))
+
+          old_map = {key(package): package for package in old}
+          new_map = {key(package): package for package in new}
+          added = set(new_map) - set(old_map)
+          removed = set(old_map) - set(new_map)
+          expected_added = {('ptah-application-runtime', '0.0.0-phase0c', None)}
+
+          if added != expected_added or removed:
+              raise SystemExit(f'lock package delta mismatch: added={added} removed={removed}')
+
+          control_key = ('ptah-control', '0.0.0-phase0c', None)
+          for package_key, old_package in old_map.items():
+              new_package = new_map[package_key]
+              if package_key != control_key:
+                  if old_package != new_package:
+                      raise SystemExit(f'existing lock entry changed: {package_key}')
+                  continue
+
+              old_control = copy.deepcopy(old_package)
+              new_control = copy.deepcopy(new_package)
+              old_deps = list(old_control.pop('dependencies', []))
+              new_deps = list(new_control.pop('dependencies', []))
+              expected_deps = old_deps + ['ptah-application-runtime']
+
+              if old_control != new_control:
+                  raise SystemExit('ptah-control lock metadata changed beyond dependency edge')
+              if sorted(new_deps) != sorted(expected_deps):
+                  raise SystemExit(
+                      f'ptah-control dependency delta mismatch: old={old_deps} new={new_deps}'
+                  )
+
+          print('LOCK_DELTA_OK=ptah-application-runtime+ptah-control-edge')
+          PY
+
+      - name: Audit frozen D08 contract bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          runtime = Path('crates/ptah-application-runtime/src/lib.rs').read_text()
+          generated = Path('crates/ptah-contracts/src/generated.rs').read_text()
+
+          expected_schemas = {
+              'urn:ptah:schema:application:application:0.1.0',
+              'urn:ptah:schema:application:application-revision:0.1.0',
+              'urn:ptah:schema:application:application-compatibility:0.1.0',
+              'urn:ptah:schema:application:application-session:0.1.0',
+              'urn:ptah:schema:application:application-window:0.1.0',
+              'urn:ptah:schema:application:application-window-observation:0.1.0',
+              'urn:ptah:schema:application:display-session:0.1.0',
+              'urn:ptah:schema:application:display-observation:0.1.0',
+          }
+          expected_lifecycles = {
+              'application.session.lifecycle',
+              'application.window.lifecycle',
+              'application.display_session.lifecycle',
+          }
+
+          runtime_schemas = set(
+              re.findall(r'"(urn:ptah:schema:application:[^"]+)"', runtime)
+          )
+          runtime_lifecycles = set(
+              re.findall(r'"(application\.[^"]+\.lifecycle)"', runtime)
+          )
+          generated_schemas = set(
+              re.findall(r'schema_id:\s*"([^"]+)"', generated)
+          )
+          generated_lifecycles = set(
+              re.findall(r'state_machine_name:\s*"([^"]+)"', generated)
+          )
+
+          if runtime_schemas != expected_schemas:
+              raise SystemExit(
+                  f'D08 runtime schema IDs drifted: expected={sorted(expected_schemas)} '
+                  f'actual={sorted(runtime_schemas)}'
+              )
+          if runtime_lifecycles != expected_lifecycles:
+              raise SystemExit(
+                  f'D08 runtime lifecycle IDs drifted: expected={sorted(expected_lifecycles)} '
+                  f'actual={sorted(runtime_lifecycles)}'
+              )
+          missing_schemas = expected_schemas - generated_schemas
+          missing_lifecycles = expected_lifecycles - generated_lifecycles
+          if missing_schemas or missing_lifecycles:
+              raise SystemExit(
+                  f'generated contract binding gap: schemas={sorted(missing_schemas)} '
+                  f'lifecycles={sorted(missing_lifecycles)}'
+              )
+
+          print('D08_SCHEMA_IDS=8')
+          print('D08_LIFECYCLE_IDS=3')
+          PY
+
+      - name: Prove static D08 safety and remote deferral boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          audit_paths=(
+            crates/ptah-application-runtime/src
+            crates/ptah-application-runtime/tests
+            services/ptah-control/src/lib.rs
+            services/ptah-control/src/main.rs
+            services/ptah-control/tests/d08_application_projection.rs
+          )
+
+          if grep -R -n -E '#\[(allow|expect)\(' "${audit_paths[@]}"; then
+            echo 'D08 lint suppression detected' >&2
+            exit 1
+          fi
+
+          if grep -R -n -E 'TODO|FIXME|todo!\s*\(|unimplemented!\s*\(' "${audit_paths[@]}"; then
+            echo 'D08 unfinished implementation marker detected' >&2
+            exit 1
+          fi
+
+          if grep -R -n -E 'unsafe[[:space:]]*(\{|fn|impl|trait|extern)' "${audit_paths[@]}"; then
+            echo 'D08 unsafe implementation detected' >&2
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          forbidden = {
+              r'\bstd::net::': 'std network implementation',
+              r'\btokio::net::': 'tokio network implementation',
+              r'\bTcpStream\b': 'TCP transport implementation',
+              r'\bUdpSocket\b': 'UDP transport implementation',
+              r'\bCommand::new\s*\(': 'process-launch implementation',
+              r'\bstd::process::': 'std process implementation',
+              r'\btokio::process::': 'tokio process implementation',
+              r'\bhypervisor::': 'hypervisor implementation',
+              r'\blibvirt::': 'libvirt implementation',
+              r'\bwebrtc::': 'WebRTC implementation',
+              r'\brdp::': 'RDP implementation',
+              r'\bvnc::': 'VNC implementation',
+              r'\bsimctl\b': 'simulator-launch implementation',
+          }
+
+          roots = list(Path('crates/ptah-application-runtime/src').glob('*.rs'))
+          for path in roots:
+              text = path.read_text()
+              for pattern, label in forbidden.items():
+                  if re.search(pattern, text):
+                      raise SystemExit(f'forbidden D08 remote execution surface ({label}) in {path}')
+
+          print('D08_REMOTE_DEFERRAL_STATIC_OK')
+          PY
+
+      - name: Prove exact D08 acceptance and predecessor regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo clippy -p ptah-application-runtime -p ptah-control --all-targets --locked -- -D warnings -W clippy::pedantic
+
+          runtime_count="$(cargo test -p ptah-application-runtime --test d08_acceptance --locked -- --list 2>/dev/null | grep -c ': test$')"
+          shell_count="$(cargo test -p ptah-control --test d08_application_projection --locked -- --list 2>/dev/null | grep -c ': test$')"
+          test "$runtime_count" -eq 25
+          test "$shell_count" -eq 3
+          test "$((runtime_count + shell_count))" -eq 28
+
+          cargo test -p ptah-application-runtime --test d08_acceptance --locked
+          cargo test -p ptah-control --test d08_application_projection --locked
+          cargo test -p ptah-android-runtime --test c10 --locked
+          cargo test -p native-process --locked
+          cargo test -p ptah-activity-runtime --locked
+          cargo test -p ptah-archive-decomposition --locked
+          cargo test -p ptah-control --test d01_acceptance --locked
+          cargo test -p ptah-control --test a14_acceptance --locked
+
+          echo "D08_RUNTIME_CASES=$runtime_count"
+          echo "D08_SHELL_CASES=$shell_count"
+          echo "D08_TOTAL_CASES=$((runtime_count + shell_count))"
+
+      - name: Prove complete locked workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --locked
+          test -z "$(git status --porcelain)"
+          echo 'D08_WORKSPACE_PROOF_OK'
+
+      - name: Retain exact-head proof manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/d08-proof"
+          {
+            echo "D08_EXACT_HEAD=$TARGET_SHA"
+            echo "D07_PREDECESSOR=$(git rev-parse origin/main)"
+            echo "D08_REMOTE_HEAD=$(git rev-parse origin/d08-application-platform-expansion)"
+            echo "RUSTC=$(rustc --version)"
+            echo "D08_RUNTIME_CASES=25"
+            echo "D08_SHELL_CASES=3"
+            echo "D08_TOTAL_CASES=28"
+            echo "D08_SCHEMA_IDS=8"
+            echo "D08_LIFECYCLE_IDS=3"
+            echo "WORKTREE_STATUS=$(git status --porcelain | wc -l)"
+            sha256sum \
+              Cargo.toml \
+              Cargo.lock \
+              docs/superpowers/specs/2026-09-03-d08-application-platform-expansion-design.md \
+              docs/superpowers/plans/2026-09-03-d08-application-platform-expansion.md \
+              D08_APPLICATION_PLATFORM_EXPANSION.md \
+              .github/workflows/d08-application-platform-expansion-proof.yml
+          } > "$RUNNER_TEMP/d08-proof/exact-head-proof.txt"
+          cat "$RUNNER_TEMP/d08-proof/exact-head-proof.txt"
+
+      - name: Upload retained proof artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: d08-exact-head-${{ env.TARGET_SHA }}
+          path: ${{ runner.temp }}/d08-proof/exact-head-proof.txt
+          if-no-files-found: error
+          retention-days: 90

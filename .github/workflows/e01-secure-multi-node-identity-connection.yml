@@ -1,0 +1,285 @@
+name: E01 Secure Multi-Node Exact Head Proof
+
+on:
+  push:
+    branches: [e01-secure-multi-node-identity-connection]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  D09_BASE: f22d23c9bbf3c9c43884535e3483486c4bc0826f
+  ROADMAP_AUTHORITY: 98dc8c4e8639cda80510bee0625db34b4fdf9384
+  TARGET_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  CARGO_TERM_COLOR: always
+
+jobs:
+  exact-head-e01:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact E01 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+
+      - name: Pin toolchain and exact candidate identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e01-proof"
+          mkdir -p "$PROOF"
+          rustup toolchain install 1.97.1 --profile minimal --component clippy --component rustfmt
+          rustup default 1.97.1
+          rustc -Vv | tee "$PROOF/rustc-version.txt"
+          cargo -V | tee "$PROOF/cargo-version.txt"
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$TARGET_SHA" > "$PROOF/exact-head.txt"
+          printf '%s\n' "$D09_BASE" > "$PROOF/d09-predecessor.txt"
+          printf '%s\n' "$ROADMAP_AUTHORITY" > "$PROOF/roadmap-authority.txt"
+          cat /etc/os-release > "$PROOF/host-os-release.txt"
+          uname -a > "$PROOF/host-uname.txt"
+
+      - name: Prove accepted predecessor and reviewed E01 delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e01-proof"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git fetch origin main e01-secure-multi-node-identity-connection
+          test "$(git rev-parse origin/main)" = "$D09_BASE"
+          test "$(git merge-base "$D09_BASE" HEAD)" = "$D09_BASE"
+          test -z "$(git rev-list --min-parents=2 "$D09_BASE"..HEAD)"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            test "$(git rev-parse origin/e01-secure-multi-node-identity-connection)" = "$TARGET_SHA"
+          fi
+          git diff --name-only "$D09_BASE"...HEAD | tee "$PROOF/changed-paths.txt"
+          python3 - <<'PY'
+          import subprocess
+          base = 'f22d23c9bbf3c9c43884535e3483486c4bc0826f'
+          expected = {
+              '.github/workflows/e01-secure-multi-node-identity-connection.yml',
+              '.github/workflows/e01-tdd.yml',
+              'Cargo.lock',
+              'Cargo.toml',
+              'E01_SECURE_MULTI_NODE_IDENTITY_CONNECTION.md',
+              'conformance/e01/secure-multi-node-cases.v0.1.0.json',
+              'crates/ptah-node-link/Cargo.toml',
+              'crates/ptah-node-link/src/enrollment.rs',
+              'crates/ptah-node-link/src/error.rs',
+              'crates/ptah-node-link/src/framing.rs',
+              'crates/ptah-node-link/src/lib.rs',
+              'crates/ptah-node-link/src/protocol.rs',
+              'crates/ptah-node-link/src/session.rs',
+              'crates/ptah-node-link/src/tls.rs',
+              'crates/ptah-node-link/tests/enrollment_session.rs',
+              'crates/ptah-node-link/tests/fixtures/ca.cert.der',
+              'crates/ptah-node-link/tests/fixtures/client.cert.der',
+              'crates/ptah-node-link/tests/fixtures/client.key.der',
+              'crates/ptah-node-link/tests/fixtures/server.cert.der',
+              'crates/ptah-node-link/tests/fixtures/server.key.der',
+              'crates/ptah-node-link/tests/fixtures/wrong-ca.cert.der',
+              'crates/ptah-node-link/tests/fixtures/wrong-client.cert.der',
+              'crates/ptah-node-link/tests/fixtures/wrong-client.key.der',
+              'crates/ptah-node-link/tests/framing.rs',
+              'crates/ptah-node-link/tests/protocol.rs',
+              'crates/ptah-node-link/tests/tls_transport.rs',
+              'dependencies/rust-direct-lock.json',
+              'docs/superpowers/plans/2026-09-04-e01-secure-multi-node-identity-connection.md',
+              'docs/superpowers/specs/2026-09-04-e01-secure-multi-node-identity-connection-design.md',
+              'evidence/rust-dependency-lock/Cargo.toml',
+              'services/ptah-control/Cargo.toml',
+              'services/ptah-control/src/e01_lib.rs',
+              'services/ptah-control/src/node_link.rs',
+              'services/ptah-control/tests/e01_node_link.rs',
+              'services/ptah-node/Cargo.toml',
+              'services/ptah-node/src/lib.rs',
+              'services/ptah-node/src/main.rs',
+              'services/ptah-node/tests/e01_node_client.rs',
+              'tools/check_e01_secure_multi_node.py',
+              'tools/test_check_e01_secure_multi_node.py',
+          }
+          changed = set(subprocess.check_output(
+              ['git', 'diff', '--name-only', f'{base}...HEAD'], text=True
+          ).splitlines())
+          if changed != expected:
+              raise SystemExit(
+                  f'E01 delta drift: missing={sorted(expected-changed)} '
+                  f'unexpected={sorted(changed-expected)}'
+              )
+          forbidden = [
+              path for path in changed
+              if path.startswith(('schemas/', 'migrations/'))
+          ]
+          if forbidden:
+              raise SystemExit(f'E01 modified frozen schema/migration surface: {sorted(forbidden)}')
+          PY
+          git diff --check "$D09_BASE"...HEAD
+
+      - name: Prove immutable external Action references
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e01-proof"
+          python3 - <<'PY' | tee "$PROOF/action-pin-audit.txt"
+          import re
+          from pathlib import Path
+          pin = re.compile(r'^[0-9a-f]{40}$')
+          failures = []
+          for path in sorted(Path('.github/workflows').glob('*.yml')):
+              for number, raw in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+                  stripped = raw.strip()
+                  if not stripped.startswith(('- uses:', 'uses:')):
+                      continue
+                  value = stripped.split('uses:', 1)[1].strip().split(' #', 1)[0].strip("'\"")
+                  if value.startswith('./'):
+                      continue
+                  if '@' not in value or pin.fullmatch(value.rsplit('@', 1)[1]) is None:
+                      failures.append((str(path), number, value))
+          if failures:
+              for path, number, value in failures:
+                  print(f'{path}:{number}: {value}')
+              raise SystemExit(f'{len(failures)} non-immutable Action references remain')
+          print('ALL_EXTERNAL_ACTION_REFERENCES_IMMUTABLY_PINNED')
+          PY
+
+      - name: Prove current dependency source and licence policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e01-proof"
+          python3 tools/check_rust_dependency_lock.py --output "$PROOF/dependency-lock.json"
+          cargo metadata --locked --format-version 1 > "$PROOF/cargo-metadata.json"
+          cargo install cargo-deny --version 0.19.4 --locked --root "$RUNNER_TEMP/cargo-deny"
+          "$RUNNER_TEMP/cargo-deny/bin/cargo-deny" check advisories bans licenses sources \
+            2>&1 | tee "$PROOF/cargo-deny.txt"
+          test -s "$PROOF/cargo-deny.txt"
+
+      - name: Prove E01 corpus and checker regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e01-proof"
+          PYTHONPATH=tools python3 -m unittest -v tools/test_check_e01_secure_multi_node.py \
+            2>&1 | tee "$PROOF/e01-regressions.txt"
+          python3 tools/check_e01_secure_multi_node.py --repo-root . \
+            --output "$PROOF/e01-corpus-validation.json"
+
+      - name: Prove Node-link protocol framing enrollment session and TLS
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e01-proof"
+          cargo test -p ptah-node-link --locked -- --nocapture \
+            2>&1 | tee "$PROOF/node-link-tests.txt"
+
+      - name: Prove Node and control service integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e01-proof"
+          {
+            cargo test -p ptah-control --test e01_node_link --locked -- --nocapture
+            cargo test -p ptah-node --test e01_node_client --locked -- --nocapture
+          } 2>&1 | tee "$PROOF/service-tests.txt"
+
+      - name: Prove A02 Node identity and restart regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e01-proof"
+          cargo test -p ptah-node-agent --locked -- --nocapture \
+            2>&1 | tee "$PROOF/node-agent-tests.txt"
+
+      - name: Prove D09 and deep Workspace checker regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e01-proof"
+          PYTHONPATH=tools python3 -m unittest -v tools/test_check_d09_full_workspace_release.py \
+            2>&1 | tee "$PROOF/d09-regressions.txt"
+          python3 tools/check_d09_full_workspace_release.py --repo-root . \
+            --output "$PROOF/d09-validation.json"
+          PYTHONPATH=tools python3 tools/test_check_workspace_operations_donor_v2.py -v \
+            2>&1 | tee "$PROOF/deep-workspace-regressions.txt"
+          python3 tools/check_workspace_operations_donor_v2.py --repo-root . \
+            --output "$PROOF/deep-workspace-validation.json"
+
+      - name: Prove formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e01-proof"
+          cargo fmt --all -- --check
+          printf 'CARGO_FMT_ALL_CHECK_OK\n' | tee "$PROOF/cargo-fmt.txt"
+
+      - name: Prove strict workspace Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e01-proof"
+          cargo clippy --workspace --all-targets --locked -- -D warnings \
+            2>&1 | tee "$PROOF/cargo-clippy.txt"
+
+      - name: Prove full locked workspace tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e01-proof"
+          cargo test --workspace --locked -- --nocapture \
+            2>&1 | tee "$PROOF/cargo-test.txt"
+
+      - name: Prove repository contains no textual secrets or private-key markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e01-proof"
+          PATTERN='BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}'
+          if grep -RInE --binary-files=without-match \
+            --exclude-dir=.git --exclude-dir=target "$PATTERN" . > "$PROOF/secret-scan-hits.txt"; then
+            cat "$PROOF/secret-scan-hits.txt"
+            exit 1
+          fi
+          printf 'NO_TEXTUAL_SECRET_OR_PRIVATE_KEY_MARKERS_FOUND\n' | tee "$PROOF/secret-scan.txt"
+
+      - name: Validate retained E01 proof bundle and clean exact candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e01-proof"
+          python3 tools/check_e01_secure_multi_node.py --repo-root . --proof-root "$PROOF" \
+            --output "$PROOF/e01-validation.json"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain)"
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          proof = Path(os.environ['RUNNER_TEMP']) / 'e01-proof'
+          lines = []
+          for path in sorted(proof.iterdir(), key=lambda item: item.name):
+              if path.name == 'SHA256SUMS.txt' or not path.is_file():
+                  continue
+              lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")
+          (proof/'SHA256SUMS.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          PY
+          test -s "$PROOF/SHA256SUMS.txt"
+
+      - name: Retain exact E01 proof artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: e01-secure-multi-node-${{ env.TARGET_SHA }}
+          path: ${{ runner.temp }}/e01-proof
+          if-no-files-found: error
+          retention-days: 90

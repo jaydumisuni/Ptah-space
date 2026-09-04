@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 jobs:
-  protocol-red-green:
+  node-link-targeted:
     runs-on: ubuntu-latest
     steps:
       - name: Check out E01 branch
@@ -24,8 +24,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rustup toolchain install 1.97.1 --profile minimal
+          rustup toolchain install 1.97.1 --profile minimal --component clippy
           rustup default 1.97.1
-      - name: Run E01 protocol test
+      - name: Run E01 protocol and framing tests
         shell: bash
-        run: cargo test -p ptah-node-link --test protocol
+        run: cargo test -p ptah-node-link --test protocol --test framing
+      - name: Run E01 strict Clippy
+        shell: bash
+        run: cargo clippy -p ptah-node-link --all-targets -- -D warnings

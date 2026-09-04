@@ -2,8 +2,7 @@ name: D09 Full Workspace Release Exact Head Acceptance
 
 on:
   push:
-    branches:
-      - d09-full-workspace-release-acceptance
+    branches: [d09-full-workspace-release-acceptance]
     paths:
       - D09_FULL_WORKSPACE_RELEASE_ACCEPTANCE.md
       - conformance/d09/**
@@ -16,8 +15,7 @@ on:
       - .github/workflows/d08-application-platform-expansion-proof.yml
       - .github/workflows/d08-tdd.yml
   pull_request:
-    branches:
-      - main
+    branches: [main]
     paths:
       - D09_FULL_WORKSPACE_RELEASE_ACCEPTANCE.md
       - conformance/d09/**
@@ -85,10 +83,8 @@ jobs:
           test "$(git merge-base "$D08_BASE" HEAD)" = "$D08_BASE"
           test -z "$(git rev-list --min-parents=2 "$D08_BASE"..HEAD)"
           test "$(git rev-parse origin/d09-full-workspace-release-acceptance)" = "$TARGET_SHA"
-
           python3 - <<'PY'
           import subprocess
-
           base = 'ca6b3526ce9b58ffce11f8582be8fbf860dfa53d'
           expected = {
               '.github/workflows/d07-security-evidence-reproduction-proof.yml',
@@ -111,20 +107,16 @@ jobs:
                   f'unexpected={sorted(changed-expected)}'
               )
           forbidden_prefixes = ('crates/', 'services/', 'adapters/', 'schemas/', 'migrations/')
-          forbidden_exact = {'Cargo.toml', 'Cargo.lock'}
           bad = sorted(
               path for path in changed
-              if path in forbidden_exact or path.startswith(forbidden_prefixes)
+              if path in {'Cargo.toml', 'Cargo.lock'} or path.startswith(forbidden_prefixes)
           )
           if bad:
               raise SystemExit(f'D09 modified product/Cargo/schema surface: {bad}')
           PY
           git diff --check "$D08_BASE" HEAD
-
           for path in \
-            Cargo.toml \
-            Cargo.lock \
-            deny.toml \
+            Cargo.toml Cargo.lock deny.toml \
             dependencies/rust-direct-lock.json \
             dependencies/backend-artifact-lock.json \
             contracts/generated/manifest.json \
@@ -143,13 +135,12 @@ jobs:
           python3 - <<'PY' | tee "$PROOF/action-pin-audit.txt"
           import re
           from pathlib import Path
-
           pin = re.compile(r'^[0-9a-f]{40}$')
           failures = []
           for path in sorted(Path('.github/workflows').glob('*.yml')):
               for number, raw in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
                   stripped = raw.strip()
-                  if not stripped.startswith('- uses:') and not stripped.startswith('uses:'):
+                  if not stripped.startswith(('- uses:', 'uses:')):
                       continue
                   value = stripped.split('uses:', 1)[1].strip().split(' #', 1)[0].strip("'\"")
                   if value.startswith('./'):
@@ -157,8 +148,8 @@ jobs:
                   if '@' not in value or pin.fullmatch(value.rsplit('@', 1)[1]) is None:
                       failures.append((str(path), number, value))
           if failures:
-              for path, number, value in failures:
-                  print(f'{path}:{number}: {value}')
+              for item in failures:
+                  print(f'{item[0]}:{item[1]}: {item[2]}')
               raise SystemExit(f'{len(failures)} non-immutable Action references remain')
           print('ALL_EXTERNAL_ACTION_REFERENCES_IMMUTABLY_PINNED')
           PY
@@ -172,7 +163,6 @@ jobs:
           cargo metadata --locked --format-version 1 > "$PROOF/cargo-metadata.json"
           python3 tools/check_rust_dependency_lock.py --output "$PROOF/rust-dependency-lock.json"
           cmp Cargo.lock "$PROOF/Cargo.lock.repository"
-
           python3 - <<'PY'
           import hashlib
           import json
@@ -206,15 +196,10 @@ jobs:
               raise SystemExit('workspace/direct dependency policy is incomplete')
           selected = {item.get('name'): item for item in selected_entries if isinstance(item, dict)}
           if set(selected) != set(workspace_deps):
-              raise SystemExit(
-                  f'direct dependency set drifted: selected={sorted(selected)} '
-                  f'workspace={sorted(workspace_deps)}'
-              )
+              raise SystemExit('direct dependency set drifted')
           for name, manifest in workspace_deps.items():
               entry = selected[name]
-              if not isinstance(manifest, dict):
-                  raise SystemExit(f'workspace dependency is not exact object: {name}')
-              if manifest.get('version') != f"={entry.get('version')}":
+              if not isinstance(manifest, dict) or manifest.get('version') != f"={entry.get('version')}":
                   raise SystemExit(f'exact direct version drifted: {name}')
               if not isinstance(entry.get('expected_licence'), str) or not entry['expected_licence']:
                   raise SystemExit(f'direct dependency licence expectation missing: {name}')
@@ -224,12 +209,10 @@ jobs:
           policy = selection.get('policy')
           if not isinstance(policy, dict):
               raise SystemExit('Rust dependency policy record missing')
-          required_checks = {'advisories', 'bans', 'licenses', 'sources'}
-          if set(policy.get('required_checks', [])) != required_checks:
+          if set(policy.get('required_checks', [])) != {'advisories', 'bans', 'licenses', 'sources'}:
               raise SystemExit('required dependency policy checks drifted')
           allowed = set(policy.get('allowed_transitive_licences', []))
-          deny_allowed = set(deny.get('licenses', {}).get('allow', []))
-          if allowed != deny_allowed or not allowed:
+          if allowed != set(deny.get('licenses', {}).get('allow', [])) or not allowed:
               raise SystemExit('committed dependency licence allow-list drifted')
           if deny.get('sources', {}).get('unknown-registry') != 'deny':
               raise SystemExit('unknown registry policy is not deny')
@@ -260,35 +243,94 @@ jobs:
                   git_count += 1
                   continue
               if source != canonical_source:
-                  raise SystemExit(f"unapproved Cargo source: {source}")
+                  raise SystemExit(f'unapproved Cargo source: {source}')
               registry_count += 1
               checksum = package.get('checksum')
               if not isinstance(checksum, str) or re.fullmatch(r'[0-9a-f]{64}', checksum) is None:
-                  raise SystemExit(
-                      f"registry package checksum invalid: {package.get('name')}@{package.get('version')}"
-                  )
+                  raise SystemExit(f"registry checksum invalid: {package.get('name')}@{package.get('version')}")
           if git_count != 0:
               raise SystemExit(f'Git dependencies present: {git_count}')
 
           current_sha = hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest()
-          expected_d08_sha = '329f485f352afa35f3f6cb4df76ebf0c6e8b589a555386072f4a8750a5349987'
-          if current_sha != expected_d08_sha:
-              raise SystemExit('current Cargo.lock digest does not match accepted D08 lock')
-          if len(packages) != 130 or registry_count != 97 or git_count != 0:
+          expected_sha = '329f485f352afa35f3f6cb4df76ebf0c6e8b589a555386072f4a8750a5349987'
+          if current_sha != expected_sha or len(packages) != 130 or registry_count != 97:
               raise SystemExit(
-                  f'current D08 Cargo identity drifted: '
+                  f'D08 Cargo identity drifted: sha={current_sha} '
                   f'resolved={len(packages)} registry={registry_count} git={git_count}'
               )
           if verified.get('cargo_lock_sha256') != current_sha:
               raise SystemExit('current dependency verifier Cargo.lock digest mismatch')
           if verified.get('resolved_package_count') != len(packages):
-              raise SystemExit('current dependency verifier resolved package count mismatch')
+              raise SystemExit('current dependency verifier resolved count mismatch')
           if verified.get('registry_package_count') != registry_count:
-              raise SystemExit('current dependency verifier registry package count mismatch')
+              raise SystemExit('current dependency verifier registry count mismatch')
           if verified.get('git_dependency_count') != git_count:
-              raise SystemExit('current dependency verifier Git package count mismatch')
+              raise SystemExit('current dependency verifier Git count mismatch')
           if verified.get('direct_dependency_count') != len(selected):
-              raise SystemExit('current dependency verifier direct dependency count mismatch')
+              raise SystemExit('current dependency verifier direct count mismatch')
+
+          # Evaluate the SPDX boolean structure rather than requiring every
+          # identifier in every OR alternative to be allowed. WITH exceptions
+          # remain fail-closed because deny.toml does not authorize exceptions.
+          def licence_allowed(expression: str) -> bool:
+              tokens = re.findall(
+                  r'\(|\)|\bAND\b|\bOR\b|\bWITH\b|[A-Za-z0-9][A-Za-z0-9.+-]*',
+                  expression,
+              )
+              pos = 0
+
+              def peek():
+                  return tokens[pos] if pos < len(tokens) else None
+
+              def consume(expected=None):
+                  nonlocal pos
+                  token = peek()
+                  if token is None or (expected is not None and token != expected):
+                      raise ValueError(f'invalid SPDX expression near {token!r}: {expression}')
+                  pos += 1
+                  return token
+
+              def primary():
+                  if peek() == '(':
+                      consume('(')
+                      value = parse_or()
+                      consume(')')
+                      return value
+                  token = consume()
+                  if token in {'AND', 'OR', 'WITH', ')', '('}:
+                      raise ValueError(f'invalid SPDX identifier {token!r}: {expression}')
+                  return token in allowed
+
+              def parse_with():
+                  value = primary()
+                  if peek() == 'WITH':
+                      consume('WITH')
+                      exception = consume()
+                      if exception in {'AND', 'OR', 'WITH', ')', '('}:
+                          raise ValueError(f'invalid SPDX exception: {expression}')
+                      return False
+                  return value
+
+              def parse_and():
+                  value = parse_with()
+                  while peek() == 'AND':
+                      consume('AND')
+                      rhs = parse_with()
+                      value = value and rhs
+                  return value
+
+              def parse_or():
+                  value = parse_and()
+                  while peek() == 'OR':
+                      consume('OR')
+                      rhs = parse_and()
+                      value = value or rhs
+                  return value
+
+              result = parse_or()
+              if pos != len(tokens):
+                  raise ValueError(f'unconsumed SPDX tokens: {expression}')
+              return result
 
           external_metadata = [
               item for item in metadata.get('packages', [])
@@ -296,33 +338,27 @@ jobs:
           ]
           if len(external_metadata) != registry_count:
               raise SystemExit(
-                  f'cargo metadata external count mismatch: metadata={len(external_metadata)} '
-                  f'lock={registry_count}'
+                  f'cargo metadata external count mismatch: metadata={len(external_metadata)} lock={registry_count}'
               )
-          operators = {'AND', 'OR', 'WITH'}
           for package in external_metadata:
-              source = package.get('source')
-              if source != canonical_source:
-                  raise SystemExit(f"metadata source is not canonical: {source}")
+              if package.get('source') != canonical_source:
+                  raise SystemExit(f"metadata source is not canonical: {package.get('source')}")
               licence = package.get('license')
               if not isinstance(licence, str) or not licence.strip():
+                  raise SystemExit(f"external dependency licence missing: {package.get('name')}@{package.get('version')}")
+              try:
+                  accepted = licence_allowed(licence)
+              except ValueError as exc:
+                  raise SystemExit(str(exc)) from exc
+              if not accepted:
                   raise SystemExit(
-                      f"external dependency licence missing: {package.get('name')}@{package.get('version')}"
-                  )
-              tokens = {
-                  token for token in re.findall(r'[A-Za-z0-9][A-Za-z0-9.+-]*', licence)
-                  if token not in operators
-              }
-              if not tokens or not tokens.issubset(allowed):
-                  raise SystemExit(
-                      f"dependency licence outside allow-list: "
+                      f"dependency licence expression has no allowed satisfiable branch: "
                       f"{package.get('name')}@{package.get('version')} -> {licence}"
                   )
 
           historical_cargo = selection.get('cargo_lock')
           if not isinstance(historical_cargo, dict):
               raise SystemExit('historical dependency-selection Cargo snapshot missing')
-
           report = {
               'schema_version': '0.1.0',
               'record_type': 'ptah.d09.current_dependency_policy_audit',
@@ -333,6 +369,7 @@ jobs:
               'direct_dependency_count': len(selected),
               'allowed_transitive_licences': sorted(allowed),
               'external_metadata_licence_count': len(external_metadata),
+              'spdx_boolean_semantics_applied': True,
               'predecessor_bytes_unchanged': True,
               'historical_selection_snapshot_sha256': historical_cargo.get('sha256'),
               'historical_selection_snapshot_resolved_package_count': historical_cargo.get('resolved_package_count'),
@@ -349,7 +386,6 @@ jobs:
           import json
           import os
           from pathlib import Path
-
           proof = Path(os.environ['RUNNER_TEMP']) / 'd09-proof'
           lock_path = Path('dependencies/backend-artifact-lock.json')
           retained_path = Path(
@@ -364,42 +400,23 @@ jobs:
               raise SystemExit('retained backend evidence widened runtime authority')
           if retained.get('implementation_commit') != 'bc12885ce41844b05481628543219c3a8d3574ba':
               raise SystemExit('retained backend implementation identity drifted')
-
           artifacts = lock.get('artifacts')
           browser = lock.get('browser_binary')
-          if not isinstance(artifacts, list) or len(artifacts) != 9:
-              raise SystemExit('backend artifact lock count drifted')
-          if not isinstance(browser, dict):
-              raise SystemExit('browser binary lock is missing')
-
+          if not isinstance(artifacts, list) or len(artifacts) != 9 or not isinstance(browser, dict):
+              raise SystemExit('backend artifact/browser lock drifted')
           records = retained.get('records')
           if not isinstance(records, list):
               raise SystemExit('retained backend evidence records missing')
           values = [item.get('record', {}) for item in records if isinstance(item, dict)]
-          static = next(
-              item for item in values
-              if item.get('record_type') == 'ptah.phase0c.static_backend_artifact_evidence'
-              and item.get('exact_head_match') is True
-              and item.get('report_present') is True
-          )
-          browser_record = next(
-              item for item in values
-              if item.get('record_type') == 'ptah.phase0c.playwright_browser_evidence'
-              and item.get('exact_head_match') is True
-          )
-          signatures = next(
-              item for item in values
-              if item.get('record_type') == 'ptah.phase0c.backend_signature_evidence'
-              and item.get('exact_head_match') is True
-              and item.get('report_present') is True
-          )
+          static = next(item for item in values if item.get('record_type') == 'ptah.phase0c.static_backend_artifact_evidence' and item.get('exact_head_match') is True and item.get('report_present') is True)
+          browser_record = next(item for item in values if item.get('record_type') == 'ptah.phase0c.playwright_browser_evidence' and item.get('exact_head_match') is True)
+          signatures = next(item for item in values if item.get('record_type') == 'ptah.phase0c.backend_signature_evidence' and item.get('exact_head_match') is True and item.get('report_present') is True)
           if static.get('verified_artifact_count') != 9:
               raise SystemExit('retained backend artifact count changed')
           if browser_record.get('installed_file_count') != 599:
               raise SystemExit('retained browser file count changed')
           if signatures.get('verified_signature_count') != 4:
               raise SystemExit('retained signature count changed')
-
           report = {
               'schema_version': '0.1.0',
               'record_type': 'ptah.d09.retained_backend_identity',
@@ -425,23 +442,16 @@ jobs:
           PYTHONPATH=tools python3 -m unittest -v tools/test_check_d09_full_workspace_release.py \
             2>&1 | tee "$PROOF/d09-regressions.txt"
           grep -q 'Ran 15 tests' "$PROOF/d09-regressions.txt"
-          python3 tools/check_d09_full_workspace_release.py \
-            --repo-root . --output "$PROOF/d09-validation.json"
-
+          python3 tools/check_d09_full_workspace_release.py --repo-root . --output "$PROOF/d09-validation.json"
           PYTHONPATH=tools python3 tools/test_check_workspace_operations_donor_v2.py -v \
             2>&1 | tee "$PROOF/deep-workspace-regressions.txt"
           grep -q 'Ran 26 tests' "$PROOF/deep-workspace-regressions.txt"
-          python3 tools/check_workspace_operations_donor_v2.py \
-            --repo-root . --output "$PROOF/deep-workspace-validation.json"
-
+          python3 tools/check_workspace_operations_donor_v2.py --repo-root . --output "$PROOF/deep-workspace-validation.json"
           PYTHONPATH=tools python3 tools/test_check_ai_project_workspace_candidate.py -v \
             2>&1 | tee "$PROOF/ai-workspace-regressions.txt"
-          python3 tools/check_ai_project_workspace_candidate.py \
-            --repo-root . --output "$PROOF/ai-workspace-validation.json"
-
+          python3 tools/check_ai_project_workspace_candidate.py --repo-root . --output "$PROOF/ai-workspace-validation.json"
           python3 - <<'PY'
-          import json
-          import os
+          import json, os
           from pathlib import Path
           proof = Path(os.environ['RUNNER_TEMP'])/'d09-proof'
           d09 = json.loads((proof/'d09-validation.json').read_text())
@@ -469,72 +479,50 @@ jobs:
         run: |
           set -euo pipefail
           PROOF="$RUNNER_TEMP/d09-proof"
-          cargo test -p ptah-control --test d01_acceptance --locked -- --nocapture \
-            2>&1 | tee "$PROOF/d01-acceptance.txt"
-          cargo test -p ptah-ai-workspace --test d02_acceptance --locked -- --nocapture \
-            2>&1 | tee "$PROOF/d02-acceptance.txt"
-          cargo test -p ptah-activity-runtime --locked -- --nocapture \
-            2>&1 | tee "$PROOF/a04-activity-runtime.txt"
-          cargo test -p ptah-checkpoint --test a13 --locked -- --nocapture \
-            2>&1 | tee "$PROOF/a13-recovery.txt"
-          cargo test -p ptah-checkpoint --test b06 --locked -- --nocapture \
-            2>&1 | tee "$PROOF/b06-session-vault.txt"
-
+          cargo test -p ptah-control --test d01_acceptance --locked -- --nocapture 2>&1 | tee "$PROOF/d01-acceptance.txt"
+          cargo test -p ptah-ai-workspace --test d02_acceptance --locked -- --nocapture 2>&1 | tee "$PROOF/d02-acceptance.txt"
+          cargo test -p ptah-activity-runtime --locked -- --nocapture 2>&1 | tee "$PROOF/a04-activity-runtime.txt"
+          cargo test -p ptah-checkpoint --test a13 --locked -- --nocapture 2>&1 | tee "$PROOF/a13-recovery.txt"
+          cargo test -p ptah-checkpoint --test b06 --locked -- --nocapture 2>&1 | tee "$PROOF/b06-session-vault.txt"
           d05_count="$(cargo test -p ptah-package-plugin --test d05_acceptance --locked -- --list 2>/dev/null | grep -c ': test$')"
           d06_count="$(cargo test -p ptah-provenance --test d06_acceptance --locked -- --list 2>/dev/null | grep -c ': test$')"
           d07_count="$(cargo test -p ptah-security-evidence --test d07_acceptance --locked -- --list 2>/dev/null | grep -c ': test$')"
           test "$d05_count" -eq 30
           test "$d06_count" -eq 30
           test "$d07_count" -eq 30
-          printf 'd05=%s\nd06=%s\nd07=%s\n' "$d05_count" "$d06_count" "$d07_count" \
-            > "$PROOF/d05-d07-counts.txt"
-
-          cargo test -p ptah-package-plugin --test d05_acceptance --locked -- --nocapture \
-            2>&1 | tee "$PROOF/d05-acceptance.txt"
-          cargo test -p ptah-provenance --test d06_acceptance --locked -- --nocapture \
-            2>&1 | tee "$PROOF/d06-acceptance.txt"
-          cargo test -p ptah-provenance --test store_roundtrip --locked -- --nocapture \
-            2>&1 | tee "$PROOF/d06-store-roundtrip.txt"
-          cargo test -p ptah-security-evidence --test d07_acceptance --locked -- --nocapture \
-            2>&1 | tee "$PROOF/d07-acceptance.txt"
-          cargo test -p ptah-security-evidence --test store_roundtrip --locked -- --nocapture \
-            2>&1 | tee "$PROOF/d07-store-roundtrip.txt"
+          printf 'd05=%s\nd06=%s\nd07=%s\n' "$d05_count" "$d06_count" "$d07_count" > "$PROOF/d05-d07-counts.txt"
+          cargo test -p ptah-package-plugin --test d05_acceptance --locked -- --nocapture 2>&1 | tee "$PROOF/d05-acceptance.txt"
+          cargo test -p ptah-provenance --test d06_acceptance --locked -- --nocapture 2>&1 | tee "$PROOF/d06-acceptance.txt"
+          cargo test -p ptah-provenance --test store_roundtrip --locked -- --nocapture 2>&1 | tee "$PROOF/d06-store-roundtrip.txt"
+          cargo test -p ptah-security-evidence --test d07_acceptance --locked -- --nocapture 2>&1 | tee "$PROOF/d07-acceptance.txt"
+          cargo test -p ptah-security-evidence --test store_roundtrip --locked -- --nocapture 2>&1 | tee "$PROOF/d07-store-roundtrip.txt"
 
       - name: Prove exact D08 Application truth remains 25 plus 3
         shell: bash
         run: |
           set -euo pipefail
           PROOF="$RUNNER_TEMP/d09-proof"
-          cargo test -p ptah-application-runtime --test d08_acceptance --locked -- --list \
-            2>&1 | tee "$PROOF/d08-runtime-list.txt"
-          cargo test -p ptah-control --test d08_application_projection --locked -- --list \
-            2>&1 | tee "$PROOF/d08-shell-list.txt"
+          cargo test -p ptah-application-runtime --test d08_acceptance --locked -- --list 2>&1 | tee "$PROOF/d08-runtime-list.txt"
+          cargo test -p ptah-control --test d08_application_projection --locked -- --list 2>&1 | tee "$PROOF/d08-shell-list.txt"
           runtime_count="$(grep -c ': test$' "$PROOF/d08-runtime-list.txt")"
           shell_count="$(grep -c ': test$' "$PROOF/d08-shell-list.txt")"
           test "$runtime_count" -eq 25
           test "$shell_count" -eq 3
           test "$((runtime_count + shell_count))" -eq 28
-          cargo test -p ptah-application-runtime --test d08_acceptance --locked -- --nocapture \
-            2>&1 | tee "$PROOF/d08-runtime-acceptance.txt"
-          cargo test -p ptah-control --test d08_application_projection --locked -- --nocapture \
-            2>&1 | tee "$PROOF/d08-shell-acceptance.txt"
+          cargo test -p ptah-application-runtime --test d08_acceptance --locked -- --nocapture 2>&1 | tee "$PROOF/d08-runtime-acceptance.txt"
+          cargo test -p ptah-control --test d08_application_projection --locked -- --nocapture 2>&1 | tee "$PROOF/d08-shell-acceptance.txt"
 
       - name: Prove operative public private Apache and full locked Workspace boundaries
         shell: bash
         run: |
           set -euo pipefail
           PROOF="$RUNNER_TEMP/d09-proof"
-          PYTHONPATH=tools python3 -m unittest -v tools/test_check_apache2_boundary_acceptance.py \
-            2>&1 | tee "$PROOF/apache-boundary-regressions.txt"
-          python3 tools/check_apache2_boundary_acceptance.py \
-            --repo-root . --output "$PROOF/apache-boundary-validation.json"
+          PYTHONPATH=tools python3 -m unittest -v tools/test_check_apache2_boundary_acceptance.py 2>&1 | tee "$PROOF/apache-boundary-regressions.txt"
+          python3 tools/check_apache2_boundary_acceptance.py --repo-root . --output "$PROOF/apache-boundary-validation.json"
           python3 - <<'PY'
-          import json
-          import os
+          import json, os
           from pathlib import Path
-          report = json.loads(
-              (Path(os.environ['RUNNER_TEMP'])/'d09-proof/apache-boundary-validation.json').read_text()
-          )
+          report = json.loads((Path(os.environ['RUNNER_TEMP'])/'d09-proof/apache-boundary-validation.json').read_text())
           assert report['status'] == 'owner_accepted_operative_verified', report
           assert report['apache_2_0_accepted'] is True, report
           assert report['runtime_implementation_authorized'] is False, report
@@ -554,10 +542,8 @@ jobs:
           PROOF="$RUNNER_TEMP/d09-proof"
           cp D09_FULL_WORKSPACE_RELEASE_ACCEPTANCE.md "$PROOF/release-instructions.txt"
           python3 - <<'PY'
-          import json
-          import os
+          import json, os
           from pathlib import Path
-
           proof = Path(os.environ['RUNNER_TEMP'])/'d09-proof'
           limitations = {
               'schema_version': '0.1.0',
@@ -572,108 +558,66 @@ jobs:
                   'D09 does not widen public access to private records or restricted adapters.',
               ],
           }
-          (proof/'limitations.json').write_text(
-              json.dumps(limitations, indent=2, sort_keys=True) + '\n', encoding='utf-8'
-          )
+          (proof/'limitations.json').write_text(json.dumps(limitations, indent=2, sort_keys=True) + '\n')
           PY
-
           PYTHONPATH=tools python3 - <<'PY'
-          import hashlib
-          import json
-          import os
+          import hashlib, json, os
           from pathlib import Path
           from check_d09_full_workspace_release import require_report_files
-
           proof = Path(os.environ['RUNNER_TEMP'])/'d09-proof'
           required = [
-              'exact-head.txt', 'd08-predecessor.txt', 'roadmap-authority.txt',
-              'host-os-release.txt', 'host-uname.txt', 'rustc-version.txt', 'cargo-version.txt',
-              'd08-byte-identity.txt', 'action-pin-audit.txt',
-              'Cargo.lock.repository', 'cargo-metadata.json',
-              'rust-dependency-lock.json', 'dependency-policy-audit.json',
-              'backend-lock-identity.json',
-              'd09-regressions.txt', 'd09-validation.json',
-              'deep-workspace-regressions.txt', 'deep-workspace-validation.json',
-              'ai-workspace-regressions.txt', 'ai-workspace-validation.json',
-              'd01-acceptance.txt', 'd02-acceptance.txt', 'a04-activity-runtime.txt',
-              'a13-recovery.txt', 'b06-session-vault.txt', 'd05-d07-counts.txt',
-              'd05-acceptance.txt', 'd06-acceptance.txt', 'd06-store-roundtrip.txt',
-              'd07-acceptance.txt', 'd07-store-roundtrip.txt',
-              'd08-runtime-list.txt', 'd08-shell-list.txt',
-              'd08-runtime-acceptance.txt', 'd08-shell-acceptance.txt',
-              'apache-boundary-regressions.txt', 'apache-boundary-validation.json',
-              'format-check.txt', 'workspace-tests.txt',
-              'limitations.json', 'release-instructions.txt',
+              'exact-head.txt','d08-predecessor.txt','roadmap-authority.txt','host-os-release.txt','host-uname.txt',
+              'rustc-version.txt','cargo-version.txt','d08-byte-identity.txt','action-pin-audit.txt',
+              'Cargo.lock.repository','cargo-metadata.json','rust-dependency-lock.json','dependency-policy-audit.json',
+              'backend-lock-identity.json','d09-regressions.txt','d09-validation.json','deep-workspace-regressions.txt',
+              'deep-workspace-validation.json','ai-workspace-regressions.txt','ai-workspace-validation.json',
+              'd01-acceptance.txt','d02-acceptance.txt','a04-activity-runtime.txt','a13-recovery.txt','b06-session-vault.txt',
+              'd05-d07-counts.txt','d05-acceptance.txt','d06-acceptance.txt','d06-store-roundtrip.txt','d07-acceptance.txt',
+              'd07-store-roundtrip.txt','d08-runtime-list.txt','d08-shell-list.txt','d08-runtime-acceptance.txt',
+              'd08-shell-acceptance.txt','apache-boundary-regressions.txt','apache-boundary-validation.json','format-check.txt',
+              'workspace-tests.txt','limitations.json','release-instructions.txt',
           ]
           files = require_report_files(proof, required)
-          head = (proof/'exact-head.txt').read_text(encoding='utf-8').strip()
+          head = (proof/'exact-head.txt').read_text().strip()
           if head != os.environ['TARGET_SHA']:
               raise SystemExit('D09 bundle exact head mismatch')
-
           d09 = json.loads((proof/'d09-validation.json').read_text())
           deep = json.loads((proof/'deep-workspace-validation.json').read_text())
           ai = json.loads((proof/'ai-workspace-validation.json').read_text())
           apache = json.loads((proof/'apache-boundary-validation.json').read_text())
           dependency = json.loads((proof/'dependency-policy-audit.json').read_text())
-
           bundle = {
-              'schema_version': '0.1.0',
-              'record_type': 'ptah.d09.full_workspace_release_exact_head_bundle',
-              'status': 'pass',
-              'implementation_commit': head,
-              'd08_predecessor': os.environ['D08_BASE'],
-              'roadmap_authority': os.environ['ROADMAP_AUTHORITY'],
-              'workflow_run_id': os.environ['RUN_ID'],
-              'workflow_run_attempt': os.environ['RUN_ATTEMPT'],
-              'd09_case_count': d09['case_count'],
-              'deep_workspace_case_count': 26,
-              'deep_workspace_capability_count': deep['mechanical_capability_count'],
-              'deep_workspace_fixture_count': deep['fixture_count'],
-              'd08_runtime_cases': 25,
-              'd08_shell_cases': 3,
-              'dependency_resolved_packages': dependency['resolved_package_count'],
-              'dependency_registry_packages': dependency['registry_package_count'],
-              'dependency_git_packages': dependency['git_dependency_count'],
-              'participants': d09['participants'],
-              'ptah_semantic_authority': False,
-              'ptah_decision_authority': ai['ptah_decision_authority'],
-              'ptah_context_selection_authority': ai['ptah_context_selection_authority'],
-              'ptah_review_authority': ai['ptah_review_authority'],
-              'apache_boundary_status': apache['status'],
-              'files': files,
+              'schema_version':'0.1.0','record_type':'ptah.d09.full_workspace_release_exact_head_bundle','status':'pass',
+              'implementation_commit':head,'d08_predecessor':os.environ['D08_BASE'],'roadmap_authority':os.environ['ROADMAP_AUTHORITY'],
+              'workflow_run_id':os.environ['RUN_ID'],'workflow_run_attempt':os.environ['RUN_ATTEMPT'],
+              'd09_case_count':d09['case_count'],'deep_workspace_case_count':26,
+              'deep_workspace_capability_count':deep['mechanical_capability_count'],'deep_workspace_fixture_count':deep['fixture_count'],
+              'd08_runtime_cases':25,'d08_shell_cases':3,
+              'dependency_resolved_packages':dependency['resolved_package_count'],
+              'dependency_registry_packages':dependency['registry_package_count'],
+              'dependency_git_packages':dependency['git_dependency_count'],
+              'participants':d09['participants'],'ptah_semantic_authority':False,
+              'ptah_decision_authority':ai['ptah_decision_authority'],
+              'ptah_context_selection_authority':ai['ptah_context_selection_authority'],
+              'ptah_review_authority':ai['ptah_review_authority'],'apache_boundary_status':apache['status'],'files':files,
           }
-
-          if bundle['d09_case_count'] != 10:
-              raise SystemExit('D09 case count drifted')
-          if bundle['deep_workspace_capability_count'] != 22:
-              raise SystemExit('deep Workspace capability count drifted')
-          if bundle['deep_workspace_fixture_count'] != 20:
-              raise SystemExit('deep Workspace fixture count drifted')
-          if bundle['dependency_resolved_packages'] != 130:
-              raise SystemExit('D08-bound resolved package count drifted')
-          if bundle['dependency_registry_packages'] != 97:
-              raise SystemExit('D08-bound registry package count drifted')
-          if bundle['dependency_git_packages'] != 0:
-              raise SystemExit('Git dependency count is not zero')
-          if bundle['participants'] != ['human', 'hunter', 'sergeant']:
-              raise SystemExit('D09 participant set drifted')
+          assert bundle['d09_case_count'] == 10, bundle
+          assert bundle['deep_workspace_capability_count'] == 22, bundle
+          assert bundle['deep_workspace_fixture_count'] == 20, bundle
+          assert bundle['dependency_resolved_packages'] == 130, bundle
+          assert bundle['dependency_registry_packages'] == 97, bundle
+          assert bundle['dependency_git_packages'] == 0, bundle
+          assert bundle['participants'] == ['human','hunter','sergeant'], bundle
           if any(bundle[key] is not False for key in (
-              'ptah_semantic_authority',
-              'ptah_decision_authority',
-              'ptah_context_selection_authority',
-              'ptah_review_authority',
+              'ptah_semantic_authority','ptah_decision_authority','ptah_context_selection_authority','ptah_review_authority'
           )):
               raise SystemExit('D09 authority drift detected')
-
           rendered = json.dumps(bundle, indent=2, sort_keys=True) + '\n'
-          (proof/'report-bundle.json').write_text(rendered, encoding='utf-8')
+          (proof/'report-bundle.json').write_text(rendered)
           digest = hashlib.sha256(rendered.encode()).hexdigest()
-          (proof/'report-bundle.sha256').write_text(
-              f'{digest}  report-bundle.json\n', encoding='utf-8'
-          )
+          (proof/'report-bundle.sha256').write_text(f'{digest}  report-bundle.json\n')
           print(rendered, end='')
           PY
-
           cd "$PROOF"
           sha256sum -c report-bundle.sha256
 

@@ -7,7 +7,7 @@ use tokio::io::{AsyncWriteExt, duplex};
 
 fn hello_message() -> LinkMessage {
     let agent = NodeAgent::bootstrap().expect("bootstrap node");
-    LinkMessage::Hello(NodeHello {
+    LinkMessage::Hello(Box::new(NodeHello {
         supported_major: 1,
         minimum_minor: 0,
         maximum_minor: 0,
@@ -17,7 +17,7 @@ fn hello_message() -> LinkMessage {
         enrollment_ref: EntityRef::new("core.node_enrollment").expect("enrollment ref"),
         agent_revision: String::from("e01-framing-test"),
         capability_snapshot_ref: None,
-    })
+    }))
 }
 
 #[tokio::test]

@@ -25,7 +25,7 @@ fn hello_preserves_a02_node_identity() {
     assert_eq!(hello.node_id, agent.node_id());
     assert_eq!(hello.node_generation, agent.generation());
     assert_eq!(hello.connection_epoch, agent.connection_epoch());
-    assert_eq!(LinkMessage::Hello(hello).kind(), "hello");
+    assert_eq!(LinkMessage::Hello(Box::new(hello)).kind(), "hello");
 }
 
 #[test]

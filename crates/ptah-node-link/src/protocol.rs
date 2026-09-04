@@ -113,7 +113,7 @@ pub struct LinkErrorFrame {
 #[serde(tag = "kind", content = "payload", rename_all = "snake_case")]
 pub enum LinkMessage {
     /// Node handshake projection.
-    Hello(NodeHello),
+    Hello(Box<NodeHello>),
     /// Accepted-handshake projection.
     HelloAck(HelloAck),
     /// Evidence-bound capability announcement.

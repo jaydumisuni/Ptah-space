@@ -1,4 +1,4 @@
-name: TEMP Oracle ATHENA installed-task recovery
+name: TEMP Oracle Windows release build on ATHENA
 
 on:
   push:
@@ -10,69 +10,171 @@ permissions:
   contents: read
 
 jobs:
-  recover:
+  build-and-smoke:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
-    timeout-minutes: 8
+    timeout-minutes: 90
+    env:
+      ORACLE_COMMIT: 0f2a3b0e1884c749286b61348b482f7ebb263c19
+      BUILDER_COMMIT: ae428f80d534722a777a89aee914c19993c3741e
+      ORACLE_ROOT_ID: electron:electron:d89e7aa886
+      PYTHONUTF8: "1"
     steps:
-      - name: Recover installed Oracle tasks and prove local readiness
+      - name: Check out temporary coordinator branch
+        uses: actions/checkout@v4
+
+      - name: Resolve exact Oracle source and registered Builder
+        id: roots
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $expected = '0f2a3b0e1884c749286b61348b482f7ebb263c19'
-          $bundleRoot = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)) 'THETECHGUY-Oracle-ElevatedInteractiveProbe'
-          $manifestPath = Join-Path $bundleRoot 'bundle-manifest.json'
-          if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw 'ORACLE_ELEVATED_BUNDLE_MISSING' }
-          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-          [ordered]@{
-            schemaVersion = [string]$manifest.schemaVersion
-            sourceCommit = [string]$manifest.sourceCommit
-            installerBlob = [string]$manifest.installerSourceGitBlob
-            operations = @($manifest.operations | ForEach-Object { [string]$_.id })
-          } | ConvertTo-Json -Compress | Write-Output
-          if ([string]$manifest.sourceCommit -ne $expected) {
-            throw ('ORACLE_ELEVATED_BUNDLE_HEAD_MISMATCH:' + [string]$manifest.sourceCommit)
+          $oracleRoot = Join-Path $env:RUNNER_TEMP ('oracle-package-build-' + $env:GITHUB_RUN_ID)
+          if (Test-Path -LiteralPath $oracleRoot) {
+            Remove-Item -LiteralPath $oracleRoot -Recurse -Force
           }
-          $source = Join-Path $env:RUNNER_TEMP ('oracle-pointer-' + $env:GITHUB_RUN_ID)
-          git -c core.autocrlf=false clone --quiet --no-checkout https://github.com/jaydumisuni/Oracle-.git $source
+          git -c core.autocrlf=false clone --quiet --no-checkout https://github.com/jaydumisuni/Oracle-.git $oracleRoot
           if ($LASTEXITCODE -ne 0) { throw 'ORACLE_CLONE_FAILED' }
-          git -C $source -c core.autocrlf=false checkout --quiet --detach $expected
-          if ($LASTEXITCODE -ne 0 -or (git -C $source rev-parse HEAD).Trim() -ne $expected) { throw 'ORACLE_HEAD_MISMATCH' }
-          & (Join-Path $source 'scripts\Submit-OracleElevatedInteractiveJob.ps1') -Operation oracle_desktop_pointer_install -TimeoutSeconds 300
-          if ($LASTEXITCODE -ne 0) { throw ('ORACLE_POINTER_INSTALL_FAILED:' + $LASTEXITCODE) }
-          $names = @('Oracle Desktop Input', 'Oracle Always-On Node', 'Oracle Node Watchdog')
+          git -C $oracleRoot -c core.autocrlf=false checkout --quiet --detach $env:ORACLE_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'ORACLE_CHECKOUT_FAILED' }
+          $oracleHead = (git -C $oracleRoot rev-parse HEAD).Trim()
+          if ($oracleHead -ne $env:ORACLE_COMMIT) { throw ('ORACLE_HEAD_MISMATCH:' + $oracleHead) }
+
+          $registeredBuilder = Join-Path $env:USERPROFILE 'oracle-builder-gate6-ae428f8'
+          $builderRoot = $registeredBuilder
+          $builderReady = $false
+          if (Test-Path -LiteralPath (Join-Path $registeredBuilder '.git') -PathType Container) {
+            $builderHead = (git -C $registeredBuilder rev-parse HEAD).Trim()
+            $builderPython = Join-Path $registeredBuilder 'env\python\.venv\Scripts\python.exe'
+            $builderReady = ($builderHead -eq $env:BUILDER_COMMIT -and (Test-Path -LiteralPath $builderPython -PathType Leaf))
+          }
+          if (-not $builderReady) {
+            $builderRoot = Join-Path $env:RUNNER_TEMP ('oracle-builder-' + $env:GITHUB_RUN_ID)
+            if (Test-Path -LiteralPath $builderRoot) {
+              Remove-Item -LiteralPath $builderRoot -Recurse -Force
+            }
+            git -c core.autocrlf=false clone --quiet --no-checkout https://github.com/jaydumisuni/thetechguy-software-builder.git $builderRoot
+            if ($LASTEXITCODE -ne 0) { throw 'BUILDER_CLONE_FAILED' }
+            git -C $builderRoot -c core.autocrlf=false checkout --quiet --detach $env:BUILDER_COMMIT
+            if ($LASTEXITCODE -ne 0) { throw 'BUILDER_CHECKOUT_FAILED' }
+            $python = (Get-Command python -ErrorAction Stop).Source
+            & $python -m venv (Join-Path $builderRoot 'env\python\.venv')
+            if ($LASTEXITCODE -ne 0) { throw 'BUILDER_VENV_FAILED' }
+            $builderPython = Join-Path $builderRoot 'env\python\.venv\Scripts\python.exe'
+            & $builderPython -m pip install --disable-pip-version-check -r (Join-Path $builderRoot 'requirements-builder.txt')
+            if ($LASTEXITCODE -ne 0) { throw 'BUILDER_DEPENDENCY_INSTALL_FAILED' }
+          }
+          $builderHead = (git -C $builderRoot rev-parse HEAD).Trim()
+          if ($builderHead -ne $env:BUILDER_COMMIT) { throw ('BUILDER_HEAD_MISMATCH:' + $builderHead) }
+          $builderPython = Join-Path $builderRoot 'env\python\.venv\Scripts\python.exe'
+          if (-not (Test-Path -LiteralPath $builderPython -PathType Leaf)) { throw 'BUILDER_PYTHON_MISSING' }
+
+          Write-Output ('ORACLE_ROOT=' + $oracleRoot)
+          Write-Output ('ORACLE_HEAD=' + $oracleHead)
+          Write-Output ('BUILDER_ROOT=' + $builderRoot)
+          Write-Output ('BUILDER_HEAD=' + $builderHead)
           Write-Output ('HOST=' + $env:COMPUTERNAME)
           Write-Output ('USER=' + [Security.Principal.WindowsIdentity]::GetCurrent().Name)
           Write-Output ('SESSION=' + [Diagnostics.Process]::GetCurrentProcess().SessionId)
-          foreach ($name in $names) {
-            $task = Get-ScheduledTask -TaskName $name -ErrorAction Stop
-            $info = Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop
-            [ordered]@{
-              task = $name
-              state = [string]$task.State
-              enabled = [string]$task.Settings.Enabled
-              lastResult = [int64]$info.LastTaskResult
-              lastRun = $info.LastRunTime.ToUniversalTime().ToString('o')
-            } | ConvertTo-Json -Compress | Write-Output
-          }
-          $deadline = (Get-Date).AddSeconds(90)
-          do {
+          "oracle_root=$oracleRoot" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "builder_root=$builderRoot" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "builder_python=$builderPython" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Build native Windows installer with Builder
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $oracleRoot = '${{ steps.roots.outputs.oracle_root }}'
+          $builderRoot = '${{ steps.roots.outputs.builder_root }}'
+          $builderPython = '${{ steps.roots.outputs.builder_python }}'
+          $env:PYTHONPATH = $builderRoot
+          & $builderPython -m thetechguy_builder.portable_cli build $oracleRoot `
+            --target windows-installer `
+            --root-id $env:ORACLE_ROOT_ID `
+            --install-dependencies `
+            --json
+          if ($LASTEXITCODE -ne 0) { throw ('ORACLE_WINDOWS_BUILD_FAILED:' + $LASTEXITCODE) }
+
+      - name: Physically launch packaged Oracle app in Session 1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $oracleRoot = '${{ steps.roots.outputs.oracle_root }}'
+          $app = Join-Path $oracleRoot 'dist\desktop\win-unpacked\Oracle.exe'
+          if (-not (Test-Path -LiteralPath $app -PathType Leaf)) { throw ('ORACLE_EXE_MISSING:' + $app) }
+          $profile = Join-Path $oracleRoot 'build_config\windows-smoke-profile'
+          New-Item -ItemType Directory -Path $profile -Force | Out-Null
+          $process = Start-Process -FilePath $app -ArgumentList @("--user-data-dir=$profile") -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(25)
+            do {
+              Start-Sleep -Milliseconds 500
+              $process.Refresh()
+            } while (-not $process.HasExited -and [string]::IsNullOrWhiteSpace($process.MainWindowTitle) -and (Get-Date) -lt $deadline)
+            if ($process.HasExited) { throw ('ORACLE_GUI_EXITED_EARLY:' + $process.ExitCode) }
+            if ([string]::IsNullOrWhiteSpace($process.MainWindowTitle)) { throw 'ORACLE_GUI_WINDOW_MISSING' }
+            Add-Type -AssemblyName System.Drawing
+            Add-Type -AssemblyName System.Windows.Forms
+            $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+            $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
             try {
-              $health = Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:5059/ready' -TimeoutSec 4
-              if ($health.ready -and $health.connected) { break }
-            } catch {}
-            Start-Sleep -Seconds 2
-          } while ((Get-Date) -lt $deadline)
-          if (-not $health -or -not $health.ready -or -not $health.connected) {
-            throw 'ORACLE_ATHENA_READY_TIMEOUT'
+              $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+              $screenshot = Join-Path $oracleRoot 'build_config\oracle-windows-packaged-smoke.png'
+              $bitmap.Save($screenshot, [System.Drawing.Imaging.ImageFormat]::Png)
+            } finally {
+              $graphics.Dispose()
+              $bitmap.Dispose()
+            }
+            Write-Output ('ORACLE_GUI_TITLE=' + $process.MainWindowTitle)
+            Write-Output ('ORACLE_GUI_PID=' + $process.Id)
+            Write-Output ('ORACLE_GUI_SCREENSHOT=' + $screenshot)
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
           }
-          $health | ConvertTo-Json -Depth 8 -Compress | Write-Output
-          foreach ($name in $names) {
-            $task = Get-ScheduledTask -TaskName $name -ErrorAction Stop
-            $info = Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop
-            [ordered]@{
-              task = $name
-              state = [string]$task.State
-              lastResult = [int64]$info.LastTaskResult
-            } | ConvertTo-Json -Compress | Write-Output
+
+      - name: Freeze hashes and release evidence
+        id: evidence
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $oracleRoot = '${{ steps.roots.outputs.oracle_root }}'
+          $zips = @(Get-ChildItem -LiteralPath (Join-Path $oracleRoot 'installer_output') -Filter '*.zip' -File -ErrorAction Stop | Sort-Object LastWriteTimeUtc -Descending)
+          if ($zips.Count -lt 1) { throw 'ORACLE_INSTALLER_ZIP_MISSING' }
+          $zip = $zips[0]
+          $setup = Get-ChildItem -LiteralPath (Join-Path $oracleRoot 'installer_output') -Filter 'Oracle Setup.exe' -File -Recurse | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+          if (-not $setup) { throw 'ORACLE_SETUP_EXE_MISSING' }
+          $runtime = Join-Path $oracleRoot 'dist\desktop\win-unpacked\Oracle.exe'
+          $screenshot = Join-Path $oracleRoot 'build_config\oracle-windows-packaged-smoke.png'
+          $evidence = [ordered]@{
+            schemaVersion = 'oracle.windows-release-proof.v1'
+            oracleCommit = $env:ORACLE_COMMIT
+            builderCommit = $env:BUILDER_COMMIT
+            host = $env:COMPUTERNAME
+            user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+            sessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
+            installerZip = [ordered]@{ name = $zip.Name; bytes = $zip.Length; sha256 = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+            setupExe = [ordered]@{ name = $setup.Name; bytes = $setup.Length; sha256 = (Get-FileHash -LiteralPath $setup.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+            runtimeExe = [ordered]@{ name = 'Oracle.exe'; bytes = (Get-Item $runtime).Length; sha256 = (Get-FileHash -LiteralPath $runtime -Algorithm SHA256).Hash.ToLowerInvariant() }
+            screenshot = [ordered]@{ name = (Split-Path $screenshot -Leaf); bytes = (Get-Item $screenshot).Length; sha256 = (Get-FileHash -LiteralPath $screenshot -Algorithm SHA256).Hash.ToLowerInvariant() }
+            builderValidation = 'PASS'
+            physicalGuiLaunch = 'PASS'
           }
-          Write-Output 'ORACLE_ATHENA_RECOVERY=PASS'
+          $proof = Join-Path $oracleRoot 'build_config\oracle-windows-release-proof.json'
+          $evidence | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $proof -Encoding UTF8
+          Get-Content -LiteralPath $proof
+          "installer_zip=$($zip.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "setup_exe=$($setup.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "proof=$proof" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "screenshot=$screenshot" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Output 'ORACLE_WINDOWS_BUILD_AND_SMOKE=PASS'
+
+      - name: Upload Windows release and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-windows-0.5.0-0f2a3b0e1
+          path: |
+            ${{ steps.evidence.outputs.installer_zip }}
+            ${{ steps.evidence.outputs.setup_exe }}
+            ${{ steps.evidence.outputs.proof }}
+            ${{ steps.evidence.outputs.screenshot }}
+          if-no-files-found: error
+          retention-days: 14

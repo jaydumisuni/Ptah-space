@@ -1,0 +1,31 @@
+name: E01 TDD
+
+on:
+  push:
+    branches:
+      - e01-secure-multi-node-identity-connection
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - crates/ptah-node-link/**
+      - .github/workflows/e01-tdd.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  protocol-red-green:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out E01 branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Pin Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+      - name: Run E01 protocol test
+        shell: bash
+        run: cargo test -p ptah-node-link --test protocol

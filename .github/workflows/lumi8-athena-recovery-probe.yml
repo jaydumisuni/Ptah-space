@@ -1,0 +1,44 @@
+name: Lumi issue 8 ATHENA recovery probe
+
+on:
+  push:
+    branches:
+      - proof/lumi8-athena-runner-20260904
+    paths:
+      - .github/workflows/lumi8-athena-recovery-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect ATHENA execution and Oracle recovery owners
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal = New-Object Security.Principal.WindowsPrincipal($id)
+          $admin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          $session = (Get-Process -Id $PID).SessionId
+          $explorer = Get-Process explorer -ErrorAction SilentlyContinue | Select-Object -First 1
+          Write-Output ('LUMI8_HOST=' + $env:COMPUTERNAME)
+          Write-Output ('LUMI8_USER=' + $id.Name)
+          Write-Output ('LUMI8_ADMIN=' + $admin)
+          Write-Output ('LUMI8_SESSION=' + $session)
+          Write-Output ('LUMI8_EXPLORER_SESSION=' + $(if($explorer){$explorer.SessionId}else{'NONE'}))
+          Write-Output '=== ORACLE TASKS ==='
+          Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -match 'Oracle|ATHENA|GitHub Actions' } | ForEach-Object {
+            $p = $_.Principal
+            Write-Output ('TASK=' + $_.TaskName + '|STATE=' + $_.State + '|RUNLEVEL=' + $p.RunLevel + '|LOGONTYPE=' + $p.LogonType + '|USER=' + $p.UserId)
+          }
+          Write-Output '=== ORACLE LOCAL ROOTS ==='
+          foreach($p in @((Join-Path $env:LOCALAPPDATA 'OracleNode'), (Join-Path $env:LOCALAPPDATA 'OracleRelay'), (Join-Path $env:ProgramData 'THETECHGUY-Oracle-ElevatedInteractiveProbe'))) {
+            Write-Output ($p + '=' + (Test-Path -LiteralPath $p))
+          }
+          Write-Output '=== NETWORK ==='
+          Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | ForEach-Object { Write-Output ('IP=' + $_.InterfaceAlias + '|' + $_.IPAddress) }
+          Write-Output '=== PROCESSES ==='
+          Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match 'oracle|node|Runner' } | ForEach-Object { Write-Output ('PROC=' + $_.ProcessName + '|PID=' + $_.Id + '|SESSION=' + $_.SessionId) }

@@ -37,8 +37,13 @@ jobs:
               continue
             }
             if ($task.State -eq 'Disabled') {
-              Write-Output ($name + '=DISABLED')
-              continue
+              try {
+                Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+                Write-Output ($name + '=ENABLED')
+              } catch {
+                Write-Output ($name + '=ENABLE_FAILED:' + $_.Exception.Message)
+                continue
+              }
             }
             try {
               Start-ScheduledTask -TaskName $name -ErrorAction Stop

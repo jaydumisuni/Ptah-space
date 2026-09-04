@@ -1,0 +1,78 @@
+name: TEMP ATHENA Oracle Live recovery
+
+on:
+  push:
+    branches: [ops/oracle-athena-live-recover-20260904]
+    paths:
+      - ".github/workflows/temp-athena-oracle-live-recover.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 10
+    steps:
+      - name: Restart Oracle user scheduled tasks
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Output ('HOST=' + $env:COMPUTERNAME)
+          Write-Output ('USER=' + [Security.Principal.WindowsIdentity]::GetCurrent().Name)
+          Write-Output ('SESSION=' + [Diagnostics.Process]::GetCurrentProcess().SessionId)
+
+          $taskNames = @(
+            'Oracle Recovery Relay',
+            'Oracle Always-On Node',
+            'Oracle Node Watchdog',
+            'Oracle Desktop Input'
+          )
+
+          foreach ($name in $taskNames) {
+            $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            if (-not $task) {
+              Write-Output ($name + '=MISSING')
+              continue
+            }
+            if ($task.State -eq 'Disabled') {
+              Write-Output ($name + '=DISABLED')
+              continue
+            }
+            try {
+              Start-ScheduledTask -TaskName $name -ErrorAction Stop
+              Write-Output ($name + '=START_REQUESTED')
+            } catch {
+              Write-Output ($name + '=START_FAILED:' + $_.Exception.Message)
+            }
+          }
+
+          Start-Sleep -Seconds 10
+
+          foreach ($name in $taskNames) {
+            $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            if (-not $task) { continue }
+            $info = $task | Get-ScheduledTaskInfo
+            Write-Output ($name + '_STATE=' + $task.State)
+            Write-Output ($name + '_LAST_RESULT=' + $info.LastTaskResult)
+            Write-Output ($name + '_LAST_RUN=' + $info.LastRunTime.ToString('o'))
+          }
+
+          $oracleProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+            $_.CommandLine -match 'oracle-live-node\.mjs|oracle-node-watchdog-windows\.mjs|Oracle-RecoveryRelaySupervisor\.ps1|oracle-desktop-input'
+          })
+          foreach ($proc in $oracleProcesses) {
+            Write-Output ('PROC=' + $proc.ProcessId + ':' + $proc.Name + ':' + $proc.CommandLine)
+          }
+
+          $recoveryStatus = Join-Path $env:LOCALAPPDATA 'OracleRelay\recovery-supervisor-status.json'
+          if (Test-Path -LiteralPath $recoveryStatus -PathType Leaf) {
+            Write-Output 'RECOVERY_STATUS_BEGIN'
+            Get-Content -LiteralPath $recoveryStatus -Raw
+            Write-Output 'RECOVERY_STATUS_END'
+          }
+
+          $live = @($oracleProcesses | Where-Object { $_.CommandLine -match 'oracle-live-node\.mjs' })
+          if ($live.Count -lt 1) { throw 'ORACLE_LIVE_NODE_PROCESS_MISSING' }
+          Write-Output 'ATHENA_ORACLE_RECOVERY=PASS'

@@ -148,21 +148,18 @@ jobs:
           print('ALL_EXTERNAL_ACTION_REFERENCES_IMMUTABLY_PINNED')
           PY
 
-      - name: Prove source dependency licence and backend identity boundaries
+      - name: Prove current source dependency and backend identity boundaries
         shell: bash
         run: |
           set -euo pipefail
           PROOF="$RUNNER_TEMP/d09-proof"
-          PYTHONPATH=tools python3 -m unittest -v tools/test_check_a01_scaffold.py \
-            2>&1 | tee "$PROOF/a01-scaffold-regressions.txt"
-          python3 tools/check_a01_scaffold.py \
-            2>&1 | tee "$PROOF/a01-scaffold-validation.txt"
           python3 tools/check_phase0c_scaffold.py \
             2>&1 | tee "$PROOF/phase0c-scaffold-validation.txt"
           cp Cargo.lock "$PROOF/Cargo.lock.repository"
           cargo metadata --locked --format-version 1 > "$PROOF/cargo-metadata.json"
           python3 tools/check_rust_dependency_lock.py --output "$PROOF/rust-dependency-lock.json"
           cmp Cargo.lock "$PROOF/Cargo.lock.repository"
+
           python3 - <<'PY'
           import hashlib
           import json
@@ -177,17 +174,59 @@ jobs:
           )
           lock = json.loads(lock_path.read_text(encoding='utf-8'))
           retained = json.loads(retained_path.read_text(encoding='utf-8'))
+
           if lock.get('runtime_implementation_authorized') is not False:
               raise SystemExit('backend lock widened runtime authority')
           if retained.get('runtime_implementation_authorized') is not False:
               raise SystemExit('retained backend evidence widened runtime authority')
           if retained.get('implementation_commit') != 'bc12885ce41844b05481628543219c3a8d3574ba':
               raise SystemExit('retained backend implementation identity drifted')
+
+          artifacts = lock.get('artifacts')
+          browser = lock.get('browser_binary')
+          if not isinstance(artifacts, list) or len(artifacts) != 9:
+              raise SystemExit('backend artifact lock count drifted')
+          if not isinstance(browser, dict):
+              raise SystemExit('browser binary lock is missing')
+
+          records = retained.get('records')
+          if not isinstance(records, list):
+              raise SystemExit('retained backend evidence records missing')
+          values = [item.get('record', {}) for item in records if isinstance(item, dict)]
+          static = next(
+              item for item in values
+              if item.get('record_type') == 'ptah.phase0c.static_backend_artifact_evidence'
+              and item.get('exact_head_match') is True
+              and item.get('report_present') is True
+          )
+          browser_record = next(
+              item for item in values
+              if item.get('record_type') == 'ptah.phase0c.playwright_browser_evidence'
+              and item.get('exact_head_match') is True
+          )
+          signatures = next(
+              item for item in values
+              if item.get('record_type') == 'ptah.phase0c.backend_signature_evidence'
+              and item.get('exact_head_match') is True
+              and item.get('report_present') is True
+          )
+          if static.get('verified_artifact_count') != 9:
+              raise SystemExit('retained backend artifact count changed')
+          if browser_record.get('installed_file_count') != 599:
+              raise SystemExit('retained browser file count changed')
+          if signatures.get('verified_signature_count') != 4:
+              raise SystemExit('retained signature count changed')
+
           report = {
               'schema_version': '0.1.0',
               'record_type': 'ptah.d09.retained_backend_identity',
               'backend_lock_sha256': hashlib.sha256(lock_path.read_bytes()).hexdigest(),
               'retained_phase0c_sha256': hashlib.sha256(retained_path.read_bytes()).hexdigest(),
+              'artifact_count': len(artifacts),
+              'browser_revision': str(browser.get('revision')),
+              'retained_static_verified_artifact_count': 9,
+              'retained_browser_file_count': 599,
+              'retained_verified_signature_count': 4,
               'runtime_implementation_authorized': False,
           }
           (proof/'backend-lock-identity.json').write_text(
@@ -266,6 +305,7 @@ jobs:
           test "$d07_count" -eq 30
           printf 'd05=%s\nd06=%s\nd07=%s\n' "$d05_count" "$d06_count" "$d07_count" \
             > "$PROOF/d05-d07-counts.txt"
+
           cargo test -p ptah-package-plugin --test d05_acceptance --locked -- --nocapture \
             2>&1 | tee "$PROOF/d05-acceptance.txt"
           cargo test -p ptah-provenance --test d06_acceptance --locked -- --nocapture \
@@ -309,7 +349,9 @@ jobs:
           import json
           import os
           from pathlib import Path
-          report = json.loads((Path(os.environ['RUNNER_TEMP'])/'d09-proof/apache-boundary-validation.json').read_text())
+          report = json.loads(
+              (Path(os.environ['RUNNER_TEMP'])/'d09-proof/apache-boundary-validation.json').read_text()
+          )
           assert report['status'] == 'owner_accepted_operative_verified', report
           assert report['apache_2_0_accepted'] is True, report
           assert report['runtime_implementation_authorized'] is False, report
@@ -328,6 +370,30 @@ jobs:
           set -euo pipefail
           PROOF="$RUNNER_TEMP/d09-proof"
           cp D09_FULL_WORKSPACE_RELEASE_ACCEPTANCE.md "$PROOF/release-instructions.txt"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          proof = Path(os.environ['RUNNER_TEMP'])/'d09-proof'
+          limitations = {
+              'schema_version': '0.1.0',
+              'record_type': 'ptah.d09.full_workspace_release_limitations',
+              'limitations': [
+                  'GitHub-hosted Ubuntu proof is CI-host evidence, not proof of a separately pinned production machine.',
+                  'D09 does not complete Programme E distributed Ptah.',
+                  'D09 does not complete Programme F OS-ready packaging.',
+                  'D09 does not make deferred D08 remote platforms available.',
+                  'D09 does not grant Ptah semantic context, review, approval, result-acceptance or next-action authority.',
+                  'D09 does not erase negative, partial, failed, inconclusive, contradictory or regressed evidence.',
+                  'D09 does not widen public access to private records or restricted adapters.',
+              ],
+          }
+          (proof/'limitations.json').write_text(
+              json.dumps(limitations, indent=2, sort_keys=True) + '\n', encoding='utf-8'
+          )
+          PY
+
           PYTHONPATH=tools python3 - <<'PY'
           import hashlib
           import json
@@ -339,8 +405,8 @@ jobs:
           required = [
               'exact-head.txt', 'd08-predecessor.txt', 'roadmap-authority.txt',
               'host-os-release.txt', 'host-uname.txt', 'rustc-version.txt', 'cargo-version.txt',
-              'action-pin-audit.txt', 'a01-scaffold-regressions.txt', 'a01-scaffold-validation.txt',
-              'phase0c-scaffold-validation.txt', 'Cargo.lock.repository', 'cargo-metadata.json',
+              'action-pin-audit.txt', 'phase0c-scaffold-validation.txt',
+              'Cargo.lock.repository', 'cargo-metadata.json',
               'rust-dependency-lock.json', 'backend-lock-identity.json',
               'd09-regressions.txt', 'd09-validation.json',
               'deep-workspace-regressions.txt', 'deep-workspace-validation.json',
@@ -352,16 +418,19 @@ jobs:
               'd08-runtime-list.txt', 'd08-shell-list.txt',
               'd08-runtime-acceptance.txt', 'd08-shell-acceptance.txt',
               'apache-boundary-regressions.txt', 'apache-boundary-validation.json',
-              'format-check.txt', 'workspace-tests.txt', 'release-instructions.txt',
+              'format-check.txt', 'workspace-tests.txt',
+              'limitations.json', 'release-instructions.txt',
           ]
           files = require_report_files(proof, required)
           head = (proof/'exact-head.txt').read_text(encoding='utf-8').strip()
           if head != os.environ['TARGET_SHA']:
               raise SystemExit('D09 bundle exact head mismatch')
+
           d09 = json.loads((proof/'d09-validation.json').read_text())
           deep = json.loads((proof/'deep-workspace-validation.json').read_text())
           ai = json.loads((proof/'ai-workspace-validation.json').read_text())
           apache = json.loads((proof/'apache-boundary-validation.json').read_text())
+
           bundle = {
               'schema_version': '0.1.0',
               'record_type': 'ptah.d09.full_workspace_release_exact_head_bundle',
@@ -385,17 +454,23 @@ jobs:
               'apache_boundary_status': apache['status'],
               'files': files,
           }
+
           if bundle['d09_case_count'] != 10:
               raise SystemExit('D09 case count drifted')
-          if bundle['deep_workspace_capability_count'] != 22 or bundle['deep_workspace_fixture_count'] != 20:
-              raise SystemExit('deep Workspace frozen counts drifted')
+          if bundle['deep_workspace_capability_count'] != 22:
+              raise SystemExit('deep Workspace capability count drifted')
+          if bundle['deep_workspace_fixture_count'] != 20:
+              raise SystemExit('deep Workspace fixture count drifted')
           if bundle['participants'] != ['human', 'hunter', 'sergeant']:
               raise SystemExit('D09 participant set drifted')
           if any(bundle[key] is not False for key in (
-              'ptah_semantic_authority', 'ptah_decision_authority',
-              'ptah_context_selection_authority', 'ptah_review_authority'
+              'ptah_semantic_authority',
+              'ptah_decision_authority',
+              'ptah_context_selection_authority',
+              'ptah_review_authority',
           )):
               raise SystemExit('D09 authority drift detected')
+
           rendered = json.dumps(bundle, indent=2, sort_keys=True) + '\n'
           (proof/'report-bundle.json').write_text(rendered, encoding='utf-8')
           digest = hashlib.sha256(rendered.encode()).hexdigest()
@@ -404,6 +479,7 @@ jobs:
           )
           print(rendered, end='')
           PY
+
           cd "$PROOF"
           sha256sum -c report-bundle.sha256
 

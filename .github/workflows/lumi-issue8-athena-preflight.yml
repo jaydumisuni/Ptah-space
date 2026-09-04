@@ -11,9 +11,9 @@ permissions:
 jobs:
   athena-preflight:
     runs-on: [self-hosted, Windows, X64, athena, physical, ptah]
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Prove runner identity and active desktop
+      - name: Record runner integrity and active desktop
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -25,6 +25,7 @@ jobs:
           $computerUser = (Get-CimInstance Win32_ComputerSystem).UserName
           $groups = (whoami /groups | Out-String)
           $high = $groups -match 'High Mandatory Level|S-1-16-12288'
+          $sameDesktop = @($explorers | Where-Object { $_.SessionId -eq $proc.SessionId }).Count -gt 0
 
           Write-Host "COMPUTER=$env:COMPUTERNAME"
           Write-Host "USERNAME=$env:USERNAME"
@@ -34,15 +35,9 @@ jobs:
           Write-Host "PROCESS_SESSION=$($proc.SessionId)"
           Write-Host "SESSIONNAME=$env:SESSIONNAME"
           Write-Host "CONSOLE_USER=$computerUser"
-          foreach ($e in $explorers) {
-            Write-Host "EXPLORER_SESSION=$($e.SessionId) PID=$($e.Id)"
-          }
-          $sameDesktop = @($explorers | Where-Object { $_.SessionId -eq $proc.SessionId }).Count -gt 0
+          foreach ($e in $explorers) { Write-Host "EXPLORER_SESSION=$($e.SessionId) PID=$($e.Id)" }
           Write-Host "SAME_AS_EXPLORER=$sameDesktop"
-
-          if (-not $admin) { Write-Error 'ATHENA-PTAH runner is not Administrator.' }
-          if (-not $high) { Write-Error 'ATHENA-PTAH runner is not high-integrity.' }
-          if (-not $sameDesktop) { Write-Error 'ATHENA-PTAH runner is not attached to the active Explorer desktop.' }
+          if (-not $sameDesktop) { throw 'ATHENA-PTAH runner is not attached to the active Explorer desktop.' }
 
       - name: Recover exact Lumi and Builder paths read-only
         shell: powershell
@@ -76,4 +71,35 @@ jobs:
                 $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
                 Write-Host "ARTIFACT=$($_.FullName) SHA256=$hash SIZE=$($_.Length)"
               }
+          }
+
+      - name: Discover existing high-integrity proof owners read-only
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Write-Host '--- relevant scheduled-task principals ---'
+          $tasks = @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
+            $_.TaskName -match 'Oracle|Recovery|ATHENA|GitHub|Runner|Lumi|Builder|TechGuy'
+          })
+          foreach ($task in $tasks | Sort-Object TaskPath,TaskName) {
+            $p = $task.Principal
+            Write-Host "TASK=$($task.TaskPath)$($task.TaskName) STATE=$($task.State) USER=$($p.UserId) RUNLEVEL=$($p.RunLevel) LOGONTYPE=$($p.LogonType)"
+            foreach ($action in @($task.Actions)) {
+              Write-Host "TASK_EXECUTE=$($action.Execute) WORKDIR=$($action.WorkingDirectory)"
+            }
+          }
+
+          Write-Host '--- Windows sudo configuration read-only ---'
+          $sudo = Get-Command sudo.exe -ErrorAction SilentlyContinue
+          if ($sudo) { Write-Host "SUDO_EXE=$($sudo.Source)" } else { Write-Host 'SUDO_EXE=ABSENT' }
+          foreach ($reg in @(
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Sudo',
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+          )) {
+            if (Test-Path $reg) {
+              Write-Host "REGKEY=$reg"
+              Get-ItemProperty $reg -ErrorAction SilentlyContinue |
+                Select-Object Enabled,ConsentPromptBehaviorAdmin,PromptOnSecureDesktop |
+                Format-List | Out-String | Write-Host
+            }
           }

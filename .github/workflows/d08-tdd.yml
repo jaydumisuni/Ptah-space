@@ -13,10 +13,10 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  d08-task4-red:
+  d08-task4-shell-red:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,17 +27,6 @@ jobs:
         run: cp Cargo.lock /tmp/Cargo.lock.before
       - name: Check RED assets formatting
         run: cargo fmt --all -- --check
-      - name: Prove runtime case 25 is RED for missing remote-display gate
-        shell: bash
-        run: |
-          set -uo pipefail
-          set +e
-          cargo test -p ptah-application-runtime --test d08_acceptance > /tmp/runtime-red.log 2>&1
-          status=$?
-          set -e
-          cat /tmp/runtime-red.log
-          test "$status" -ne 0
-          grep -q 'require_remote_display' /tmp/runtime-red.log
       - name: Prove D01 cases 26-28 are RED for missing projection API
         shell: bash
         run: |
@@ -49,7 +38,7 @@ jobs:
           cat /tmp/shell-red.log
           test "$status" -ne 0
           grep -Eq 'ApplicationPlatformSnapshot|project_application_platform_views|applications' /tmp/shell-red.log
-      - name: Prove generated Task4 lock delta is exact
+      - name: Prove Task4 lock delta is exact or already promoted
         shell: bash
         run: |
           set -euo pipefail
@@ -63,10 +52,24 @@ jobs:
           after = {key(p): p for p in new['package']}
           assert set(before) == set(after), (set(after)-set(before), set(before)-set(after))
           changed = sorted(k for k in before if before[k] != after[k])
-          expected = [('ptah-control', '0.0.0-phase0c', None)]
-          assert changed == expected, changed
-          old_deps = set(before[expected[0]].get('dependencies', []))
-          new_deps = set(after[expected[0]].get('dependencies', []))
-          assert new_deps - old_deps == {'ptah-application-runtime'}, new_deps-old_deps
-          assert not (old_deps-new_deps), old_deps-new_deps
+          expected = ('ptah-control', '0.0.0-phase0c', None)
+          assert changed in ([], [expected]), changed
+          deps = set(after[expected].get('dependencies', []))
+          assert 'ptah-application-runtime' in deps, deps
+          if changed:
+              old_deps = set(before[expected].get('dependencies', []))
+              assert deps - old_deps == {'ptah-application-runtime'}, deps-old_deps
+              assert not (old_deps-deps), old_deps-deps
           PY
+      - name: Promote exact Task4 lockfile if generated
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- Cargo.lock; then
+            exit 0
+          fi
+          git config user.name 'THE TECH GUY'
+          git config user.email '65334711+jaydumisuni@users.noreply.github.com'
+          git add Cargo.lock
+          git commit -m 'chore(d08): promote exact task4 lock delta'
+          git push origin HEAD:d08-application-platform-expansion

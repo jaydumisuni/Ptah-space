@@ -45,3 +45,10 @@ jobs:
       - name: Run E01 strict Clippy
         shell: bash
         run: cargo clippy -p ptah-node-link --all-targets -- -D warnings
+      - name: Retain resolved Cargo.lock candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: e01-lock-${{ github.sha }}
+          path: Cargo.lock
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,177 @@
+name: D09 one-shot inherited proof hygiene repair
+
+on:
+  push:
+    branches:
+      - d09-full-workspace-release-acceptance
+    paths:
+      - .github/workflows/d09-proof-hygiene-repair.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repair branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: d09-full-workspace-release-acceptance
+          fetch-depth: 0
+
+      - name: Apply exact inherited proof-hygiene correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          checkout_pin = 'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd'
+          upload_pin = 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a'
+          legacy = [
+              Path('.github/workflows/d07-security-evidence-reproduction-proof.yml'),
+              Path('.github/workflows/d08-application-platform-expansion-proof.yml'),
+              Path('.github/workflows/d08-tdd.yml'),
+          ]
+          for path in legacy:
+              text = path.read_text(encoding='utf-8')
+              text = text.replace('actions/checkout@v4', checkout_pin)
+              text = text.replace('actions/upload-artifact@v4', upload_pin)
+              text = text.replace(
+                  '        uses: dtolnay/rust-toolchain@1.97.1\n'
+                  '        with:\n'
+                  '          components: rustfmt, clippy\n',
+                  '        shell: bash\n'
+                  '        run: |\n'
+                  '          set -euo pipefail\n'
+                  '          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy\n'
+                  '          rustup default 1.97.1\n',
+              )
+              text = text.replace(
+                  '      - uses: dtolnay/rust-toolchain@1.97.1\n'
+                  '        with:\n'
+                  '          components: rustfmt, clippy\n',
+                  '      - name: Pin Rust 1.97.1\n'
+                  '        shell: bash\n'
+                  '        run: |\n'
+                  '          set -euo pipefail\n'
+                  '          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy\n'
+                  '          rustup default 1.97.1\n',
+              )
+              if 'dtolnay/rust-toolchain@1.97.1' in text or 'actions/checkout@v4' in text or 'actions/upload-artifact@v4' in text:
+                  raise SystemExit(f'legacy floating ref survived patch: {path}')
+              path.write_text(text, encoding='utf-8')
+
+          workflow = Path('.github/workflows/d09-full-workspace-release-acceptance.yml')
+          text = workflow.read_text(encoding='utf-8')
+          trigger = '      - .github/workflows/d09-full-workspace-release-acceptance.yml\n'
+          trigger_replacement = (
+              trigger
+              + '      - .github/workflows/d07-security-evidence-reproduction-proof.yml\n'
+              + '      - .github/workflows/d08-application-platform-expansion-proof.yml\n'
+              + '      - .github/workflows/d08-tdd.yml\n'
+          )
+          if '.github/workflows/d07-security-evidence-reproduction-proof.yml\n      - .github/workflows/d08-application-platform-expansion-proof.yml' not in text:
+              text = text.replace(trigger, trigger_replacement)
+          text = text.replace('          import subprocess\n\n          base =', '          import subprocess\n          from pathlib import Path\n\n          base =', 1)
+          anchor = (
+              "              'tools/test_check_d09_full_workspace_release.py',\n"
+              '          }\n'
+              '          changed = set(subprocess.check_output(\n'
+          )
+          expanded = (
+              "              'tools/test_check_d09_full_workspace_release.py',\n"
+              "              '.github/workflows/d07-security-evidence-reproduction-proof.yml',\n"
+              "              '.github/workflows/d08-application-platform-expansion-proof.yml',\n"
+              "              '.github/workflows/d08-tdd.yml',\n"
+              '          }\n'
+              "          repair = '.github/workflows/d09-proof-hygiene-repair.yml'\n"
+              '          if Path(repair).exists():\n'
+              '              expected.add(repair)\n'
+              '          changed = set(subprocess.check_output(\n'
+          )
+          if "'.github/workflows/d07-security-evidence-reproduction-proof.yml'," not in text.split('changed = set', 1)[0]:
+              if anchor not in text:
+                  raise SystemExit('D09 scope anchor missing')
+              text = text.replace(anchor, expanded, 1)
+          workflow.write_text(text, encoding='utf-8')
+
+          spec = Path('docs/superpowers/specs/2026-09-04-d09-full-workspace-release-acceptance-design.md')
+          text = spec.read_text(encoding='utf-8')
+          anchor = 'No `Cargo.toml`, `Cargo.lock`, schema, migration, generated binding or existing product crate is part of the normal D09 delta.\n'
+          addition = '''No `Cargo.toml`, `Cargo.lock`, schema, migration, generated binding or existing product crate is part of the normal D09 delta.\n\n### Release-audit proof-hygiene remediation\n\nThe first D09 exact-head audit exposed eight inherited non-immutable GitHub Action references, confined to the completed D07/D08 proof workflows. D09 corrects those references without changing runtime behavior:\n\n- `.github/workflows/d07-security-evidence-reproduction-proof.yml`;\n- `.github/workflows/d08-application-platform-expansion-proof.yml`;\n- `.github/workflows/d08-tdd.yml`.\n\nCheckout/upload actions are replaced by the accepted immutable A15 pins. The floating `dtolnay/rust-toolchain@1.97.1` action is replaced by an explicit `rustup toolchain install 1.97.1` shell step. These three files are an audited release-hygiene exception to the normal seven-file D09 acceptance surface; they do not alter Ptah product code or predecessor semantics.\n'''
+          if '### Release-audit proof-hygiene remediation' not in text:
+              if anchor not in text:
+                  raise SystemExit('D09 design remediation anchor missing')
+              text = text.replace(anchor, addition, 1)
+          text = text.replace('5. prove the delta is limited to the seven D09 acceptance files listed above;', '5. prove the delta is limited to the D09 acceptance surface plus the three audited D07/D08 proof-hygiene corrections;')
+          spec.write_text(text, encoding='utf-8')
+
+          durable = Path('D09_FULL_WORKSPACE_RELEASE_ACCEPTANCE.md')
+          text = durable.read_text(encoding='utf-8')
+          anchor = 'The D09 proof composes already-proven milestone authorities on one exact candidate. A green D09 workflow cannot redefine a predecessor contract.\n'
+          addition = '''The D09 proof composes already-proven milestone authorities on one exact candidate. A green D09 workflow cannot redefine a predecessor contract.\n\n### Release-audit correction discovered by D09\n\nThe first D09 exact-head source audit failed on eight inherited floating Action references: three in the D07 permanent proof, three in the D08 permanent proof and two in the retired D08 TDD lane. D09 retains that failed run as evidence and corrects only those workflow references. Checkout/upload actions use the accepted immutable A15 pins; Rust 1.97.1 is installed explicitly with `rustup` instead of a floating toolchain Action. No Rust/Product/Cargo/schema content changes as part of this correction.\n'''
+          if '### Release-audit correction discovered by D09' not in text:
+              if anchor not in text:
+                  raise SystemExit('D09 durable remediation anchor missing')
+              text = text.replace(anchor, addition, 1)
+          text = text.replace('3. exact seven-file D09 acceptance delta only;', '3. D09 acceptance delta plus exactly three audited D07/D08 proof-hygiene workflow corrections only;')
+          durable.write_text(text, encoding='utf-8')
+
+          plan = Path('docs/superpowers/plans/2026-09-04-d09-full-workspace-release-acceptance.md')
+          text = plan.read_text(encoding='utf-8')
+          old = '- Normal D09 delta is limited to the design, this plan, durable record, ten-case corpus, checker, checker tests and exact-head workflow.\n'
+          new = old + '- D09 may additionally correct the three inherited D07/D08 workflow files identified by the release audit, but only to replace floating GitHub Action references with immutable pins or explicit Rust 1.97.1 shell installation; no product semantics may change.\n'
+          if 'D09 may additionally correct the three inherited' not in text:
+              if old not in text:
+                  raise SystemExit('D09 plan remediation anchor missing')
+              text = text.replace(old, new, 1)
+          plan.write_text(text, encoding='utf-8')
+
+          pin = re.compile(r'^[0-9a-f]{40}$')
+          failures = []
+          for path in sorted(Path('.github/workflows').glob('*.yml')):
+              for number, raw in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+                  stripped = raw.strip()
+                  if not stripped.startswith('- uses:') and not stripped.startswith('uses:'):
+                      continue
+                  value = stripped.split('uses:', 1)[1].strip().split(' #', 1)[0].strip("'\"")
+                  if value.startswith('./'):
+                      continue
+                  if '@' not in value or pin.fullmatch(value.rsplit('@', 1)[1]) is None:
+                      failures.append((str(path), number, value))
+          if failures:
+              for failure in failures:
+                  print(failure)
+              raise SystemExit(f'{len(failures)} non-immutable refs remain after repair')
+          print('PROOF_HYGIENE_REPAIR_STATIC_AUDIT_OK')
+          PY
+          git diff --check
+          git diff -- .github/workflows/d07-security-evidence-reproduction-proof.yml \
+            .github/workflows/d08-application-platform-expansion-proof.yml \
+            .github/workflows/d08-tdd.yml \
+            .github/workflows/d09-full-workspace-release-acceptance.yml \
+            D09_FULL_WORKSPACE_RELEASE_ACCEPTANCE.md \
+            docs/superpowers/specs/2026-09-04-d09-full-workspace-release-acceptance-design.md \
+            docs/superpowers/plans/2026-09-04-d09-full-workspace-release-acceptance.md
+
+      - name: Commit and push reviewed repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'THE TECH GUY'
+          git config user.email '65334711+jaydumisuni@users.noreply.github.com'
+          git add \
+            .github/workflows/d07-security-evidence-reproduction-proof.yml \
+            .github/workflows/d08-application-platform-expansion-proof.yml \
+            .github/workflows/d08-tdd.yml \
+            .github/workflows/d09-full-workspace-release-acceptance.yml \
+            D09_FULL_WORKSPACE_RELEASE_ACCEPTANCE.md \
+            docs/superpowers/specs/2026-09-04-d09-full-workspace-release-acceptance-design.md \
+            docs/superpowers/plans/2026-09-04-d09-full-workspace-release-acceptance.md
+          git diff --cached --check
+          git commit -m 'fix(d09): restore immutable proof action pins'
+          git push origin HEAD:d09-full-workspace-release-acceptance

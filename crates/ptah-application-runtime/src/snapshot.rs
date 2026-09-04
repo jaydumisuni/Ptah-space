@@ -13,17 +13,17 @@ pub enum ApplicationPlatformSnapshot {
         /// Roadmap platform class represented by the session.
         platform: PlatformClass,
         /// Validated D08 Application Session projection.
-        session: ApplicationSessionProjection,
+        session: Box<ApplicationSessionProjection>,
         /// Optional validated Display Session associated with the Application Session.
-        display: Option<DisplaySessionProjection>,
+        display: Option<Box<DisplaySessionProjection>>,
     },
     /// An exact Application Revision that remains blocked on Programme E remote-Node authority.
     RemoteRequirement {
         /// Stable Application identity.
         application_ref: EntityRef,
         /// Exact Application Revision.
-        application_revision_ref: EntityRef,
+        application_revision_ref: Box<EntityRef>,
         /// Mechanical remote-Node requirement retained without synthetic runtime state.
-        requirement: RemoteNodeRequirement,
+        requirement: Box<RemoteNodeRequirement>,
     },
 }

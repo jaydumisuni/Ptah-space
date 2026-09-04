@@ -45,89 +45,138 @@ pub enum AcceptanceState {
 /// One durable Activity row for the Activity Centre.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActivityView {
+    /// Human-visible id carried by this projection.
     pub id: String,
+    /// Human-visible title carried by this projection.
     pub title: String,
+    /// Human-visible runtime state carried by this projection.
     pub runtime_state: String,
+    /// Human-visible worker completion carried by this projection.
     pub worker_completion: bool,
+    /// Human-visible acceptance carried by this projection.
     pub acceptance: AcceptanceState,
+    /// Human-visible evidence carried by this projection.
     pub evidence: Vec<String>,
+    /// Human-visible limitation carried by this projection.
     pub limitation: Option<String>,
 }
 
 /// One logical Object/Artifact projection.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObjectView {
+    /// Human-visible id carried by this projection.
     pub id: String,
+    /// Human-visible revision carried by this projection.
     pub revision: String,
+    /// Human-visible label carried by this projection.
     pub label: String,
+    /// Human-visible artifact carried by this projection.
     pub artifact: bool,
+    /// Human-visible materialization state carried by this projection.
     pub materialization_state: String,
+    /// Human-visible evidence carried by this projection.
     pub evidence: Vec<String>,
 }
 
 /// One terminal attachment projection.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerminalView {
+    /// Human-visible id carried by this projection.
     pub id: String,
+    /// Human-visible activity id carried by this projection.
     pub activity_id: String,
+    /// Human-visible attached carried by this projection.
     pub attached: bool,
+    /// Human-visible provider id carried by this projection.
     pub provider_id: String,
+    /// Human-visible provider generation carried by this projection.
     pub provider_generation: u64,
+    /// Human-visible limitation carried by this projection.
     pub limitation: Option<String>,
 }
 
 /// One transfer projection.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TransferView {
+    /// Human-visible id carried by this projection.
     pub id: String,
+    /// Human-visible state carried by this projection.
     pub state: String,
+    /// Human-visible progress percent carried by this projection.
     pub progress_percent: u8,
+    /// Human-visible partial retained carried by this projection.
     pub partial_retained: bool,
+    /// Human-visible evidence carried by this projection.
     pub evidence: Vec<String>,
 }
 
 /// One browser projection.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BrowserView {
+    /// Human-visible page id carried by this projection.
     pub page_id: String,
+    /// Human-visible profile id carried by this projection.
     pub profile_id: String,
+    /// Human-visible url carried by this projection.
     pub url: String,
+    /// Human-visible provider id carried by this projection.
     pub provider_id: String,
+    /// Human-visible provider generation carried by this projection.
     pub provider_generation: u64,
+    /// Human-visible attached carried by this projection.
     pub attached: bool,
+    /// Human-visible limitation carried by this projection.
     pub limitation: Option<String>,
 }
 
 /// Node health is an observed fact, not a recommendation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeHealthView {
+    /// Human-visible node id carried by this projection.
     pub node_id: String,
+    /// Human-visible generation carried by this projection.
     pub generation: u64,
+    /// Human-visible health carried by this projection.
     pub health: String,
+    /// Human-visible ready carried by this projection.
     pub ready: bool,
+    /// Human-visible reachable carried by this projection.
     pub reachable: bool,
+    /// Human-visible pressure carried by this projection.
     pub pressure: String,
+    /// Human-visible evidence carried by this projection.
     pub evidence: Vec<String>,
 }
 
 /// Provider health is an observed fact, not a recommendation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderHealthView {
+    /// Human-visible provider id carried by this projection.
     pub provider_id: String,
+    /// Human-visible generation carried by this projection.
     pub generation: u64,
+    /// Human-visible health carried by this projection.
     pub health: String,
+    /// Human-visible limitations carried by this projection.
     pub limitations: Vec<String>,
+    /// Human-visible evidence carried by this projection.
     pub evidence: Vec<String>,
 }
 
 /// Evidence-backed platform advisory. Observations and suggestions are structurally separate.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiagnosticAdvisory {
+    /// Human-visible id carried by this projection.
     pub id: String,
+    /// Human-visible observed facts carried by this projection.
     pub observed_facts: Vec<String>,
+    /// Human-visible evidence carried by this projection.
     pub evidence: Vec<String>,
+    /// Human-visible suggestions carried by this projection.
     pub suggestions: Vec<String>,
+    /// Human-visible uncertainty carried by this projection.
     pub uncertainty: Option<String>,
+    /// Human-visible state carried by this projection.
     pub state: AdvisoryState,
 }
 
@@ -135,58 +184,91 @@ pub struct DiagnosticAdvisory {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AdvisoryState {
+    /// Represents open.
     Open,
+    /// Represents dismissed.
     Dismissed,
+    /// Represents deferred.
     Deferred,
+    /// Represents alternative chosen.
     AlternativeChosen,
+    /// Represents upgrade submitted.
     UpgradeSubmitted,
 }
 
 /// Worker formation projection.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkerView {
+    /// Human-visible formation id carried by this projection.
     pub formation_id: String,
+    /// Human-visible worker id carried by this projection.
     pub worker_id: String,
+    /// Human-visible role carried by this projection.
     pub role: String,
+    /// Human-visible checkpoint carried by this projection.
     pub checkpoint: Option<String>,
+    /// Human-visible partial result carried by this projection.
     pub partial_result: Option<String>,
+    /// Human-visible conflict carried by this projection.
     pub conflict: Option<String>,
+    /// Human-visible completed carried by this projection.
     pub completed: bool,
+    /// Human-visible acceptance carried by this projection.
     pub acceptance: AcceptanceState,
 }
 
 /// Checkpoint/recovery status exposed to a human.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecoveryView {
+    /// Human-visible checkpoint id carried by this projection.
     pub checkpoint_id: Option<String>,
+    /// Human-visible checkpoint integrity carried by this projection.
     pub checkpoint_integrity: String,
+    /// Human-visible restore compatibility carried by this projection.
     pub restore_compatibility: String,
+    /// Human-visible recovery verification carried by this projection.
     pub recovery_verification: String,
+    /// Human-visible limitations carried by this projection.
     pub limitations: Vec<String>,
 }
 
 /// A limitation/evidence link shown without claiming more than the backing evidence.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvidenceLink {
+    /// Human-visible label carried by this projection.
     pub label: String,
+    /// Human-visible reference carried by this projection.
     pub reference: String,
 }
 
 /// The complete human-visible state envelope.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HumanSnapshot {
+    /// Human-visible authority carried by this projection.
     pub authority: AuthorityStamp,
+    /// Human-visible workspaces carried by this projection.
     pub workspaces: Vec<String>,
+    /// Human-visible activities carried by this projection.
     pub activities: Vec<ActivityView>,
+    /// Human-visible objects carried by this projection.
     pub objects: Vec<ObjectView>,
+    /// Human-visible terminals carried by this projection.
     pub terminals: Vec<TerminalView>,
+    /// Human-visible transfers carried by this projection.
     pub transfers: Vec<TransferView>,
+    /// Human-visible browsers carried by this projection.
     pub browsers: Vec<BrowserView>,
+    /// Human-visible nodes carried by this projection.
     pub nodes: Vec<NodeHealthView>,
+    /// Human-visible providers carried by this projection.
     pub providers: Vec<ProviderHealthView>,
+    /// Human-visible advisories carried by this projection.
     pub advisories: Vec<DiagnosticAdvisory>,
+    /// Human-visible workers carried by this projection.
     pub workers: Vec<WorkerView>,
+    /// Human-visible recovery carried by this projection.
     pub recovery: RecoveryView,
+    /// Human-visible evidence links carried by this projection.
     pub evidence_links: Vec<EvidenceLink>,
 }
 
@@ -194,17 +276,29 @@ pub struct HumanSnapshot {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ControlKind {
+    /// Represents terminal input.
     TerminalInput,
+    /// Represents terminal reconnect.
     TerminalReconnect,
+    /// Represents transfer pause.
     TransferPause,
+    /// Represents transfer resume.
     TransferResume,
+    /// Represents browser navigate.
     BrowserNavigate,
+    /// Represents checkpoint request.
     CheckpointRequest,
+    /// Represents workspace reconnect.
     WorkspaceReconnect,
+    /// Represents advisory dismiss.
     AdvisoryDismiss,
+    /// Represents advisory defer.
     AdvisoryDefer,
+    /// Represents advisory choose alternative.
     AdvisoryChooseAlternative,
+    /// Represents submit upgrade activity.
     SubmitUpgradeActivity,
+    /// Represents accept worker result.
     AcceptWorkerResult,
 }
 
@@ -225,26 +319,41 @@ impl ControlKind {
 /// A human request tied to the exact projection from which it was issued.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HumanControlRequest {
+    /// Human-visible request id carried by this projection.
     pub request_id: String,
+    /// Human-visible kind carried by this projection.
     pub kind: ControlKind,
+    /// Human-visible target id carried by this projection.
     pub target_id: String,
+    /// Human-visible expected carried by this projection.
     pub expected: AuthorityStamp,
+    /// Human-visible provider id carried by this projection.
     pub provider_id: Option<String>,
+    /// Human-visible expected provider generation carried by this projection.
     pub expected_provider_generation: Option<u64>,
+    /// Human-visible approval id carried by this projection.
     pub approval_id: Option<String>,
     #[serde(default)]
+    /// Human-visible payload carried by this projection.
     pub payload: Value,
 }
 
 /// A fenced submission. This records permission to dispatch; it is not a success Receipt.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AuthorizedSubmission {
+    /// Human-visible request id carried by this projection.
     pub request_id: String,
+    /// Human-visible kind carried by this projection.
     pub kind: ControlKind,
+    /// Human-visible target id carried by this projection.
     pub target_id: String,
+    /// Human-visible authority carried by this projection.
     pub authority: AuthorityStamp,
+    /// Human-visible approval id carried by this projection.
     pub approval_id: Option<String>,
+    /// Human-visible payload carried by this projection.
     pub payload: Value,
+    /// Human-visible state carried by this projection.
     pub state: SubmissionState,
 }
 
@@ -252,22 +361,34 @@ pub struct AuthorizedSubmission {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SubmissionState {
+    /// Represents authorized for dispatch.
     AuthorizedForDispatch,
 }
 
 /// Failure to prove current control authority.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ControlError {
+    /// Represents workspace mismatch.
     WorkspaceMismatch,
+    /// Represents stale workspace revision.
     StaleWorkspaceRevision,
+    /// Represents session mismatch.
     SessionMismatch,
+    /// Represents stale session revision.
     StaleSessionRevision,
+    /// Represents node mismatch.
     NodeMismatch,
+    /// Represents stale node generation.
     StaleNodeGeneration,
+    /// Represents stale fence.
     StaleFence,
+    /// Represents provider generation incomplete.
     ProviderGenerationIncomplete,
+    /// Represents stale provider generation.
     StaleProviderGeneration,
+    /// Represents approval required.
     ApprovalRequired,
+    /// Represents unknown target.
     UnknownTarget,
 }
 
@@ -423,16 +544,22 @@ fn validate_target(
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Viewport {
+    /// Represents desktop.
     Desktop,
+    /// Represents tablet.
     Tablet,
+    /// Represents mobile.
     Mobile,
 }
 
 /// Which panels and controls a client should render at a given viewport.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResponsiveProjection {
+    /// Human-visible viewport carried by this projection.
     pub viewport: Viewport,
+    /// Human-visible panels carried by this projection.
     pub panels: Vec<String>,
+    /// Human-visible critical controls carried by this projection.
     pub critical_controls: Vec<ControlKind>,
 }
 
@@ -482,9 +609,13 @@ pub fn responsive_projection(viewport: Viewport) -> ResponsiveProjection {
 /// Client-owned reopen state. It contains presentation choices only, never a Grant or Fence.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientReopenState {
+    /// Human-visible selected workspace id carried by this projection.
     pub selected_workspace_id: String,
+    /// Human-visible selected session id carried by this projection.
     pub selected_session_id: String,
+    /// Human-visible selected panel carried by this projection.
     pub selected_panel: String,
+    /// Human-visible expanded panels carried by this projection.
     pub expanded_panels: BTreeSet<String>,
 }
 
@@ -541,8 +672,11 @@ pub fn validate_snapshot(snapshot: &HumanSnapshot) -> Result<(), SnapshotError> 
 /// Snapshot structural error.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SnapshotError {
+    /// Represents advisory missing evidence.
     AdvisoryMissingEvidence(String),
+    /// Represents advisory missing suggestion.
     AdvisoryMissingSuggestion(String),
+    /// Represents accepted result missing evidence.
     AcceptedResultMissingEvidence(String),
 }
 
@@ -756,6 +890,35 @@ pub struct TypedViewDescriptor {
     pub authoritative: bool,
 }
 
+/// One read-only D08 Application platform row attached to the D01 shell.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplicationPlatformView {
+    /// Stable Application identity.
+    pub application_id: String,
+    /// Exact Application Revision identity.
+    pub application_revision: String,
+    /// D08 roadmap platform class.
+    pub platform: String,
+    /// Mechanical D08 source/disposition.
+    pub disposition: String,
+    /// Stable Application Session identity when one exists.
+    pub session_id: Option<String>,
+    /// Application Session lifecycle when one exists.
+    pub lifecycle: Option<String>,
+    /// Application execution locality when one exists.
+    pub locality: Option<String>,
+    /// Current bounded Application availability.
+    pub availability: String,
+    /// Stable Display Session identity when one exists.
+    pub display_session_id: Option<String>,
+    /// Display Session lifecycle when one exists.
+    pub display_lifecycle: Option<String>,
+    /// Retained evidence references rendered as canonical IDs.
+    pub evidence: Vec<String>,
+    /// Explicit limitations retained from the owning D08 runtime.
+    pub limitations: Vec<String>,
+}
+
 /// Read-only D01 Human Workspace shell v2 projection built from a validated A14 snapshot.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceShellV2Projection {
@@ -763,6 +926,8 @@ pub struct WorkspaceShellV2Projection {
     pub profile_id: String,
     /// Exact canonical authority stamp inherited from A14.
     pub authority: AuthorityStamp,
+    /// Supplemental validated D08 Application platform projections.
+    pub applications: Vec<ApplicationPlatformView>,
     /// Typed operation catalog for controls already owned by A14.
     pub operations: Vec<OperationDescriptorView>,
     /// Reference/materialization truth.
@@ -1038,6 +1203,7 @@ pub fn build_workspace_shell_v2_projection(
     Ok(WorkspaceShellV2Projection {
         profile_id: String::from("ptah.workspace.operations.v2"),
         authority: snapshot.authority.clone(),
+        applications: Vec::new(),
         operations: operation_catalog(),
         availability: build_availability_views(snapshot)?,
         results: build_result_views(snapshot),
@@ -1054,4 +1220,150 @@ pub fn build_workspace_shell_v2_projection(
         approval_authority: false,
         next_action_authority: false,
     })
+}
+
+fn d08_platform_label(platform: ptah_application_runtime::PlatformClass) -> &'static str {
+    use ptah_application_runtime::PlatformClass;
+    match platform {
+        PlatformClass::LinuxNative => "linux_native",
+        PlatformClass::LinuxPackaged => "linux_packaged",
+        PlatformClass::Android => "android",
+        PlatformClass::WindowsNode => "windows_node",
+        PlatformClass::WindowsVm => "windows_vm",
+        PlatformClass::MacOsNode => "mac_os_node",
+        PlatformClass::IosSimulator => "ios_simulator",
+    }
+}
+
+fn d08_session_lifecycle_label(
+    lifecycle: ptah_application_runtime::ApplicationSessionLifecycle,
+) -> &'static str {
+    use ptah_application_runtime::ApplicationSessionLifecycle;
+    match lifecycle {
+        ApplicationSessionLifecycle::Preparing => "preparing",
+        ApplicationSessionLifecycle::Running => "running",
+        ApplicationSessionLifecycle::Degraded => "degraded",
+        ApplicationSessionLifecycle::Detached => "detached",
+        ApplicationSessionLifecycle::Checkpointing => "checkpointing",
+        ApplicationSessionLifecycle::Recovering => "recovering",
+        ApplicationSessionLifecycle::Stopped => "stopped",
+        ApplicationSessionLifecycle::Failed => "failed",
+        ApplicationSessionLifecycle::Uncertain => "uncertain",
+    }
+}
+
+fn d08_locality_label(locality: ptah_application_runtime::SessionLocality) -> &'static str {
+    use ptah_application_runtime::SessionLocality;
+    match locality {
+        SessionLocality::NodeLocal => "node_local",
+        SessionLocality::DeviceLocal => "device_local",
+        SessionLocality::RemoteService => "remote_service",
+    }
+}
+
+fn d08_availability_label(
+    availability: ptah_application_runtime::ApplicationAvailability,
+) -> &'static str {
+    use ptah_application_runtime::ApplicationAvailability;
+    match availability {
+        ApplicationAvailability::Full => "full",
+        ApplicationAvailability::HeadlessOnly => "headless_only",
+        ApplicationAvailability::DisplayOnly => "display_only",
+        ApplicationAvailability::SemanticOnly => "semantic_only",
+        ApplicationAvailability::Partial => "partial",
+        ApplicationAvailability::Recovering => "recovering",
+        ApplicationAvailability::Unavailable => "unavailable",
+        ApplicationAvailability::Unknown => "unknown",
+    }
+}
+
+fn d08_display_lifecycle_label(
+    lifecycle: ptah_application_runtime::DisplayLifecycle,
+) -> &'static str {
+    use ptah_application_runtime::DisplayLifecycle;
+    match lifecycle {
+        DisplayLifecycle::Preparing => "preparing",
+        DisplayLifecycle::Streaming => "streaming",
+        DisplayLifecycle::Degraded => "degraded",
+        DisplayLifecycle::Detached => "detached",
+        DisplayLifecycle::Recovering => "recovering",
+        DisplayLifecycle::Closed => "closed",
+        DisplayLifecycle::Failed => "failed",
+    }
+}
+
+/// Attach validated D08 Application platform snapshots to an existing read-only D01 shell projection.
+///
+/// This changes presentation data only. It does not mutate D08 runtime state, create controls,
+/// change the D01 authority stamp, or infer backing sessions that were not supplied.
+pub fn project_application_platform_views(
+    shell: &mut WorkspaceShellV2Projection,
+    snapshots: &[ptah_application_runtime::ApplicationPlatformSnapshot],
+) {
+    shell.applications = snapshots
+        .iter()
+        .map(|snapshot| match snapshot {
+            ptah_application_runtime::ApplicationPlatformSnapshot::Session {
+                platform,
+                session,
+                display,
+            } => {
+                let mut evidence = session
+                    .evidence_refs
+                    .iter()
+                    .map(|reference| reference.entity_id.to_string())
+                    .collect::<Vec<_>>();
+                let mut limitations = session.limitations.clone();
+                if let Some(display) = display {
+                    evidence.extend(
+                        display
+                            .evidence_refs
+                            .iter()
+                            .map(|reference| reference.entity_id.to_string()),
+                    );
+                    limitations.extend(display.limitations.iter().cloned());
+                }
+                ApplicationPlatformView {
+                    application_id: session.application_ref.entity_id.to_string(),
+                    application_revision: session.application_revision_ref.entity_id.to_string(),
+                    platform: String::from(d08_platform_label(*platform)),
+                    disposition: String::from("session"),
+                    session_id: Some(session.session_ref.entity_id.to_string()),
+                    lifecycle: Some(String::from(d08_session_lifecycle_label(session.lifecycle))),
+                    locality: Some(String::from(d08_locality_label(session.locality))),
+                    availability: String::from(d08_availability_label(session.availability)),
+                    display_session_id: display
+                        .as_ref()
+                        .map(|item| item.display_session_ref.entity_id.to_string()),
+                    display_lifecycle: display
+                        .as_ref()
+                        .map(|item| String::from(d08_display_lifecycle_label(item.lifecycle))),
+                    evidence,
+                    limitations,
+                }
+            }
+            ptah_application_runtime::ApplicationPlatformSnapshot::RemoteRequirement {
+                application_ref,
+                application_revision_ref,
+                requirement,
+            } => ApplicationPlatformView {
+                application_id: application_ref.entity_id.to_string(),
+                application_revision: application_revision_ref.entity_id.to_string(),
+                platform: String::from(d08_platform_label(requirement.platform)),
+                disposition: String::from("requires_remote_node"),
+                session_id: None,
+                lifecycle: None,
+                locality: None,
+                availability: String::from("unavailable"),
+                display_session_id: None,
+                display_lifecycle: None,
+                evidence: requirement
+                    .evidence_refs
+                    .iter()
+                    .map(|reference| reference.entity_id.to_string())
+                    .collect(),
+                limitations: requirement.limitations.clone(),
+            },
+        })
+        .collect();
 }

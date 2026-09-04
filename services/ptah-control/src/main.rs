@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+//! Ptah human-control service executable and HTTP projection boundary.
 
 mod server;
 

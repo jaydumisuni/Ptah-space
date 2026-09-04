@@ -16,7 +16,7 @@ pub fn require_remote_display(
     if requirement.operation != ApplicationOperation::RemoteDisplay {
         return Err(D08Error::CompatibilityOperationMismatch);
     }
-    if requirement.roadmap_dependency != "programme_e.remote_node"
+    if requirement.roadmap_dependency != "Programme E"
         || requirement.required_execution_class.trim().is_empty()
         || requirement.required_capabilities.is_empty()
         || requirement.evidence_refs.is_empty()

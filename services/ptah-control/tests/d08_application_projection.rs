@@ -62,7 +62,7 @@ fn remote_requirement() -> RemoteNodeRequirement {
         "operation": "remote_display",
         "required_execution_class": "remote_windows_node",
         "required_capabilities": ["graphical_display", "remote_application_display"],
-        "roadmap_dependency": "programme_e.remote_node",
+        "roadmap_dependency": "Programme E",
         "evidence_refs": [entity("proof.evidence", 17)],
         "limitations": ["remote execution is deferred until Programme E"]
     }))
@@ -76,12 +76,12 @@ fn validated_session_projections_render_without_adding_launch_authority() {
     let operations = shell.operations.clone();
     let running = ApplicationPlatformSnapshot::Session {
         platform: ptah_application_runtime::PlatformClass::LinuxNative,
-        session: session("running", "full"),
+        session: Box::new(session("running", "full")),
         display: None,
     };
     let degraded = ApplicationPlatformSnapshot::Session {
         platform: ptah_application_runtime::PlatformClass::LinuxPackaged,
-        session: session("degraded", "headless_only"),
+        session: Box::new(session("degraded", "headless_only")),
         display: None,
     };
 
@@ -102,9 +102,11 @@ fn remote_requirement_renders_a_blocker_without_session_or_display_identity() {
     let blocker = ApplicationPlatformSnapshot::RemoteRequirement {
         application_ref: serde_json::from_value(entity("application.application", 18))
             .expect("application ref"),
-        application_revision_ref: serde_json::from_value(entity("application.revision", 19))
-            .expect("application revision ref"),
-        requirement: remote_requirement(),
+        application_revision_ref: Box::new(
+            serde_json::from_value(entity("application.revision", 19))
+                .expect("application revision ref"),
+        ),
+        requirement: Box::new(remote_requirement()),
     };
 
     project_application_platform_views(&mut shell, &[blocker]);
@@ -130,7 +132,7 @@ fn absent_or_preparing_backing_stays_unavailable_and_cannot_change_d01_authority
         &mut shell,
         &[ApplicationPlatformSnapshot::Session {
             platform: ptah_application_runtime::PlatformClass::LinuxNative,
-            session: session("preparing", "unavailable"),
+            session: Box::new(session("preparing", "unavailable")),
             display: None,
         }],
     );

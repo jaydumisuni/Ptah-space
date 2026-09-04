@@ -26,6 +26,6 @@ fn d08_25_remote_display_requirement_remains_a_non_executing_programme_e_blocker
         require_remote_display(&requirement).expect("blocker should remain mechanically visible");
     assert_eq!(retained, requirement);
     assert_eq!(retained.operation, ApplicationOperation::RemoteDisplay);
-    assert_eq!(retained.roadmap_dependency, "programme_e.remote_node");
+    assert_eq!(retained.roadmap_dependency, "Programme E");
     assert!(!retained.evidence_refs.is_empty());
 }

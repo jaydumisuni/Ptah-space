@@ -1,3 +1,5 @@
+//! a14 acceptance integration acceptance proof.
+
 use ptah_control::{
     AcceptanceState, ClientReopenState, ControlError, ControlKind, HumanControlRequest,
     HumanSnapshot, SubmissionState, Viewport, authorize_control, reconcile_reopen_state,

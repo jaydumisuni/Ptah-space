@@ -1,115 +1,115 @@
 [1m[92m    Updating[0m crates.io index
 [1m[92m Downloading[0m crates ...
-[1m[92m  Downloaded[0m cfg_aliases v0.1.1
-[1m[92m  Downloaded[0m block-buffer v0.10.4
 [1m[92m  Downloaded[0m cfg-if v1.0.4
-[1m[92m  Downloaded[0m bitflags v2.13.1
-[1m[92m  Downloaded[0m filedescriptor v0.8.3
-[1m[92m  Downloaded[0m errno v0.3.14
 [1m[92m  Downloaded[0m anyhow v1.0.104
+[1m[92m  Downloaded[0m bitflags v2.13.1
+[1m[92m  Downloaded[0m block-buffer v0.10.4
 [1m[92m  Downloaded[0m bytes v1.12.1
-[1m[92m  Downloaded[0m cpufeatures v0.2.17
-[1m[92m  Downloaded[0m shell-words v1.1.1
-[1m[92m  Downloaded[0m version_check v0.9.5
-[1m[92m  Downloaded[0m downcast-rs v1.2.1
 [1m[92m  Downloaded[0m fallible-streaming-iterator v0.1.9
-[1m[92m  Downloaded[0m crypto-common v0.1.7
-[1m[92m  Downloaded[0m foldhash v0.1.5
-[1m[92m  Downloaded[0m itoa v1.0.18
-[1m[92m  Downloaded[0m hashlink v0.10.0
-[1m[92m  Downloaded[0m pkg-config v0.3.34
-[1m[92m  Downloaded[0m thiserror-impl v1.0.69
-[1m[92m  Downloaded[0m thiserror-impl v2.0.17
-[1m[92m  Downloaded[0m fallible-iterator v0.3.0
-[1m[92m  Downloaded[0m thiserror v2.0.17
 [1m[92m  Downloaded[0m pin-project-lite v0.2.17
-[1m[92m  Downloaded[0m tokio-macros v2.6.1
-[1m[92m  Downloaded[0m signal-hook-registry v1.4.8
-[1m[92m  Downloaded[0m thiserror v1.0.69
-[1m[92m  Downloaded[0m digest v0.10.7
+[1m[92m  Downloaded[0m typenum v1.20.1
+[1m[92m  Downloaded[0m rusqlite v0.37.0
 [1m[92m  Downloaded[0m generic-array v0.14.7
-[1m[92m  Downloaded[0m portable-pty v0.9.0
-[1m[92m  Downloaded[0m quote v1.0.47
-[1m[92m  Downloaded[0m serial2 v0.2.38
-[1m[92m  Downloaded[0m sha2 v0.10.9
-[1m[92m  Downloaded[0m smallvec v1.15.2
-[1m[92m  Downloaded[0m unicode-ident v1.0.24
-[1m[92m  Downloaded[0m ryu v1.0.23
-[1m[92m  Downloaded[0m serde_core v1.0.228
-[1m[92m  Downloaded[0m getrandom v0.3.4
-[1m[92m  Downloaded[0m log v0.4.33
-[1m[92m  Downloaded[0m socket2 v0.6.5
-[1m[92m  Downloaded[0m uuid v1.18.1
-[1m[92m  Downloaded[0m serde_derive v1.0.228
+[1m[92m  Downloaded[0m itoa v1.0.18
+[1m[92m  Downloaded[0m pkg-config v0.3.34
 [1m[92m  Downloaded[0m proc-macro2 v1.0.107
+[1m[92m  Downloaded[0m quote v1.0.47
+[1m[92m  Downloaded[0m serde_core v1.0.228
+[1m[92m  Downloaded[0m unicode-ident v1.0.24
+[1m[92m  Downloaded[0m crypto-common v0.1.7
+[1m[92m  Downloaded[0m digest v0.10.7
+[1m[92m  Downloaded[0m hashlink v0.10.0
+[1m[92m  Downloaded[0m log v0.4.33
+[1m[92m  Downloaded[0m serial2 v0.2.38
+[1m[92m  Downloaded[0m signal-hook-registry v1.4.8
+[1m[92m  Downloaded[0m errno v0.3.14
+[1m[92m  Downloaded[0m sha2 v0.10.9
+[1m[92m  Downloaded[0m thiserror v1.0.69
+[1m[92m  Downloaded[0m version_check v0.9.5
+[1m[92m  Downloaded[0m cfg_aliases v0.1.1
+[1m[92m  Downloaded[0m cpufeatures v0.2.17
+[1m[92m  Downloaded[0m downcast-rs v1.2.1
+[1m[92m  Downloaded[0m filedescriptor v0.8.3
+[1m[92m  Downloaded[0m serde_derive v1.0.228
+[1m[92m  Downloaded[0m shell-words v1.1.1
+[1m[92m  Downloaded[0m thiserror v2.0.17
+[1m[92m  Downloaded[0m thiserror-impl v1.0.69
+[1m[92m  Downloaded[0m getrandom v0.3.4
+[1m[92m  Downloaded[0m ryu v1.0.23
 [1m[92m  Downloaded[0m serde v1.0.228
+[1m[92m  Downloaded[0m smallvec v1.15.2
+[1m[92m  Downloaded[0m socket2 v0.6.5
+[1m[92m  Downloaded[0m thiserror-impl v2.0.17
+[1m[92m  Downloaded[0m tokio-macros v2.6.1
+[1m[92m  Downloaded[0m fallible-iterator v0.3.0
+[1m[92m  Downloaded[0m foldhash v0.1.5
+[1m[92m  Downloaded[0m portable-pty v0.9.0
+[1m[92m  Downloaded[0m uuid v1.18.1
 [1m[92m  Downloaded[0m memchr v2.8.3
 [1m[92m  Downloaded[0m mio v1.2.2
-[1m[92m  Downloaded[0m typenum v1.20.1
-[1m[92m  Downloaded[0m hashbrown v0.15.5
 [1m[92m  Downloaded[0m serde_json v1.0.145
-[1m[92m  Downloaded[0m rusqlite v0.37.0
+[1m[92m  Downloaded[0m hashbrown v0.15.5
 [1m[92m  Downloaded[0m vcpkg v0.2.15
 [1m[92m  Downloaded[0m nix v0.28.0
 [1m[92m  Downloaded[0m syn v2.0.119
-[1m[92m  Downloaded[0m libc v0.2.189
 [1m[92m  Downloaded[0m tokio v1.48.0
+[1m[92m  Downloaded[0m libc v0.2.189
 [1m[92m  Downloaded[0m libsqlite3-sys v0.35.0
 [1m[92m   Compiling[0m proc-macro2 v1.0.107
-[1m[92m   Compiling[0m quote v1.0.47
 [1m[92m   Compiling[0m unicode-ident v1.0.24
+[1m[92m   Compiling[0m quote v1.0.47
 [1m[92m   Compiling[0m libc v0.2.189
 [1m[92m    Checking[0m cfg-if v1.0.4
 [1m[92m   Compiling[0m serde_core v1.0.228
-[1m[92m   Compiling[0m getrandom v0.3.4
 [1m[92m   Compiling[0m serde v1.0.228
+[1m[92m   Compiling[0m getrandom v0.3.4
 [1m[92m   Compiling[0m version_check v0.9.5
 [1m[92m   Compiling[0m thiserror v2.0.17
 [1m[92m   Compiling[0m syn v2.0.119
 [1m[92m   Compiling[0m generic-array v0.14.7
 [1m[92m    Checking[0m typenum v1.20.1
-[1m[92m   Compiling[0m pkg-config v0.3.34
-[1m[92m   Compiling[0m serde_json v1.0.145
 [1m[92m   Compiling[0m vcpkg v0.2.15
+[1m[92m   Compiling[0m serde_json v1.0.145
+[1m[92m   Compiling[0m pkg-config v0.3.34
 [1m[92m    Checking[0m foldhash v0.1.5
-[1m[92m    Checking[0m memchr v2.8.3
 [1m[92m    Checking[0m itoa v1.0.18
 [1m[92m    Checking[0m bitflags v2.13.1
+[1m[92m    Checking[0m memchr v2.8.3
 [1m[92m    Checking[0m ryu v1.0.23
-[1m[92m    Checking[0m crypto-common v0.1.7
-[1m[92m    Checking[0m block-buffer v0.10.4
 [1m[92m    Checking[0m hashbrown v0.15.5
 [1m[92m   Compiling[0m libsqlite3-sys v0.35.0
+[1m[92m    Checking[0m crypto-common v0.1.7
+[1m[92m    Checking[0m block-buffer v0.10.4
 [1m[92m    Checking[0m digest v0.10.7
 [1m[92m    Checking[0m hashlink v0.10.0
-[1m[92m    Checking[0m cpufeatures v0.2.17
-[1m[92m    Checking[0m fallible-streaming-iterator v0.1.9
-[1m[92m    Checking[0m fallible-iterator v0.3.0
 [1m[92m    Checking[0m smallvec v1.15.2
+[1m[92m    Checking[0m fallible-iterator v0.3.0
+[1m[92m    Checking[0m fallible-streaming-iterator v0.1.9
+[1m[92m    Checking[0m cpufeatures v0.2.17
 [1m[92m    Checking[0m sha2 v0.10.9
 [1m[92m    Checking[0m ptah-contracts v0.0.0-phase0c (/home/runner/work/Ptah-space/Ptah-space/crates/ptah-contracts)
 [1m[92m    Checking[0m rusqlite v0.37.0
 [1m[92m    Checking[0m errno v0.3.14
-[1m[92m   Compiling[0m thiserror v1.0.69
 [1m[92m   Compiling[0m cfg_aliases v0.1.1
+[1m[92m   Compiling[0m thiserror v1.0.69
 [1m[92m   Compiling[0m nix v0.28.0
 [1m[92m    Checking[0m signal-hook-registry v1.4.8
-[1m[92m    Checking[0m mio v1.2.2
 [1m[92m    Checking[0m socket2 v0.6.5
-[1m[92m   Compiling[0m anyhow v1.0.104
-[1m[92m    Checking[0m bytes v1.12.1
+[1m[92m    Checking[0m mio v1.2.2
 [1m[92m    Checking[0m pin-project-lite v0.2.17
+[1m[92m    Checking[0m bytes v1.12.1
+[1m[92m   Compiling[0m anyhow v1.0.104
 [1m[92m    Checking[0m serial2 v0.2.38
-[1m[92m    Checking[0m downcast-rs v1.2.1
 [1m[92m    Checking[0m shell-words v1.1.1
+[1m[92m    Checking[0m downcast-rs v1.2.1
 [1m[92m    Checking[0m log v0.4.33
 [1m[92m   Compiling[0m serde_derive v1.0.228
 [1m[92m   Compiling[0m thiserror-impl v2.0.17
-[1m[92m   Compiling[0m thiserror-impl v1.0.69
 [1m[92m   Compiling[0m tokio-macros v2.6.1
+[1m[92m   Compiling[0m thiserror-impl v1.0.69
+[1m[92m    Checking[0m tokio v1.48.0
 [1m[92m    Checking[0m filedescriptor v0.8.3
 [1m[92m    Checking[0m portable-pty v0.9.0
-[1m[92m    Checking[0m tokio v1.48.0
 [1m[92m    Checking[0m uuid v1.18.1
 [1m[92m    Checking[0m ptah-identifiers v0.0.0-phase0c (/home/runner/work/Ptah-space/Ptah-space/crates/ptah-identifiers)
 [1m[92m    Checking[0m ptah-ledger v0.0.0-phase0c (/home/runner/work/Ptah-space/Ptah-space/crates/ptah-ledger)
@@ -124,813 +124,35 @@
 [1m[92m    Checking[0m ptah-android-runtime v0.0.0-phase0c (/home/runner/work/Ptah-space/Ptah-space/crates/ptah-android-runtime)
 [1m[92m    Checking[0m ptah-application-runtime v0.0.0-phase0c (/home/runner/work/Ptah-space/Ptah-space/crates/ptah-application-runtime)
 [1m[92m    Checking[0m ptah-control v0.0.0-phase0c (/home/runner/work/Ptah-space/Ptah-space/services/ptah-control)
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:48:5
+[1m[91merror[0m[1m: missing documentation for the crate[0m
+   [1m[94m--> [0mservices/ptah-control/tests/a14_acceptance.rs:1:1
+    [1m[94m|[0m
+[1m[94m  1[0m [1m[94m|[0m [1m[91m/[0m use ptah_control::{
+[1m[94m  2[0m [1m[94m|[0m [1m[91m|[0m     AcceptanceState, ClientReopenState, ControlError, ControlKind, HumanControlRequest,
+[1m[94m  3[0m [1m[94m|[0m [1m[91m|[0m     HumanSnapshot, SubmissionState, Viewport, authorize_control, reconcile_reopen_state,
+[1m[94m  4[0m [1m[94m|[0m [1m[91m|[0m     responsive_projection, validate_snapshot,
+[1m[94m...[0m   [1m[91m|[0m
+[1m[94m203[0m [1m[94m|[0m [1m[91m|[0m     assert!(preflight.contains("localStorage.removeItem('ptah.presentation')"));
+[1m[94m204[0m [1m[94m|[0m [1m[91m|[0m }
+    [1m[94m|[0m [1m[91m|_^[0m
+    [1m[94m|[0m
+    [1m[94m= [0m[1mnote[0m: `-D missing-docs` implied by `-D warnings`
+    [1m[94m= [0m[1mhelp[0m: to override `-D warnings` add `#[allow(missing_docs)]`
+
+[1m[91merror[0m: could not compile `ptah-control` (test "a14_acceptance") due to 1 previous error
+[1m[33mwarning[0m: build failed, waiting for other jobs to finish...
+[1m[91merror[0m[1m: missing documentation for the crate[0m
+  [1m[94m--> [0mservices/ptah-control/src/main.rs:1:1
    [1m[94m|[0m
-[1m[94m48[0m [1m[94m|[0m     pub id: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^[0m
+[1m[94m 1[0m [1m[94m|[0m [1m[91m/[0m #![forbid(unsafe_code)]
+[1m[94m 2[0m [1m[94m|[0m [1m[91m|[0m
+[1m[94m 3[0m [1m[94m|[0m [1m[91m|[0m mod server;
+[1m[94m...[0m  [1m[91m|[0m
+[1m[94m47[0m [1m[94m|[0m [1m[91m|[0m     })
+[1m[94m48[0m [1m[94m|[0m [1m[91m|[0m }
+   [1m[94m|[0m [1m[91m|_^[0m
    [1m[94m|[0m
    [1m[94m= [0m[1mnote[0m: `-D missing-docs` implied by `-D warnings`
    [1m[94m= [0m[1mhelp[0m: to override `-D warnings` add `#[allow(missing_docs)]`
 
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:49:5
-   [1m[94m|[0m
-[1m[94m49[0m [1m[94m|[0m     pub title: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:50:5
-   [1m[94m|[0m
-[1m[94m50[0m [1m[94m|[0m     pub runtime_state: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:51:5
-   [1m[94m|[0m
-[1m[94m51[0m [1m[94m|[0m     pub worker_completion: bool,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:52:5
-   [1m[94m|[0m
-[1m[94m52[0m [1m[94m|[0m     pub acceptance: AcceptanceState,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:53:5
-   [1m[94m|[0m
-[1m[94m53[0m [1m[94m|[0m     pub evidence: Vec<String>,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:54:5
-   [1m[94m|[0m
-[1m[94m54[0m [1m[94m|[0m     pub limitation: Option<String>,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:60:5
-   [1m[94m|[0m
-[1m[94m60[0m [1m[94m|[0m     pub id: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:61:5
-   [1m[94m|[0m
-[1m[94m61[0m [1m[94m|[0m     pub revision: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:62:5
-   [1m[94m|[0m
-[1m[94m62[0m [1m[94m|[0m     pub label: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:63:5
-   [1m[94m|[0m
-[1m[94m63[0m [1m[94m|[0m     pub artifact: bool,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:64:5
-   [1m[94m|[0m
-[1m[94m64[0m [1m[94m|[0m     pub materialization_state: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:65:5
-   [1m[94m|[0m
-[1m[94m65[0m [1m[94m|[0m     pub evidence: Vec<String>,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:71:5
-   [1m[94m|[0m
-[1m[94m71[0m [1m[94m|[0m     pub id: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:72:5
-   [1m[94m|[0m
-[1m[94m72[0m [1m[94m|[0m     pub activity_id: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:73:5
-   [1m[94m|[0m
-[1m[94m73[0m [1m[94m|[0m     pub attached: bool,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:74:5
-   [1m[94m|[0m
-[1m[94m74[0m [1m[94m|[0m     pub provider_id: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:75:5
-   [1m[94m|[0m
-[1m[94m75[0m [1m[94m|[0m     pub provider_generation: u64,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:76:5
-   [1m[94m|[0m
-[1m[94m76[0m [1m[94m|[0m     pub limitation: Option<String>,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:82:5
-   [1m[94m|[0m
-[1m[94m82[0m [1m[94m|[0m     pub id: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:83:5
-   [1m[94m|[0m
-[1m[94m83[0m [1m[94m|[0m     pub state: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:84:5
-   [1m[94m|[0m
-[1m[94m84[0m [1m[94m|[0m     pub progress_percent: u8,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:85:5
-   [1m[94m|[0m
-[1m[94m85[0m [1m[94m|[0m     pub partial_retained: bool,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:86:5
-   [1m[94m|[0m
-[1m[94m86[0m [1m[94m|[0m     pub evidence: Vec<String>,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:92:5
-   [1m[94m|[0m
-[1m[94m92[0m [1m[94m|[0m     pub page_id: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:93:5
-   [1m[94m|[0m
-[1m[94m93[0m [1m[94m|[0m     pub profile_id: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:94:5
-   [1m[94m|[0m
-[1m[94m94[0m [1m[94m|[0m     pub url: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:95:5
-   [1m[94m|[0m
-[1m[94m95[0m [1m[94m|[0m     pub provider_id: String,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:96:5
-   [1m[94m|[0m
-[1m[94m96[0m [1m[94m|[0m     pub provider_generation: u64,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:97:5
-   [1m[94m|[0m
-[1m[94m97[0m [1m[94m|[0m     pub attached: bool,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-  [1m[94m--> [0mservices/ptah-control/src/lib.rs:98:5
-   [1m[94m|[0m
-[1m[94m98[0m [1m[94m|[0m     pub limitation: Option<String>,
-   [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:104:5
-    [1m[94m|[0m
-[1m[94m104[0m [1m[94m|[0m     pub node_id: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:105:5
-    [1m[94m|[0m
-[1m[94m105[0m [1m[94m|[0m     pub generation: u64,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:106:5
-    [1m[94m|[0m
-[1m[94m106[0m [1m[94m|[0m     pub health: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:107:5
-    [1m[94m|[0m
-[1m[94m107[0m [1m[94m|[0m     pub ready: bool,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:108:5
-    [1m[94m|[0m
-[1m[94m108[0m [1m[94m|[0m     pub reachable: bool,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:109:5
-    [1m[94m|[0m
-[1m[94m109[0m [1m[94m|[0m     pub pressure: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:110:5
-    [1m[94m|[0m
-[1m[94m110[0m [1m[94m|[0m     pub evidence: Vec<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:116:5
-    [1m[94m|[0m
-[1m[94m116[0m [1m[94m|[0m     pub provider_id: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:117:5
-    [1m[94m|[0m
-[1m[94m117[0m [1m[94m|[0m     pub generation: u64,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:118:5
-    [1m[94m|[0m
-[1m[94m118[0m [1m[94m|[0m     pub health: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:119:5
-    [1m[94m|[0m
-[1m[94m119[0m [1m[94m|[0m     pub limitations: Vec<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:120:5
-    [1m[94m|[0m
-[1m[94m120[0m [1m[94m|[0m     pub evidence: Vec<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:126:5
-    [1m[94m|[0m
-[1m[94m126[0m [1m[94m|[0m     pub id: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:127:5
-    [1m[94m|[0m
-[1m[94m127[0m [1m[94m|[0m     pub observed_facts: Vec<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:128:5
-    [1m[94m|[0m
-[1m[94m128[0m [1m[94m|[0m     pub evidence: Vec<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:129:5
-    [1m[94m|[0m
-[1m[94m129[0m [1m[94m|[0m     pub suggestions: Vec<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:130:5
-    [1m[94m|[0m
-[1m[94m130[0m [1m[94m|[0m     pub uncertainty: Option<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:131:5
-    [1m[94m|[0m
-[1m[94m131[0m [1m[94m|[0m     pub state: AdvisoryState,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:138:5
-    [1m[94m|[0m
-[1m[94m138[0m [1m[94m|[0m     Open,
-    [1m[94m|[0m     [1m[91m^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:139:5
-    [1m[94m|[0m
-[1m[94m139[0m [1m[94m|[0m     Dismissed,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:140:5
-    [1m[94m|[0m
-[1m[94m140[0m [1m[94m|[0m     Deferred,
-    [1m[94m|[0m     [1m[91m^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:141:5
-    [1m[94m|[0m
-[1m[94m141[0m [1m[94m|[0m     AlternativeChosen,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:142:5
-    [1m[94m|[0m
-[1m[94m142[0m [1m[94m|[0m     UpgradeSubmitted,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:148:5
-    [1m[94m|[0m
-[1m[94m148[0m [1m[94m|[0m     pub formation_id: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:149:5
-    [1m[94m|[0m
-[1m[94m149[0m [1m[94m|[0m     pub worker_id: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:150:5
-    [1m[94m|[0m
-[1m[94m150[0m [1m[94m|[0m     pub role: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:151:5
-    [1m[94m|[0m
-[1m[94m151[0m [1m[94m|[0m     pub checkpoint: Option<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:152:5
-    [1m[94m|[0m
-[1m[94m152[0m [1m[94m|[0m     pub partial_result: Option<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:153:5
-    [1m[94m|[0m
-[1m[94m153[0m [1m[94m|[0m     pub conflict: Option<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:154:5
-    [1m[94m|[0m
-[1m[94m154[0m [1m[94m|[0m     pub completed: bool,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:155:5
-    [1m[94m|[0m
-[1m[94m155[0m [1m[94m|[0m     pub acceptance: AcceptanceState,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:161:5
-    [1m[94m|[0m
-[1m[94m161[0m [1m[94m|[0m     pub checkpoint_id: Option<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:162:5
-    [1m[94m|[0m
-[1m[94m162[0m [1m[94m|[0m     pub checkpoint_integrity: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:163:5
-    [1m[94m|[0m
-[1m[94m163[0m [1m[94m|[0m     pub restore_compatibility: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:164:5
-    [1m[94m|[0m
-[1m[94m164[0m [1m[94m|[0m     pub recovery_verification: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:165:5
-    [1m[94m|[0m
-[1m[94m165[0m [1m[94m|[0m     pub limitations: Vec<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:171:5
-    [1m[94m|[0m
-[1m[94m171[0m [1m[94m|[0m     pub label: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:172:5
-    [1m[94m|[0m
-[1m[94m172[0m [1m[94m|[0m     pub reference: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:178:5
-    [1m[94m|[0m
-[1m[94m178[0m [1m[94m|[0m     pub authority: AuthorityStamp,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:179:5
-    [1m[94m|[0m
-[1m[94m179[0m [1m[94m|[0m     pub workspaces: Vec<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:180:5
-    [1m[94m|[0m
-[1m[94m180[0m [1m[94m|[0m     pub activities: Vec<ActivityView>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:181:5
-    [1m[94m|[0m
-[1m[94m181[0m [1m[94m|[0m     pub objects: Vec<ObjectView>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:182:5
-    [1m[94m|[0m
-[1m[94m182[0m [1m[94m|[0m     pub terminals: Vec<TerminalView>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:183:5
-    [1m[94m|[0m
-[1m[94m183[0m [1m[94m|[0m     pub transfers: Vec<TransferView>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:184:5
-    [1m[94m|[0m
-[1m[94m184[0m [1m[94m|[0m     pub browsers: Vec<BrowserView>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:185:5
-    [1m[94m|[0m
-[1m[94m185[0m [1m[94m|[0m     pub nodes: Vec<NodeHealthView>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:186:5
-    [1m[94m|[0m
-[1m[94m186[0m [1m[94m|[0m     pub providers: Vec<ProviderHealthView>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:187:5
-    [1m[94m|[0m
-[1m[94m187[0m [1m[94m|[0m     pub advisories: Vec<DiagnosticAdvisory>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:188:5
-    [1m[94m|[0m
-[1m[94m188[0m [1m[94m|[0m     pub workers: Vec<WorkerView>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:189:5
-    [1m[94m|[0m
-[1m[94m189[0m [1m[94m|[0m     pub recovery: RecoveryView,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:190:5
-    [1m[94m|[0m
-[1m[94m190[0m [1m[94m|[0m     pub evidence_links: Vec<EvidenceLink>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:197:5
-    [1m[94m|[0m
-[1m[94m197[0m [1m[94m|[0m     TerminalInput,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:198:5
-    [1m[94m|[0m
-[1m[94m198[0m [1m[94m|[0m     TerminalReconnect,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:199:5
-    [1m[94m|[0m
-[1m[94m199[0m [1m[94m|[0m     TransferPause,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:200:5
-    [1m[94m|[0m
-[1m[94m200[0m [1m[94m|[0m     TransferResume,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:201:5
-    [1m[94m|[0m
-[1m[94m201[0m [1m[94m|[0m     BrowserNavigate,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:202:5
-    [1m[94m|[0m
-[1m[94m202[0m [1m[94m|[0m     CheckpointRequest,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:203:5
-    [1m[94m|[0m
-[1m[94m203[0m [1m[94m|[0m     WorkspaceReconnect,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:204:5
-    [1m[94m|[0m
-[1m[94m204[0m [1m[94m|[0m     AdvisoryDismiss,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:205:5
-    [1m[94m|[0m
-[1m[94m205[0m [1m[94m|[0m     AdvisoryDefer,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:206:5
-    [1m[94m|[0m
-[1m[94m206[0m [1m[94m|[0m     AdvisoryChooseAlternative,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:207:5
-    [1m[94m|[0m
-[1m[94m207[0m [1m[94m|[0m     SubmitUpgradeActivity,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:208:5
-    [1m[94m|[0m
-[1m[94m208[0m [1m[94m|[0m     AcceptWorkerResult,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:228:5
-    [1m[94m|[0m
-[1m[94m228[0m [1m[94m|[0m     pub request_id: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:229:5
-    [1m[94m|[0m
-[1m[94m229[0m [1m[94m|[0m     pub kind: ControlKind,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:230:5
-    [1m[94m|[0m
-[1m[94m230[0m [1m[94m|[0m     pub target_id: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:231:5
-    [1m[94m|[0m
-[1m[94m231[0m [1m[94m|[0m     pub expected: AuthorityStamp,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:232:5
-    [1m[94m|[0m
-[1m[94m232[0m [1m[94m|[0m     pub provider_id: Option<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:233:5
-    [1m[94m|[0m
-[1m[94m233[0m [1m[94m|[0m     pub expected_provider_generation: Option<u64>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:234:5
-    [1m[94m|[0m
-[1m[94m234[0m [1m[94m|[0m     pub approval_id: Option<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:236:5
-    [1m[94m|[0m
-[1m[94m236[0m [1m[94m|[0m     pub payload: Value,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:242:5
-    [1m[94m|[0m
-[1m[94m242[0m [1m[94m|[0m     pub request_id: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:243:5
-    [1m[94m|[0m
-[1m[94m243[0m [1m[94m|[0m     pub kind: ControlKind,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:244:5
-    [1m[94m|[0m
-[1m[94m244[0m [1m[94m|[0m     pub target_id: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:245:5
-    [1m[94m|[0m
-[1m[94m245[0m [1m[94m|[0m     pub authority: AuthorityStamp,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:246:5
-    [1m[94m|[0m
-[1m[94m246[0m [1m[94m|[0m     pub approval_id: Option<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:247:5
-    [1m[94m|[0m
-[1m[94m247[0m [1m[94m|[0m     pub payload: Value,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:248:5
-    [1m[94m|[0m
-[1m[94m248[0m [1m[94m|[0m     pub state: SubmissionState,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:255:5
-    [1m[94m|[0m
-[1m[94m255[0m [1m[94m|[0m     AuthorizedForDispatch,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:261:5
-    [1m[94m|[0m
-[1m[94m261[0m [1m[94m|[0m     WorkspaceMismatch,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:262:5
-    [1m[94m|[0m
-[1m[94m262[0m [1m[94m|[0m     StaleWorkspaceRevision,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:263:5
-    [1m[94m|[0m
-[1m[94m263[0m [1m[94m|[0m     SessionMismatch,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:264:5
-    [1m[94m|[0m
-[1m[94m264[0m [1m[94m|[0m     StaleSessionRevision,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:265:5
-    [1m[94m|[0m
-[1m[94m265[0m [1m[94m|[0m     NodeMismatch,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:266:5
-    [1m[94m|[0m
-[1m[94m266[0m [1m[94m|[0m     StaleNodeGeneration,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:267:5
-    [1m[94m|[0m
-[1m[94m267[0m [1m[94m|[0m     StaleFence,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:268:5
-    [1m[94m|[0m
-[1m[94m268[0m [1m[94m|[0m     ProviderGenerationIncomplete,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:269:5
-    [1m[94m|[0m
-[1m[94m269[0m [1m[94m|[0m     StaleProviderGeneration,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:270:5
-    [1m[94m|[0m
-[1m[94m270[0m [1m[94m|[0m     ApprovalRequired,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:271:5
-    [1m[94m|[0m
-[1m[94m271[0m [1m[94m|[0m     UnknownTarget,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:426:5
-    [1m[94m|[0m
-[1m[94m426[0m [1m[94m|[0m     Desktop,
-    [1m[94m|[0m     [1m[91m^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:427:5
-    [1m[94m|[0m
-[1m[94m427[0m [1m[94m|[0m     Tablet,
-    [1m[94m|[0m     [1m[91m^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:428:5
-    [1m[94m|[0m
-[1m[94m428[0m [1m[94m|[0m     Mobile,
-    [1m[94m|[0m     [1m[91m^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:434:5
-    [1m[94m|[0m
-[1m[94m434[0m [1m[94m|[0m     pub viewport: Viewport,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:435:5
-    [1m[94m|[0m
-[1m[94m435[0m [1m[94m|[0m     pub panels: Vec<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:436:5
-    [1m[94m|[0m
-[1m[94m436[0m [1m[94m|[0m     pub critical_controls: Vec<ControlKind>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:485:5
-    [1m[94m|[0m
-[1m[94m485[0m [1m[94m|[0m     pub selected_workspace_id: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:486:5
-    [1m[94m|[0m
-[1m[94m486[0m [1m[94m|[0m     pub selected_session_id: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:487:5
-    [1m[94m|[0m
-[1m[94m487[0m [1m[94m|[0m     pub selected_panel: String,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a struct field[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:488:5
-    [1m[94m|[0m
-[1m[94m488[0m [1m[94m|[0m     pub expanded_panels: BTreeSet<String>,
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:544:5
-    [1m[94m|[0m
-[1m[94m544[0m [1m[94m|[0m     AdvisoryMissingEvidence(String),
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:545:5
-    [1m[94m|[0m
-[1m[94m545[0m [1m[94m|[0m     AdvisoryMissingSuggestion(String),
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m[1m: missing documentation for a variant[0m
-   [1m[94m--> [0mservices/ptah-control/src/lib.rs:546:5
-    [1m[94m|[0m
-[1m[94m546[0m [1m[94m|[0m     AcceptedResultMissingEvidence(String),
-    [1m[94m|[0m     [1m[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
-
-[1m[91merror[0m: could not compile `ptah-control` (lib) due to 134 previous errors
-[1m[33mwarning[0m: build failed, waiting for other jobs to finish...
-[1m[91merror[0m: could not compile `ptah-control` (lib test) due to 134 previous errors
+[1m[91merror[0m: could not compile `ptah-control` (bin "ptah-control") due to 1 previous error

@@ -95,6 +95,7 @@ jobs:
               'crates/ptah-node-link/tests/framing.rs',
               'crates/ptah-node-link/tests/protocol.rs',
               'crates/ptah-node-link/tests/tls_transport.rs',
+              'deny.toml',
               'dependencies/rust-direct-lock.json',
               'docs/superpowers/plans/2026-09-04-e01-secure-multi-node-identity-connection.md',
               'docs/superpowers/specs/2026-09-04-e01-secure-multi-node-identity-connection-design.md',

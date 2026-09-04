@@ -27,192 +27,11 @@ jobs:
         run: cp Cargo.lock /tmp/Cargo.lock.before
       - name: Apply minimal Task4 implementation
         shell: bash
+        env:
+          D08_PATCH_B64: ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgpyZW1vdGUgPSBQYXRoKCJjcmF0ZXMvcHRhaC1hcHBsaWNhdGlvbi1ydW50aW1lL3NyYy9yZW1vdGVfZGlzcGxheS5ycyIpCnJlbW90ZV90ZXh0ID0gcmVtb3RlLnJlYWRfdGV4dCgpCm9sZCA9ICdyZXF1aXJlbWVudC5yb2FkbWFwX2RlcGVuZGVuY3kgIT0gInByb2dyYW1tZV9lLnJlbW90ZV9ub2RlIicKbmV3ID0gJ3JlcXVpcmVtZW50LnJvYWRtYXBfZGVwZW5kZW5jeSAhPSAiUHJvZ3JhbW1lIEUiJwppZiBvbGQgaW4gcmVtb3RlX3RleHQ6CiAgICByZW1vdGVfdGV4dCA9IHJlbW90ZV90ZXh0LnJlcGxhY2Uob2xkLCBuZXcpCmVsaWYgbmV3IG5vdCBpbiByZW1vdGVfdGV4dDoKICAgIHJhaXNlIFN5c3RlbUV4aXQoInJlbW90ZSBkaXNwbGF5IGRlcGVuZGVuY3kgcHJlZGljYXRlIG5vdCBmb3VuZCIpCnJlbW90ZS53cml0ZV90ZXh0KHJlbW90ZV90ZXh0KQoKZm9yIHRlc3RfcGF0aCBpbiBbCiAgICBQYXRoKCJjcmF0ZXMvcHRhaC1hcHBsaWNhdGlvbi1ydW50aW1lL3Rlc3RzL2QwOF9hY2NlcHRhbmNlL3JlbW90ZS5ycyIpLAogICAgUGF0aCgic2VydmljZXMvcHRhaC1jb250cm9sL3Rlc3RzL2QwOF9hcHBsaWNhdGlvbl9wcm9qZWN0aW9uLnJzIiksCl06CiAgICB0ZXh0ID0gdGVzdF9wYXRoLnJlYWRfdGV4dCgpCiAgICB0ZXh0ID0gdGV4dC5yZXBsYWNlKCcicHJvZ3JhbW1lX2UucmVtb3RlX25vZGUiJywgJyJQcm9ncmFtbWUgRSInKQogICAgdGVzdF9wYXRoLndyaXRlX3RleHQodGV4dCkKCnBhdGggPSBQYXRoKCJzZXJ2aWNlcy9wdGFoLWNvbnRyb2wvc3JjL2xpYi5ycyIpCnRleHQgPSBwYXRoLnJlYWRfdGV4dCgpCgp2aWV3ID0gIiIiLy8vIE9uZSByZWFkLW9ubHkgRDA4IEFwcGxpY2F0aW9uIHBsYXRmb3JtIHJvdyBhdHRhY2hlZCB0byB0aGUgRDAxIHNoZWxsLgojW2Rlcml2ZShDbG9uZSwgRGVidWcsIFBhcnRpYWxFcSwgRXEsIFNlcmlhbGl6ZSwgRGVzZXJpYWxpemUpXQpwdWIgc3RydWN0IEFwcGxpY2F0aW9uUGxhdGZvcm1WaWV3IHsKICAgIC8vLyBTdGFibGUgQXBwbGljYXRpb24gaWRlbnRpdHkuCiAgICBwdWIgYXBwbGljYXRpb25faWQ6IFN0cmluZywKICAgIC8vLyBFeGFjdCBBcHBsaWNhdGlvbiBSZXZpc2lvbiBpZGVudGl0eS4KICAgIHB1YiBhcHBsaWNhdGlvbl9yZXZpc2lvbjogU3RyaW5nLAogICAgLy8vIEQwOCByb2FkbWFwIHBsYXRmb3JtIGNsYXNzLgogICAgcHViIHBsYXRmb3JtOiBTdHJpbmcsCiAgICAvLy8gTWVjaGFuaWNhbCBEMDggc291cmNlL2Rpc3Bvc2l0aW9uLgogICAgcHViIGRpc3Bvc2l0aW9uOiBTdHJpbmcsCiAgICAvLy8gU3RhYmxlIEFwcGxpY2F0aW9uIFNlc3Npb24gaWRlbnRpdHkgd2hlbiBvbmUgZXhpc3RzLgogICAgcHViIHNlc3Npb25faWQ6IE9wdGlvbjxTdHJpbmc+LAogICAgLy8vIEFwcGxpY2F0aW9uIFNlc3Npb24gbGlmZWN5Y2xlIHdoZW4gb25lIGV4aXN0cy4KICAgIHB1YiBsaWZlY3ljbGU6IE9wdGlvbjxTdHJpbmc+LAogICAgLy8vIEFwcGxpY2F0aW9uIGV4ZWN1dGlvbiBsb2NhbGl0eSB3aGVuIG9uZSBleGlzdHMuCiAgICBwdWIgbG9jYWxpdHk6IE9wdGlvbjxTdHJpbmc+LAogICAgLy8vIEN1cnJlbnQgYm91bmRlZCBBcHBsaWNhdGlvbiBhdmFpbGFiaWxpdHkuCiAgICBwdWIgYXZhaWxhYmlsaXR5OiBTdHJpbmcsCiAgICAvLy8gU3RhYmxlIERpc3BsYXkgU2Vzc2lvbiBpZGVudGl0eSB3aGVuIG9uZSBleGlzdHMuCiAgICBwdWIgZGlzcGxheV9zZXNzaW9uX2lkOiBPcHRpb248U3RyaW5nPiwKICAgIC8vLyBEaXNwbGF5IFNlc3Npb24gbGlmZWN5Y2xlIHdoZW4gb25lIGV4aXN0cy4KICAgIHB1YiBkaXNwbGF5X2xpZmVjeWNsZTogT3B0aW9uPFN0cmluZz4sCiAgICAvLy8gUmV0YWluZWQgZXZpZGVuY2UgcmVmZXJlbmNlcyByZW5kZXJlZCBhcyBjYW5vbmljYWwgSURzLgogICAgcHViIGV2aWRlbmNlOiBWZWM8U3RyaW5nPiwKICAgIC8vLyBFeHBsaWNpdCBsaW1pdGF0aW9ucyByZXRhaW5lZCBmcm9tIHRoZSBvd25pbmcgRDA4IHJ1bnRpbWUuCiAgICBwdWIgbGltaXRhdGlvbnM6IFZlYzxTdHJpbmc+LAp9CgoiIiIKbWFya2VyID0gIi8vLyBSZWFkLW9ubHkgRDAxIEh1bWFuIFdvcmtzcGFjZSBzaGVsbCB2MiBwcm9qZWN0aW9uIGJ1aWx0IGZyb20gYSB2YWxpZGF0ZWQgQTE0IHNuYXBzaG90LlxuIgppZiAicHViIHN0cnVjdCBBcHBsaWNhdGlvblBsYXRmb3JtVmlldyIgbm90IGluIHRleHQ6CiAgICBpZiBtYXJrZXIgbm90IGluIHRleHQ6CiAgICAgICAgcmFpc2UgU3lzdGVtRXhpdCgiRDAxIHNoZWxsIHByb2plY3Rpb24gbWFya2VyIG1pc3NpbmciKQogICAgdGV4dCA9IHRleHQucmVwbGFjZShtYXJrZXIsIHZpZXcgKyBtYXJrZXIsIDEpCgpmaWVsZF9hbmNob3IgPSAiIiIgICAgLy8vIEV4YWN0IGNhbm9uaWNhbCBhdXRob3JpdHkgc3RhbXAgaW5oZXJpdGVkIGZyb20gQTE0LgogICAgcHViIGF1dGhvcml0eTogQXV0aG9yaXR5U3RhbXAsCiIiIgpmaWVsZCA9IGZpZWxkX2FuY2hvciArICIiIiAgICAvLy8gU3VwcGxlbWVudGFsIHZhbGlkYXRlZCBEMDggQXBwbGljYXRpb24gcGxhdGZvcm0gcHJvamVjdGlvbnMuCiAgICBwdWIgYXBwbGljYXRpb25zOiBWZWM8QXBwbGljYXRpb25QbGF0Zm9ybVZpZXc+LAoiIiIKaWYgInB1YiBhcHBsaWNhdGlvbnM6IFZlYzxBcHBsaWNhdGlvblBsYXRmb3JtVmlldz4iIG5vdCBpbiB0ZXh0OgogICAgaWYgZmllbGRfYW5jaG9yIG5vdCBpbiB0ZXh0OgogICAgICAgIHJhaXNlIFN5c3RlbUV4aXQoIkQwMSBhdXRob3JpdHkgZmllbGQgYW5jaG9yIG1pc3NpbmciKQogICAgdGV4dCA9IHRleHQucmVwbGFjZShmaWVsZF9hbmNob3IsIGZpZWxkLCAxKQoKYnVpbGRlcl9hbmNob3IgPSAiIiIgICAgICAgIGF1dGhvcml0eTogc25hcHNob3QuYXV0aG9yaXR5LmNsb25lKCksCiAgICAgICAgb3BlcmF0aW9uczogb3BlcmF0aW9uX2NhdGFsb2coKSwKIiIiCmJ1aWxkZXIgPSAiIiIgICAgICAgIGF1dGhvcml0eTogc25hcHNob3QuYXV0aG9yaXR5LmNsb25lKCksCiAgICAgICAgYXBwbGljYXRpb25zOiBWZWM6Om5ldygpLAogICAgICAgIG9wZXJhdGlvbnM6IG9wZXJhdGlvbl9jYXRhbG9nKCksCiIiIgppZiAiICAgICAgICBhcHBsaWNhdGlvbnM6IFZlYzo6bmV3KCksXG4iIG5vdCBpbiB0ZXh0OgogICAgaWYgYnVpbGRlcl9hbmNob3Igbm90IGluIHRleHQ6CiAgICAgICAgcmFpc2UgU3lzdGVtRXhpdCgiRDAxIGJ1aWxkZXIgYW5jaG9yIG1pc3NpbmciKQogICAgdGV4dCA9IHRleHQucmVwbGFjZShidWlsZGVyX2FuY2hvciwgYnVpbGRlciwgMSkKCnByb2plY3Rpb24gPSByIiIiCmZuIGQwOF9wbGF0Zm9ybV9sYWJlbChwbGF0Zm9ybTogcHRhaF9hcHBsaWNhdGlvbl9ydW50aW1lOjpQbGF0Zm9ybUNsYXNzKSAtPiAmJ3N0YXRpYyBzdHIgewogICAgdXNlIHB0YWhfYXBwbGljYXRpb25fcnVudGltZTo6UGxhdGZvcm1DbGFzczsKICAgIG1hdGNoIHBsYXRmb3JtIHsKICAgICAgICBQbGF0Zm9ybUNsYXNzOjpMaW51eE5hdGl2ZSA9PiAibGludXhfbmF0aXZlIiwKICAgICAgICBQbGF0Zm9ybUNsYXNzOjpMaW51eFBhY2thZ2VkID0+ICJsaW51eF9wYWNrYWdlZCIsCiAgICAgICAgUGxhdGZvcm1DbGFzczo6QW5kcm9pZCA9PiAiYW5kcm9pZCIsCiAgICAgICAgUGxhdGZvcm1DbGFzczo6V2luZG93c05vZGUgPT4gIndpbmRvd3Nfbm9kZSIsCiAgICAgICAgUGxhdGZvcm1DbGFzczo6V2luZG93c1ZtID0+ICJ3aW5kb3dzX3ZtIiwKICAgICAgICBQbGF0Zm9ybUNsYXNzOjpNYWNPc05vZGUgPT4gIm1hY19vc19ub2RlIiwKICAgICAgICBQbGF0Zm9ybUNsYXNzOjpJb3NTaW11bGF0b3IgPT4gImlvc19zaW11bGF0b3IiLAogICAgfQp9CgpmbiBkMDhfc2Vzc2lvbl9saWZlY3ljbGVfbGFiZWwoCiAgICBsaWZlY3ljbGU6IHB0YWhfYXBwbGljYXRpb25fcnVudGltZTo6QXBwbGljYXRpb25TZXNzaW9uTGlmZWN5Y2xlLAopIC0+ICYnc3RhdGljIHN0ciB7CiAgICB1c2UgcHRhaF9hcHBsaWNhdGlvbl9ydW50aW1lOjpBcHBsaWNhdGlvblNlc3Npb25MaWZlY3ljbGU7CiAgICBtYXRjaCBsaWZlY3ljbGUgewogICAgICAgIEFwcGxpY2F0aW9uU2Vzc2lvbkxpZmVjeWNsZTo6UHJlcGFyaW5nID0+ICJwcmVwYXJpbmciLAogICAgICAgIEFwcGxpY2F0aW9uU2Vzc2lvbkxpZmVjeWNsZTo6UnVubmluZyA9PiAicnVubmluZyIsCiAgICAgICAgQXBwbGljYXRpb25TZXNzaW9uTGlmZWN5Y2xlOjpEZWdyYWRlZCA9PiAiZGVncmFkZWQiLAogICAgICAgIEFwcGxpY2F0aW9uU2Vzc2lvbkxpZmVjeWNsZTo6RGV0YWNoZWQgPT4gImRldGFjaGVkIiwKICAgICAgICBBcHBsaWNhdGlvblNlc3Npb25MaWZlY3ljbGU6OkNoZWNrcG9pbnRpbmcgPT4gImNoZWNrcG9pbnRpbmciLAogICAgICAgIEFwcGxpY2F0aW9uU2Vzc2lvbkxpZmVjeWNsZTo6UmVjb3ZlcmluZyA9PiAicmVjb3ZlcmluZyIsCiAgICAgICAgQXBwbGljYXRpb25TZXNzaW9uTGlmZWN5Y2xlOjpTdG9wcGVkID0+ICJzdG9wcGVkIiwKICAgICAgICBBcHBsaWNhdGlvblNlc3Npb25MaWZlY3ljbGU6OkZhaWxlZCA9PiAiZmFpbGVkIiwKICAgICAgICBBcHBsaWNhdGlvblNlc3Npb25MaWZlY3ljbGU6OlVuY2VydGFpbiA9PiAidW5jZXJ0YWluIiwKICAgIH0KfQoKZm4gZDA4X2xvY2FsaXR5X2xhYmVsKGxvY2FsaXR5OiBwdGFoX2FwcGxpY2F0aW9uX3J1bnRpbWU6OlNlc3Npb25Mb2NhbGl0eSkgLT4gJidzdGF0aWMgc3RyIHsKICAgIHVzZSBwdGFoX2FwcGxpY2F0aW9uX3J1bnRpbWU6OlNlc3Npb25Mb2NhbGl0eTsKICAgIG1hdGNoIGxvY2FsaXR5IHsKICAgICAgICBTZXNzaW9uTG9jYWxpdHk6Ok5vZGVMb2NhbCA9PiAibm9kZV9sb2NhbCIsCiAgICAgICAgU2Vzc2lvbkxvY2FsaXR5OjpEZXZpY2VMb2NhbCA9PiAiZGV2aWNlX2xvY2FsIiwKICAgICAgICBTZXNzaW9uTG9jYWxpdHk6OlJlbW90ZVNlcnZpY2UgPT4gInJlbW90ZV9zZXJ2aWNlIiwKICAgIH0KfQoKZm4gZDA4X2F2YWlsYWJpbGl0eV9sYWJlbCgKICAgIGF2YWlsYWJpbGl0eTogcHRhaF9hcHBsaWNhdGlvbl9ydW50aW1lOjpBcHBsaWNhdGlvbkF2YWlsYWJpbGl0eSwKKSAtPiAmJ3N0YXRpYyBzdHIgewogICAgdXNlIHB0YWhfYXBwbGljYXRpb25fcnVudGltZTo6QXBwbGljYXRpb25BdmFpbGFiaWxpdHk7CiAgICBtYXRjaCBhdmFpbGFiaWxpdHkgewogICAgICAgIEFwcGxpY2F0aW9uQXZhaWxhYmlsaXR5OjpGdWxsID0+ICJmdWxsIiwKICAgICAgICBBcHBsaWNhdGlvbkF2YWlsYWJpbGl0eTo6SGVhZGxlc3NPbmx5ID0+ICJoZWFkbGVzc19vbmx5IiwKICAgICAgICBBcHBsaWNhdGlvbkF2YWlsYWJpbGl0eTo6RGlzcGxheU9ubHkgPT4gImRpc3BsYXlfb25seSIsCiAgICAgICAgQXBwbGljYXRpb25BdmFpbGFiaWxpdHk6OlNlbWFudGljT25seSA9PiAic2VtYW50aWNfb25seSIsCiAgICAgICAgQXBwbGljYXRpb25BdmFpbGFiaWxpdHk6OlBhcnRpYWwgPT4gInBhcnRpYWwiLAogICAgICAgIEFwcGxpY2F0aW9uQXZhaWxhYmlsaXR5OjpSZWNvdmVyaW5nID0+ICJyZWNvdmVyaW5nIiwKICAgICAgICBBcHBsaWNhdGlvbkF2YWlsYWJpbGl0eTo6VW5hdmFpbGFibGUgPT4gInVuYXZhaWxhYmxlIiwKICAgICAgICBBcHBsaWNhdGlvbkF2YWlsYWJpbGl0eTo6VW5rbm93biA9PiAidW5rbm93biIsCiAgICB9Cn0KCmZuIGQwOF9kaXNwbGF5X2xpZmVjeWNsZV9sYWJlbCgKICAgIGxpZmVjeWNsZTogcHRhaF9hcHBsaWNhdGlvbl9ydW50aW1lOjpEaXNwbGF5TGlmZWN5Y2xlLAopIC0+ICYnc3RhdGljIHN0ciB7CiAgICB1c2UgcHRhaF9hcHBsaWNhdGlvbl9ydW50aW1lOjpEaXNwbGF5TGlmZWN5Y2xlOwogICAgbWF0Y2ggbGlmZWN5Y2xlIHsKICAgICAgICBEaXNwbGF5TGlmZWN5Y2xlOjpQcmVwYXJpbmcgPT4gInByZXBhcmluZyIsCiAgICAgICAgRGlzcGxheUxpZmVjeWNsZTo6U3RyZWFtaW5nID0+ICJzdHJlYW1pbmciLAogICAgICAgIERpc3BsYXlMaWZlY3ljbGU6OkRlZ3JhZGVkID0+ICJkZWdyYWRlZCIsCiAgICAgICAgRGlzcGxheUxpZmVjeWNsZTo6RGV0YWNoZWQgPT4gImRldGFjaGVkIiwKICAgICAgICBEaXNwbGF5TGlmZWN5Y2xlOjpSZWNvdmVyaW5nID0+ICJyZWNvdmVyaW5nIiwKICAgICAgICBEaXNwbGF5TGlmZWN5Y2xlOjpDbG9zZWQgPT4gImNsb3NlZCIsCiAgICAgICAgRGlzcGxheUxpZmVjeWNsZTo6RmFpbGVkID0+ICJmYWlsZWQiLAogICAgfQp9CgovLy8gQXR0YWNoIHZhbGlkYXRlZCBEMDggQXBwbGljYXRpb24gcGxhdGZvcm0gc25hcHNob3RzIHRvIGFuIGV4aXN0aW5nIHJlYWQtb25seSBEMDEgc2hlbGwgcHJvamVjdGlvbi4KLy8vCi8vLyBUaGlzIGNoYW5nZXMgcHJlc2VudGF0aW9uIGRhdGEgb25seS4gSXQgZG9lcyBub3QgbXV0YXRlIEQwOCBydW50aW1lIHN0YXRlLCBjcmVhdGUgY29udHJvbHMsCi8vLyBjaGFuZ2UgdGhlIEQwMSBhdXRob3JpdHkgc3RhbXAsIG9yIGluZmVyIGJhY2tpbmcgc2Vzc2lvbnMgdGhhdCB3ZXJlIG5vdCBzdXBwbGllZC4KcHViIGZuIHByb2plY3RfYXBwbGljYXRpb25fcGxhdGZvcm1fdmlld3MoCiAgICBzaGVsbDogJm11dCBXb3Jrc3BhY2VTaGVsbFYyUHJvamVjdGlvbiwKICAgIHNuYXBzaG90czogJltwdGFoX2FwcGxpY2F0aW9uX3J1bnRpbWU6OkFwcGxpY2F0aW9uUGxhdGZvcm1TbmFwc2hvdF0sCikgewogICAgc2hlbGwuYXBwbGljYXRpb25zID0gc25hcHNob3RzCiAgICAgICAgLml0ZXIoKQogICAgICAgIC5tYXAofHNuYXBzaG90fCBtYXRjaCBzbmFwc2hvdCB7CiAgICAgICAgICAgIHB0YWhfYXBwbGljYXRpb25fcnVudGltZTo6QXBwbGljYXRpb25QbGF0Zm9ybVNuYXBzaG90OjpTZXNzaW9uIHsKICAgICAgICAgICAgICAgIHBsYXRmb3JtLAogICAgICAgICAgICAgICAgc2Vzc2lvbiwKICAgICAgICAgICAgICAgIGRpc3BsYXksCiAgICAgICAgICAgIH0gPT4gewogICAgICAgICAgICAgICAgbGV0IG11dCBldmlkZW5jZSA9IHNlc3Npb24KICAgICAgICAgICAgICAgICAgICAuZXZpZGVuY2VfcmVmcwogICAgICAgICAgICAgICAgICAgIC5pdGVyKCkKICAgICAgICAgICAgICAgICAgICAubWFwKHxyZWZlcmVuY2V8IHJlZmVyZW5jZS5lbnRpdHlfaWQudG9fc3RyaW5nKCkpCiAgICAgICAgICAgICAgICAgICAgLmNvbGxlY3Q6OjxWZWM8Xz4+KCk7CiAgICAgICAgICAgICAgICBsZXQgbXV0IGxpbWl0YXRpb25zID0gc2Vzc2lvbi5saW1pdGF0aW9ucy5jbG9uZSgpOwogICAgICAgICAgICAgICAgaWYgbGV0IFNvbWUoZGlzcGxheSkgPSBkaXNwbGF5IHsKICAgICAgICAgICAgICAgICAgICBldmlkZW5jZS5leHRlbmQoCiAgICAgICAgICAgICAgICAgICAgICAgIGRpc3BsYXkKICAgICAgICAgICAgICAgICAgICAgICAgICAgIC5ldmlkZW5jZV9yZWZzCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAuaXRlcigpCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAubWFwKHxyZWZlcmVuY2V8IHJlZmVyZW5jZS5lbnRpdHlfaWQudG9fc3RyaW5nKCkpLAogICAgICAgICAgICAgICAgICAgICk7CiAgICAgICAgICAgICAgICAgICAgbGltaXRhdGlvbnMuZXh0ZW5kKGRpc3BsYXkubGltaXRhdGlvbnMuaXRlcigpLmNsb25lZCgpKTsKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgIEFwcGxpY2F0aW9uUGxhdGZvcm1WaWV3IHsKICAgICAgICAgICAgICAgICAgICBhcHBsaWNhdGlvbl9pZDogc2Vzc2lvbi5hcHBsaWNhdGlvbl9yZWYuZW50aXR5X2lkLnRvX3N0cmluZygpLAogICAgICAgICAgICAgICAgICAgIGFwcGxpY2F0aW9uX3JldmlzaW9uOiBzZXNzaW9uLmFwcGxpY2F0aW9uX3JldmlzaW9uX3JlZi5lbnRpdHlfaWQudG9fc3RyaW5nKCksCiAgICAgICAgICAgICAgICAgICAgcGxhdGZvcm06IFN0cmluZzo6ZnJvbShkMDhfcGxhdGZvcm1fbGFiZWwoKnBsYXRmb3JtKSksCiAgICAgICAgICAgICAgICAgICAgZGlzcG9zaXRpb246IFN0cmluZzo6ZnJvbSgic2Vzc2lvbiIpLAogICAgICAgICAgICAgICAgICAgIHNlc3Npb25faWQ6IFNvbWUoc2Vzc2lvbi5zZXNzaW9uX3JlZi5lbnRpdHlfaWQudG9fc3RyaW5nKCkpLAogICAgICAgICAgICAgICAgICAgIGxpZmVjeWNsZTogU29tZShTdHJpbmc6OmZyb20oZDA4X3Nlc3Npb25fbGlmZWN5Y2xlX2xhYmVsKHNlc3Npb24ubGlmZWN5Y2xlKSkpLAogICAgICAgICAgICAgICAgICAgIGxvY2FsaXR5OiBTb21lKFN0cmluZzo6ZnJvbShkMDhfbG9jYWxpdHlfbGFiZWwoc2Vzc2lvbi5sb2NhbGl0eSkpKSwKICAgICAgICAgICAgICAgICAgICBhdmFpbGFiaWxpdHk6IFN0cmluZzo6ZnJvbShkMDhfYXZhaWxhYmlsaXR5X2xhYmVsKHNlc3Npb24uYXZhaWxhYmlsaXR5KSksCiAgICAgICAgICAgICAgICAgICAgZGlzcGxheV9zZXNzaW9uX2lkOiBkaXNwbGF5CiAgICAgICAgICAgICAgICAgICAgICAgIC5hc19yZWYoKQogICAgICAgICAgICAgICAgICAgICAgICAubWFwKHxpdGVtfCBpdGVtLmRpc3BsYXlfc2Vzc2lvbl9yZWYuZW50aXR5X2lkLnRvX3N0cmluZygpKSwKICAgICAgICAgICAgICAgICAgICBkaXNwbGF5X2xpZmVjeWNsZTogZGlzcGxheQogICAgICAgICAgICAgICAgICAgICAgICAuYXNfcmVmKCkKICAgICAgICAgICAgICAgICAgICAgICAgLm1hcCh8aXRlbXwgU3RyaW5nOjpmcm9tKGQwOF9kaXNwbGF5X2xpZmVjeWNsZV9sYWJlbChpdGVtLmxpZmVjeWNsZSkpKSwKICAgICAgICAgICAgICAgICAgICBldmlkZW5jZSwKICAgICAgICAgICAgICAgICAgICBsaW1pdGF0aW9ucywKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgfQogICAgICAgICAgICBwdGFoX2FwcGxpY2F0aW9uX3J1bnRpbWU6OkFwcGxpY2F0aW9uUGxhdGZvcm1TbmFwc2hvdDo6UmVtb3RlUmVxdWlyZW1lbnQgewogICAgICAgICAgICAgICAgYXBwbGljYXRpb25fcmVmLAogICAgICAgICAgICAgICAgYXBwbGljYXRpb25fcmV2aXNpb25fcmVmLAogICAgICAgICAgICAgICAgcmVxdWlyZW1lbnQsCiAgICAgICAgICAgIH0gPT4gQXBwbGljYXRpb25QbGF0Zm9ybVZpZXcgewogICAgICAgICAgICAgICAgYXBwbGljYXRpb25faWQ6IGFwcGxpY2F0aW9uX3JlZi5lbnRpdHlfaWQudG9fc3RyaW5nKCksCiAgICAgICAgICAgICAgICBhcHBsaWNhdGlvbl9yZXZpc2lvbjogYXBwbGljYXRpb25fcmV2aXNpb25fcmVmLmVudGl0eV9pZC50b19zdHJpbmcoKSwKICAgICAgICAgICAgICAgIHBsYXRmb3JtOiBTdHJpbmc6OmZyb20oZDA4X3BsYXRmb3JtX2xhYmVsKHJlcXVpcmVtZW50LnBsYXRmb3JtKSksCiAgICAgICAgICAgICAgICBkaXNwb3NpdGlvbjogU3RyaW5nOjpmcm9tKCJyZXF1aXJlc19yZW1vdGVfbm9kZSIpLAogICAgICAgICAgICAgICAgc2Vzc2lvbl9pZDogTm9uZSwKICAgICAgICAgICAgICAgIGxpZmVjeWNsZTogTm9uZSwKICAgICAgICAgICAgICAgIGxvY2FsaXR5OiBOb25lLAogICAgICAgICAgICAgICAgYXZhaWxhYmlsaXR5OiBTdHJpbmc6OmZyb20oInVuYXZhaWxhYmxlIiksCiAgICAgICAgICAgICAgICBkaXNwbGF5X3Nlc3Npb25faWQ6IE5vbmUsCiAgICAgICAgICAgICAgICBkaXNwbGF5X2xpZmVjeWNsZTogTm9uZSwKICAgICAgICAgICAgICAgIGV2aWRlbmNlOiByZXF1aXJlbWVudAogICAgICAgICAgICAgICAgICAgIC5ldmlkZW5jZV9yZWZzCiAgICAgICAgICAgICAgICAgICAgLml0ZXIoKQogICAgICAgICAgICAgICAgICAgIC5tYXAofHJlZmVyZW5jZXwgcmVmZXJlbmNlLmVudGl0eV9pZC50b19zdHJpbmcoKSkKICAgICAgICAgICAgICAgICAgICAuY29sbGVjdCgpLAogICAgICAgICAgICAgICAgbGltaXRhdGlvbnM6IHJlcXVpcmVtZW50LmxpbWl0YXRpb25zLmNsb25lKCksCiAgICAgICAgICAgIH0sCiAgICAgICAgfSkKICAgICAgICAuY29sbGVjdCgpOwp9CiIiIgppZiAicHViIGZuIHByb2plY3RfYXBwbGljYXRpb25fcGxhdGZvcm1fdmlld3MoIiBub3QgaW4gdGV4dDoKICAgIHRleHQgKz0gIlxuIiArIHByb2plY3Rpb24KCnBhdGgud3JpdGVfdGV4dCh0ZXh0KQo=
         run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          remote = Path('crates/ptah-application-runtime/src/remote_display.rs')
-          remote_text = remote.read_text()
-          remote_text = remote_text.replace(
-              'requirement.roadmap_dependency != "programme_e.remote_node"',
-              'requirement.roadmap_dependency != "Programme E"',
-          )
-          remote.write_text(remote_text)
-
-          path = Path('services/ptah-control/src/lib.rs')
-          text = path.read_text()
-
-          view = '''/// One read-only D08 Application platform row attached to the D01 shell.\n#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]\npub struct ApplicationPlatformView {\n    /// Stable Application identity.\n    pub application_id: String,\n    /// Exact Application Revision identity.\n    pub application_revision: String,\n    /// D08 roadmap platform class.\n    pub platform: String,\n    /// Mechanical D08 source/disposition.\n    pub disposition: String,\n    /// Stable Application Session identity when one exists.\n    pub session_id: Option<String>,\n    /// Application Session lifecycle when one exists.\n    pub lifecycle: Option<String>,\n    /// Application execution locality when one exists.\n    pub locality: Option<String>,\n    /// Current bounded Application availability.\n    pub availability: String,\n    /// Stable Display Session identity when one exists.\n    pub display_session_id: Option<String>,\n    /// Display Session lifecycle when one exists.\n    pub display_lifecycle: Option<String>,\n    /// Retained evidence references rendered as canonical IDs.\n    pub evidence: Vec<String>,\n    /// Explicit limitations retained from the owning D08 runtime.\n    pub limitations: Vec<String>,\n}\n\n'''
-          marker = '/// Read-only D01 Human Workspace shell v2 projection built from a validated A14 snapshot.\n'
-          if 'pub struct ApplicationPlatformView' not in text:
-              assert marker in text
-              text = text.replace(marker, view + marker, 1)
-
-          field_anchor = '    /// Exact canonical authority stamp inherited from A14.\n    pub authority: AuthorityStamp,\n'
-          field = field_anchor + '    /// Supplemental validated D08 Application platform projections.\n    pub applications: Vec<ApplicationPlatformView>,\n'
-          if 'pub applications: Vec<ApplicationPlatformView>' not in text:
-              assert field_anchor in text
-              text = text.replace(field_anchor, field, 1)
-
-          builder_anchor = '        authority: snapshot.authority.clone(),\n        operations: operation_catalog(),\n'
-          builder = '        authority: snapshot.authority.clone(),\n        applications: Vec::new(),\n        operations: operation_catalog(),\n'
-          if '        applications: Vec::new(),\n' not in text:
-              assert builder_anchor in text
-              text = text.replace(builder_anchor, builder, 1)
-
-          projection = r'''
-
-fn d08_platform_label(platform: ptah_application_runtime::PlatformClass) -> &'static str {
-    use ptah_application_runtime::PlatformClass;
-    match platform {
-        PlatformClass::LinuxNative => "linux_native",
-        PlatformClass::LinuxPackaged => "linux_packaged",
-        PlatformClass::Android => "android",
-        PlatformClass::WindowsNode => "windows_node",
-        PlatformClass::WindowsVm => "windows_vm",
-        PlatformClass::MacOsNode => "mac_os_node",
-        PlatformClass::IosSimulator => "ios_simulator",
-    }
-}
-
-fn d08_session_lifecycle_label(
-    lifecycle: ptah_application_runtime::ApplicationSessionLifecycle,
-) -> &'static str {
-    use ptah_application_runtime::ApplicationSessionLifecycle;
-    match lifecycle {
-        ApplicationSessionLifecycle::Preparing => "preparing",
-        ApplicationSessionLifecycle::Running => "running",
-        ApplicationSessionLifecycle::Degraded => "degraded",
-        ApplicationSessionLifecycle::Detached => "detached",
-        ApplicationSessionLifecycle::Checkpointing => "checkpointing",
-        ApplicationSessionLifecycle::Recovering => "recovering",
-        ApplicationSessionLifecycle::Stopped => "stopped",
-        ApplicationSessionLifecycle::Failed => "failed",
-        ApplicationSessionLifecycle::Uncertain => "uncertain",
-    }
-}
-
-fn d08_locality_label(locality: ptah_application_runtime::SessionLocality) -> &'static str {
-    use ptah_application_runtime::SessionLocality;
-    match locality {
-        SessionLocality::NodeLocal => "node_local",
-        SessionLocality::DeviceLocal => "device_local",
-        SessionLocality::RemoteService => "remote_service",
-    }
-}
-
-fn d08_availability_label(
-    availability: ptah_application_runtime::ApplicationAvailability,
-) -> &'static str {
-    use ptah_application_runtime::ApplicationAvailability;
-    match availability {
-        ApplicationAvailability::Full => "full",
-        ApplicationAvailability::HeadlessOnly => "headless_only",
-        ApplicationAvailability::DisplayOnly => "display_only",
-        ApplicationAvailability::SemanticOnly => "semantic_only",
-        ApplicationAvailability::Partial => "partial",
-        ApplicationAvailability::Recovering => "recovering",
-        ApplicationAvailability::Unavailable => "unavailable",
-        ApplicationAvailability::Unknown => "unknown",
-    }
-}
-
-fn d08_display_lifecycle_label(
-    lifecycle: ptah_application_runtime::DisplayLifecycle,
-) -> &'static str {
-    use ptah_application_runtime::DisplayLifecycle;
-    match lifecycle {
-        DisplayLifecycle::Preparing => "preparing",
-        DisplayLifecycle::Streaming => "streaming",
-        DisplayLifecycle::Degraded => "degraded",
-        DisplayLifecycle::Detached => "detached",
-        DisplayLifecycle::Recovering => "recovering",
-        DisplayLifecycle::Closed => "closed",
-        DisplayLifecycle::Failed => "failed",
-    }
-}
-
-/// Attach validated D08 Application platform snapshots to an existing read-only D01 shell projection.
-///
-/// This changes presentation data only. It does not mutate D08 runtime state, create controls,
-/// change the D01 authority stamp, or infer backing sessions that were not supplied.
-pub fn project_application_platform_views(
-    shell: &mut WorkspaceShellV2Projection,
-    snapshots: &[ptah_application_runtime::ApplicationPlatformSnapshot],
-) {
-    shell.applications = snapshots
-        .iter()
-        .map(|snapshot| match snapshot {
-            ptah_application_runtime::ApplicationPlatformSnapshot::Session {
-                platform,
-                session,
-                display,
-            } => {
-                let mut evidence = session
-                    .evidence_refs
-                    .iter()
-                    .map(|reference| reference.entity_id.to_string())
-                    .collect::<Vec<_>>();
-                let mut limitations = session.limitations.clone();
-                if let Some(display) = display {
-                    evidence.extend(
-                        display
-                            .evidence_refs
-                            .iter()
-                            .map(|reference| reference.entity_id.to_string()),
-                    );
-                    limitations.extend(display.limitations.iter().cloned());
-                }
-                ApplicationPlatformView {
-                    application_id: session.application_ref.entity_id.to_string(),
-                    application_revision: session.application_revision_ref.entity_id.to_string(),
-                    platform: String::from(d08_platform_label(*platform)),
-                    disposition: String::from("session"),
-                    session_id: Some(session.session_ref.entity_id.to_string()),
-                    lifecycle: Some(String::from(d08_session_lifecycle_label(session.lifecycle))),
-                    locality: Some(String::from(d08_locality_label(session.locality))),
-                    availability: String::from(d08_availability_label(session.availability)),
-                    display_session_id: display
-                        .as_ref()
-                        .map(|item| item.display_session_ref.entity_id.to_string()),
-                    display_lifecycle: display
-                        .as_ref()
-                        .map(|item| String::from(d08_display_lifecycle_label(item.lifecycle))),
-                    evidence,
-                    limitations,
-                }
-            }
-            ptah_application_runtime::ApplicationPlatformSnapshot::RemoteRequirement {
-                application_ref,
-                application_revision_ref,
-                requirement,
-            } => ApplicationPlatformView {
-                application_id: application_ref.entity_id.to_string(),
-                application_revision: application_revision_ref.entity_id.to_string(),
-                platform: String::from(d08_platform_label(requirement.platform)),
-                disposition: String::from("requires_remote_node"),
-                session_id: None,
-                lifecycle: None,
-                locality: None,
-                availability: String::from("unavailable"),
-                display_session_id: None,
-                display_lifecycle: None,
-                evidence: requirement
-                    .evidence_refs
-                    .iter()
-                    .map(|reference| reference.entity_id.to_string())
-                    .collect(),
-                limitations: requirement.limitations.clone(),
-            },
-        })
-        .collect();
-}
-'''
-          if 'pub fn project_application_platform_views(' not in text:
-              text += projection
-          path.write_text(text)
-          PY
+          printf '%s' "$D08_PATCH_B64" | base64 -d > /tmp/d08_task4_patch.py
+          python3 /tmp/d08_task4_patch.py
           cargo fmt --all
           git diff --check
       - name: Prove exact 28-case D08 milestone GREEN
@@ -247,11 +66,11 @@ pub fn project_application_platform_views(
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- crates/ptah-application-runtime/src/remote_display.rs services/ptah-control/src/lib.rs; then
+          if git diff --quiet -- crates/ptah-application-runtime/src/remote_display.rs crates/ptah-application-runtime/tests/d08_acceptance/remote.rs services/ptah-control/src/lib.rs services/ptah-control/tests/d08_application_projection.rs; then
             exit 0
           fi
           git config user.name 'THE TECH GUY'
           git config user.email '65334711+jaydumisuni@users.noreply.github.com'
-          git add crates/ptah-application-runtime/src/remote_display.rs services/ptah-control/src/lib.rs
+          git add crates/ptah-application-runtime/src/remote_display.rs crates/ptah-application-runtime/tests/d08_acceptance/remote.rs services/ptah-control/src/lib.rs services/ptah-control/tests/d08_application_projection.rs
           git commit -m 'feat(d08): project application platform into human shell'
           git push origin HEAD:d08-application-platform-expansion

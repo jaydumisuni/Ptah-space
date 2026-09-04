@@ -1,0 +1,44 @@
+name: Lumi issue 8 Builder roots probe
+
+on:
+  push:
+    branches:
+      - proof/lumi8-athena-runner-20260904
+    paths:
+      - .github/workflows/lumi8-builder-roots-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect bounded Builder roots and proof artifacts
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          Write-Output '=== GH AUTH ==='
+          gh auth status --hostname github.com 2>&1 | Write-Output
+          Write-Output '=== D PROJECT ROOTS ==='
+          if(Test-Path 'D:\projects') { Get-ChildItem 'D:\projects' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'Builder|Lumi' } | ForEach-Object { Write-Output ('ROOT=' + $_.FullName) } }
+          $candidates=@(
+            'D:\projects\THETECHGUY Software Builder',
+            'D:\projects\THETECHGUY Software Builder - Installer Test',
+            'D:\projects\Lumi-Builder-Final-face8',
+            'D:\projects\Lumi-Builder-Final-Freeze5'
+          )
+          foreach($root in $candidates) {
+            if(-not(Test-Path -LiteralPath $root)){continue}
+            Write-Output ('=== CANDIDATE ' + $root + ' ===')
+            $git=Join-Path $root '.git'
+            if(Test-Path $git) { git -C $root rev-parse HEAD 2>&1 | ForEach-Object { Write-Output ('HEAD=' + $_) }; git -C $root status --porcelain 2>&1 | ForEach-Object { Write-Output ('STATUS=' + $_) } }
+            foreach($rel in @(
+              'env\python\.venv\Scripts\python.exe',
+              'builder_cache\lumi-source-ui\python\.venv\Scripts\python.exe',
+              'test-output\lumi-issue8-source-ui\lumi-issue8-source-ui-summary.json',
+              'test-output\lumi-issue8-source-ui\lumi-issue8-source-visual-review.json',
+              'test-output\lumi-release-candidate\issue8-physical-summary.json'
+            )) { $p=Join-Path $root $rel; Write-Output ($rel + '=' + (Test-Path -LiteralPath $p)) }
+          }

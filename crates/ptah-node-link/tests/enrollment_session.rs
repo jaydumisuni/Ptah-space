@@ -91,6 +91,36 @@ fn lifecycle_and_identity_fail_closed() {
 }
 
 #[test]
+fn wrong_enrollment_reference_fails_closed() {
+    let node_id = NodeId::new();
+    let fingerprint = CredentialFingerprint::from_der(b"credential-reference");
+    let enrollment = enrollment(node_id, fingerprint);
+    let wrong_ref = EntityRef::new("core.node_enrollment").expect("different enrollment ref");
+    assert_ne!(&wrong_ref, enrollment.enrollment_ref());
+    let request = hello(node_id, wrong_ref, 1, 1);
+    let mut registry = SessionRegistry::new(ProtocolVersion { major: 1, minor: 0 });
+
+    assert_eq!(
+        registry.accept_hello(&request, &enrollment, fingerprint, 1_000),
+        Err(LinkError::EnrollmentReferenceMismatch)
+    );
+}
+
+#[test]
+fn expired_deadline_fails_closed() {
+    let node_id = NodeId::new();
+    let fingerprint = CredentialFingerprint::from_der(b"credential-expiry");
+    let enrollment = enrollment(node_id, fingerprint);
+    let request = hello(node_id, enrollment.enrollment_ref().clone(), 1, 1);
+    let mut registry = SessionRegistry::new(ProtocolVersion { major: 1, minor: 0 });
+
+    assert_eq!(
+        registry.accept_hello(&request, &enrollment, fingerprint, 10_000),
+        Err(LinkError::EnrollmentExpired)
+    );
+}
+
+#[test]
 fn reconnect_supersedes_old_epoch_and_generation() {
     let node_id = NodeId::new();
     let fingerprint = CredentialFingerprint::from_der(b"credential-three");

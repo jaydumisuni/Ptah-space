@@ -1,0 +1,74 @@
+name: TEMP Oracle ATHENA installed-task recovery
+
+on:
+  push:
+    branches: [ops/oracle-athena-recover-20260904]
+    paths:
+      - ".github/workflows/temp-oracle-athena-recover-20260904.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 8
+    steps:
+      - name: Recover installed Oracle tasks and prove local readiness
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $names = @('Oracle Desktop Input', 'Oracle Always-On Node', 'Oracle Node Watchdog')
+          Write-Output ('HOST=' + $env:COMPUTERNAME)
+          Write-Output ('USER=' + [Security.Principal.WindowsIdentity]::GetCurrent().Name)
+          Write-Output ('SESSION=' + [Diagnostics.Process]::GetCurrentProcess().SessionId)
+          foreach ($name in $names) {
+            $task = Get-ScheduledTask -TaskName $name -ErrorAction Stop
+            $info = Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop
+            [ordered]@{
+              task = $name
+              state = [string]$task.State
+              enabled = [string]$task.Settings.Enabled
+              lastResult = [int64]$info.LastTaskResult
+              lastRun = $info.LastRunTime.ToUniversalTime().ToString('o')
+            } | ConvertTo-Json -Compress | Write-Output
+          }
+          foreach ($name in $names) {
+            $task = Get-ScheduledTask -TaskName $name -ErrorAction Stop
+            if ([string]$task.State -in @('Running', 'Queued')) {
+              Stop-ScheduledTask -TaskName $name -ErrorAction Stop
+              $deadline = (Get-Date).AddSeconds(20)
+              do {
+                Start-Sleep -Milliseconds 250
+                $state = [string](Get-ScheduledTask -TaskName $name -ErrorAction Stop).State
+              } while ($state -in @('Running', 'Queued') -and (Get-Date) -lt $deadline)
+              if ($state -in @('Running', 'Queued')) { throw "TASK_STOP_TIMEOUT:$name" }
+            }
+          }
+          foreach ($name in $names) {
+            Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+            Start-ScheduledTask -TaskName $name -ErrorAction Stop
+            Start-Sleep -Seconds 2
+          }
+          $deadline = (Get-Date).AddSeconds(90)
+          do {
+            try {
+              $health = Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:5059/ready' -TimeoutSec 4
+              if ($health.ready -and $health.connected) { break }
+            } catch {}
+            Start-Sleep -Seconds 2
+          } while ((Get-Date) -lt $deadline)
+          if (-not $health -or -not $health.ready -or -not $health.connected) {
+            throw 'ORACLE_ATHENA_READY_TIMEOUT'
+          }
+          $health | ConvertTo-Json -Depth 8 -Compress | Write-Output
+          foreach ($name in $names) {
+            $task = Get-ScheduledTask -TaskName $name -ErrorAction Stop
+            $info = Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop
+            [ordered]@{
+              task = $name
+              state = [string]$task.State
+              lastResult = [int64]$info.LastTaskResult
+            } | ConvertTo-Json -Compress | Write-Output
+          }
+          Write-Output 'ORACLE_ATHENA_RECOVERY=PASS'

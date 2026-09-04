@@ -1,0 +1,81 @@
+{
+  "schema_version": "0.1.0",
+  "record_type": "ptah.d09.full_workspace_release_corpus",
+  "accepted_predecessor": "ca6b3526ce9b58ffce11f8582be8fbf860dfa53d",
+  "roadmap_authority": "98dc8c4e8639cda80510bee0625db34b4fdf9384",
+  "new_core_entity_required": false,
+  "frozen_contract_change_required": false,
+  "runtime_feature_added": false,
+  "cases": [
+    {
+      "id": "d09-01-human-agent-coexistence",
+      "category": "human_agent_coexistence",
+      "participants": ["human", "hunter", "sergeant"],
+      "ptah_semantic_authority": false,
+      "required_evidence": ["d01_acceptance", "d02_acceptance"]
+    },
+    {
+      "id": "d09-02-deep-workspace-authority-separation",
+      "category": "deep_workspace_authority_separation",
+      "participants": ["human", "hunter", "sergeant"],
+      "ptah_semantic_authority": false,
+      "required_evidence": ["deep_workspace_26", "ai_workspace_validator"]
+    },
+    {
+      "id": "d09-03-concurrent-activity-operation",
+      "category": "concurrent_activity_operation",
+      "participants": ["human", "hunter"],
+      "ptah_semantic_authority": false,
+      "required_evidence": ["a04_activity_runtime"]
+    },
+    {
+      "id": "d09-04-long-running-recovery",
+      "category": "long_running_recovery",
+      "participants": ["human", "hunter"],
+      "ptah_semantic_authority": false,
+      "required_evidence": ["a13_recovery", "b06_session_vault"]
+    },
+    {
+      "id": "d09-05-provider-replacement",
+      "category": "provider_replacement",
+      "participants": ["human"],
+      "ptah_semantic_authority": false,
+      "required_evidence": ["d05_provider_generation", "d06_backend_replacement", "d07_backend_replacement"]
+    },
+    {
+      "id": "d09-06-plugin-rollback",
+      "category": "plugin_rollback",
+      "participants": ["human"],
+      "ptah_semantic_authority": false,
+      "required_evidence": ["d05_plugin_rollback"]
+    },
+    {
+      "id": "d09-07-provenance-reviewability",
+      "category": "provenance_reviewability",
+      "participants": ["human", "sergeant"],
+      "ptah_semantic_authority": false,
+      "required_evidence": ["d06_acceptance", "d06_store_roundtrip"]
+    },
+    {
+      "id": "d09-08-security-reproduction-history",
+      "category": "security_reproduction_history",
+      "participants": ["human", "sergeant"],
+      "ptah_semantic_authority": false,
+      "required_evidence": ["d07_acceptance", "d07_store_roundtrip"]
+    },
+    {
+      "id": "d09-09-application-truth",
+      "category": "application_truth",
+      "participants": ["human", "hunter"],
+      "ptah_semantic_authority": false,
+      "required_evidence": ["d08_runtime_25", "d08_shell_3"]
+    },
+    {
+      "id": "d09-10-public-private-release-audit",
+      "category": "public_private_release_audit",
+      "participants": ["human", "hunter", "sergeant"],
+      "ptah_semantic_authority": false,
+      "required_evidence": ["apache_boundary", "d02_private_workspace_denial"]
+    }
+  ]
+}

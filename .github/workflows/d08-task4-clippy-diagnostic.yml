@@ -44,14 +44,15 @@ jobs:
 
           snapshot = Path('crates/ptah-application-runtime/src/snapshot.rs')
           text = snapshot.read_text()
-          text = text.replace(
-              '        session: ApplicationSessionProjection,\n',
-              '        session: Box<ApplicationSessionProjection>,\n',
-          )
-          text = text.replace(
-              '        display: Option<DisplaySessionProjection>,\n',
-              '        display: Option<Box<DisplaySessionProjection>>,\n',
-          )
+          replacements = [
+              ('        session: ApplicationSessionProjection,\n', '        session: Box<ApplicationSessionProjection>,\n'),
+              ('        display: Option<DisplaySessionProjection>,\n', '        display: Option<Box<DisplaySessionProjection>>,\n'),
+              ('        requirement: RemoteNodeRequirement,\n', '        requirement: Box<RemoteNodeRequirement>,\n'),
+          ]
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f'missing expected snapshot field: {old.strip()}')
+              text = text.replace(old, new)
           snapshot.write_text(text)
 
           test = Path('services/ptah-control/tests/d08_application_projection.rs')
@@ -60,6 +61,7 @@ jobs:
               ('session: session("running", "full"),', 'session: Box::new(session("running", "full")),'),
               ('session: session("degraded", "headless_only"),', 'session: Box::new(session("degraded", "headless_only")),'),
               ('session: session("preparing", "unavailable"),', 'session: Box::new(session("preparing", "unavailable")),'),
+              ('requirement: remote_requirement(),', 'requirement: Box::new(remote_requirement()),'),
           ]:
               if old not in text:
                   raise SystemExit(f'missing expected constructor: {old}')

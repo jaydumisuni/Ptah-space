@@ -8,6 +8,8 @@ on:
       - Cargo.toml
       - Cargo.lock
       - crates/ptah-node-link/**
+      - services/ptah-node/**
+      - services/ptah-control/**
       - .github/workflows/e01-tdd.yml
   workflow_dispatch:
 
@@ -26,9 +28,20 @@ jobs:
           set -euo pipefail
           rustup toolchain install 1.97.1 --profile minimal --component clippy
           rustup default 1.97.1
-      - name: Run E01 targeted tests
+      - name: Run E01 node-link tests
         shell: bash
         run: cargo test -p ptah-node-link --test protocol --test framing --test enrollment_session --test tls_transport
+      - name: Run E01 service RED/GREEN tests
+        shell: bash
+        run: |
+          set +e
+          cargo test -p ptah-control --test e01_node_link
+          control_status=$?
+          cargo test -p ptah-node --test e01_node_client
+          node_status=$?
+          if [ "$control_status" -ne 0 ] || [ "$node_status" -ne 0 ]; then
+            exit 1
+          fi
       - name: Run E01 strict Clippy
         shell: bash
         run: cargo clippy -p ptah-node-link --all-targets -- -D warnings

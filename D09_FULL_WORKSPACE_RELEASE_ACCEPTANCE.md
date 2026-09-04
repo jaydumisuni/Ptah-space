@@ -27,7 +27,7 @@ The accepted roadmap requires concurrent human and agent operation, long-running
 
 D09 introduces no new runtime crate, Core entity family, schema, migration, generated contract, Provider, execution engine, Cargo dependency or semantic decision authority.
 
-Its public implementation surface is limited to:
+Its normal public implementation surface is limited to:
 
 - `docs/superpowers/specs/2026-09-04-d09-full-workspace-release-acceptance-design.md`;
 - `docs/superpowers/plans/2026-09-04-d09-full-workspace-release-acceptance.md`;
@@ -38,6 +38,18 @@ Its public implementation surface is limited to:
 - `.github/workflows/d09-full-workspace-release-acceptance.yml`.
 
 The D09 proof composes already-proven milestone authorities on one exact candidate. A green D09 workflow cannot redefine a predecessor contract.
+
+### Release-audit correction discovered by D09
+
+The first permanent D09 exact-head run failed before product tests because the repository-wide Action audit found eight inherited floating Action references. They were confined to D07/D08 proof machinery; no Rust/product/Cargo/schema defect was exposed.
+
+D09 corrects that inherited release-proof hygiene as part of the reviewed Full Workspace release delta:
+
+- `.github/workflows/d07-security-evidence-reproduction-proof.yml` now pins checkout/upload Actions to immutable 40-hex commits and installs Rust 1.97.1 explicitly with `rustup` instead of the floating Rust Action;
+- `.github/workflows/d08-application-platform-expansion-proof.yml` receives the same immutable proof correction;
+- `.github/workflows/d08-tdd.yml`, the completed Task-4 write-capable auto-promotion lane, is retired rather than carried into the release.
+
+The failed D09 proof run remains evidence of the defect. The one-shot repair workflow used to diagnose/prepare the correction was itself retired and is not part of the release candidate. The final D08→D09 release delta is exactly ten paths: the seven D09 acceptance/evidence files plus these three inherited proof-hygiene paths.
 
 ## Frozen D09 release corpus
 
@@ -142,6 +154,7 @@ D09 reuses the operative repository boundaries rather than creating a new public
 
 The exact candidate must pass:
 
+- repository-wide immutable external GitHub Action reference audit;
 - A01 scaffold/source-policy adversarial regressions and checker;
 - retained Phase 0C scaffold/history boundary validation;
 - exact Rust dependency-lock validation;
@@ -160,7 +173,7 @@ The D09 report bundle retains:
 - exact Rust/Cargo version;
 - exact `Cargo.lock` bytes and `cargo metadata --locked` output;
 - the existing Rust dependency-lock report;
-- the committed backend-artifact lock digest and retained Phase 0C backend-evidence digest/counts;
+- the committed backend-artifact lock digest and retained Phase 0C backend-evidence digest;
 - all D09 validation/test reports and exact SHA-256 metadata.
 
 D09 performs no silent backend upgrade or provider substitution while proving release acceptance.
@@ -175,22 +188,23 @@ The permanent workflow must prove, on one exact candidate SHA:
 
 1. exact D08 predecessor and linear branch history;
 2. remote implementation branch equals the candidate SHA;
-3. exact seven-file D09 acceptance delta only;
+3. exact ten-path release delta: seven D09 acceptance/evidence paths plus D07 proof pinning, D08 proof pinning and retirement of D08 TDD promotion;
 4. no Cargo/product/schema/migration/generated-contract movement;
-5. D09 checker regressions and exact ten-case corpus;
-6. deep Workspace 22/20/26 burden and non-authorizing AI validator;
-7. D01, D02 and A04 concurrent operation acceptance;
-8. A13 and B06 recovery acceptance;
-9. D05 Plugin lifecycle/rollback/replacement acceptance;
-10. D06 provenance acceptance and store round-trip;
-11. D07 security evidence acceptance and store round-trip;
-12. exact D08 25+3 acceptance corpus;
-13. source/dependency/public-private/licence audit;
-14. `cargo fmt --all -- --check`;
-15. complete `cargo test --workspace --locked`;
-16. clean exact worktree;
-17. immutable report-bundle digest;
-18. retained artifact `d09-full-workspace-release-${TARGET_SHA}`.
+5. every remaining external GitHub Action is immutably pinned;
+6. D09 checker regressions and exact ten-case corpus;
+7. deep Workspace 22/20/26 burden and non-authorizing AI validator;
+8. D01, D02 and A04 concurrent operation acceptance;
+9. A13 and B06 recovery acceptance;
+10. D05 Plugin lifecycle/rollback/replacement acceptance;
+11. D06 provenance acceptance and store round-trip;
+12. D07 security evidence acceptance and store round-trip;
+13. exact D08 25+3 acceptance corpus;
+14. source/dependency/public-private/licence audit;
+15. `cargo fmt --all -- --check`;
+16. complete `cargo test --workspace --locked`;
+17. clean exact worktree;
+18. immutable report-bundle digest;
+19. retained artifact `d09-full-workspace-release-${TARGET_SHA}`.
 
 A green workflow without the retained report bundle is not D09 acceptance.
 
@@ -202,7 +216,7 @@ Promotion requires:
 - retained artifact present for that SHA;
 - branch head still equals that SHA;
 - PR base is exact D08 merge `ca6b3526ce9b58ffce11f8582be8fbf860dfa53d`;
-- changed paths remain exactly within the D09 acceptance surface;
+- changed paths remain exactly within the reviewed ten-path D09 release delta;
 - repository review/rules expose no unresolved blocker;
 - merge is constrained with `expected_head_sha` equal to the proven candidate.
 

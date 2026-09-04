@@ -26,9 +26,9 @@ jobs:
           set -euo pipefail
           rustup toolchain install 1.97.1 --profile minimal --component clippy
           rustup default 1.97.1
-      - name: Run E01 protocol and framing tests
+      - name: Run E01 targeted tests
         shell: bash
-        run: cargo test -p ptah-node-link --test protocol --test framing
+        run: cargo test -p ptah-node-link --test protocol --test framing --test enrollment_session
       - name: Run E01 strict Clippy
         shell: bash
         run: cargo clippy -p ptah-node-link --all-targets -- -D warnings

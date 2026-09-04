@@ -1,0 +1,45 @@
+name: Lumi issue 8 ATHENA RunAs proof
+
+on:
+  push:
+    branches:
+      - proof/lumi8-athena-runner-20260904
+    paths:
+      - .github/workflows/lumi8-athena-runas-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  prove-runas:
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 5
+    steps:
+      - name: Prove elevated child in active interactive session
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'lumi8-runas-proof'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $script=Join-Path $root 'probe.ps1'
+          $result=Join-Path $root 'result.json'
+          @'
+          param([string]$ResultPath)
+          $ErrorActionPreference='Stop'
+          $id=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=New-Object Security.Principal.WindowsPrincipal($id)
+          $admin=$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          $session=(Get-Process -Id $PID).SessionId
+          $explorer=Get-Process explorer -ErrorAction SilentlyContinue | Where-Object {$_.SessionId -eq $session} | Select-Object -First 1
+          $integrity=((whoami /groups) | Select-String 'Mandatory Label\\(High|System) Mandatory Level').Line
+          [ordered]@{host=$env:COMPUTERNAME;user=$id.Name;admin=$admin;session=$session;explorerSameSession=[bool]$explorer;integrity=$integrity;pid=$PID}|ConvertTo-Json|Set-Content -Encoding UTF8 -LiteralPath $ResultPath
+          '@ | Set-Content -Encoding UTF8 -LiteralPath $script
+          $p=Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -Verb RunAs -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$script+'"'),'-ResultPath',('"'+$result+'"')) -Wait -PassThru
+          Write-Output ('RUNAS_EXIT=' + $p.ExitCode)
+          if($p.ExitCode -ne 0){throw 'RUNAS_CHILD_FAILED'}
+          if(-not(Test-Path -LiteralPath $result)){throw 'RUNAS_RESULT_MISSING'}
+          $r=Get-Content -Raw -LiteralPath $result|ConvertFrom-Json
+          $r|ConvertTo-Json -Depth 5|Write-Output
+          if(-not $r.admin){throw 'RUNAS_NOT_ADMIN'}
+          if(-not $r.explorerSameSession){throw 'RUNAS_NOT_ACTIVE_INTERACTIVE_SESSION'}
+          if([string]$r.integrity -notmatch 'High Mandatory Level|System Mandatory Level'){throw 'RUNAS_NOT_HIGH_INTEGRITY'}

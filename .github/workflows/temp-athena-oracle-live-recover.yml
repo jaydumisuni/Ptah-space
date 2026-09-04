@@ -117,3 +117,46 @@ jobs:
           if ([string]$ready.nodeId -ne 'ATHENA') { throw ('ORACLE_READY_NODE_MISMATCH:' + [string]$ready.nodeId) }
           Write-Output ('ORACLE_READY_CONNECTION=' + [string]$ready.connectionId)
           Write-Output 'ATHENA_ORACLE_RECOVERY=PASS'
+
+
+      - name: Capture pre-click Oracle desktop proof
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([Diagnostics.Process]::GetCurrentProcess().SessionId -le 0) { throw 'ATHENA_PROOF_NOT_INTERACTIVE' }
+          Add-Type -AssemblyName System.Drawing
+          Add-Type -AssemblyName System.Windows.Forms
+          $runId = 'athena-pointer-preclick-20260904'
+          $artifactName = 'desktop-before-click.png'
+          $proofRoot = Join-Path $env:USERPROFILE '.oracle\proof'
+          $runDir = Join-Path $proofRoot $runId
+          if (Test-Path -LiteralPath $runDir) { Remove-Item -LiteralPath $runDir -Recurse -Force }
+          New-Item -ItemType Directory -Path $runDir -Force | Out-Null
+          $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+          if ($bounds.Width -le 0 -or $bounds.Height -le 0) { throw 'ATHENA_PROOF_BOUNDS_INVALID' }
+          $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+          try {
+            $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+            $artifact = Join-Path $runDir $artifactName
+            $bitmap.Save($artifact, [System.Drawing.Imaging.ImageFormat]::Png)
+          } finally {
+            $graphics.Dispose()
+            $bitmap.Dispose()
+          }
+          $item = Get-Item -LiteralPath $artifact
+          if ($item.Length -lt 1 -or $item.Length -gt 4194304) { throw ('ATHENA_PROOF_SIZE_INVALID:' + $item.Length) }
+          $sha = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = [ordered]@{
+            schema = 'ttg.oracle.proof-images.v1'
+            run_id = $runId
+            artifacts = [ordered]@{
+              $artifactName = [ordered]@{ sha256 = $sha; size_bytes = [int64]$item.Length }
+            }
+          } | ConvertTo-Json -Depth 6
+          [IO.File]::WriteAllText((Join-Path $runDir 'oracle-proof-image-manifest.json'), $manifest, [Text.UTF8Encoding]::new($false))
+          Write-Output ('ORACLE_PROOF_RUN=' + $runId)
+          Write-Output ('ORACLE_PROOF_ARTIFACT=' + $artifactName)
+          Write-Output ('ORACLE_PROOF_BOUNDS=' + $bounds.X + ',' + $bounds.Y + ',' + $bounds.Width + ',' + $bounds.Height)
+          Write-Output ('ORACLE_PROOF_SHA256=' + $sha)
+          Write-Output ('ORACLE_PROOF_BYTES=' + $item.Length)

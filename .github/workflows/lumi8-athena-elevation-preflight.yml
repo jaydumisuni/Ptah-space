@@ -1,0 +1,54 @@
+name: Lumi issue 8 ATHENA elevation preflight
+
+on:
+  push:
+    branches:
+      - proof/lumi8-athena-runner-20260904
+    paths:
+      - .github/workflows/lumi8-athena-elevation-preflight.yml
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 5
+    steps:
+      - name: Recover Oracle node and inspect existing privilege boundary
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Write-Output '=== ACCOUNT ==='
+          whoami /user
+          net localgroup Administrators
+          Write-Output '=== UAC POLICY ==='
+          $uac = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+          foreach($n in @('EnableLUA','ConsentPromptBehaviorAdmin','PromptOnSecureDesktop','FilterAdministratorToken')) {
+            try { $v=(Get-ItemProperty -LiteralPath $uac -Name $n -ErrorAction Stop).$n; Write-Output ($n + '=' + $v) } catch { Write-Output ($n + '=MISSING') }
+          }
+          Write-Output '=== WINDOWS SUDO ==='
+          try { sudo.exe config --enable 2>&1 | Out-String | Write-Output } catch { Write-Output ('SUDO_QUERY_ERROR=' + $_.Exception.Message) }
+          Write-Output '=== ELEVATED PROBE TASK ==='
+          $t = Get-ScheduledTask -TaskName 'THETECHGUY Oracle Elevated Interactive Probe' -ErrorAction SilentlyContinue
+          if($t) {
+            Write-Output ('PROBE_TASK_STATE=' + $t.State)
+            Write-Output ('PROBE_TASK_RUNLEVEL=' + $t.Principal.RunLevel)
+            Write-Output ('PROBE_TASK_LOGONTYPE=' + $t.Principal.LogonType)
+            foreach($a in $t.Actions) { Write-Output ('PROBE_ACTION=' + $a.Execute + '|' + $a.Arguments + '|WD=' + $a.WorkingDirectory) }
+          } else { Write-Output 'PROBE_TASK=MISSING' }
+          $root='C:\ProgramData\THETECHGUY-Oracle-ElevatedInteractiveProbe'
+          if(Test-Path -LiteralPath $root) {
+            Get-ChildItem -LiteralPath $root -Force | ForEach-Object { Write-Output ('PROBE_FILE=' + $_.Name + '|LEN=' + $_.Length) }
+            foreach($m in @('manifest.json','bundle-manifest.json')) { $p=Join-Path $root $m; if(Test-Path $p) { Write-Output ('=== '+$m+' ==='); Get-Content -Raw -LiteralPath $p | Write-Output } }
+          }
+          Write-Output '=== ORACLE NODE RESTORE ==='
+          $nodeTask=Get-ScheduledTask -TaskName 'Oracle Always-On Node' -ErrorAction SilentlyContinue
+          if($nodeTask) {
+            Start-ScheduledTask -TaskName 'Oracle Always-On Node' -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 5
+            $nodeTask=Get-ScheduledTask -TaskName 'Oracle Always-On Node' -ErrorAction SilentlyContinue
+            Write-Output ('ORACLE_NODE_TASK_STATE=' + $nodeTask.State)
+          }
+          Get-Process node -ErrorAction SilentlyContinue | ForEach-Object { Write-Output ('NODE=' + $_.Id + '|SESSION=' + $_.SessionId) }
+          try { $r=Invoke-WebRequest -UseBasicParsing -Uri 'https://oracle.thetechguyds.com/health' -TimeoutSec 10; Write-Output ('ORACLE_HEALTH_HTTP=' + [int]$r.StatusCode) } catch { Write-Output ('ORACLE_HEALTH_ERROR=' + $_.Exception.Message) }

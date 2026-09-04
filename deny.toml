@@ -27,6 +27,10 @@ ignore = true
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Private unpublished workspace members use path-only dependency declarations.
+# Permit that local path syntax without weakening wildcard/version policy for
+# publishable or registry dependencies.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

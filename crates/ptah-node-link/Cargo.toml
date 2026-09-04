@@ -12,7 +12,6 @@ workspace = true
 ptah-identifiers = { version = "=0.0.0-phase0c", path = "../ptah-identifiers" }
 ptah-node-agent = { version = "=0.0.0-phase0c", path = "../ptah-node-agent" }
 rustls = { workspace = true }
-rustls-pemfile = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

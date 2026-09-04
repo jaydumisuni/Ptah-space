@@ -7,6 +7,7 @@ on:
     paths:
       - Cargo.toml
       - Cargo.lock
+      - deny.toml
       - dependencies/rust-direct-lock.json
       - evidence/rust-dependency-lock/**
       - conformance/e01/**
@@ -51,3 +52,44 @@ jobs:
       - name: Run E01 strict Clippy
         shell: bash
         run: cargo clippy -p ptah-node-link --all-targets --locked -- -D warnings
+
+  dependency-lock-candidate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out E01 branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Pin Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+      - name: Resolve candidate lock without writing repository state
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          python3 - <<'PY' > e01-lock-report.txt
+          import hashlib
+          import tomllib
+          from pathlib import Path
+          path = Path('Cargo.lock')
+          data = tomllib.loads(path.read_text(encoding='utf-8'))
+          packages = data['package']
+          registry = [p for p in packages if str(p.get('source', '')).startswith('registry+')]
+          git = [p for p in packages if str(p.get('source', '')).startswith('git+')]
+          print(f"sha256={hashlib.sha256(path.read_bytes()).hexdigest()}")
+          print(f"resolved_package_count={len(packages)}")
+          print(f"registry_package_count={len(registry)}")
+          print(f"git_dependency_count={len(git)}")
+          PY
+          cat e01-lock-report.txt
+      - name: Retain candidate lock
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: e01-lock-candidate-${{ github.sha }}
+          path: |
+            Cargo.lock
+            e01-lock-report.txt
+          if-no-files-found: error
+          retention-days: 7

@@ -1,10 +1,10 @@
 use crate::{CredentialFingerprint, LinkError};
 use rustls::{
     ClientConfig, ProtocolVersion, RootCertStore, ServerConfig,
-    pki_types::{CertificateDer, PrivateKeyDer, ServerName},
+    pki_types::{CertificateDer, PrivateKeyDer, ServerName, pem::PemObject},
     server::WebPkiClientVerifier,
 };
-use std::{fmt, io::Cursor, sync::Arc};
+use std::{fmt, sync::Arc};
 use tokio::net::TcpStream;
 use tokio_rustls::{
     TlsAcceptor, TlsConnector,
@@ -61,8 +61,7 @@ impl TlsIdentity {
     /// Returns [`LinkError::TlsConfiguration`] when PEM decoding fails, the
     /// certificate chain is empty, or no private key is present.
     pub fn from_pem(certificate_pem: &[u8], private_key_pem: &[u8]) -> Result<Self, LinkError> {
-        let mut certificate_reader = Cursor::new(certificate_pem);
-        let certificates = rustls_pemfile::certs(&mut certificate_reader)
+        let certificates = CertificateDer::pem_slice_iter(certificate_pem)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|error| LinkError::TlsConfiguration(error.to_string()))?;
         if certificates.is_empty() {
@@ -70,12 +69,8 @@ impl TlsIdentity {
                 "TLS identity PEM contains no certificates",
             )));
         }
-        let mut private_key_reader = Cursor::new(private_key_pem);
-        let private_key = rustls_pemfile::private_key(&mut private_key_reader)
-            .map_err(|error| LinkError::TlsConfiguration(error.to_string()))?
-            .ok_or_else(|| {
-                LinkError::TlsConfiguration(String::from("TLS identity PEM contains no private key"))
-            })?;
+        let private_key = PrivateKeyDer::from_pem_slice(private_key_pem)
+            .map_err(|error| LinkError::TlsConfiguration(error.to_string()))?;
         Ok(Self {
             certificates,
             private_key,
@@ -128,8 +123,7 @@ impl TlsTrustRoots {
     /// Returns [`LinkError::TlsConfiguration`] when PEM decoding fails or no
     /// certificate is present.
     pub fn from_pem(root_certificates_pem: &[u8]) -> Result<Self, LinkError> {
-        let mut reader = Cursor::new(root_certificates_pem);
-        let roots = rustls_pemfile::certs(&mut reader)
+        let roots = CertificateDer::pem_slice_iter(root_certificates_pem)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|error| LinkError::TlsConfiguration(error.to_string()))?;
         if roots.is_empty() {

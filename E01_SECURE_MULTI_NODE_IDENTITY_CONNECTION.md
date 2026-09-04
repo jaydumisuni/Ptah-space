@@ -34,13 +34,14 @@ The implementation provides:
 
 ## Dependency delta
 
-E01 adds three exact direct dependencies to the pre-existing frozen workspace dependency set:
+E01 adds two exact direct dependencies to the pre-existing frozen workspace dependency set:
 
 - `rustls = 0.23.43` with `ring,std`;
-- `rustls-pemfile = 2.2.0` with `std`;
 - `tokio-rustls = 0.26.4` with `ring`.
 
-The committed `Cargo.lock` is the CI-resolved lock for the E01 dependency graph. `dependencies/rust-direct-lock.json` records the exact selected versions, crates.io checksums, purpose, licence expectation and current lock identity. Git dependencies remain forbidden.
+PEM decoding uses the `rustls-pki-types` PEM API re-exported by Rustls rather than the archived `rustls-pemfile` compatibility crate. The committed `Cargo.lock` is the CI-resolved lock for the E01 dependency graph. `dependencies/rust-direct-lock.json` records the exact selected versions, crates.io checksums, purpose, licence expectation and current lock identity. Git dependencies remain forbidden.
+
+The dependency policy continues to deny registry wildcard versions. `allow-wildcard-paths = true` applies only to unpublished private workspace path dependencies, whose versions are fixed by the single workspace source tree and whose public licensing remains separately fenced.
 
 ## Transport neutrality
 

@@ -1,3 +1,5 @@
+//! E01 bounded framing tests over a transport-neutral async stream.
+
 use ptah_identifiers::EntityRef;
 use ptah_node_agent::NodeAgent;
 use ptah_node_link::{LinkError, LinkMessage, MAX_FRAME_BYTES, NodeHello, read_frame, write_frame};

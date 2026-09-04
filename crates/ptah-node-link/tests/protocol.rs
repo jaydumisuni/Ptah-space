@@ -1,3 +1,5 @@
+//! E01 protocol identity and negotiation tests.
+
 use ptah_identifiers::EntityRef;
 use ptah_node_agent::NodeAgent;
 use ptah_node_link::{LinkError, LinkMessage, MAX_FRAME_BYTES, NodeHello, PROTOCOL_ID, ProtocolVersion, negotiate_version};

@@ -16,6 +16,10 @@ pub struct ProtocolVersion {
 ///
 /// E01 has one major version. Peers with different majors are incompatible;
 /// compatible peers use the lower minor version.
+///
+/// # Errors
+///
+/// Returns [`LinkError::ProtocolIncompatible`] when the major versions differ.
 pub fn negotiate_version(
     local: ProtocolVersion,
     remote: ProtocolVersion,
@@ -45,7 +49,7 @@ pub struct NodeHello {
     pub node_id: NodeId,
     /// Exact current Node Generation.
     pub node_generation: NodeGeneration,
-    /// Requested exact ConnectionEpoch.
+    /// Requested exact `ConnectionEpoch`.
     pub connection_epoch: ConnectionEpoch,
     /// Exact enrollment record reference.
     pub enrollment_ref: EntityRef,
@@ -64,7 +68,7 @@ pub struct HelloAck {
     pub node_id: NodeId,
     /// Accepted Generation.
     pub node_generation: NodeGeneration,
-    /// Accepted ConnectionEpoch.
+    /// Accepted `ConnectionEpoch`.
     pub connection_epoch: ConnectionEpoch,
 }
 
@@ -82,7 +86,7 @@ pub struct Heartbeat {
     pub node_id: NodeId,
     /// Exact Node Generation.
     pub node_generation: NodeGeneration,
-    /// Exact ConnectionEpoch.
+    /// Exact `ConnectionEpoch`.
     pub connection_epoch: ConnectionEpoch,
     /// Monotonic sender-local heartbeat sequence.
     pub sequence: u64,
@@ -113,7 +117,7 @@ pub enum LinkMessage {
     /// Accepted-handshake projection.
     HelloAck(HelloAck),
     /// Evidence-bound capability announcement.
-    CapabilityAnnouncement(CapabilityAnnouncement),
+    CapabilityAnnouncement(Box<CapabilityAnnouncement>),
     /// Liveness projection.
     Heartbeat(Heartbeat),
     /// Generic acknowledgement.

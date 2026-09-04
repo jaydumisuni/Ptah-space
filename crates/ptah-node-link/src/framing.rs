@@ -2,6 +2,12 @@ use crate::{LinkError, LinkMessage, MAX_FRAME_BYTES};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// Read one length-delimited E01 message from any async byte stream.
+///
+/// # Errors
+///
+/// Returns [`LinkError::FrameTooLarge`] for an oversized declared frame,
+/// [`LinkError::MalformedFrame`] for zero-length or invalid JSON frames, and
+/// [`LinkError::Io`] when the underlying stream cannot provide the required bytes.
 pub async fn read_frame<R>(reader: &mut R) -> Result<LinkMessage, LinkError>
 where
     R: AsyncRead + Unpin,
@@ -22,6 +28,12 @@ where
 }
 
 /// Serialize and write one bounded length-delimited E01 message.
+///
+/// # Errors
+///
+/// Returns [`LinkError::FrameTooLarge`] when serialized bytes exceed the E01
+/// frame bound, [`LinkError::MalformedFrame`] when serialization fails, and
+/// [`LinkError::Io`] when the underlying stream cannot accept the frame.
 pub async fn write_frame<W>(writer: &mut W, message: &LinkMessage) -> Result<(), LinkError>
 where
     W: AsyncWrite + Unpin,

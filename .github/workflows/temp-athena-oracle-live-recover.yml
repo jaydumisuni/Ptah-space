@@ -111,6 +111,9 @@ jobs:
             Write-Output 'RECOVERY_STATUS_END'
           }
 
-          $live = @($oracleProcesses | Where-Object { $_.CommandLine -match 'oracle-live-node\.mjs' })
-          if ($live.Count -lt 1) { throw 'ORACLE_LIVE_NODE_PROCESS_MISSING' }
+          $ready = Invoke-RestMethod -Uri 'http://127.0.0.1:5059/ready' -TimeoutSec 5 -ErrorAction Stop
+          if ([string]$ready.schemaVersion -ne 'oracle.node-health.v1') { throw 'ORACLE_READY_SCHEMA_MISMATCH' }
+          if (-not [bool]$ready.ok -or -not [bool]$ready.connected) { throw 'ORACLE_READY_NOT_CONNECTED' }
+          if ([string]$ready.nodeId -ne 'ATHENA') { throw ('ORACLE_READY_NODE_MISMATCH:' + [string]$ready.nodeId) }
+          Write-Output ('ORACLE_READY_CONNECTION=' + [string]$ready.connectionId)
           Write-Output 'ATHENA_ORACLE_RECOVERY=PASS'

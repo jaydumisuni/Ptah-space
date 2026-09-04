@@ -100,6 +100,7 @@ jobs:
               'docs/superpowers/plans/2026-09-04-e01-secure-multi-node-identity-connection.md',
               'docs/superpowers/specs/2026-09-04-e01-secure-multi-node-identity-connection-design.md',
               'evidence/rust-dependency-lock/Cargo.toml',
+              'evidence/rust-dependency-lock/src/lib.rs',
               'services/ptah-control/Cargo.toml',
               'services/ptah-control/src/e01_lib.rs',
               'services/ptah-control/src/node_link.rs',

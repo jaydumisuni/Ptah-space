@@ -18,6 +18,27 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          $expected = '0f2a3b0e1884c749286b61348b482f7ebb263c19'
+          $bundleRoot = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)) 'THETECHGUY-Oracle-ElevatedInteractiveProbe'
+          $manifestPath = Join-Path $bundleRoot 'bundle-manifest.json'
+          if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw 'ORACLE_ELEVATED_BUNDLE_MISSING' }
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          [ordered]@{
+            schemaVersion = [string]$manifest.schemaVersion
+            sourceCommit = [string]$manifest.sourceCommit
+            installerBlob = [string]$manifest.installerSourceGitBlob
+            operations = @($manifest.operations | ForEach-Object { [string]$_.id })
+          } | ConvertTo-Json -Compress | Write-Output
+          if ([string]$manifest.sourceCommit -ne $expected) {
+            throw ('ORACLE_ELEVATED_BUNDLE_HEAD_MISMATCH:' + [string]$manifest.sourceCommit)
+          }
+          $source = Join-Path $env:RUNNER_TEMP ('oracle-pointer-' + $env:GITHUB_RUN_ID)
+          git -c core.autocrlf=false clone --quiet --no-checkout https://github.com/jaydumisuni/Oracle-.git $source
+          if ($LASTEXITCODE -ne 0) { throw 'ORACLE_CLONE_FAILED' }
+          git -C $source -c core.autocrlf=false checkout --quiet --detach $expected
+          if ($LASTEXITCODE -ne 0 -or (git -C $source rev-parse HEAD).Trim() -ne $expected) { throw 'ORACLE_HEAD_MISMATCH' }
+          & (Join-Path $source 'scripts\Submit-OracleElevatedInteractiveJob.ps1') -Operation oracle_desktop_pointer_install -TimeoutSeconds 300
+          if ($LASTEXITCODE -ne 0) { throw ('ORACLE_POINTER_INSTALL_FAILED:' + $LASTEXITCODE) }
           $names = @('Oracle Desktop Input', 'Oracle Always-On Node', 'Oracle Node Watchdog')
           Write-Output ('HOST=' + $env:COMPUTERNAME)
           Write-Output ('USER=' + [Security.Principal.WindowsIdentity]::GetCurrent().Name)
@@ -32,23 +53,6 @@ jobs:
               lastResult = [int64]$info.LastTaskResult
               lastRun = $info.LastRunTime.ToUniversalTime().ToString('o')
             } | ConvertTo-Json -Compress | Write-Output
-          }
-          foreach ($name in $names) {
-            $task = Get-ScheduledTask -TaskName $name -ErrorAction Stop
-            if ([string]$task.State -in @('Running', 'Queued')) {
-              Stop-ScheduledTask -TaskName $name -ErrorAction Stop
-              $deadline = (Get-Date).AddSeconds(20)
-              do {
-                Start-Sleep -Milliseconds 250
-                $state = [string](Get-ScheduledTask -TaskName $name -ErrorAction Stop).State
-              } while ($state -in @('Running', 'Queued') -and (Get-Date) -lt $deadline)
-              if ($state -in @('Running', 'Queued')) { throw "TASK_STOP_TIMEOUT:$name" }
-            }
-          }
-          foreach ($name in $names) {
-            Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
-            Start-ScheduledTask -TaskName $name -ErrorAction Stop
-            Start-Sleep -Seconds 2
           }
           $deadline = (Get-Date).AddSeconds(90)
           do {

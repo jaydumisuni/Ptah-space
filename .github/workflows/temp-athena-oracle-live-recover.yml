@@ -44,7 +44,18 @@ jobs:
               (Join-Path $env:LOCALAPPDATA 'OracleNode\pointer-bootstrap-v4\source-full\scripts\Submit-OracleElevatedInteractiveJob.ps1')
             )
             $submitter = $submitterCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
-            if (-not $submitter) { throw 'ORACLE_ELEVATED_SUBMITTER_MISSING' }
+            if (-not $submitter) {
+              $recoverySource = Join-Path $env:RUNNER_TEMP 'oracle-recovery-source-0f2a3b0e1'
+              if (Test-Path -LiteralPath $recoverySource) { Remove-Item -LiteralPath $recoverySource -Recurse -Force }
+              git -c core.autocrlf=false clone --quiet --no-checkout https://github.com/jaydumisuni/Oracle-.git $recoverySource
+              if ($LASTEXITCODE -ne 0) { throw 'ORACLE_RECOVERY_SOURCE_CLONE_FAILED' }
+              git -C $recoverySource -c core.autocrlf=false checkout --quiet --detach 0f2a3b0e1884c749286b61348b482f7ebb263c19
+              if ($LASTEXITCODE -ne 0) { throw 'ORACLE_RECOVERY_SOURCE_CHECKOUT_FAILED' }
+              $recoveryHead = (git -C $recoverySource rev-parse HEAD).Trim()
+              if ($recoveryHead -ne '0f2a3b0e1884c749286b61348b482f7ebb263c19') { throw ('ORACLE_RECOVERY_SOURCE_HEAD_MISMATCH:' + $recoveryHead) }
+              $submitter = Join-Path $recoverySource 'scripts\Submit-OracleElevatedInteractiveJob.ps1'
+            }
+            if (-not (Test-Path -LiteralPath $submitter -PathType Leaf)) { throw 'ORACLE_ELEVATED_SUBMITTER_MISSING' }
             Write-Output ('ELEVATED_SUBMITTER=' + $submitter)
             $elevatedOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $submitter -Operation oracle_desktop_pointer_install -TimeoutSeconds 180 2>&1)
             $elevatedOutput | ForEach-Object { Write-Output ('ELEVATED=' + $_) }

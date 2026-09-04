@@ -85,6 +85,7 @@ jobs:
           test "$(git merge-base "$D08_BASE" HEAD)" = "$D08_BASE"
           test -z "$(git rev-list --min-parents=2 "$D08_BASE"..HEAD)"
           test "$(git rev-parse origin/d09-full-workspace-release-acceptance)" = "$TARGET_SHA"
+
           python3 - <<'PY'
           import subprocess
 
@@ -120,6 +121,20 @@ jobs:
           PY
           git diff --check "$D08_BASE" HEAD
 
+          for path in \
+            Cargo.toml \
+            Cargo.lock \
+            deny.toml \
+            dependencies/rust-direct-lock.json \
+            dependencies/backend-artifact-lock.json \
+            contracts/generated/manifest.json \
+            crates/ptah-contracts/src/generated.rs
+          do
+            git show "$D08_BASE:$path" | cmp - "$path"
+          done
+          printf 'D08_PREDECESSOR_DEPENDENCY_AND_CONTRACT_BYTES_OK\n' \
+            > "$RUNNER_TEMP/d09-proof/d08-byte-identity.txt"
+
       - name: Prove immutable workflow action references
         shell: bash
         run: |
@@ -148,17 +163,167 @@ jobs:
           print('ALL_EXTERNAL_ACTION_REFERENCES_IMMUTABLY_PINNED')
           PY
 
-      - name: Prove current source dependency and backend identity boundaries
+      - name: Prove current dependency licence source and backend identity boundaries
         shell: bash
         run: |
           set -euo pipefail
           PROOF="$RUNNER_TEMP/d09-proof"
-          python3 tools/check_phase0c_scaffold.py \
-            2>&1 | tee "$PROOF/phase0c-scaffold-validation.txt"
           cp Cargo.lock "$PROOF/Cargo.lock.repository"
           cargo metadata --locked --format-version 1 > "$PROOF/cargo-metadata.json"
           python3 tools/check_rust_dependency_lock.py --output "$PROOF/rust-dependency-lock.json"
           cmp Cargo.lock "$PROOF/Cargo.lock.repository"
+
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          proof = Path(os.environ['RUNNER_TEMP']) / 'd09-proof'
+          workspace = tomllib.loads(Path('Cargo.toml').read_text(encoding='utf-8'))
+          deny = tomllib.loads(Path('deny.toml').read_text(encoding='utf-8'))
+          selection = json.loads(Path('dependencies/rust-direct-lock.json').read_text(encoding='utf-8'))
+          metadata = json.loads((proof/'cargo-metadata.json').read_text(encoding='utf-8'))
+          lock = tomllib.loads(Path('Cargo.lock').read_text(encoding='utf-8'))
+
+          if selection.get('runtime_implementation_authorized') is not False:
+              raise SystemExit('Rust dependency selection widened runtime authority')
+          if selection.get('toolchain') != '1.97.1':
+              raise SystemExit('Rust dependency toolchain drifted')
+          if selection.get('registry') != 'https://github.com/rust-lang/crates.io-index':
+              raise SystemExit('Rust dependency registry drifted')
+
+          workspace_deps = workspace.get('workspace', {}).get('dependencies', {})
+          selected_entries = selection.get('direct_dependencies')
+          if not isinstance(workspace_deps, dict) or not isinstance(selected_entries, list):
+              raise SystemExit('workspace/direct dependency policy is incomplete')
+          selected = {item.get('name'): item for item in selected_entries if isinstance(item, dict)}
+          if set(selected) != set(workspace_deps):
+              raise SystemExit(
+                  f'direct dependency set drifted: selected={sorted(selected)} '
+                  f'workspace={sorted(workspace_deps)}'
+              )
+          for name, manifest in workspace_deps.items():
+              entry = selected[name]
+              if not isinstance(manifest, dict):
+                  raise SystemExit(f'workspace dependency is not exact object: {name}')
+              if manifest.get('version') != f"={entry.get('version')}":
+                  raise SystemExit(f'exact direct version drifted: {name}')
+              if not isinstance(entry.get('expected_licence'), str) or not entry['expected_licence']:
+                  raise SystemExit(f'direct dependency licence expectation missing: {name}')
+              if not isinstance(entry.get('purpose'), str) or not entry['purpose']:
+                  raise SystemExit(f'direct dependency purpose missing: {name}')
+
+          policy = selection.get('policy')
+          if not isinstance(policy, dict):
+              raise SystemExit('Rust dependency policy record missing')
+          required_checks = {'advisories', 'bans', 'licenses', 'sources'}
+          if set(policy.get('required_checks', [])) != required_checks:
+              raise SystemExit('required dependency policy checks drifted')
+          allowed = set(policy.get('allowed_transitive_licences', []))
+          deny_allowed = set(deny.get('licenses', {}).get('allow', []))
+          if allowed != deny_allowed or not allowed:
+              raise SystemExit('committed dependency licence allow-list drifted')
+          if deny.get('sources', {}).get('unknown-registry') != 'deny':
+              raise SystemExit('unknown registry policy is not deny')
+          if deny.get('sources', {}).get('unknown-git') != 'deny':
+              raise SystemExit('unknown Git policy is not deny')
+          if deny.get('sources', {}).get('allow-registry') != ['https://github.com/rust-lang/crates.io-index']:
+              raise SystemExit('allowed registry policy drifted')
+          if deny.get('bans', {}).get('wildcards') != 'deny':
+              raise SystemExit('wildcard dependency policy is not deny')
+          if deny.get('advisories', {}).get('yanked') != 'deny':
+              raise SystemExit('yanked dependency policy is not deny')
+          if deny.get('licenses', {}).get('private', {}).get('ignore') is not True:
+              raise SystemExit('private workspace licence boundary drifted')
+
+          packages = lock.get('package')
+          if not isinstance(packages, list):
+              raise SystemExit('Cargo.lock package array missing')
+          canonical_source = 'registry+https://github.com/rust-lang/crates.io-index'
+          registry_count = 0
+          git_count = 0
+          for package in packages:
+              if not isinstance(package, dict):
+                  continue
+              source = package.get('source')
+              if source is None:
+                  continue
+              if isinstance(source, str) and source.startswith('git+'):
+                  git_count += 1
+                  continue
+              if source != canonical_source:
+                  raise SystemExit(f"unapproved Cargo source: {source}")
+              registry_count += 1
+              checksum = package.get('checksum')
+              if not isinstance(checksum, str) or re.fullmatch(r'[0-9a-f]{64}', checksum) is None:
+                  raise SystemExit(
+                      f"registry package checksum invalid: {package.get('name')}@{package.get('version')}"
+                  )
+          if git_count != 0:
+              raise SystemExit(f'Git dependencies present: {git_count}')
+
+          cargo_record = selection.get('cargo_lock')
+          if not isinstance(cargo_record, dict):
+              raise SystemExit('committed Cargo.lock identity record missing')
+          current_sha = hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest()
+          if cargo_record.get('sha256') != current_sha:
+              raise SystemExit('Cargo.lock digest drifted from committed dependency selection')
+          if cargo_record.get('resolved_package_count') != len(packages):
+              raise SystemExit('resolved package count drifted')
+          if cargo_record.get('registry_package_count') != registry_count:
+              raise SystemExit('registry package count drifted')
+          if cargo_record.get('git_dependency_count') != 0:
+              raise SystemExit('committed Git dependency count is not zero')
+
+          external_metadata = [
+              item for item in metadata.get('packages', [])
+              if isinstance(item, dict) and item.get('source') is not None
+          ]
+          if len(external_metadata) != registry_count:
+              raise SystemExit(
+                  f'cargo metadata external count mismatch: metadata={len(external_metadata)} '
+                  f'lock={registry_count}'
+              )
+          operators = {'AND', 'OR', 'WITH'}
+          for package in external_metadata:
+              source = package.get('source')
+              if source != canonical_source:
+                  raise SystemExit(f"metadata source is not canonical: {source}")
+              licence = package.get('license')
+              if not isinstance(licence, str) or not licence.strip():
+                  raise SystemExit(
+                      f"external dependency licence missing: {package.get('name')}@{package.get('version')}"
+                  )
+              tokens = {
+                  token for token in re.findall(r'[A-Za-z0-9][A-Za-z0-9.+-]*', licence)
+                  if token not in operators
+              }
+              if not tokens or not tokens.issubset(allowed):
+                  raise SystemExit(
+                      f"dependency licence outside allow-list: "
+                      f"{package.get('name')}@{package.get('version')} -> {licence}"
+                  )
+
+          report = {
+              'schema_version': '0.1.0',
+              'record_type': 'ptah.d09.current_dependency_policy_audit',
+              'cargo_lock_sha256': current_sha,
+              'resolved_package_count': len(packages),
+              'registry_package_count': registry_count,
+              'git_dependency_count': 0,
+              'direct_dependency_count': len(selected),
+              'allowed_transitive_licences': sorted(allowed),
+              'external_metadata_licence_count': len(external_metadata),
+              'predecessor_bytes_unchanged': True,
+              'runtime_implementation_authorized': False,
+          }
+          (proof/'dependency-policy-audit.json').write_text(
+              json.dumps(report, indent=2, sort_keys=True) + '\n', encoding='utf-8'
+          )
+          PY
 
           python3 - <<'PY'
           import hashlib
@@ -174,7 +339,6 @@ jobs:
           )
           lock = json.loads(lock_path.read_text(encoding='utf-8'))
           retained = json.loads(retained_path.read_text(encoding='utf-8'))
-
           if lock.get('runtime_implementation_authorized') is not False:
               raise SystemExit('backend lock widened runtime authority')
           if retained.get('runtime_implementation_authorized') is not False:
@@ -405,9 +569,10 @@ jobs:
           required = [
               'exact-head.txt', 'd08-predecessor.txt', 'roadmap-authority.txt',
               'host-os-release.txt', 'host-uname.txt', 'rustc-version.txt', 'cargo-version.txt',
-              'action-pin-audit.txt', 'phase0c-scaffold-validation.txt',
+              'd08-byte-identity.txt', 'action-pin-audit.txt',
               'Cargo.lock.repository', 'cargo-metadata.json',
-              'rust-dependency-lock.json', 'backend-lock-identity.json',
+              'rust-dependency-lock.json', 'dependency-policy-audit.json',
+              'backend-lock-identity.json',
               'd09-regressions.txt', 'd09-validation.json',
               'deep-workspace-regressions.txt', 'deep-workspace-validation.json',
               'ai-workspace-regressions.txt', 'ai-workspace-validation.json',
@@ -430,6 +595,7 @@ jobs:
           deep = json.loads((proof/'deep-workspace-validation.json').read_text())
           ai = json.loads((proof/'ai-workspace-validation.json').read_text())
           apache = json.loads((proof/'apache-boundary-validation.json').read_text())
+          dependency = json.loads((proof/'dependency-policy-audit.json').read_text())
 
           bundle = {
               'schema_version': '0.1.0',
@@ -446,6 +612,9 @@ jobs:
               'deep_workspace_fixture_count': deep['fixture_count'],
               'd08_runtime_cases': 25,
               'd08_shell_cases': 3,
+              'dependency_resolved_packages': dependency['resolved_package_count'],
+              'dependency_registry_packages': dependency['registry_package_count'],
+              'dependency_git_packages': dependency['git_dependency_count'],
               'participants': d09['participants'],
               'ptah_semantic_authority': False,
               'ptah_decision_authority': ai['ptah_decision_authority'],
@@ -461,6 +630,8 @@ jobs:
               raise SystemExit('deep Workspace capability count drifted')
           if bundle['deep_workspace_fixture_count'] != 20:
               raise SystemExit('deep Workspace fixture count drifted')
+          if bundle['dependency_git_packages'] != 0:
+              raise SystemExit('Git dependency count is not zero')
           if bundle['participants'] != ['human', 'hunter', 'sergeant']:
               raise SystemExit('D09 participant set drifted')
           if any(bundle[key] is not False for key in (

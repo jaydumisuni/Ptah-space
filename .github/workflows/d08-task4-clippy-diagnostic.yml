@@ -1,0 +1,56 @@
+name: D08 Task4 Clippy Diagnostic
+
+on:
+  push:
+    branches:
+      - d08-application-platform-expansion
+    paths:
+      - .github/workflows/d08-task4-clippy-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - name: Apply existing Task4 patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import re
+          from pathlib import Path
+
+          text = Path('.github/workflows/d08-tdd.yml').read_text()
+          match = re.search(r'^\s*D08_PATCH_B64:\s*([A-Za-z0-9+/=]+)\s*$', text, re.MULTILINE)
+          if match is None:
+              raise SystemExit('D08_PATCH_B64 not found')
+          Path('/tmp/d08_task4_patch.py').write_bytes(base64.b64decode(match.group(1)))
+          PY
+          python3 /tmp/d08_task4_patch.py
+          cargo fmt --all
+          git diff --check
+      - name: Capture strict Clippy diagnostic
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          cargo clippy -p ptah-application-runtime -p ptah-control --all-targets --locked -- -D warnings -W clippy::pedantic 2>&1 | tee /tmp/d08-task4-clippy.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            cp /tmp/d08-task4-clippy.log d08-task4-clippy-diagnostic.log
+            git config user.name 'THE TECH GUY'
+            git config user.email '65334711+jaydumisuni@users.noreply.github.com'
+            git add d08-task4-clippy-diagnostic.log
+            git commit -m 'diag(d08): capture task4 strict clippy failure'
+            git push origin HEAD:d08-application-platform-expansion
+          fi
+          exit "$status"

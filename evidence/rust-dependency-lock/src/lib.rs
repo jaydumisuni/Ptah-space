@@ -14,6 +14,6 @@ mod tests {
 
     #[test]
     fn dependency_evidence_cannot_authorize_runtime() {
-        assert!(!RUNTIME_IMPLEMENTATION_AUTHORIZED);
+        const { assert!(!RUNTIME_IMPLEMENTATION_AUTHORIZED) };
     }
 }

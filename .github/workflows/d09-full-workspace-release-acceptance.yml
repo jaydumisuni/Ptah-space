@@ -282,9 +282,7 @@ jobs:
                       r'\g<left> OR \g<right>', normalised, count=1
                   )
                   if count == 0:
-                      raise ValueError(
-                          f'unsupported slash licence syntax: {expression}'
-                      )
+                      raise ValueError(f'unsupported slash licence syntax: {expression}')
                   replacements += count
               return normalised, replacements
 
@@ -332,14 +330,16 @@ jobs:
                   value = parse_with()
                   while peek() == 'AND':
                       consume('AND')
-                      value = value and parse_with()
+                      rhs = parse_with()
+                      value = value and rhs
                   return value
 
               def parse_or():
                   value = parse_and()
                   while peek() == 'OR':
                       consume('OR')
-                      value = value or parse_and()
+                      rhs = parse_and()
+                      value = value or rhs
                   return value
 
               result = parse_or()

@@ -47,6 +47,7 @@ jobs:
           replacements = [
               ('        session: ApplicationSessionProjection,\n', '        session: Box<ApplicationSessionProjection>,\n'),
               ('        display: Option<DisplaySessionProjection>,\n', '        display: Option<Box<DisplaySessionProjection>>,\n'),
+              ('        application_revision_ref: EntityRef,\n', '        application_revision_ref: Box<EntityRef>,\n'),
               ('        requirement: RemoteNodeRequirement,\n', '        requirement: Box<RemoteNodeRequirement>,\n'),
           ]
           for old, new in replacements:
@@ -61,6 +62,7 @@ jobs:
               ('session: session("running", "full"),', 'session: Box::new(session("running", "full")),'),
               ('session: session("degraded", "headless_only"),', 'session: Box::new(session("degraded", "headless_only")),'),
               ('session: session("preparing", "unavailable"),', 'session: Box::new(session("preparing", "unavailable")),'),
+              ('application_revision_ref: serde_json::from_value(entity("application.revision", 19))\n            .expect("application revision ref"),', 'application_revision_ref: Box::new(\n            serde_json::from_value(entity("application.revision", 19))\n                .expect("application revision ref"),\n        ),'),
               ('requirement: remote_requirement(),', 'requirement: Box::new(remote_requirement()),'),
           ]:
               if old not in text:

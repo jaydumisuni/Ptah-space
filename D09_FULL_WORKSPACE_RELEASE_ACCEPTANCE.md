@@ -47,20 +47,24 @@ Those three workflow-path changes do not alter Ptah product code, Cargo state, s
 
 The D09 proof composes already-proven milestone authorities on one exact candidate. A green D09 workflow cannot redefine a predecessor contract.
 
-## Release-audit correction discovered during D09 proof
+## Release-audit corrections discovered during D09 proof
 
-The first D09 exact-head audit correctly exposed eight inherited floating GitHub Action references in completed D07/D08 proof machinery. Those references were corrected or retired rather than weakening the D09 policy.
+The first D09 exact-head audit exposed eight inherited floating GitHub Action references in completed D07/D08 proof machinery. Those references were corrected or retired rather than weakening the D09 policy.
 
-A later D09 proof attempt then exposed a separate historical-validation mismatch: `tools/test_check_a01_scaffold.py` and `tools/check_a01_scaffold.py` encode the original A01 workspace/member and Cargo snapshot. Repository history already records those legacy A01/A02 exact-head checks as carrying historical workspace/dependency assumptions after later milestones legitimately expanded the workspace.
+A later proof attempt exposed that `tools/test_check_a01_scaffold.py` and `tools/check_a01_scaffold.py` encode the original A01 workspace/member and Cargo snapshot. Repository history already records those legacy A01/A02 exact-head checks as carrying historical workspace/dependency assumptions after later milestones legitimately expanded the workspace.
 
-D09 therefore does **not** mutate the accepted D08 workspace to satisfy that obsolete A01 snapshot. Current release dependency/source proof is bound to the progression-aware retained Phase-0C validator and exact Rust dependency-lock validator:
+The next proof showed the same distinction for `tools/check_phase0c_scaffold.py`: that historical retained-evidence checker intentionally freezes an earlier 81-package external Cargo universe, while the accepted D08 predecessor carries the later committed dependency selection of 116 resolved packages, 97 registry packages and zero Git dependencies.
 
-- `tools/check_phase0c_scaffold.py` validates the frozen generated bindings, current approved external Cargo universe, no Git dependencies, backend-artifact lock, historical non-authorizing boundaries and repository leakage constraints;
-- `tools/check_rust_dependency_lock.py` validates exact selected direct dependencies, canonical crates.io source, checksums, no Git dependencies, workspace/evidence linkage and the current `Cargo.lock`;
-- the D09 workflow independently audits every external GitHub Action reference for a full 40-hex immutable pin;
-- the Apache-2.0 boundary validator and its adversarial tests remain the operative public/private/licence boundary.
+D09 therefore does **not** mutate the accepted D08 workspace to satisfy either historical snapshot. The current release dependency/source/licence proof follows the accepted A15 exact-head dependency pattern and strengthens it relative to D08:
 
-The obsolete A01 regression pair remains historical evidence; it is not treated as the current release acceptance gate.
+- `Cargo.toml`, `Cargo.lock`, `deny.toml`, `dependencies/rust-direct-lock.json`, `dependencies/backend-artifact-lock.json`, the generated-contract manifest and generated Rust bindings must be byte-identical to the independently accepted D08 merge;
+- `tools/check_rust_dependency_lock.py` validates exact selected direct dependencies, the canonical crates.io source, registry checksums, zero Git dependencies and the current `Cargo.lock`;
+- D09 additionally checks the current committed dependency counts/digest, exact workspace/direct dependency set, `deny.toml` source/bans/licence policy, and every external package licence expression exposed by `cargo metadata --locked` against the committed licence allow-list;
+- retained backend artifact/browser/signature identities remain exact;
+- every external GitHub Action reference must be a full 40-hex immutable pin;
+- the Apache-2.0 boundary validator and adversarial tests remain the operative public/private repository boundary.
+
+The A01 and Phase-0C package-universe checks remain historical evidence. They are not reinterpreted as the current D09 dependency baseline.
 
 ## Frozen D09 release corpus
 
@@ -143,10 +147,13 @@ Linux local/packaged and proven Android composition may be represented only at t
 
 The exact candidate must pass:
 
+- byte identity to D08 for current Cargo/dependency/licence/backend/generated-contract authority files;
 - immutable 40-hex pin audit for every external GitHub Action;
-- `tools/check_phase0c_scaffold.py` retained source/dependency/backend boundary validation;
 - exact `Cargo.lock` capture plus `cargo metadata --locked`;
 - `tools/check_rust_dependency_lock.py` exact direct-dependency/source/checksum/no-Git validation;
+- current committed 116/97/0 Cargo identity and exact direct dependency set;
+- `deny.toml` source, wildcard, yanked and licence-policy consistency;
+- current external dependency licence expressions constrained to the committed allow-list;
 - retained backend identity and evidence-count validation;
 - Apache-2.0 owner-acceptance adversarial tests and validator;
 - D02 private-Workspace/private-Hunter access denial through its acceptance suite.
@@ -166,9 +173,9 @@ The permanent workflow must prove on one exact candidate SHA:
 1. exact D08 predecessor and linear branch history;
 2. remote implementation branch equals the candidate SHA;
 3. exact seven-file D09 acceptance surface plus the three audited D07/D08 proof-hygiene path changes only;
-4. no Cargo/product/schema/migration/generated-contract movement;
+4. no Cargo/product/schema/migration/generated-contract movement and exact D08 bytes for the dependency/contract authority set;
 5. all external GitHub Actions immutably pinned;
-6. current Phase-0C source/dependency/backend identity boundaries and exact Rust dependency lock;
+6. current D08-bound dependency/source/licence identity, exact Rust dependency lock and retained backend identities;
 7. D09 checker regressions and exact ten-case corpus;
 8. deep Workspace 22/20/26 burden and non-authorizing AI validator;
 9. D01, D02 and A04 concurrent operation acceptance;

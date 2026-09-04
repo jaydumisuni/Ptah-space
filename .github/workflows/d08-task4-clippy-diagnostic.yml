@@ -35,11 +35,12 @@ jobs:
           Path('/tmp/d08_task4_patch.py').write_bytes(base64.b64decode(match.group(1)))
           PY
           python3 /tmp/d08_task4_patch.py
-      - name: Apply structural large-enum correction candidate
+      - name: Apply structural Task4 lint corrections
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
+          import re
           from pathlib import Path
 
           snapshot = Path('crates/ptah-application-runtime/src/snapshot.rs')
@@ -69,6 +70,48 @@ jobs:
                   raise SystemExit(f'missing expected constructor: {old}')
               text = text.replace(old, new)
           test.write_text(text)
+
+          control = Path('services/ptah-control/src/lib.rs')
+          lines = control.read_text().splitlines()
+          output = []
+          context = None
+
+          def documented() -> bool:
+              for prior in reversed(output):
+                  stripped = prior.strip()
+                  if not stripped:
+                      continue
+                  if stripped.startswith('#['):
+                      continue
+                  return stripped.startswith('///')
+              return False
+
+          def words_from_variant(name: str) -> str:
+              return re.sub(r'(?<!^)(?=[A-Z])', ' ', name).lower()
+
+          for line in lines:
+              if context is None:
+                  if re.match(r'^pub\s+struct\s+.+\{\s*$', line):
+                      context = 'struct'
+                  elif re.match(r'^pub\s+enum\s+.+\{\s*$', line):
+                      context = 'enum'
+              elif line == '}':
+                  context = None
+
+              if context == 'struct':
+                  match = re.match(r'^(\s+)pub\s+([A-Za-z_][A-Za-z0-9_]*)\s*:', line)
+                  if match and not documented():
+                      label = match.group(2).replace('_', ' ')
+                      output.append(f'{match.group(1)}/// Human-visible {label} carried by this projection.')
+              elif context == 'enum':
+                  match = re.match(r'^(\s{4})([A-Z][A-Za-z0-9_]*)(?:\s*\(|\s*\{|\s*,)', line)
+                  if match and not documented():
+                      label = words_from_variant(match.group(2))
+                      output.append(f'{match.group(1)}/// Represents {label}.')
+
+              output.append(line)
+
+          control.write_text('\n'.join(output) + '\n')
           PY
           cargo fmt --all
           git diff --check
@@ -85,7 +128,7 @@ jobs:
             git config user.name 'THE TECH GUY'
             git config user.email '65334711+jaydumisuni@users.noreply.github.com'
             git add -f d08-task4-clippy-diagnostic.txt
-            git commit -m 'diag(d08): capture corrected task4 clippy failure'
+            git commit -m 'diag(d08): capture strict task4 clippy failure'
             git push origin HEAD:d08-application-platform-expansion
           fi
           exit "$status"

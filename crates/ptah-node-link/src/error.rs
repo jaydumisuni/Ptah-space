@@ -12,7 +12,9 @@ pub enum LinkError {
         remote_major: u16,
     },
     /// The peers have the same major but no mutually supported minor version.
-    #[error("protocol minor is incompatible: local={local_minor}, remote={remote_min}..={remote_max}")]
+    #[error(
+        "protocol minor is incompatible: local={local_minor}, remote={remote_min}..={remote_max}"
+    )]
     ProtocolMinorIncompatible {
         /// Local supported minor.
         local_minor: u16,

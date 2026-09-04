@@ -43,8 +43,8 @@ impl FromStr for CredentialFingerprint {
         }
         let mut bytes = [0_u8; 32];
         for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
-            let text = std::str::from_utf8(chunk)
-                .map_err(|_| LinkError::InvalidCredentialFingerprint)?;
+            let text =
+                std::str::from_utf8(chunk).map_err(|_| LinkError::InvalidCredentialFingerprint)?;
             bytes[index] = u8::from_str_radix(text, 16)
                 .map_err(|_| LinkError::InvalidCredentialFingerprint)?;
         }
@@ -100,7 +100,9 @@ impl ApprovedNodeEnrollment {
         expires_at_epoch_seconds: Option<u64>,
     ) -> Result<Self, LinkError> {
         if approved_role_keys.is_empty() {
-            return Err(LinkError::InvalidEnrollment("approved role keys are required"));
+            return Err(LinkError::InvalidEnrollment(
+                "approved role keys are required",
+            ));
         }
         if credential_fingerprints.is_empty() {
             return Err(LinkError::InvalidEnrollment(

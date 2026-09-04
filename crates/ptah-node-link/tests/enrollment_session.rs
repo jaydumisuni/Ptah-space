@@ -18,12 +18,7 @@ fn enrollment(node_id: NodeId, fingerprint: CredentialFingerprint) -> ApprovedNo
     .expect("approved enrollment")
 }
 
-fn hello(
-    node_id: NodeId,
-    enrollment_ref: EntityRef,
-    generation: u64,
-    epoch: u64,
-) -> NodeHello {
+fn hello(node_id: NodeId, enrollment_ref: EntityRef, generation: u64, epoch: u64) -> NodeHello {
     NodeHello {
         supported_major: 1,
         minimum_minor: 0,
@@ -144,7 +139,10 @@ fn reconnect_supersedes_old_epoch_and_generation() {
         )
         .expect("reconnected session");
 
-    assert_eq!(registry.assert_current(&first), Err(LinkError::SupersededConnection));
+    assert_eq!(
+        registry.assert_current(&first),
+        Err(LinkError::SupersededConnection)
+    );
     registry.assert_current(&second).expect("second current");
     assert_eq!(
         registry.accept_hello(
@@ -153,7 +151,10 @@ fn reconnect_supersedes_old_epoch_and_generation() {
             fingerprint,
             1_000,
         ),
-        Err(LinkError::StaleConnectionEpoch { current: 2, requested: 2 })
+        Err(LinkError::StaleConnectionEpoch {
+            current: 2,
+            requested: 2
+        })
     );
 
     let third = registry
@@ -164,7 +165,10 @@ fn reconnect_supersedes_old_epoch_and_generation() {
             1_000,
         )
         .expect("new generation");
-    assert_eq!(registry.assert_current(&second), Err(LinkError::SupersededConnection));
+    assert_eq!(
+        registry.assert_current(&second),
+        Err(LinkError::SupersededConnection)
+    );
     registry.assert_current(&third).expect("third current");
     assert_eq!(
         registry.accept_hello(
@@ -173,7 +177,10 @@ fn reconnect_supersedes_old_epoch_and_generation() {
             fingerprint,
             1_000,
         ),
-        Err(LinkError::StaleNodeGeneration { current: 2, requested: 1 })
+        Err(LinkError::StaleNodeGeneration {
+            current: 2,
+            requested: 1
+        })
     );
 }
 
@@ -206,7 +213,10 @@ fn credential_rotation_preserves_node_identity_and_fences_revoked_key() {
 
     assert!(enrollment.revoke_credential(&old));
     registry.revoke_credential(&old);
-    assert_eq!(registry.assert_current(&old_binding), Err(LinkError::SupersededConnection));
+    assert_eq!(
+        registry.assert_current(&old_binding),
+        Err(LinkError::SupersededConnection)
+    );
     assert_eq!(
         registry.accept_hello(
             &hello(node_id, enrollment.enrollment_ref().clone(), 1, 3),

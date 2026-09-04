@@ -9,8 +9,7 @@ use ptah_node_link::{
 };
 use tokio::net::TcpListener;
 
-const CA_CERT: &[u8] =
-    include_bytes!("../../../crates/ptah-node-link/tests/fixtures/ca.cert.der");
+const CA_CERT: &[u8] = include_bytes!("../../../crates/ptah-node-link/tests/fixtures/ca.cert.der");
 const SERVER_CERT: &[u8] =
     include_bytes!("../../../crates/ptah-node-link/tests/fixtures/server.cert.der");
 const SERVER_KEY: &[u8] =

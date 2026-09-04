@@ -84,8 +84,14 @@ fn two_nodes_are_accepted_as_independent_current_sessions() {
         .accept_hello(&second_hello, second_fp, 0)
         .expect("second accepted");
 
-    assert_eq!(control.current_session(first.node_id()), Some(&first_binding));
-    assert_eq!(control.current_session(second.node_id()), Some(&second_binding));
+    assert_eq!(
+        control.current_session(first.node_id()),
+        Some(&first_binding)
+    );
+    assert_eq!(
+        control.current_session(second.node_id()),
+        Some(&second_binding)
+    );
 }
 
 #[test]
@@ -115,10 +121,7 @@ fn superseded_session_cannot_publish_capability() {
     let fingerprint = CredentialFingerprint::from_der(b"credential");
     let approved = enrollment(&agent, fingerprint);
     let enrollment_ref = approved.enrollment_ref().clone();
-    let mut control = NodeLinkControl::new(
-        ProtocolVersion { major: 1, minor: 0 },
-        vec![approved],
-    );
+    let mut control = NodeLinkControl::new(ProtocolVersion { major: 1, minor: 0 }, vec![approved]);
 
     let first_binding = control
         .accept_hello(&hello(&agent, enrollment_ref.clone()), fingerprint, 0)
@@ -148,10 +151,8 @@ fn control_restart_fences_previous_in_memory_binding() {
         .accept_hello(&hello(&agent, enrollment_ref), fingerprint, 0)
         .expect("accepted before restart");
 
-    let restarted_control = NodeLinkControl::new(
-        ProtocolVersion { major: 1, minor: 0 },
-        vec![approved],
-    );
+    let restarted_control =
+        NodeLinkControl::new(ProtocolVersion { major: 1, minor: 0 }, vec![approved]);
     assert!(restarted_control.current_session(agent.node_id()).is_none());
     assert_eq!(
         restarted_control.accept_capability(&binding, &capability(&agent)),

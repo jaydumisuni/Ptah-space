@@ -74,7 +74,11 @@ pub async fn run_node_link_client(
     let tcp = TcpStream::connect(config.endpoint).await?;
     let mut tls = connect_tls(tcp, &config.server_name, &config.tls).await?;
     let hello = config.hello(agent);
-    write_frame(tls.stream_mut(), &LinkMessage::Hello(Box::new(hello.clone()))).await?;
+    write_frame(
+        tls.stream_mut(),
+        &LinkMessage::Hello(Box::new(hello.clone())),
+    )
+    .await?;
 
     let LinkMessage::HelloAck(ack) = read_frame(tls.stream_mut()).await? else {
         return Err(LinkError::MalformedFrame(String::from(

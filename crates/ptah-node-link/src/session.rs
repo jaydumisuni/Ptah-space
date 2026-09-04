@@ -1,6 +1,4 @@
-use crate::{
-    ApprovedNodeEnrollment, CredentialFingerprint, LinkError, NodeHello, ProtocolVersion,
-};
+use crate::{ApprovedNodeEnrollment, CredentialFingerprint, LinkError, NodeHello, ProtocolVersion};
 use ptah_identifiers::{ConnectionEpoch, EntityRef, NodeGeneration, NodeId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -56,11 +54,7 @@ impl SessionRegistry {
         if &hello.enrollment_ref != enrollment.enrollment_ref() {
             return Err(LinkError::EnrollmentReferenceMismatch);
         }
-        enrollment.authorize_peer(
-            hello.node_id,
-            credential_fingerprint,
-            now_epoch_seconds,
-        )?;
+        enrollment.authorize_peer(hello.node_id, credential_fingerprint, now_epoch_seconds)?;
 
         if hello.supported_major != self.local_protocol.major {
             return Err(LinkError::ProtocolIncompatible {

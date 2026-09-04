@@ -7,8 +7,7 @@ use rustls::{
 use std::{fmt, sync::Arc};
 use tokio::net::TcpStream;
 use tokio_rustls::{
-    TlsAcceptor, TlsConnector,
-    client::TlsStream as ClientTlsStream,
+    TlsAcceptor, TlsConnector, client::TlsStream as ClientTlsStream,
     server::TlsStream as ServerTlsStream,
 };
 
@@ -42,8 +41,9 @@ impl TlsIdentity {
                 "TLS identity contains an empty certificate",
             )));
         }
-        let private_key = PrivateKeyDer::try_from(private_key_der)
-            .map_err(|_| LinkError::TlsConfiguration(String::from("invalid TLS private-key DER")))?;
+        let private_key = PrivateKeyDer::try_from(private_key_der).map_err(|_| {
+            LinkError::TlsConfiguration(String::from("invalid TLS private-key DER"))
+        })?;
         let certificates = certificate_chain_der
             .into_iter()
             .map(CertificateDer::from)
@@ -311,8 +311,8 @@ pub async fn connect_tls(
     server_name: &str,
     config: &TlsClientConfig,
 ) -> Result<AuthenticatedClientStream, LinkError> {
-    let server_name = ServerName::try_from(server_name.to_owned())
-        .map_err(|_| LinkError::InvalidServerName)?;
+    let server_name =
+        ServerName::try_from(server_name.to_owned()).map_err(|_| LinkError::InvalidServerName)?;
     let stream = TlsConnector::from(config.inner.clone())
         .connect(server_name, tcp)
         .await

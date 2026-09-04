@@ -27,11 +27,8 @@ fn client_identity() -> TlsIdentity {
 }
 
 fn wrong_client_identity() -> TlsIdentity {
-    TlsIdentity::from_der(
-        vec![WRONG_CLIENT_CERT.to_vec()],
-        WRONG_CLIENT_KEY.to_vec(),
-    )
-    .expect("wrong client identity")
+    TlsIdentity::from_der(vec![WRONG_CLIENT_CERT.to_vec()], WRONG_CLIENT_KEY.to_vec())
+        .expect("wrong client identity")
 }
 
 fn roots(cert: &[u8]) -> TlsTrustRoots {
@@ -57,8 +54,10 @@ fn hello_message() -> LinkMessage {
 async fn mutual_tls13_round_trips_protocol_and_extracts_client_fingerprint() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let address = listener.local_addr().expect("listener address");
-    let server_config = TlsServerConfig::new(server_identity(), roots(CA_CERT)).expect("server config");
-    let client_config = TlsClientConfig::new(client_identity(), roots(CA_CERT)).expect("client config");
+    let server_config =
+        TlsServerConfig::new(server_identity(), roots(CA_CERT)).expect("server config");
+    let client_config =
+        TlsClientConfig::new(client_identity(), roots(CA_CERT)).expect("client config");
     let expected = hello_message();
     let expected_for_server = expected.clone();
 
@@ -82,7 +81,9 @@ async fn mutual_tls13_round_trips_protocol_and_extracts_client_fingerprint() {
         .await
         .expect("connect mTLS");
     assert!(tls.is_tls13());
-    write_frame(tls.stream_mut(), &expected).await.expect("write hello");
+    write_frame(tls.stream_mut(), &expected)
+        .await
+        .expect("write hello");
     assert_eq!(
         read_frame(tls.stream_mut()).await.expect("read close"),
         LinkMessage::Close
@@ -94,7 +95,8 @@ async fn mutual_tls13_round_trips_protocol_and_extracts_client_fingerprint() {
 async fn wrong_server_trust_root_fails_closed() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let address = listener.local_addr().expect("listener address");
-    let server_config = TlsServerConfig::new(server_identity(), roots(CA_CERT)).expect("server config");
+    let server_config =
+        TlsServerConfig::new(server_identity(), roots(CA_CERT)).expect("server config");
     let client_config =
         TlsClientConfig::new(client_identity(), roots(WRONG_CA_CERT)).expect("client config");
 
@@ -111,7 +113,8 @@ async fn wrong_server_trust_root_fails_closed() {
 async fn client_signed_by_wrong_ca_fails_server_authentication() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let address = listener.local_addr().expect("listener address");
-    let server_config = TlsServerConfig::new(server_identity(), roots(CA_CERT)).expect("server config");
+    let server_config =
+        TlsServerConfig::new(server_identity(), roots(CA_CERT)).expect("server config");
     let client_config =
         TlsClientConfig::new(wrong_client_identity(), roots(CA_CERT)).expect("client config");
 
@@ -133,7 +136,8 @@ async fn client_signed_by_wrong_ca_fails_server_authentication() {
 async fn plaintext_cannot_downgrade_tls_listener() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let address = listener.local_addr().expect("listener address");
-    let server_config = TlsServerConfig::new(server_identity(), roots(CA_CERT)).expect("server config");
+    let server_config =
+        TlsServerConfig::new(server_identity(), roots(CA_CERT)).expect("server config");
 
     let server = tokio::spawn(async move {
         let (tcp, _) = listener.accept().await.expect("accept tcp");
@@ -152,5 +156,7 @@ fn tls_identity_debug_never_exposes_private_key() {
     let identity = client_identity();
     let debug = format!("{identity:?}");
     assert!(debug.contains("REDACTED"));
-    assert!(!debug.contains(&format!("{:02x}", CLIENT_KEY[0])) || !debug.contains("private_key_der"));
+    assert!(
+        !debug.contains(&format!("{:02x}", CLIENT_KEY[0])) || !debug.contains("private_key_der")
+    );
 }

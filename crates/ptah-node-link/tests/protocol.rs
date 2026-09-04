@@ -2,7 +2,10 @@
 
 use ptah_identifiers::EntityRef;
 use ptah_node_agent::NodeAgent;
-use ptah_node_link::{LinkError, LinkMessage, MAX_FRAME_BYTES, NodeHello, PROTOCOL_ID, ProtocolVersion, negotiate_version};
+use ptah_node_link::{
+    LinkError, LinkMessage, MAX_FRAME_BYTES, NodeHello, PROTOCOL_ID, ProtocolVersion,
+    negotiate_version,
+};
 
 #[test]
 fn hello_preserves_a02_node_identity() {

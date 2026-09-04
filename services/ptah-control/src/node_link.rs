@@ -16,10 +16,7 @@ pub struct NodeLinkControl {
 impl NodeLinkControl {
     /// Construct one control-plane secure-link registry from canonical enrollment projections.
     #[must_use]
-    pub fn new(
-        protocol: ProtocolVersion,
-        enrollments: Vec<ApprovedNodeEnrollment>,
-    ) -> Self {
+    pub fn new(protocol: ProtocolVersion, enrollments: Vec<ApprovedNodeEnrollment>) -> Self {
         let enrollments = enrollments
             .into_iter()
             .map(|enrollment| (enrollment.node_id(), enrollment))
@@ -47,12 +44,8 @@ impl NodeLinkControl {
             .enrollments
             .get(&hello.node_id)
             .ok_or(LinkError::UnapprovedEnrollment)?;
-        self.sessions.accept_hello(
-            hello,
-            enrollment,
-            credential_fingerprint,
-            now_epoch_seconds,
-        )
+        self.sessions
+            .accept_hello(hello, enrollment, credential_fingerprint, now_epoch_seconds)
     }
 
     /// Validate one A02 capability snapshot against the exact current secure session.

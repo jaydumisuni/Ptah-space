@@ -24,7 +24,8 @@ fn hello_message() -> LinkMessage {
 async fn frame_round_trip_is_transport_neutral() {
     let (mut left, mut right) = duplex(16 * 1024);
     let expected = hello_message();
-    let sender = tokio::spawn(async move { write_frame(&mut left, &expected).await.map(|()| expected) });
+    let sender =
+        tokio::spawn(async move { write_frame(&mut left, &expected).await.map(|()| expected) });
     let received = read_frame(&mut right).await.expect("read frame");
     let sent = sender.await.expect("sender join").expect("write frame");
     assert_eq!(received, sent);
@@ -49,7 +50,9 @@ async fn oversized_declared_frame_fails_before_payload_read() {
 #[tokio::test]
 async fn zero_length_frame_is_malformed() {
     let (mut left, mut right) = duplex(64);
-    left.write_all(&0_u32.to_be_bytes()).await.expect("write length");
+    left.write_all(&0_u32.to_be_bytes())
+        .await
+        .expect("write length");
     left.flush().await.expect("flush length");
 
     assert_eq!(

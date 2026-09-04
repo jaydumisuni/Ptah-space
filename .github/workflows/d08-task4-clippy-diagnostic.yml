@@ -1,4 +1,4 @@
-name: D08 Task4 Clippy Diagnostic
+name: D08 Task4 Promotion
 
 on:
   push:
@@ -12,14 +12,16 @@ permissions:
   contents: write
 
 jobs:
-  diagnose:
+  prove-and-promote:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
-      - name: Apply existing Task4 patch
+      - name: Preserve promoted Task4 lock
+        run: cp Cargo.lock /tmp/Cargo.lock.before
+      - name: Apply existing Task4 implementation
         shell: bash
         run: |
           set -euo pipefail
@@ -35,7 +37,7 @@ jobs:
           Path('/tmp/d08_task4_patch.py').write_bytes(base64.b64decode(match.group(1)))
           PY
           python3 /tmp/d08_task4_patch.py
-      - name: Apply structural Task4 lint corrections
+      - name: Apply proven structural and documentation corrections
         shell: bash
         run: |
           set -euo pipefail
@@ -52,23 +54,26 @@ jobs:
               ('        requirement: RemoteNodeRequirement,\n', '        requirement: Box<RemoteNodeRequirement>,\n'),
           ]
           for old, new in replacements:
-              if old not in text:
+              if old in text:
+                  text = text.replace(old, new)
+              elif new not in text:
                   raise SystemExit(f'missing expected snapshot field: {old.strip()}')
-              text = text.replace(old, new)
           snapshot.write_text(text)
 
           test = Path('services/ptah-control/tests/d08_application_projection.rs')
           text = test.read_text()
-          for old, new in [
+          replacements = [
               ('session: session("running", "full"),', 'session: Box::new(session("running", "full")),'),
               ('session: session("degraded", "headless_only"),', 'session: Box::new(session("degraded", "headless_only")),'),
               ('session: session("preparing", "unavailable"),', 'session: Box::new(session("preparing", "unavailable")),'),
               ('application_revision_ref: serde_json::from_value(entity("application.revision", 19))\n            .expect("application revision ref"),', 'application_revision_ref: Box::new(\n            serde_json::from_value(entity("application.revision", 19))\n                .expect("application revision ref"),\n        ),'),
               ('requirement: remote_requirement(),', 'requirement: Box::new(remote_requirement()),'),
-          ]:
-              if old not in text:
+          ]
+          for old, new in replacements:
+              if old in text:
+                  text = text.replace(old, new)
+              elif new not in text:
                   raise SystemExit(f'missing expected constructor: {old}')
-              text = text.replace(old, new)
           test.write_text(text)
 
           control = Path('services/ptah-control/src/lib.rs')
@@ -130,21 +135,81 @@ jobs:
                   acceptance.write_text(f'//! {label} integration acceptance proof.\n\n' + text)
           PY
           cargo fmt --all
+          cargo fmt --all -- --check
           git diff --check
-      - name: Capture strict Clippy diagnostic
+      - name: Prove exact 28-case D08 milestone GREEN
         shell: bash
         run: |
-          set -uo pipefail
-          set +e
-          cargo clippy -p ptah-application-runtime -p ptah-control --all-targets --locked -- -D warnings -W clippy::pedantic 2>&1 | tee /tmp/d08-task4-clippy.txt
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ]; then
-            cp /tmp/d08-task4-clippy.txt d08-task4-clippy-diagnostic.txt
-            git config user.name 'THE TECH GUY'
-            git config user.email '65334711+jaydumisuni@users.noreply.github.com'
-            git add -f d08-task4-clippy-diagnostic.txt
-            git commit -m 'diag(d08): capture strict task4 clippy failure'
-            git push origin HEAD:d08-application-platform-expansion
+          set -euo pipefail
+          runtime_count=$(cargo test -p ptah-application-runtime --test d08_acceptance --locked -- --list | grep -c ': test$')
+          shell_count=$(cargo test -p ptah-control --test d08_application_projection --locked -- --list | grep -c ': test$')
+          test "$runtime_count" -eq 25
+          test "$shell_count" -eq 3
+          test "$((runtime_count + shell_count))" -eq 28
+          cargo test -p ptah-application-runtime --test d08_acceptance --locked
+          cargo test -p ptah-control --test d08_application_projection --locked
+      - name: Prove D01 C10 and A14 regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          d01_count=$(cargo test -p ptah-control --test d01_acceptance --locked -- --list | grep -c ': test$')
+          c10_count=$(cargo test -p ptah-android-runtime --test c10 --locked -- --list | grep -c ': test$')
+          test "$d01_count" -eq 13
+          test "$c10_count" -eq 14
+          cargo test -p ptah-control --test d01_acceptance --locked
+          cargo test -p ptah-android-runtime --test c10 --locked
+          cargo test -p ptah-control --test a14_acceptance --locked
+      - name: Prove strict Task4 lint and zero suppressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy -p ptah-application-runtime -p ptah-control --all-targets --locked -- -D warnings -W clippy::pedantic
+          if grep -R -n -E '#\[(allow|expect)\(' crates/ptah-application-runtime/src crates/ptah-application-runtime/tests services/ptah-control/src services/ptah-control/tests; then
+            echo 'D08 lint suppression found' >&2
+            exit 1
           fi
-          exit "$status"
+      - name: Prove promoted Task4 lock is byte-stable
+        run: |
+          cmp Cargo.lock /tmp/Cargo.lock.before
+          git diff --exit-code -- Cargo.lock
+      - name: Review exact production delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          python3 - <<'PY'
+          import subprocess
+
+          allowed = {
+              'crates/ptah-application-runtime/src/remote_display.rs',
+              'crates/ptah-application-runtime/src/snapshot.rs',
+              'crates/ptah-application-runtime/tests/d08_acceptance/remote.rs',
+              'services/ptah-control/src/lib.rs',
+              'services/ptah-control/src/main.rs',
+              'services/ptah-control/tests/a14_acceptance.rs',
+              'services/ptah-control/tests/d08_application_projection.rs',
+          }
+          changed = set(filter(None, subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()))
+          unexpected = changed - allowed
+          if unexpected:
+              raise SystemExit(f'unexpected production delta: {sorted(unexpected)}')
+          if not changed:
+              raise SystemExit('no Task4 production delta to promote')
+          print('Task4 production delta:', *sorted(changed), sep='\n  ')
+          PY
+      - name: Freeze and promote proven Task4 implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f d08-task4-clippy-diagnostic.txt
+          git rm -f .github/workflows/d08-task4-clippy-diagnostic.yml
+          if [ -e .github/workflows/d08-task4-green-once.yml ]; then
+            git rm -f .github/workflows/d08-task4-green-once.yml
+          fi
+          git config user.name 'THE TECH GUY'
+          git config user.email '65334711+jaydumisuni@users.noreply.github.com'
+          git add crates/ptah-application-runtime services/ptah-control
+          git add -u d08-task4-clippy-diagnostic.txt || true
+          git diff --cached --check
+          git commit -m 'feat(d08): freeze application platform shell projection'
+          git push origin HEAD:d08-application-platform-expansion

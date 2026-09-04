@@ -4,7 +4,7 @@
 
 Programme D09 release-acceptance candidate.
 
-This document records the D09 acceptance boundary and release procedure. It does not self-approve D09 and does not claim the Full Workspace Release milestone is complete before the permanent exact-head proof, guarded merge and independent `main` verification succeed.
+This record defines the D09 acceptance boundary and release procedure. It does not self-approve D09 and does not claim the Full Workspace Release milestone is complete before the permanent exact-head proof, guarded merge and independent `main` verification succeed.
 
 ## Frozen authority
 
@@ -21,13 +21,13 @@ Accepted delivery authority:
 - package: Programme D09 — Full Workspace release acceptance
 - milestone: **Full Workspace Release**
 
-The accepted roadmap requires concurrent human and agent operation, long-running recovery, Provider replacement, provenance, security evidence, Plugin rollback, complete public/private audit and the complete deep Workspace corpus under human, Hunter and Sergeant use without Ptah authority drift.
+The roadmap burden is concurrent human and agent operation, long-running recovery, Provider replacement, provenance, security evidence, Plugin rollback, complete public/private audit and the complete deep Workspace corpus under human, Hunter and Sergeant use without Ptah authority drift.
 
 ## Acceptance-only architecture
 
 D09 introduces no new runtime crate, Core entity family, schema, migration, generated contract, Provider, execution engine, Cargo dependency or semantic decision authority.
 
-Its normal public implementation surface is limited to:
+Its normal implementation surface is limited to:
 
 - `docs/superpowers/specs/2026-09-04-d09-full-workspace-release-acceptance-design.md`;
 - `docs/superpowers/plans/2026-09-04-d09-full-workspace-release-acceptance.md`;
@@ -37,19 +37,30 @@ Its normal public implementation surface is limited to:
 - `tools/test_check_d09_full_workspace_release.py`;
 - `.github/workflows/d09-full-workspace-release-acceptance.yml`.
 
+The D09 release audit also identified and corrected inherited proof hygiene only:
+
+- `.github/workflows/d07-security-evidence-reproduction-proof.yml` now uses immutable checkout/upload Action pins and explicit Rust 1.97.1 installation;
+- `.github/workflows/d08-application-platform-expansion-proof.yml` now uses the same immutable proof pattern;
+- the obsolete write-capable `.github/workflows/d08-tdd.yml` promotion lane is retired.
+
+Those three workflow-path changes do not alter Ptah product code, Cargo state, schemas, migrations or predecessor semantics.
+
 The D09 proof composes already-proven milestone authorities on one exact candidate. A green D09 workflow cannot redefine a predecessor contract.
 
-### Release-audit correction discovered by D09
+## Release-audit correction discovered during D09 proof
 
-The first permanent D09 exact-head run failed before product tests because the repository-wide Action audit found eight inherited floating Action references. They were confined to D07/D08 proof machinery; no Rust/product/Cargo/schema defect was exposed.
+The first D09 exact-head audit correctly exposed eight inherited floating GitHub Action references in completed D07/D08 proof machinery. Those references were corrected or retired rather than weakening the D09 policy.
 
-D09 corrects that inherited release-proof hygiene as part of the reviewed Full Workspace release delta:
+A later D09 proof attempt then exposed a separate historical-validation mismatch: `tools/test_check_a01_scaffold.py` and `tools/check_a01_scaffold.py` encode the original A01 workspace/member and Cargo snapshot. Repository history already records those legacy A01/A02 exact-head checks as carrying historical workspace/dependency assumptions after later milestones legitimately expanded the workspace.
 
-- `.github/workflows/d07-security-evidence-reproduction-proof.yml` now pins checkout/upload Actions to immutable 40-hex commits and installs Rust 1.97.1 explicitly with `rustup` instead of the floating Rust Action;
-- `.github/workflows/d08-application-platform-expansion-proof.yml` receives the same immutable proof correction;
-- `.github/workflows/d08-tdd.yml`, the completed Task-4 write-capable auto-promotion lane, is retired rather than carried into the release.
+D09 therefore does **not** mutate the accepted D08 workspace to satisfy that obsolete A01 snapshot. Current release dependency/source proof is bound to the progression-aware retained Phase-0C validator and exact Rust dependency-lock validator:
 
-The failed D09 proof run remains evidence of the defect. The one-shot repair workflow used to diagnose/prepare the correction was itself retired and is not part of the release candidate. The final D08→D09 release delta is exactly ten paths: the seven D09 acceptance/evidence files plus these three inherited proof-hygiene paths.
+- `tools/check_phase0c_scaffold.py` validates the frozen generated bindings, current approved external Cargo universe, no Git dependencies, backend-artifact lock, historical non-authorizing boundaries and repository leakage constraints;
+- `tools/check_rust_dependency_lock.py` validates exact selected direct dependencies, canonical crates.io source, checksums, no Git dependencies, workspace/evidence linkage and the current `Cargo.lock`;
+- the D09 workflow independently audits every external GitHub Action reference for a full 40-hex immutable pin;
+- the Apache-2.0 boundary validator and its adversarial tests remain the operative public/private/licence boundary.
+
+The obsolete A01 regression pair remains historical evidence; it is not treated as the current release acceptance gate.
 
 ## Frozen D09 release corpus
 
@@ -80,16 +91,11 @@ The exact candidate must preserve the accepted deep Workspace study:
 - no frozen-contract reopening;
 - no runtime-implementation authorization derived from the study.
 
-The same candidate must pass D01 human acceptance and D02 AI Project Workspace acceptance. D02 Hunter and Sergeant adapters remain caller-side adapters; Ptah does not choose semantic context, trust, review verdict, approval, result acceptance or next action.
+The same candidate must pass D01 human acceptance and D02 AI Project Workspace acceptance. Hunter and Sergeant remain caller-side adapters; Ptah does not choose semantic context, trust, review verdict, approval, result acceptance or next action.
 
 ## Concurrent human and agent operation
 
-D09 re-proves:
-
-- D01 Human Workspace shell v2 acceptance;
-- D02 AI Project Workspace acceptance;
-- A04 Activity runtime concurrency/failure isolation;
-- the deep Workspace mechanical profile and AI Workspace authority validator.
+D09 re-proves D01 Human Workspace shell v2 acceptance, D02 AI Project Workspace acceptance, A04 Activity runtime concurrency/failure isolation, the deep Workspace mechanical profile and the AI Workspace authority validator.
 
 Worker completion, Activity success, UI status and Sergeant output remain distinct from caller/reviewer acceptance.
 
@@ -97,21 +103,13 @@ Worker completion, Activity success, UI status and Sergeant output remain distin
 
 D09 re-proves A13 checkpoint/restart/verified recovery and B06 Session Vault acceptance.
 
-Recovery must preserve or explicitly reconcile:
-
-- canonical Workspace and Session identity;
-- new Provider/Node Generations after replacement/restart;
-- stable result handles;
-- retained partial Artifacts;
-- exact admitted/scheduled inputs;
-- conflict and uncertain-effect evidence;
-- missing capability and incompatible-target failures.
+Recovery must preserve or explicitly reconcile canonical Workspace/Session identity, new Provider/Node Generations after replacement/restart, stable result handles, retained partial Artifacts, exact admitted/scheduled inputs, conflict/uncertain-effect evidence, and missing-capability or incompatible-target failures.
 
 Checkpoint existence is not restore success. Stale Lease, Fence, Session or Provider authority may not survive recovery.
 
 ## Provider replacement and Plugin rollback
 
-D09 re-proves D05 Package/Plugin lifecycle acceptance and the replacement evidence retained by D06/D07.
+D09 re-proves D05 Package/Plugin lifecycle acceptance and replacement evidence retained by D06/D07.
 
 Release acceptance preserves these laws:
 
@@ -125,18 +123,11 @@ Release acceptance preserves these laws:
 
 ## Provenance and security evidence
 
-D09 re-proves D06 and D07 acceptance plus their canonical-store round trips.
+D09 re-proves D06 and D07 acceptance plus canonical-store round trips.
 
-Release acceptance does not collapse proof domains. In particular:
+Release acceptance does not collapse proof domains. SBOM existence is not vulnerability, licence or release approval; signature validity is exact-subject binding under one Trust Policy, not semantic correctness; reproduction requires fresh independent execution evidence; Observation, Finding, Claim, Evidence, review and reproduction remain distinct; remediation acknowledgement is not post-fix verification; contradictory, negative, partial, failed, inconclusive and regressed evidence remains retained.
 
-- SBOM existence is not vulnerability, licence or release approval;
-- signature validity is exact subject binding under one Trust Policy, not semantic correctness;
-- reproduction requires fresh independent execution evidence;
-- Observation, Finding, Claim, Evidence, review and reproduction remain distinct;
-- remediation acknowledgement is not post-fix verification;
-- contradictory, negative, partial, failed, inconclusive and regressed evidence remains retained.
-
-D09 itself has no autonomous release verdict authority.
+D09 itself has no autonomous release-verdict authority.
 
 ## Application platform truth
 
@@ -150,33 +141,19 @@ Linux local/packaged and proven Android composition may be represented only at t
 
 ## Public/private, licence and source audit
 
-D09 reuses the operative repository boundaries rather than creating a new public/private policy.
-
 The exact candidate must pass:
 
-- repository-wide immutable external GitHub Action reference audit;
-- A01 scaffold/source-policy adversarial regressions and checker;
-- retained Phase 0C scaffold/history boundary validation;
-- exact Rust dependency-lock validation;
-- Apache-2.0 owner-acceptance unit tests and validator;
+- immutable 40-hex pin audit for every external GitHub Action;
+- `tools/check_phase0c_scaffold.py` retained source/dependency/backend boundary validation;
+- exact `Cargo.lock` capture plus `cargo metadata --locked`;
+- `tools/check_rust_dependency_lock.py` exact direct-dependency/source/checksum/no-Git validation;
+- retained backend identity and evidence-count validation;
+- Apache-2.0 owner-acceptance adversarial tests and validator;
 - D02 private-Workspace/private-Hunter access denial through its acceptance suite.
 
 The Apache boundary must remain `owner_accepted_operative_verified` with `runtime_implementation_authorized: false` in its historical Phase-0C sense. D09 release acceptance does not rewrite that historical record.
 
 Private THETECHGUY systems, customer/device/payment data, restricted adapters, proprietary donor material and private Hunter records remain outside public release evidence unless independently released and granted under their owning authority.
-
-## Source, dependency and Provider identity evidence
-
-The D09 report bundle retains:
-
-- exact candidate and D08 predecessor SHAs;
-- exact Rust/Cargo version;
-- exact `Cargo.lock` bytes and `cargo metadata --locked` output;
-- the existing Rust dependency-lock report;
-- the committed backend-artifact lock digest and retained Phase 0C backend-evidence digest;
-- all D09 validation/test reports and exact SHA-256 metadata.
-
-D09 performs no silent backend upgrade or provider substitution while proving release acceptance.
 
 ## Permanent exact-head proof
 
@@ -184,27 +161,28 @@ Workflow:
 
 `D09 Full Workspace Release Exact Head Acceptance`
 
-The permanent workflow must prove, on one exact candidate SHA:
+The permanent workflow must prove on one exact candidate SHA:
 
 1. exact D08 predecessor and linear branch history;
 2. remote implementation branch equals the candidate SHA;
-3. exact ten-path release delta: seven D09 acceptance/evidence paths plus D07 proof pinning, D08 proof pinning and retirement of D08 TDD promotion;
+3. exact seven-file D09 acceptance surface plus the three audited D07/D08 proof-hygiene path changes only;
 4. no Cargo/product/schema/migration/generated-contract movement;
-5. every remaining external GitHub Action is immutably pinned;
-6. D09 checker regressions and exact ten-case corpus;
-7. deep Workspace 22/20/26 burden and non-authorizing AI validator;
-8. D01, D02 and A04 concurrent operation acceptance;
-9. A13 and B06 recovery acceptance;
-10. D05 Plugin lifecycle/rollback/replacement acceptance;
-11. D06 provenance acceptance and store round-trip;
-12. D07 security evidence acceptance and store round-trip;
-13. exact D08 25+3 acceptance corpus;
-14. source/dependency/public-private/licence audit;
-15. `cargo fmt --all -- --check`;
-16. complete `cargo test --workspace --locked`;
+5. all external GitHub Actions immutably pinned;
+6. current Phase-0C source/dependency/backend identity boundaries and exact Rust dependency lock;
+7. D09 checker regressions and exact ten-case corpus;
+8. deep Workspace 22/20/26 burden and non-authorizing AI validator;
+9. D01, D02 and A04 concurrent operation acceptance;
+10. A13 and B06 recovery acceptance;
+11. D05 Plugin lifecycle/rollback/replacement acceptance;
+12. D06 provenance acceptance and store round-trip;
+13. D07 security evidence acceptance and store round-trip;
+14. exact D08 25+3 acceptance corpus;
+15. Apache/public-private/licence boundary;
+16. `cargo fmt --all -- --check` and complete `cargo test --workspace --locked`;
 17. clean exact worktree;
-18. immutable report-bundle digest;
-19. retained artifact `d09-full-workspace-release-${TARGET_SHA}`.
+18. explicit retained release limitations;
+19. immutable report-bundle digest;
+20. retained artifact `d09-full-workspace-release-${TARGET_SHA}`.
 
 A green workflow without the retained report bundle is not D09 acceptance.
 
@@ -216,7 +194,7 @@ Promotion requires:
 - retained artifact present for that SHA;
 - branch head still equals that SHA;
 - PR base is exact D08 merge `ca6b3526ce9b58ffce11f8582be8fbf860dfa53d`;
-- changed paths remain exactly within the reviewed ten-path D09 release delta;
+- changed paths remain exactly within the reviewed D09 release surface;
 - repository review/rules expose no unresolved blocker;
 - merge is constrained with `expected_head_sha` equal to the proven candidate.
 
@@ -231,7 +209,7 @@ Only then may D09 be marked COMPLETE and Programme D be described as reaching th
 
 Before merge, any failed or moved candidate remains unpromoted; retain failed evidence and return to the accepted D08 predecessor.
 
-After merge, rollback is a normal reviewed revert of the D09 merge. Do not force-move `main`, delete retained evidence or reinterpret a failed/inconclusive report as success.
+After merge, rollback is a normal reviewed revert of the D09 merge. Do not force-move `main`, delete retained evidence or reinterpret failed/inconclusive evidence as success.
 
 ## Explicit limitations and deferrals
 

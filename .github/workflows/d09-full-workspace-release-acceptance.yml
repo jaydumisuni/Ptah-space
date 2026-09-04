@@ -185,6 +185,7 @@ jobs:
           workspace = tomllib.loads(Path('Cargo.toml').read_text(encoding='utf-8'))
           deny = tomllib.loads(Path('deny.toml').read_text(encoding='utf-8'))
           selection = json.loads(Path('dependencies/rust-direct-lock.json').read_text(encoding='utf-8'))
+          verified = json.loads((proof/'rust-dependency-lock.json').read_text(encoding='utf-8'))
           metadata = json.loads((proof/'cargo-metadata.json').read_text(encoding='utf-8'))
           lock = tomllib.loads(Path('Cargo.lock').read_text(encoding='utf-8'))
 
@@ -194,6 +195,10 @@ jobs:
               raise SystemExit('Rust dependency toolchain drifted')
           if selection.get('registry') != 'https://github.com/rust-lang/crates.io-index':
               raise SystemExit('Rust dependency registry drifted')
+          if verified.get('runtime_implementation_authorized') is not False:
+              raise SystemExit('current Rust dependency verification widened runtime authority')
+          if verified.get('toolchain') != '1.97.1':
+              raise SystemExit('current Rust dependency verification toolchain drifted')
 
           workspace_deps = workspace.get('workspace', {}).get('dependencies', {})
           selected_entries = selection.get('direct_dependencies')
@@ -265,18 +270,25 @@ jobs:
           if git_count != 0:
               raise SystemExit(f'Git dependencies present: {git_count}')
 
-          cargo_record = selection.get('cargo_lock')
-          if not isinstance(cargo_record, dict):
-              raise SystemExit('committed Cargo.lock identity record missing')
           current_sha = hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest()
-          if cargo_record.get('sha256') != current_sha:
-              raise SystemExit('Cargo.lock digest drifted from committed dependency selection')
-          if cargo_record.get('resolved_package_count') != len(packages):
-              raise SystemExit('resolved package count drifted')
-          if cargo_record.get('registry_package_count') != registry_count:
-              raise SystemExit('registry package count drifted')
-          if cargo_record.get('git_dependency_count') != 0:
-              raise SystemExit('committed Git dependency count is not zero')
+          expected_d08_sha = '329f485f352afa35f3f6cb4df76ebf0c6e8b589a555386072f4a8750a5349987'
+          if current_sha != expected_d08_sha:
+              raise SystemExit('current Cargo.lock digest does not match accepted D08 lock')
+          if len(packages) != 130 or registry_count != 97 or git_count != 0:
+              raise SystemExit(
+                  f'current D08 Cargo identity drifted: '
+                  f'resolved={len(packages)} registry={registry_count} git={git_count}'
+              )
+          if verified.get('cargo_lock_sha256') != current_sha:
+              raise SystemExit('current dependency verifier Cargo.lock digest mismatch')
+          if verified.get('resolved_package_count') != len(packages):
+              raise SystemExit('current dependency verifier resolved package count mismatch')
+          if verified.get('registry_package_count') != registry_count:
+              raise SystemExit('current dependency verifier registry package count mismatch')
+          if verified.get('git_dependency_count') != git_count:
+              raise SystemExit('current dependency verifier Git package count mismatch')
+          if verified.get('direct_dependency_count') != len(selected):
+              raise SystemExit('current dependency verifier direct dependency count mismatch')
 
           external_metadata = [
               item for item in metadata.get('packages', [])
@@ -307,17 +319,24 @@ jobs:
                       f"{package.get('name')}@{package.get('version')} -> {licence}"
                   )
 
+          historical_cargo = selection.get('cargo_lock')
+          if not isinstance(historical_cargo, dict):
+              raise SystemExit('historical dependency-selection Cargo snapshot missing')
+
           report = {
               'schema_version': '0.1.0',
               'record_type': 'ptah.d09.current_dependency_policy_audit',
               'cargo_lock_sha256': current_sha,
               'resolved_package_count': len(packages),
               'registry_package_count': registry_count,
-              'git_dependency_count': 0,
+              'git_dependency_count': git_count,
               'direct_dependency_count': len(selected),
               'allowed_transitive_licences': sorted(allowed),
               'external_metadata_licence_count': len(external_metadata),
               'predecessor_bytes_unchanged': True,
+              'historical_selection_snapshot_sha256': historical_cargo.get('sha256'),
+              'historical_selection_snapshot_resolved_package_count': historical_cargo.get('resolved_package_count'),
+              'historical_selection_snapshot_used_as_current_gate': False,
               'runtime_implementation_authorized': False,
           }
           (proof/'dependency-policy-audit.json').write_text(
@@ -630,6 +649,10 @@ jobs:
               raise SystemExit('deep Workspace capability count drifted')
           if bundle['deep_workspace_fixture_count'] != 20:
               raise SystemExit('deep Workspace fixture count drifted')
+          if bundle['dependency_resolved_packages'] != 130:
+              raise SystemExit('D08-bound resolved package count drifted')
+          if bundle['dependency_registry_packages'] != 97:
+              raise SystemExit('D08-bound registry package count drifted')
           if bundle['dependency_git_packages'] != 0:
               raise SystemExit('Git dependency count is not zero')
           if bundle['participants'] != ['human', 'hunter', 'sergeant']:

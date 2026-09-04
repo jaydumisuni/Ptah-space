@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   node-link-targeted:
@@ -31,17 +31,12 @@ jobs:
       - name: Run E01 node-link tests
         shell: bash
         run: cargo test -p ptah-node-link --test protocol --test framing --test enrollment_session --test tls_transport
-      - name: Run E01 service RED/GREEN tests
+      - name: Run E01 service tests
         shell: bash
         run: |
-          set +e
+          set -euo pipefail
           cargo test -p ptah-control --test e01_node_link
-          control_status=$?
           cargo test -p ptah-node --test e01_node_client
-          node_status=$?
-          if [ "$control_status" -ne 0 ] || [ "$node_status" -ne 0 ]; then
-            exit 1
-          fi
       - name: Run E01 strict Clippy
         shell: bash
         run: cargo clippy -p ptah-node-link --all-targets -- -D warnings
@@ -52,3 +47,15 @@ jobs:
           path: Cargo.lock
           if-no-files-found: error
           retention-days: 7
+      - name: Commit resolved Cargo.lock when changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- Cargo.lock; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock
+          git commit -m "build(e01): lock secure-link dependencies"
+          git push origin HEAD:e01-secure-multi-node-identity-connection

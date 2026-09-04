@@ -112,6 +112,22 @@ jobs:
               output.append(line)
 
           control.write_text('\n'.join(output) + '\n')
+
+          main = Path('services/ptah-control/src/main.rs')
+          text = main.read_text()
+          crate_doc = '//! Ptah human-control service executable and HTTP projection boundary.\n'
+          if crate_doc not in text:
+              anchor = '#![forbid(unsafe_code)]\n'
+              if anchor not in text:
+                  raise SystemExit('ptah-control main crate attribute not found')
+              text = text.replace(anchor, anchor + crate_doc, 1)
+          main.write_text(text)
+
+          for acceptance in Path('services/ptah-control/tests').glob('*.rs'):
+              text = acceptance.read_text()
+              if not text.startswith('//!'):
+                  label = acceptance.stem.replace('_', ' ')
+                  acceptance.write_text(f'//! {label} integration acceptance proof.\n\n' + text)
           PY
           cargo fmt --all
           git diff --check

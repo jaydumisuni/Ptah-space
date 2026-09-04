@@ -34,7 +34,8 @@ async fn frame_round_trip_is_transport_neutral() {
 async fn oversized_declared_frame_fails_before_payload_read() {
     let (mut left, mut right) = duplex(64);
     let declared = MAX_FRAME_BYTES + 1;
-    left.write_all(&(declared as u32).to_be_bytes())
+    let declared_u32 = u32::try_from(declared).expect("E01 frame test bound fits u32");
+    left.write_all(&declared_u32.to_be_bytes())
         .await
         .expect("write length");
     left.flush().await.expect("flush length");

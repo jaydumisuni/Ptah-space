@@ -14,7 +14,7 @@ jobs:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
     timeout-minutes: 90
     env:
-      ORACLE_COMMIT: 0f2a3b0e1884c749286b61348b482f7ebb263c19
+      ORACLE_COMMIT: ba0fbcc76baa89567074faa7f09f15bd2580f661
       BUILDER_COMMIT: ae428f80d534722a777a89aee914c19993c3741e
       ORACLE_ROOT_ID: electron:electron:d89e7aa886
       PYTHONUTF8: "1"
@@ -29,11 +29,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $releaseFamily = Join-Path $env:USERPROFILE 'oracle-release-work'
           New-Item -ItemType Directory -Path $releaseFamily -Force | Out-Null
-          $oracleRoot = Join-Path $releaseFamily '0f2a3b0e1'
-          $previousRoot = Join-Path $env:RUNNER_TEMP 'oracle-package-build-33913906434'
-          if (-not (Test-Path -LiteralPath $oracleRoot) -and (Test-Path -LiteralPath (Join-Path $previousRoot '.git'))) {
-            Move-Item -LiteralPath $previousRoot -Destination $oracleRoot
-          }
+          $oracleRoot = Join-Path $releaseFamily $env:ORACLE_COMMIT.Substring(0, 10)
           if (-not (Test-Path -LiteralPath (Join-Path $oracleRoot '.git') -PathType Container)) {
             git -c core.autocrlf=false clone --quiet --no-checkout https://github.com/jaydumisuni/Oracle-.git $oracleRoot
             if ($LASTEXITCODE -ne 0) { throw 'ORACLE_CLONE_FAILED' }
@@ -195,7 +191,7 @@ jobs:
       - name: Upload Windows release and evidence
         uses: actions/upload-artifact@v4
         with:
-          name: oracle-windows-0.5.0-0f2a3b0e1
+          name: oracle-windows-0.5.0-${{ env.ORACLE_COMMIT }}
           path: |
             ${{ steps.evidence.outputs.installer_zip }}
             ${{ steps.evidence.outputs.setup_exe }}

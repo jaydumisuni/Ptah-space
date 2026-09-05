@@ -15,6 +15,7 @@ env:
   ROADMAP_AUTHORITY: 98dc8c4e8639cda80510bee0625db34b4fdf9384
   TARGET_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
   CARGO_TERM_COLOR: always
+  PYTHONDONTWRITEBYTECODE: "1"
 
 jobs:
   exact-head-e01:

@@ -1,0 +1,54 @@
+name: E01 TDD
+
+on:
+  push:
+    branches:
+      - e01-secure-multi-node-identity-connection
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - deny.toml
+      - dependencies/rust-direct-lock.json
+      - evidence/rust-dependency-lock/**
+      - conformance/e01/**
+      - tools/check_e01_secure_multi_node.py
+      - tools/test_check_e01_secure_multi_node.py
+      - crates/ptah-node-link/**
+      - services/ptah-node/**
+      - services/ptah-control/**
+      - .github/workflows/e01-tdd.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node-link-targeted:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out E01 branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Pin Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component clippy
+          rustup default 1.97.1
+      - name: Verify frozen dependency evidence
+        shell: bash
+        run: python3 tools/check_rust_dependency_lock.py
+      - name: Run E01 acceptance checker regression
+        shell: bash
+        run: PYTHONPATH=tools python3 -m unittest -v tools/test_check_e01_secure_multi_node.py
+      - name: Run E01 node-link tests
+        shell: bash
+        run: cargo test -p ptah-node-link --test protocol --test framing --test enrollment_session --test tls_transport --locked
+      - name: Run E01 service tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-control --test e01_node_link --locked
+          cargo test -p ptah-node --test e01_node_client --locked
+      - name: Run E01 strict Clippy
+        shell: bash
+        run: cargo clippy -p ptah-node-link --all-targets --locked -- -D warnings

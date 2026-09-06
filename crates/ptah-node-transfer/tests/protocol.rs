@@ -3,8 +3,8 @@
 use ptah_identifiers::EntityRef;
 use ptah_node_transfer::{
     MAX_CONTROL_FRAME_BYTES, MAX_RANGE_BYTES, PROTOCOL_ID, RangeAck, RangeDataHeader, RangeRequest,
-    TransferComplete, TransferControlMessage, TransferErrorFrame, TransferHello, TransferHelloAck,
-    TransferPeerRole, TransferProtocolVersion,
+    TransferComplete, TransferControlMessage, TransferDataError, TransferErrorFrame, TransferHello,
+    TransferHelloAck, TransferPeerRole, TransferProtocolVersion,
 };
 
 fn reference(kind: &str) -> EntityRef {
@@ -18,6 +18,18 @@ fn protocol_identity_and_bounds_are_frozen() {
     assert_eq!(MAX_RANGE_BYTES, 1_048_576);
     assert_eq!(TransferProtocolVersion::CURRENT.major, 1);
     assert_eq!(TransferProtocolVersion::CURRENT.minor, 0);
+}
+
+#[test]
+fn incompatible_protocol_major_is_rejected() {
+    let remote = TransferProtocolVersion { major: 2, minor: 0 };
+    assert_eq!(
+        TransferProtocolVersion::CURRENT.ensure_compatible(remote),
+        Err(TransferDataError::ProtocolIncompatible {
+            local_major: 1,
+            remote_major: 2,
+        })
+    );
 }
 
 #[test]

@@ -79,6 +79,9 @@ fn every_control_message_round_trips_with_stable_kind() {
         let json: serde_json::Value =
             serde_json::from_slice(&encoded).expect("decode E03 control JSON shape");
         assert_eq!(json["kind"], expected_kind);
+        if expected_kind == "hello" {
+            assert_eq!(json["payload"]["role"], "source");
+        }
         let decoded: TransferControlMessage =
             serde_json::from_slice(&encoded).expect("deserialize E03 control message");
         assert_eq!(decoded, message);

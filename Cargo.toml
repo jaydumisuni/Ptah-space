@@ -8,6 +8,7 @@ members = [
   "crates/ptah-receipts",
   "crates/ptah-node-agent",
   "crates/ptah-node-link",
+  "crates/ptah-placement-runtime",
   "crates/ptah-activity-runtime",
   "crates/ptah-workspace",
   "crates/ptah-ai-workspace",

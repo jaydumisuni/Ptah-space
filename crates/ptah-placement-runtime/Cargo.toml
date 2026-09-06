@@ -1,0 +1,16 @@
+[package]
+name = "ptah-placement-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ptah-identifiers = { version = "=0.0.0-phase0c", path = "../ptah-identifiers" }
+thiserror = { workspace = true }
+
+[lib]
+path = "src/lib.rs"

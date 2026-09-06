@@ -1,0 +1,34 @@
+name: E02 TDD
+
+on:
+  push:
+    branches:
+      - e02-placement-reservation-lease-fence
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - crates/ptah-placement-runtime/**
+      - .github/workflows/e02-tdd.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  placement-authority-targeted:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out E02 branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Pin Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component clippy
+          rustup default 1.97.1
+      - name: Run E02 Task 1 authority tests
+        shell: bash
+        run: cargo test -p ptah-placement-runtime --test e02_authority
+      - name: Run E02 strict Clippy
+        shell: bash
+        run: cargo clippy -p ptah-placement-runtime --all-targets -- -D warnings

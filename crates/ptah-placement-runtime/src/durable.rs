@@ -189,14 +189,15 @@ impl DurableAuthorityStore {
     ) -> Result<(), RecoveryError> {
         let journal_ref = EntityRef::new(JOURNAL_KIND)
             .map_err(|error| RecoveryError::Corrupt(error.to_string()))?;
+        let timestamp = rfc3339_utc(journal_event_unix_seconds(&entry))?;
         let document = json!({
             "entity_id": journal_ref.entity_id.to_string(),
             "entity_kind": JOURNAL_KIND,
             "schema_id": ENVELOPE_SCHEMA,
             "schema_version": VERSION,
             "record_revision": 1,
-            "created_at": "2026-09-06T00:00:00Z",
-            "updated_at": "2026-09-06T00:00:00Z",
+            "created_at": timestamp.clone(),
+            "updated_at": timestamp,
             "global_scope": "ptah_global",
             "authority_ref": authority_ref,
             "privacy_class": "internal",
@@ -522,6 +523,52 @@ impl JournalEntry {
             Self::Lease { value, .. } => &value.attempt_ref,
         }
     }
+}
+
+fn journal_event_unix_seconds(entry: &JournalEntry) -> u64 {
+    match entry {
+        JournalEntry::Reservation { value, .. } => value.created_at,
+        JournalEntry::Lease { value, .. } => value.issued_at,
+    }
+}
+
+fn rfc3339_utc(unix_seconds: u64) -> Result<String, RecoveryError> {
+    const SECONDS_PER_DAY: u64 = 86_400;
+    let days = unix_seconds / SECONDS_PER_DAY;
+    let seconds_of_day = unix_seconds % SECONDS_PER_DAY;
+    let days = i64::try_from(days).map_err(|_| {
+        RecoveryError::Corrupt("journal timestamp exceeds RFC3339 range".to_owned())
+    })?;
+
+    let shifted = days
+        .checked_add(719_468)
+        .ok_or_else(|| RecoveryError::Corrupt("journal timestamp overflow".to_owned()))?;
+    let era = if shifted >= 0 {
+        shifted / 146_097
+    } else {
+        (shifted - 146_096) / 146_097
+    };
+    let day_of_era = shifted - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    year += i64::from(month <= 2);
+    if !(0..=9_999).contains(&year) {
+        return Err(RecoveryError::Corrupt(
+            "journal timestamp exceeds four-digit RFC3339 year".to_owned(),
+        ));
+    }
+
+    let hour = seconds_of_day / 3_600;
+    let minute = (seconds_of_day % 3_600) / 60;
+    let second = seconds_of_day % 60;
+    Ok(format!(
+        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z"
+    ))
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

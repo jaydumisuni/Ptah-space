@@ -9,6 +9,8 @@ use ptah_placement_runtime::{
     AuthorityBinding, DurableAuthorityStore, LeaseError, LeaseRegistry, ReservationError,
     ReservationRegistry, ReservedResource,
 };
+use rusqlite::Connection;
+use serde_json::Value;
 use std::{fs, path::PathBuf, process};
 
 const NOW: u64 = 1_800_000_000;
@@ -101,6 +103,43 @@ fn reserve(
         )
         .expect("reservation");
     reservation_ref
+}
+
+#[test]
+fn canonical_journal_timestamp_matches_reservation_creation_time() {
+    let path = temp_db("canonical-time");
+    let session = session(NodeId::new(), 7, 11);
+    let snapshot = resource_snapshot(&session);
+    let mut reservations = ReservationRegistry::new(&session, &snapshot).expect("registry");
+    let reservation_ref = reserve(
+        &mut reservations,
+        &snapshot,
+        &session,
+        entity("activity.attempt"),
+        1.0,
+    );
+    let record = reservations
+        .reservation(&reservation_ref)
+        .expect("record")
+        .clone();
+    let mut store = DurableAuthorityStore::open(&path).expect("store");
+    store
+        .persist_reservation(&record)
+        .expect("persist reservation");
+    drop(store);
+
+    let connection = Connection::open(&path).expect("ledger connection");
+    let document_json: String = connection
+        .query_row(
+            "SELECT document_json FROM ptah_entity_records WHERE entity_kind = ?1",
+            ["runtime.e02-authority-journal"],
+            |row| row.get(0),
+        )
+        .expect("journal row");
+    let document: Value = serde_json::from_str(&document_json).expect("canonical JSON");
+    assert_eq!(document["created_at"], "2027-01-15T08:00:00Z");
+    assert_eq!(document["updated_at"], "2027-01-15T08:00:00Z");
+    cleanup(&path);
 }
 
 #[test]

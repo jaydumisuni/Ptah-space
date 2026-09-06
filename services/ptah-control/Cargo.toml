@@ -10,6 +10,7 @@ ptah-application-runtime = { path = "../../crates/ptah-application-runtime", ver
 ptah-identifiers = { path = "../../crates/ptah-identifiers", version = "=0.0.0-phase0c" }
 ptah-node-agent = { path = "../../crates/ptah-node-agent", version = "=0.0.0-phase0c" }
 ptah-node-link = { path = "../../crates/ptah-node-link", version = "=0.0.0-phase0c" }
+ptah-placement-runtime = { path = "../../crates/ptah-placement-runtime", version = "=0.0.0-phase0c" }
 serde.workspace = true
 serde_json.workspace = true
 

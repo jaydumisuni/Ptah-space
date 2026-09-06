@@ -1,5 +1,5 @@
 use ptah_identifiers::NodeId;
-use ptah_node_agent::NodeCapabilitySnapshot;
+use ptah_node_agent::{NodeCapabilitySnapshot, NodeResourceSnapshot};
 use ptah_node_link::{
     ApprovedNodeEnrollment, CredentialFingerprint, LinkError, NodeHello, ProtocolVersion,
     SessionBinding, SessionRegistry,
@@ -50,37 +50,40 @@ impl NodeLinkControl {
 
     /// Validate one A02 capability snapshot against the exact current secure session.
     ///
-    /// This method only validates E01 authority. It deliberately does not persist,
-    /// schedule, place, or transfer anything.
-    ///
     /// # Errors
     ///
-    /// Returns [`LinkError::SupersededConnection`] for an old session,
-    /// [`LinkError::NodeIdentityMismatch`] for a different Node, and the existing
-    /// stale Generation/epoch errors for a snapshot outside the accepted session.
+    /// Returns the existing E01 currentness/identity/generation/epoch error when
+    /// the snapshot is outside the accepted session.
     pub fn accept_capability(
         &self,
         binding: &SessionBinding,
         snapshot: &NodeCapabilitySnapshot,
     ) -> Result<(), LinkError> {
-        self.sessions.assert_current(binding)?;
+        self.assert_snapshot_binding(
+            binding,
+            snapshot.node_ref.entity_id,
+            snapshot.node_generation.value(),
+            snapshot.connection_epoch.value(),
+        )
+    }
 
-        if snapshot.node_ref.entity_id != binding.node_id.entity_id() {
-            return Err(LinkError::NodeIdentityMismatch);
-        }
-        if snapshot.node_generation != binding.node_generation {
-            return Err(LinkError::StaleNodeGeneration {
-                current: binding.node_generation.value(),
-                requested: snapshot.node_generation.value(),
-            });
-        }
-        if snapshot.connection_epoch != binding.connection_epoch {
-            return Err(LinkError::StaleConnectionEpoch {
-                current: binding.connection_epoch.value(),
-                requested: snapshot.connection_epoch.value(),
-            });
-        }
-        Ok(())
+    /// Validate one A02 resource snapshot against the exact current secure session.
+    ///
+    /// # Errors
+    ///
+    /// Returns the existing E01 currentness/identity/generation/epoch error when
+    /// the snapshot is outside the accepted session.
+    pub fn accept_resource(
+        &self,
+        binding: &SessionBinding,
+        snapshot: &NodeResourceSnapshot,
+    ) -> Result<(), LinkError> {
+        self.assert_snapshot_binding(
+            binding,
+            snapshot.node_ref.entity_id,
+            snapshot.node_generation.value(),
+            snapshot.connection_epoch.value(),
+        )
     }
 
     /// Return the exact current secure-session binding for one canonical Node.
@@ -103,5 +106,31 @@ impl NodeLinkControl {
             self.sessions.revoke_credential(fingerprint);
         }
         removed
+    }
+
+    fn assert_snapshot_binding(
+        &self,
+        binding: &SessionBinding,
+        entity_id: ptah_identifiers::EntityId,
+        node_generation: u64,
+        connection_epoch: u64,
+    ) -> Result<(), LinkError> {
+        self.sessions.assert_current(binding)?;
+        if entity_id != binding.node_id.entity_id() {
+            return Err(LinkError::NodeIdentityMismatch);
+        }
+        if node_generation != binding.node_generation.value() {
+            return Err(LinkError::StaleNodeGeneration {
+                current: binding.node_generation.value(),
+                requested: node_generation,
+            });
+        }
+        if connection_epoch != binding.connection_epoch.value() {
+            return Err(LinkError::StaleConnectionEpoch {
+                current: binding.connection_epoch.value(),
+                requested: connection_epoch,
+            });
+        }
+        Ok(())
     }
 }

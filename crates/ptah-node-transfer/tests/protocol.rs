@@ -81,6 +81,8 @@ fn every_control_message_round_trips_with_stable_kind() {
         assert_eq!(json["kind"], expected_kind);
         if expected_kind == "hello" {
             assert_eq!(json["payload"]["role"], "source");
+            assert_eq!(json["payload"]["protocol"]["major"], 1);
+            assert_eq!(json["payload"]["protocol"]["minor"], 0);
         }
         let decoded: TransferControlMessage =
             serde_json::from_slice(&encoded).expect("deserialize E03 control message");

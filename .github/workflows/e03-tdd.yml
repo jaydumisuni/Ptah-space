@@ -41,3 +41,7 @@ jobs:
       - name: Task 1 authority contract
         shell: bash
         run: cargo test -p ptah-transfer --test e03_authority --locked
+
+      - name: Task 1 cache and resume contract
+        shell: bash
+        run: cargo test -p ptah-transfer --test e03_cache_resume --locked

@@ -40,3 +40,7 @@ path = "tests/b01_source_mutation.rs"
 [[test]]
 name = "e03_authority"
 path = "tests/e03_authority.rs"
+
+[[test]]
+name = "e03_cache_resume"
+path = "tests/e03_cache_resume.rs"

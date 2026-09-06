@@ -223,11 +223,11 @@ pub enum LinkMessage {
     /// Advisory E02 Node offer.
     NodeOffer(Box<NodeOfferFrame>),
     /// Control-issued E02 Reservation authority.
-    DispatchReservation(DispatchReservationFrame),
+    DispatchReservation(Box<DispatchReservationFrame>),
     /// Control-issued E02 Lease/Fence authority.
-    DispatchLease(DispatchLeaseFrame),
+    DispatchLease(Box<DispatchLeaseFrame>),
     /// Execution-changing E02 request admitted only after Node-side authority validation.
-    DispatchRequest(DispatchRequestFrame),
+    DispatchRequest(Box<DispatchRequestFrame>),
     /// Liveness projection.
     Heartbeat(Heartbeat),
     /// Generic acknowledgement.

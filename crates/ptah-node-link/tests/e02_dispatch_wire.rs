@@ -46,9 +46,15 @@ fn reservation_lease_and_dispatch_authority_round_trip_on_existing_e01_envelope(
     };
 
     for (message, kind) in [
-        (LinkMessage::DispatchReservation(reservation), "dispatch_reservation"),
-        (LinkMessage::DispatchLease(lease), "dispatch_lease"),
-        (LinkMessage::DispatchRequest(dispatch), "dispatch_request"),
+        (
+            LinkMessage::DispatchReservation(Box::new(reservation)),
+            "dispatch_reservation",
+        ),
+        (LinkMessage::DispatchLease(Box::new(lease)), "dispatch_lease"),
+        (
+            LinkMessage::DispatchRequest(Box::new(dispatch)),
+            "dispatch_request",
+        ),
     ] {
         assert_eq!(message.kind(), kind);
         let encoded = serde_json::to_vec(&message).expect("serialize");

@@ -15,7 +15,7 @@ fn entity(kind: &str) -> EntityRef {
     EntityRef::new(kind).expect("valid test entity kind")
 }
 
-fn session() -> SessionBinding {
+fn make_session() -> SessionBinding {
     SessionBinding {
         node_id: NodeId::new(),
         node_generation: NodeGeneration::new(7),
@@ -106,7 +106,7 @@ fn requirement(capability: EntityRef, provider: EntityRef) -> PlacementRequireme
 
 #[test]
 fn exact_current_session_and_snapshots_are_eligible() {
-    let session = session();
+    let session = make_session();
     let capability = entity("runtime.capability");
     let provider = entity("runtime.provider-revision");
     let capabilities = capability_snapshot(&session, vec![capability.clone()], vec![provider.clone()]);
@@ -128,13 +128,13 @@ fn exact_current_session_and_snapshots_are_eligible() {
 
 #[test]
 fn snapshot_node_identity_generation_and_epoch_mismatches_fail_closed() {
-    let session = session();
+    let session = make_session();
     let capability = entity("runtime.capability");
     let provider = entity("runtime.provider-revision");
     let requirement = requirement(capability.clone(), provider.clone());
     let resources = resource_snapshot(&session, 6.0, ResourcePressure::Normal);
 
-    let other_session = session();
+    let other_session = make_session();
     let wrong_node = capability_snapshot(&other_session, vec![capability.clone()], vec![provider.clone()]);
     assert_eq!(
         evaluate_candidate(&session, &wrong_node, &resources, &requirement, PlacementPolicy::strict()),
@@ -158,7 +158,7 @@ fn snapshot_node_identity_generation_and_epoch_mismatches_fail_closed() {
 
 #[test]
 fn missing_required_capability_is_ineligible() {
-    let session = session();
+    let session = make_session();
     let required = entity("runtime.capability");
     let provider = entity("runtime.provider-revision");
     let capabilities = capability_snapshot(&session, Vec::new(), vec![provider.clone()]);
@@ -178,7 +178,7 @@ fn missing_required_capability_is_ineligible() {
 
 #[test]
 fn missing_required_provider_revision_is_ineligible() {
-    let session = session();
+    let session = make_session();
     let capability = entity("runtime.capability");
     let required_provider = entity("runtime.provider-revision");
     let capabilities = capability_snapshot(&session, vec![capability.clone()], Vec::new());
@@ -198,7 +198,7 @@ fn missing_required_provider_revision_is_ineligible() {
 
 #[test]
 fn insufficient_requested_resource_is_ineligible() {
-    let session = session();
+    let session = make_session();
     let capability = entity("runtime.capability");
     let provider = entity("runtime.provider-revision");
     let capabilities = capability_snapshot(&session, vec![capability.clone()], vec![provider.clone()]);
@@ -218,7 +218,7 @@ fn insufficient_requested_resource_is_ineligible() {
 
 #[test]
 fn strict_policy_rejects_critical_and_unavailable_resource_pressure() {
-    let session = session();
+    let session = make_session();
     let capability = entity("runtime.capability");
     let provider = entity("runtime.provider-revision");
     let capabilities = capability_snapshot(&session, vec![capability.clone()], vec![provider.clone()]);
@@ -244,8 +244,8 @@ fn strict_policy_rejects_critical_and_unavailable_resource_pressure() {
 
 #[test]
 fn deterministic_scoring_prefers_lower_pressure_for_identical_requirements() {
-    let first = session();
-    let second = session();
+    let first = make_session();
+    let second = make_session();
     let capability = entity("runtime.capability");
     let provider = entity("runtime.provider-revision");
     let requirement = requirement(capability.clone(), provider.clone());
@@ -276,8 +276,8 @@ fn deterministic_scoring_prefers_lower_pressure_for_identical_requirements() {
 
 #[test]
 fn canonical_node_identity_is_final_stable_tie_break() {
-    let first = session();
-    let second = session();
+    let first = make_session();
+    let second = make_session();
     let capability = entity("runtime.capability");
     let provider = entity("runtime.provider-revision");
     let requirement = requirement(capability.clone(), provider.clone());

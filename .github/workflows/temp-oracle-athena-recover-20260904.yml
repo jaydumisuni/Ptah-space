@@ -121,7 +121,8 @@ jobs:
           Start-Sleep -Milliseconds 750
           $profile = Join-Path $oracleRoot 'build_config\windows-smoke-profile'
           New-Item -ItemType Directory -Path $profile -Force | Out-Null
-          $launch = Start-Process -FilePath $app -ArgumentList @("--user-data-dir=$profile") -PassThru
+          $profileArgument = '--user-data-dir="' + $profile + '"'
+          $launch = Start-Process -FilePath $app -ArgumentList @($profileArgument) -PassThru
           try {
             $deadline = (Get-Date).AddSeconds(25)
             $process = $null

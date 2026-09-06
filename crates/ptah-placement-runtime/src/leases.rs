@@ -145,7 +145,6 @@ struct FenceDomain {
 ///
 /// Fence history is keyed by canonical Attempt reference, not Reservation ID,
 /// so re-placement or transfer cannot reset ownership to a smaller token.
-/// Persistence/recovery is deliberately deferred to Task 8.
 #[derive(Debug, Clone, Default)]
 pub struct LeaseRegistry {
     domains: Vec<FenceDomain>,
@@ -327,6 +326,28 @@ impl LeaseRegistry {
             .iter()
             .find(|domain| &domain.attempt_ref == attempt_ref)
             .map(|domain| domain.highest)
+    }
+
+    /// Restore a verified durable Fence floor without minting a Lease.
+    ///
+    /// This hook is crate-private so client/control projections cannot supply
+    /// Fence values. Durable recovery validates journal history before calling it.
+    /// It only raises retained history; it can never lower or reuse a Fence.
+    pub(crate) fn recover_fence_floor(&mut self, attempt_ref: EntityRef, floor: FenceToken) {
+        if let Some(domain) = self
+            .domains
+            .iter_mut()
+            .find(|domain| domain.attempt_ref == attempt_ref)
+        {
+            if floor > domain.highest {
+                domain.highest = floor;
+            }
+        } else {
+            self.domains.push(FenceDomain {
+                attempt_ref,
+                highest: floor,
+            });
+        }
     }
 
     /// Expire active Leases whose fixed expiry is at or before `now`.

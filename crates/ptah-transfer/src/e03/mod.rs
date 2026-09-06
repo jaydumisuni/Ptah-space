@@ -1,8 +1,12 @@
 //! E03 Node-to-Node transfer authority, route, cache and resume mechanics.
 
 mod authority;
+mod cache;
+mod resume;
 
 pub use authority::*;
+pub use cache::*;
+pub use resume::*;
 
 use thiserror::Error;
 
@@ -42,4 +46,16 @@ pub enum E03TransferError {
     /// Requested route was not frozen into the ticket.
     #[error("E03 transfer route is not authorized")]
     UnauthorizedRoute,
+    /// Cache evidence exists but has not been independently verified.
+    #[error("E03 cache evidence is not verified")]
+    UnverifiedCacheEvidence,
+    /// Cache bytes or canonical identity differ from the ticket.
+    #[error("E03 cache identity does not match ticket")]
+    CacheIdentityMismatch,
+    /// Retained partial bytes cannot be opened or read exactly.
+    #[error("E03 retained resume range is unavailable")]
+    RetainedRangeUnavailable,
+    /// A retained B01 verified range no longer matches exact geometry/digest.
+    #[error("E03 retained resume range digest mismatch")]
+    RetainedRangeDigestMismatch,
 }

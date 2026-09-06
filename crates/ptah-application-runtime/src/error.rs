@@ -20,6 +20,9 @@ pub enum D08Error {
     /// The requested platform requires Programme E remote-Node authority.
     #[error("D08 platform requires Programme E remote Node authority")]
     RemoteNodeRequired,
+    /// D08 compatibility and E02 dispatch authority name different Node session authority.
+    #[error("D08 remote compatibility does not match E02 Node authority")]
+    RemoteNodeAuthorityMismatch,
     /// No current node-local compatibility record can authorize the requested local operation.
     #[error("D08 node-local compatibility is missing")]
     MissingNodeLocalCompatibility,

@@ -143,14 +143,17 @@ impl PlacementAuthorityOwner {
     ///
     /// # Errors
     ///
-    /// Propagates E01 supersession and snapshot-binding failures.
+    /// Propagates E01 supersession and snapshot-binding failures. A current E01
+    /// binding unknown to this owner is rejected rather than creating implicit state.
     pub fn accept_capability(
         &mut self,
         binding: &SessionBinding,
         snapshot: &NodeCapabilitySnapshot,
     ) -> Result<(), LinkError> {
         self.node_link.accept_capability(binding, snapshot)?;
-        let state = self.state_mut(binding);
+        let Some(state) = self.state_mut(binding) else {
+            return Err(LinkError::SupersededConnection);
+        };
         state.capabilities = Some(snapshot.clone());
         Ok(())
     }
@@ -159,14 +162,17 @@ impl PlacementAuthorityOwner {
     ///
     /// # Errors
     ///
-    /// Propagates E01 supersession and snapshot-binding failures.
+    /// Propagates E01 supersession and snapshot-binding failures. A current E01
+    /// binding unknown to this owner is rejected rather than creating implicit state.
     pub fn accept_resource(
         &mut self,
         binding: &SessionBinding,
         snapshot: &NodeResourceSnapshot,
     ) -> Result<(), LinkError> {
         self.node_link.accept_resource(binding, snapshot)?;
-        let state = self.state_mut(binding);
+        let Some(state) = self.state_mut(binding) else {
+            return Err(LinkError::SupersededConnection);
+        };
         state.resources = Some(snapshot.clone());
         Ok(())
     }
@@ -217,6 +223,9 @@ impl PlacementAuthorityOwner {
         if state.reservations.is_none() {
             state.reservations = Some(ReservationRegistry::new(&state.session, &resources)?);
         }
+        let Some(registry) = state.reservations.as_mut() else {
+            return Err(PlacementControlError::NoEligibleNode);
+        };
         let binding = AuthorityBinding::new(
             requirement.attempt_ref().clone(),
             state.session.node_id,
@@ -225,22 +234,16 @@ impl PlacementAuthorityOwner {
         );
         let reservation_ref = EntityRef::new("resource.reservation")
             .map_err(|_| PlacementControlError::InvalidIdentifier)?;
-        let reservation = state
-            .reservations
-            .as_mut()
-            .expect("registry initialized above")
-            .reserve(
-                reservation_ref,
-                binding.clone(),
-                resources.snapshot_ref.clone(),
-                reserved_resources,
-                now_unix_seconds,
-                reservation_expires_at_unix_seconds,
-            )?;
-        let reservation_record = state
-            .reservations
-            .as_ref()
-            .and_then(|registry| registry.reservation(reservation.reservation_ref()))
+        let reservation = registry.reserve(
+            reservation_ref,
+            binding.clone(),
+            resources.snapshot_ref.clone(),
+            reserved_resources,
+            now_unix_seconds,
+            reservation_expires_at_unix_seconds,
+        )?;
+        let reservation_record = registry
+            .reservation(reservation.reservation_ref())
             .cloned()
             .ok_or(PlacementControlError::Reservation(
                 ReservationError::UnknownReservation,
@@ -256,11 +259,7 @@ impl PlacementAuthorityOwner {
         ) {
             Ok(lease) => lease,
             Err(error) => {
-                let _ = state
-                    .reservations
-                    .as_mut()
-                    .expect("registry initialized above")
-                    .revoke(reservation.reservation_ref());
+                let _ = registry.revoke(reservation.reservation_ref());
                 return Err(error.into());
             }
         };
@@ -276,11 +275,7 @@ impl PlacementAuthorityOwner {
             Ok(authority) => authority,
             Err(error) => {
                 let _ = self.leases.revoke(lease.lease_ref());
-                let _ = state
-                    .reservations
-                    .as_mut()
-                    .expect("registry initialized above")
-                    .revoke(reservation.reservation_ref());
+                let _ = registry.revoke(reservation.reservation_ref());
                 return Err(error.into());
             }
         };
@@ -323,13 +318,9 @@ impl PlacementAuthorityOwner {
         Ok(())
     }
 
-    fn state_mut(&mut self, binding: &SessionBinding) -> &mut NodePlacementState {
-        if let Some(index) = self.nodes.iter().position(|state| state.session == *binding) {
-            return &mut self.nodes[index];
-        }
-        self.nodes.push(NodePlacementState::new(binding.clone()));
+    fn state_mut(&mut self, binding: &SessionBinding) -> Option<&mut NodePlacementState> {
         self.nodes
-            .last_mut()
-            .expect("state was inserted immediately above")
+            .iter_mut()
+            .find(|state| state.session == *binding)
     }
 }

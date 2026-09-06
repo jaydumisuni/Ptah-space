@@ -30,7 +30,10 @@ fn node_offer_round_trips_on_existing_e01_message_envelope() {
 
     assert_eq!(message.kind(), "node_offer");
     let encoded = serde_json::to_vec(&message).expect("serialize offer");
-    assert!(encoded.len() < 4_096, "offer wire projection must remain bounded");
+    assert!(
+        encoded.len() < 4_096,
+        "offer wire projection must remain bounded"
+    );
     let decoded: LinkMessage = serde_json::from_slice(&encoded).expect("deserialize offer");
     assert_eq!(decoded, message);
 }

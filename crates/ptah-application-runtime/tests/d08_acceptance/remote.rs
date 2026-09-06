@@ -134,10 +134,7 @@ fn e02_current_remote_node_satisfies_only_the_programme_e_placement_authority_bl
     let ready: RemoteNodeExecution = *ready;
     assert_eq!(ready.platform(), PlatformClass::WindowsNode);
     assert_eq!(ready.compatibility(), &compatibility);
-    assert_eq!(
-        ready.dispatch_authority().binding().node_id(),
-        node_id
-    );
+    assert_eq!(ready.dispatch_authority().binding().node_id(), node_id);
     assert_eq!(
         ready.dispatch_authority().binding().node_generation(),
         generation

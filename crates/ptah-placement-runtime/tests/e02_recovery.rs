@@ -117,10 +117,15 @@ fn restart_preserves_higher_fence_and_next_issue_is_strictly_newer() {
         attempt_ref.clone(),
         1.0,
     );
-    let record = reservations.reservation(&reservation_ref).expect("record").clone();
+    let record = reservations
+        .reservation(&reservation_ref)
+        .expect("record")
+        .clone();
     let mut leases = LeaseRegistry::new();
     let mut store = DurableAuthorityStore::open(&path).expect("store");
-    store.persist_reservation(&record).expect("persist reservation");
+    store
+        .persist_reservation(&record)
+        .expect("persist reservation");
 
     let first = leases
         .issue(&record, entity("isolation.lease"), NOW, NOW + 30)
@@ -138,9 +143,15 @@ fn restart_preserves_higher_fence_and_next_issue_is_strictly_newer() {
     drop(store);
 
     let store = DurableAuthorityStore::open(&path).expect("reopen");
-    let mut recovered = store.recover(&session, &snapshot, NOW + 2).expect("recover");
+    let mut recovered = store
+        .recover(&session, &snapshot, NOW + 2)
+        .expect("recover");
     assert_eq!(
-        recovered.leases().highest_fence(&attempt_ref).expect("fence").value(),
+        recovered
+            .leases()
+            .highest_fence(&attempt_ref)
+            .expect("fence")
+            .value(),
         2
     );
     let recovered_reservation = recovered
@@ -175,7 +186,10 @@ fn expired_authority_stays_expired_after_restart() {
         attempt_ref.clone(),
         1.0,
     );
-    let record = reservations.reservation(&reservation_ref).expect("record").clone();
+    let record = reservations
+        .reservation(&reservation_ref)
+        .expect("record")
+        .clone();
     let mut leases = LeaseRegistry::new();
     let lease = leases
         .issue(&record, entity("isolation.lease"), NOW, NOW + 5)
@@ -188,7 +202,9 @@ fn expired_authority_stays_expired_after_restart() {
     drop(store);
 
     let store = DurableAuthorityStore::open(&path).expect("reopen");
-    let recovered = store.recover(&session, &snapshot, NOW + 6).expect("recover");
+    let recovered = store
+        .recover(&session, &snapshot, NOW + 6)
+        .expect("recover");
     assert_eq!(
         recovered.leases().validate_current(&lease, NOW + 6),
         Err(LeaseError::ExpiredLease)
@@ -209,13 +225,18 @@ fn recovered_active_reservation_still_consumes_capacity() {
         entity("activity.attempt"),
         6.0,
     );
-    let record = reservations.reservation(&reservation_ref).expect("record").clone();
+    let record = reservations
+        .reservation(&reservation_ref)
+        .expect("record")
+        .clone();
     let mut store = DurableAuthorityStore::open(&path).expect("store");
     store.persist_reservation(&record).expect("persist");
     drop(store);
 
     let store = DurableAuthorityStore::open(&path).expect("reopen");
-    let mut recovered = store.recover(&session, &snapshot, NOW + 1).expect("recover");
+    let mut recovered = store
+        .recover(&session, &snapshot, NOW + 1)
+        .expect("recover");
     let result = recovered.reservations_mut().reserve(
         entity("resource.reservation"),
         AuthorityBinding::new(
@@ -270,10 +291,19 @@ fn newer_node_session_keeps_old_fence_stale_and_cannot_reset_ownership() {
         .recover(&new_session, &new_snapshot, NOW + 1)
         .expect("recover newer session");
     assert_eq!(
-        recovered.leases().highest_fence(&attempt_ref).expect("old floor").value(),
+        recovered
+            .leases()
+            .highest_fence(&attempt_ref)
+            .expect("old floor")
+            .value(),
         1
     );
-    assert!(recovered.reservations().reservation(&old_reservation_ref).is_none());
+    assert!(
+        recovered
+            .reservations()
+            .reservation(&old_reservation_ref)
+            .is_none()
+    );
 
     let new_reservation_ref = reserve(
         recovered.reservations_mut(),

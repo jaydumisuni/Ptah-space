@@ -209,8 +209,7 @@ impl LeaseRegistry {
         let next_fence = FenceToken::new(next_value).map_err(|_| LeaseError::FenceOverflow)?;
 
         for record in &mut self.leases {
-            if record.state == LeaseState::Active
-                && record.binding().attempt_ref() == &attempt_ref
+            if record.state == LeaseState::Active && record.binding().attempt_ref() == &attempt_ref
             {
                 record.state = LeaseState::Superseded;
             }
@@ -250,11 +249,7 @@ impl LeaseRegistry {
     ///
     /// Lower Fence replay is rejected before lifecycle inspection so a stale
     /// owner can never revive after transfer, expiry or delayed delivery.
-    pub fn validate_current(
-        &self,
-        lease: &Lease,
-        now_unix_seconds: u64,
-    ) -> Result<(), LeaseError> {
+    pub fn validate_current(&self, lease: &Lease, now_unix_seconds: u64) -> Result<(), LeaseError> {
         let attempt_ref = lease.binding().attempt_ref();
         let highest = self
             .domains

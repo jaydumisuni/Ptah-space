@@ -50,7 +50,10 @@ fn reservation_lease_and_dispatch_authority_round_trip_on_existing_e01_envelope(
             LinkMessage::DispatchReservation(Box::new(reservation)),
             "dispatch_reservation",
         ),
-        (LinkMessage::DispatchLease(Box::new(lease)), "dispatch_lease"),
+        (
+            LinkMessage::DispatchLease(Box::new(lease)),
+            "dispatch_lease",
+        ),
         (
             LinkMessage::DispatchRequest(Box::new(dispatch)),
             "dispatch_request",

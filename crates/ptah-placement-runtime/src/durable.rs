@@ -115,10 +115,7 @@ impl DurableAuthorityStore {
     ///
     /// # Errors
     /// Fails closed if existing journal truth is malformed or A03 rejects append.
-    pub fn persist_reservation(
-        &mut self,
-        record: &ReservationRecord,
-    ) -> Result<(), RecoveryError> {
+    pub fn persist_reservation(&mut self, record: &ReservationRecord) -> Result<(), RecoveryError> {
         let sequence = self.next_sequence()?;
         self.append(
             JournalEntry::Reservation {
@@ -250,14 +247,17 @@ impl DurableAuthorityStore {
         for row in rows {
             let row = row?;
             let document: Value = serde_json::from_str(&row.document_json)?;
-            let canonical = CanonicalRecord::from_document(document.clone()).map_err(ledger_error)?;
+            let canonical =
+                CanonicalRecord::from_document(document.clone()).map_err(ledger_error)?;
             validate_row(&row, &canonical)?;
             let authority: EntityRef = serde_json::from_str(&row.authority_json)?;
             let payload = document
                 .get("extensions")
                 .and_then(|extensions| extensions.get(EXTENSION_KEY))
                 .and_then(|extension| extension.get("value"))
-                .ok_or_else(|| RecoveryError::Corrupt("missing E02 journal extension".to_owned()))?;
+                .ok_or_else(|| {
+                    RecoveryError::Corrupt("missing E02 journal extension".to_owned())
+                })?;
             let entry: JournalEntry = serde_json::from_value(payload.clone())?;
             if entry.sequence() == 0 || !sequences.insert(entry.sequence()) {
                 return Err(RecoveryError::Corrupt(format!(
@@ -298,7 +298,12 @@ fn replay_reservations(
         .filter(|value| value.matches(session))
         .cloned()
         .collect();
-    current.sort_by_key(|value| (value.created_at, value.reservation_ref.entity_id.to_string()));
+    current.sort_by_key(|value| {
+        (
+            value.created_at,
+            value.reservation_ref.entity_id.to_string(),
+        )
+    });
 
     for value in &current {
         if value.snapshot_ref != snapshot.snapshot_ref {
@@ -465,7 +470,10 @@ fn revoke_leases_without_active_reservation(
     leases: &mut LeaseRegistry,
     durable_leases: &LeaseMap,
 ) -> Result<(), RecoveryError> {
-    for value in durable_leases.values().filter(|value| value.matches(session)) {
+    for value in durable_leases
+        .values()
+        .filter(|value| value.matches(session))
+    {
         let backing_inactive = reservations
             .reservation(&value.reservation_ref)
             .is_some_and(|reservation| reservation.state() != ReservationState::Active);
@@ -533,7 +541,8 @@ impl StoredResource {
     }
 
     fn runtime(&self) -> Result<ReservedResource, RecoveryError> {
-        ReservedResource::new(self.key.clone(), self.unit, self.quantity).map_err(RecoveryError::from)
+        ReservedResource::new(self.key.clone(), self.unit, self.quantity)
+            .map_err(RecoveryError::from)
     }
 }
 

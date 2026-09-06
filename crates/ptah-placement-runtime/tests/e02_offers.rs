@@ -119,7 +119,10 @@ fn offer_is_bound_to_exact_session_and_current_evidence_refs() {
     assert_eq!(validated.node_id(), session.node_id);
     assert_eq!(validated.node_generation(), session.node_generation);
     assert_eq!(validated.connection_epoch(), session.connection_epoch);
-    assert_eq!(validated.capability_snapshot_ref(), &capabilities.snapshot_ref);
+    assert_eq!(
+        validated.capability_snapshot_ref(),
+        &capabilities.snapshot_ref
+    );
     assert_eq!(validated.resource_snapshot_ref(), &resources.snapshot_ref);
     assert!(!validated.authorizes_dispatch());
 }

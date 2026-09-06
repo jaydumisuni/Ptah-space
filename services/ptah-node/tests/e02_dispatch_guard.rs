@@ -1,8 +1,8 @@
 //! E02 Task 7 Node-side dispatch authority guard tests.
 
 use ptah_identifiers::EntityRef;
-use ptah_node::NodeDispatchGuard;
 use ptah_node::NodeDispatchError;
+use ptah_node::NodeDispatchGuard;
 use ptah_node_agent::NodeAgent;
 use ptah_node_link::{DispatchLeaseFrame, DispatchRequestFrame, DispatchReservationFrame};
 

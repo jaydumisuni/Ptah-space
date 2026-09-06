@@ -128,9 +128,9 @@ impl PlacementAuthorityOwner {
         credential_fingerprint: CredentialFingerprint,
         now_epoch_seconds: u64,
     ) -> Result<SessionBinding, LinkError> {
-        let binding = self
-            .node_link
-            .accept_hello(hello, credential_fingerprint, now_epoch_seconds)?;
+        let binding =
+            self.node_link
+                .accept_hello(hello, credential_fingerprint, now_epoch_seconds)?;
         self.nodes
             .retain(|state| state.session.node_id != binding.node_id || state.session == binding);
         if !self.nodes.iter().any(|state| state.session == binding) {
@@ -305,7 +305,8 @@ impl PlacementAuthorityOwner {
         {
             return Err(PlacementControlError::SupersededSession);
         }
-        self.leases.validate_current(grant.lease(), now_unix_seconds)?;
+        self.leases
+            .validate_current(grant.lease(), now_unix_seconds)?;
         let placement = PlacementMetadata::new(binding.clone());
         authorize_dispatch(
             &placement,

@@ -141,7 +141,9 @@ fn stale_e02_authority_never_enters_real_provider_path() {
     guard
         .accept_reservation(&agent, &reservation, NOW)
         .expect("reservation");
-    guard.accept_lease(&agent, &first, NOW).expect("first lease");
+    guard
+        .accept_lease(&agent, &first, NOW)
+        .expect("first lease");
     guard
         .accept_lease(&agent, &second, NOW + 1)
         .expect("new owner");
@@ -161,7 +163,9 @@ fn stale_e02_authority_never_enters_real_provider_path() {
     );
     assert!(matches!(
         result,
-        Err(NodeProviderDispatchError::Authority(NodeDispatchError::StaleFence))
+        Err(NodeProviderDispatchError::Authority(
+            NodeDispatchError::StaleFence
+        ))
     ));
 }
 

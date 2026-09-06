@@ -399,9 +399,10 @@ impl ExecutionDisposition {
         match self {
             Self::NodeLocalReady(compatibility) => Ok(compatibility),
             Self::RequiresRemoteNode(_) => Err(D08Error::RemoteNodeRequired),
-            Self::RemoteNodeReady(_) | Self::DeviceLocalReady | Self::Unsupported | Self::Unknown => {
-                Err(D08Error::MissingNodeLocalCompatibility)
-            }
+            Self::RemoteNodeReady(_)
+            | Self::DeviceLocalReady
+            | Self::Unsupported
+            | Self::Unknown => Err(D08Error::MissingNodeLocalCompatibility),
         }
     }
 }

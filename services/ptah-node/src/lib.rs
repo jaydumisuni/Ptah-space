@@ -140,11 +140,7 @@ impl NodeDispatchGuard {
         now_unix_seconds: u64,
     ) -> Result<(), NodeDispatchError> {
         self.assert_live_session(agent)?;
-        self.assert_frame_session(
-            frame.node_id,
-            frame.node_generation,
-            frame.connection_epoch,
-        )?;
+        self.assert_frame_session(frame.node_id, frame.node_generation, frame.connection_epoch)?;
         if frame.expires_at_unix_seconds <= now_unix_seconds {
             return Err(NodeDispatchError::ExpiredReservation);
         }
@@ -173,11 +169,7 @@ impl NodeDispatchGuard {
         now_unix_seconds: u64,
     ) -> Result<(), NodeDispatchError> {
         self.assert_live_session(agent)?;
-        self.assert_frame_session(
-            frame.node_id,
-            frame.node_generation,
-            frame.connection_epoch,
-        )?;
+        self.assert_frame_session(frame.node_id, frame.node_generation, frame.connection_epoch)?;
         if frame.fence == 0 {
             return Err(NodeDispatchError::InvalidFence);
         }
@@ -247,11 +239,7 @@ impl NodeDispatchGuard {
         F: FnOnce() -> T,
     {
         self.assert_live_session(agent)?;
-        self.assert_frame_session(
-            frame.node_id,
-            frame.node_generation,
-            frame.connection_epoch,
-        )?;
+        self.assert_frame_session(frame.node_id, frame.node_generation, frame.connection_epoch)?;
         let reservation = self
             .reservations
             .iter()

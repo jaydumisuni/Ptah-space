@@ -12,7 +12,7 @@ use ptah_node_link::{
     ProtocolVersion,
 };
 use ptah_placement_runtime::{
-    LeaseError, PlacementPolicy, PlacementRequirement, ResourceRequirement, ReservedResource,
+    LeaseError, PlacementPolicy, PlacementRequirement, ReservedResource, ResourceRequirement,
 };
 
 const NOW: u64 = 1_800_000_000;
@@ -106,7 +106,11 @@ fn resources(agent: &NodeAgent, available: f64) -> NodeResourceSnapshot {
     .expect("resource snapshot")
 }
 
-fn requirement(attempt_ref: EntityRef, capability_ref: EntityRef, provider_ref: EntityRef) -> PlacementRequirement {
+fn requirement(
+    attempt_ref: EntityRef,
+    capability_ref: EntityRef,
+    provider_ref: EntityRef,
+) -> PlacementRequirement {
     PlacementRequirement::new(
         attempt_ref,
         vec![capability_ref],
@@ -179,7 +183,10 @@ fn placement_mints_authority_only_after_deterministic_eligibility() {
     let provider_ref = entity("runtime.provider-revision");
 
     control
-        .accept_capability(&first_binding, &capability(&first, Vec::new(), vec![provider_ref.clone()]))
+        .accept_capability(
+            &first_binding,
+            &capability(&first, Vec::new(), vec![provider_ref.clone()]),
+        )
         .expect("first capability evidence");
     control
         .accept_resource(&first_binding, &resources(&first, 8.0))
@@ -187,7 +194,11 @@ fn placement_mints_authority_only_after_deterministic_eligibility() {
     control
         .accept_capability(
             &second_binding,
-            &capability(&second, vec![capability_ref.clone()], vec![provider_ref.clone()]),
+            &capability(
+                &second,
+                vec![capability_ref.clone()],
+                vec![provider_ref.clone()],
+            ),
         )
         .expect("second capability evidence");
     control
@@ -226,7 +237,11 @@ fn superseded_session_immediately_invalidates_existing_dispatch_grant() {
     control
         .accept_capability(
             &binding,
-            &capability(&agent, vec![capability_ref.clone()], vec![provider_ref.clone()]),
+            &capability(
+                &agent,
+                vec![capability_ref.clone()],
+                vec![provider_ref.clone()],
+            ),
         )
         .expect("capabilities");
     control
@@ -271,7 +286,11 @@ fn fence_is_control_allocated_and_advances_without_client_projection_input() {
     control
         .accept_capability(
             &binding,
-            &capability(&agent, vec![capability_ref.clone()], vec![provider_ref.clone()]),
+            &capability(
+                &agent,
+                vec![capability_ref.clone()],
+                vec![provider_ref.clone()],
+            ),
         )
         .expect("capabilities");
     control

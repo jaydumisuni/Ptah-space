@@ -96,7 +96,10 @@ fn only_active_reservation_can_receive_lease() {
     reservations
         .release(&reservation_ref, NOW + 1)
         .expect("release");
-    let record = reservations.reservation(&reservation_ref).expect("record").clone();
+    let record = reservations
+        .reservation(&reservation_ref)
+        .expect("record")
+        .clone();
     let mut leases = LeaseRegistry::new();
 
     assert_eq!(
@@ -111,13 +114,12 @@ fn renewal_advances_fence_and_never_reuses_previous_value() {
     let snapshot = resource_snapshot(&session);
     let mut reservations = ReservationRegistry::new(&session, &snapshot).expect("registry");
     let attempt_ref = entity("activity.attempt");
-    let reservation_ref = reserve_for_attempt(
-        &mut reservations,
-        &snapshot,
-        &session,
-        attempt_ref.clone(),
-    );
-    let record = reservations.reservation(&reservation_ref).expect("record").clone();
+    let reservation_ref =
+        reserve_for_attempt(&mut reservations, &snapshot, &session, attempt_ref.clone());
+    let record = reservations
+        .reservation(&reservation_ref)
+        .expect("record")
+        .clone();
     let mut leases = LeaseRegistry::new();
 
     let first = leases
@@ -135,7 +137,10 @@ fn renewal_advances_fence_and_never_reuses_previous_value() {
     );
     assert!(leases.validate_current(&second, NOW + 2).is_ok());
     assert_eq!(
-        leases.current(&attempt_ref).expect("current lease").lease_ref(),
+        leases
+            .current(&attempt_ref)
+            .expect("current lease")
+            .lease_ref(),
         second.lease_ref()
     );
 }
@@ -146,20 +151,15 @@ fn transfer_between_reservations_for_same_attempt_keeps_monotonic_fence() {
     let snapshot = resource_snapshot(&session);
     let mut reservations = ReservationRegistry::new(&session, &snapshot).expect("registry");
     let attempt_ref = entity("activity.attempt");
-    let first_ref = reserve_for_attempt(
-        &mut reservations,
-        &snapshot,
-        &session,
-        attempt_ref.clone(),
-    );
-    let second_ref = reserve_for_attempt(
-        &mut reservations,
-        &snapshot,
-        &session,
-        attempt_ref.clone(),
-    );
+    let first_ref =
+        reserve_for_attempt(&mut reservations, &snapshot, &session, attempt_ref.clone());
+    let second_ref =
+        reserve_for_attempt(&mut reservations, &snapshot, &session, attempt_ref.clone());
     let first_record = reservations.reservation(&first_ref).expect("first").clone();
-    let second_record = reservations.reservation(&second_ref).expect("second").clone();
+    let second_record = reservations
+        .reservation(&second_ref)
+        .expect("second")
+        .clone();
     let mut leases = LeaseRegistry::new();
 
     let first = leases
@@ -171,9 +171,15 @@ fn transfer_between_reservations_for_same_attempt_keeps_monotonic_fence() {
 
     assert_eq!(first.fence().value(), 1);
     assert_eq!(second.fence().value(), 2);
-    assert_eq!(leases.state(first.lease_ref()), Some(LeaseState::Superseded));
+    assert_eq!(
+        leases.state(first.lease_ref()),
+        Some(LeaseState::Superseded)
+    );
     assert_eq!(leases.state(second.lease_ref()), Some(LeaseState::Active));
-    assert_eq!(leases.current(&attempt_ref).expect("one owner").lease_ref(), second.lease_ref());
+    assert_eq!(
+        leases.current(&attempt_ref).expect("one owner").lease_ref(),
+        second.lease_ref()
+    );
 }
 
 #[test]
@@ -187,7 +193,10 @@ fn expired_and_revoked_leases_reject_new_dispatch() {
         &session,
         entity("activity.attempt"),
     );
-    let record = reservations.reservation(&reservation_ref).expect("record").clone();
+    let record = reservations
+        .reservation(&reservation_ref)
+        .expect("record")
+        .clone();
     let mut leases = LeaseRegistry::new();
 
     let expiring = leases
@@ -220,7 +229,10 @@ fn higher_fence_permanently_rejects_delayed_lower_fence_replay() {
         &session,
         entity("activity.attempt"),
     );
-    let record = reservations.reservation(&reservation_ref).expect("record").clone();
+    let record = reservations
+        .reservation(&reservation_ref)
+        .expect("record")
+        .clone();
     let mut leases = LeaseRegistry::new();
 
     let old = leases
@@ -245,13 +257,12 @@ fn duplicate_lease_identity_is_rejected_without_advancing_fence() {
     let snapshot = resource_snapshot(&session);
     let mut reservations = ReservationRegistry::new(&session, &snapshot).expect("registry");
     let attempt_ref = entity("activity.attempt");
-    let reservation_ref = reserve_for_attempt(
-        &mut reservations,
-        &snapshot,
-        &session,
-        attempt_ref.clone(),
-    );
-    let record = reservations.reservation(&reservation_ref).expect("record").clone();
+    let reservation_ref =
+        reserve_for_attempt(&mut reservations, &snapshot, &session, attempt_ref.clone());
+    let record = reservations
+        .reservation(&reservation_ref)
+        .expect("record")
+        .clone();
     let mut leases = LeaseRegistry::new();
     let lease_ref = entity("isolation.lease");
 
@@ -262,6 +273,13 @@ fn duplicate_lease_identity_is_rejected_without_advancing_fence() {
         leases.issue(&record, lease_ref, NOW + 1, NOW + 30),
         Err(LeaseError::DuplicateLease)
     );
-    assert_eq!(leases.current(&attempt_ref).expect("current").fence().value(), 1);
+    assert_eq!(
+        leases
+            .current(&attempt_ref)
+            .expect("current")
+            .fence()
+            .value(),
+        1
+    );
     assert_eq!(leases.state(first.lease_ref()), Some(LeaseState::Active));
 }

@@ -274,7 +274,8 @@ impl ReservationRegistry {
             let requested_total = resources
                 .iter()
                 .filter(|candidate| {
-                    candidate.resource_key == resource.resource_key && candidate.unit == resource.unit
+                    candidate.resource_key == resource.resource_key
+                        && candidate.unit == resource.unit
                 })
                 .map(|candidate| candidate.quantity)
                 .sum::<f64>();

@@ -55,8 +55,14 @@ fn reservation_is_bound_to_exact_attempt_node_generation_and_epoch() {
     assert_eq!(reservation.binding(), &expected);
     assert_eq!(reservation.binding().attempt_ref(), expected.attempt_ref());
     assert_eq!(reservation.binding().node_id(), expected.node_id());
-    assert_eq!(reservation.binding().node_generation(), expected.node_generation());
-    assert_eq!(reservation.binding().connection_epoch(), expected.connection_epoch());
+    assert_eq!(
+        reservation.binding().node_generation(),
+        expected.node_generation()
+    );
+    assert_eq!(
+        reservation.binding().connection_epoch(),
+        expected.connection_epoch()
+    );
 }
 
 #[test]
@@ -134,11 +140,8 @@ fn expired_reservation_and_lease_fail_closed() {
     let placement = PlacementMetadata::new(expected.clone());
     let fence = FenceToken::new(1).expect("fence");
 
-    let expired_reservation = Reservation::new(
-        entity("resource.reservation"),
-        expected.clone(),
-        NOW,
-    );
+    let expired_reservation =
+        Reservation::new(entity("resource.reservation"), expected.clone(), NOW);
     let lease_for_expired_reservation = lease(&expected, &expired_reservation, fence);
     assert_eq!(
         authorize_dispatch(

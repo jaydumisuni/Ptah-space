@@ -98,8 +98,10 @@ fn requirement(capability: EntityRef, provider: EntityRef) -> PlacementRequireme
         entity("activity.attempt"),
         vec![capability],
         vec![provider],
-        vec![ResourceRequirement::new("cpu", ResourceUnit::Cores, 2.0)
-            .expect("resource requirement")],
+        vec![
+            ResourceRequirement::new("cpu", ResourceUnit::Cores, 2.0)
+                .expect("resource requirement"),
+        ],
         Some(OsFamily::Linux),
     )
 }
@@ -109,7 +111,8 @@ fn exact_current_session_and_snapshots_are_eligible() {
     let session = make_session();
     let capability = entity("runtime.capability");
     let provider = entity("runtime.provider-revision");
-    let capabilities = capability_snapshot(&session, vec![capability.clone()], vec![provider.clone()]);
+    let capabilities =
+        capability_snapshot(&session, vec![capability.clone()], vec![provider.clone()]);
     let resources = resource_snapshot(&session, 6.0, ResourcePressure::Normal);
 
     let candidate = evaluate_candidate(
@@ -135,23 +138,46 @@ fn snapshot_node_identity_generation_and_epoch_mismatches_fail_closed() {
     let resources = resource_snapshot(&session, 6.0, ResourcePressure::Normal);
 
     let other_session = make_session();
-    let wrong_node = capability_snapshot(&other_session, vec![capability.clone()], vec![provider.clone()]);
+    let wrong_node = capability_snapshot(
+        &other_session,
+        vec![capability.clone()],
+        vec![provider.clone()],
+    );
     assert_eq!(
-        evaluate_candidate(&session, &wrong_node, &resources, &requirement, PlacementPolicy::strict()),
+        evaluate_candidate(
+            &session,
+            &wrong_node,
+            &resources,
+            &requirement,
+            PlacementPolicy::strict()
+        ),
         Err(CandidateRejection::NodeIdentityMismatch)
     );
 
-    let mut wrong_generation = capability_snapshot(&session, vec![capability.clone()], vec![provider.clone()]);
+    let mut wrong_generation =
+        capability_snapshot(&session, vec![capability.clone()], vec![provider.clone()]);
     wrong_generation.node_generation = NodeGeneration::new(session.node_generation.value() + 1);
     assert_eq!(
-        evaluate_candidate(&session, &wrong_generation, &resources, &requirement, PlacementPolicy::strict()),
+        evaluate_candidate(
+            &session,
+            &wrong_generation,
+            &resources,
+            &requirement,
+            PlacementPolicy::strict()
+        ),
         Err(CandidateRejection::NodeGenerationMismatch)
     );
 
     let mut wrong_epoch = capability_snapshot(&session, vec![capability], vec![provider]);
     wrong_epoch.connection_epoch = ConnectionEpoch::new(session.connection_epoch.value() + 1);
     assert_eq!(
-        evaluate_candidate(&session, &wrong_epoch, &resources, &requirement, PlacementPolicy::strict()),
+        evaluate_candidate(
+            &session,
+            &wrong_epoch,
+            &resources,
+            &requirement,
+            PlacementPolicy::strict()
+        ),
         Err(CandidateRejection::ConnectionEpochMismatch)
     );
 }
@@ -201,7 +227,8 @@ fn insufficient_requested_resource_is_ineligible() {
     let session = make_session();
     let capability = entity("runtime.capability");
     let provider = entity("runtime.provider-revision");
-    let capabilities = capability_snapshot(&session, vec![capability.clone()], vec![provider.clone()]);
+    let capabilities =
+        capability_snapshot(&session, vec![capability.clone()], vec![provider.clone()]);
     let resources = resource_snapshot(&session, 1.0, ResourcePressure::Normal);
 
     assert_eq!(
@@ -221,12 +248,19 @@ fn strict_policy_rejects_critical_and_unavailable_resource_pressure() {
     let session = make_session();
     let capability = entity("runtime.capability");
     let provider = entity("runtime.provider-revision");
-    let capabilities = capability_snapshot(&session, vec![capability.clone()], vec![provider.clone()]);
+    let capabilities =
+        capability_snapshot(&session, vec![capability.clone()], vec![provider.clone()]);
     let requirement = requirement(capability, provider);
 
     for (pressure, expected) in [
-        (ResourcePressure::Critical, CandidateRejection::CriticalResourcePressure),
-        (ResourcePressure::Unavailable, CandidateRejection::UnavailableResource),
+        (
+            ResourcePressure::Critical,
+            CandidateRejection::CriticalResourcePressure,
+        ),
+        (
+            ResourcePressure::Unavailable,
+            CandidateRejection::UnavailableResource,
+        ),
     ] {
         let resources = resource_snapshot(&session, 6.0, pressure);
         assert_eq!(
@@ -268,8 +302,8 @@ fn deterministic_scoring_prefers_lower_pressure_for_identical_requirements() {
     .expect("second eligible");
 
     for _ in 0..8 {
-        let selected = select_candidate([second_candidate.clone(), first_candidate.clone()])
-            .expect("winner");
+        let selected =
+            select_candidate([second_candidate.clone(), first_candidate.clone()]).expect("winner");
         assert_eq!(selected.node_id(), first.node_id);
     }
 }

@@ -1,0 +1,51 @@
+name: E02 Whitespace Fix
+
+on:
+  push:
+    branches: [e02-placement-reservation-lease-fence]
+    paths: [.github/workflows/e02-whitespace-fix.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out E02 branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: e02-placement-reservation-lease-fence
+          fetch-depth: 0
+      - name: Remove only rejected trailing spaces and self-remove
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          targets = [
+              Path('docs/superpowers/plans/2026-09-06-e02-placement-reservation-lease-fence.md'),
+              Path('docs/superpowers/specs/2026-09-06-e02-placement-reservation-lease-fence-design.md'),
+          ]
+          expected = 4
+          changed = 0
+          for path in targets:
+              text = path.read_text(encoding='utf-8')
+              lines = text.splitlines(keepends=True)
+              fixed = []
+              for line in lines:
+                  if line.endswith('  \n'):
+                      line = line[:-3] + '\n'
+                      changed += 1
+                  fixed.append(line)
+              path.write_text(''.join(fixed), encoding='utf-8')
+          if changed != expected:
+              raise SystemExit(f'expected {expected} trailing-space lines, found {changed}')
+          PY
+          git diff --check
+          git rm .github/workflows/e02-whitespace-fix.yml
+          git config user.name 'THE TECH GUY'
+          git config user.email '65334711+jaydumisuni@users.noreply.github.com'
+          git add docs/superpowers/plans/2026-09-06-e02-placement-reservation-lease-fence.md docs/superpowers/specs/2026-09-06-e02-placement-reservation-lease-fence-design.md
+          git commit -m 'style(e02): remove rejected markdown trailing whitespace'
+          git push origin HEAD:e02-placement-reservation-lease-fence

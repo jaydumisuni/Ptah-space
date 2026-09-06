@@ -1,7 +1,7 @@
 # E02 Placement, Reservation, Lease and Fence Runtime — Design
 
-**Date:** 2026-09-06  
-**Status:** Approved / implementation baseline  
+**Date:** 2026-09-06
+**Status:** Approved / implementation baseline
 **Accepted predecessor:** E01 release `18c1bb26bf074fd8146c2dd8e47838d658af8561`
 
 ## 1. Purpose

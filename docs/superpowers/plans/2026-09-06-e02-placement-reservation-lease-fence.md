@@ -1,7 +1,7 @@
 # E02 Placement, Reservation, Lease and Fence Runtime — Implementation Plan
 
-**Date:** 2026-09-06  
-**Design:** `docs/superpowers/specs/2026-09-06-e02-placement-reservation-lease-fence-design.md`  
+**Date:** 2026-09-06
+**Design:** `docs/superpowers/specs/2026-09-06-e02-placement-reservation-lease-fence-design.md`
 **Accepted predecessor:** E01 release `18c1bb26bf074fd8146c2dd8e47838d658af8561`
 
 ## Goal

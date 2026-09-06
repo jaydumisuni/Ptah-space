@@ -177,7 +177,7 @@ impl PlacementMetadata {
 /// Capacity authority reserved for one exact Attempt and Node session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reservation {
-    reservation_ref: EntityRef,
+    reference: EntityRef,
     binding: AuthorityBinding,
     expires_at_unix_seconds: u64,
 }
@@ -191,7 +191,7 @@ impl Reservation {
         expires_at_unix_seconds: u64,
     ) -> Self {
         Self {
-            reservation_ref,
+            reference: reservation_ref,
             binding,
             expires_at_unix_seconds,
         }
@@ -200,7 +200,7 @@ impl Reservation {
     /// Return the canonical Reservation reference.
     #[must_use]
     pub const fn reservation_ref(&self) -> &EntityRef {
-        &self.reservation_ref
+        &self.reference
     }
 
     /// Return the exact Attempt/Node/session binding.
@@ -219,7 +219,7 @@ impl Reservation {
 /// Time-bounded execution authority bound to one Reservation and Fence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Lease {
-    lease_ref: EntityRef,
+    reference: EntityRef,
     reservation_ref: EntityRef,
     binding: AuthorityBinding,
     fence: FenceToken,
@@ -237,7 +237,7 @@ impl Lease {
         expires_at_unix_seconds: u64,
     ) -> Self {
         Self {
-            lease_ref,
+            reference: lease_ref,
             reservation_ref,
             binding,
             fence,
@@ -248,7 +248,7 @@ impl Lease {
     /// Return the canonical Lease reference.
     #[must_use]
     pub const fn lease_ref(&self) -> &EntityRef {
-        &self.lease_ref
+        &self.reference
     }
 
     /// Return the exact Reservation reference held by the Lease.

@@ -1,3 +1,5 @@
+//! E02 Task 1 placement-authority boundary tests.
+
 use ptah_identifiers::{ConnectionEpoch, EntityRef, NodeGeneration, NodeId};
 use ptah_placement_runtime::{
     AuthorityBinding, AuthorityError, FenceToken, Lease, PlacementMetadata, Reservation,

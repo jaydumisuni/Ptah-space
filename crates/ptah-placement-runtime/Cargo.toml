@@ -10,6 +10,8 @@ workspace = true
 
 [dependencies]
 ptah-identifiers = { version = "=0.0.0-phase0c", path = "../ptah-identifiers" }
+ptah-node-agent = { version = "=0.0.0-phase0c", path = "../ptah-node-agent" }
+ptah-node-link = { version = "=0.0.0-phase0c", path = "../ptah-node-link" }
 thiserror = { workspace = true }
 
 [lib]

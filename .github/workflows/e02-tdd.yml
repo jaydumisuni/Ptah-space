@@ -26,9 +26,9 @@ jobs:
           set -euo pipefail
           rustup toolchain install 1.97.1 --profile minimal --component clippy
           rustup default 1.97.1
-      - name: Run E02 Task 1 authority tests
+      - name: Run E02 targeted tests
         shell: bash
-        run: cargo test -p ptah-placement-runtime --test e02_authority
+        run: cargo test -p ptah-placement-runtime --test e02_authority --test e02_placement
       - name: Run E02 strict Clippy
         shell: bash
         run: cargo clippy -p ptah-placement-runtime --all-targets -- -D warnings

@@ -4,8 +4,10 @@
 //! This crate carries E03 control metadata and bounded range payloads. It does
 //! not reuse the E01 JSON control stream and does not create A07 storage truth.
 
+mod error;
 mod protocol;
 
+pub use error::*;
 pub use protocol::*;
 pub use ptah_transfer::TransferPeerRole;
 

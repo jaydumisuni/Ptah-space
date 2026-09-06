@@ -207,8 +207,8 @@ jobs:
           name: oracle-windows-0.5.0-${{ env.ORACLE_COMMIT }}
           path: |
             ${{ steps.evidence.outputs.installer_zip }}
-            ${{ steps.evidence.outputs.setup_exe }}
             ${{ steps.evidence.outputs.proof }}
             ${{ steps.evidence.outputs.screenshot }}
           if-no-files-found: error
+          compression-level: 0
           retention-days: 14

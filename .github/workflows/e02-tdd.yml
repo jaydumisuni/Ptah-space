@@ -29,7 +29,7 @@ jobs:
           rustup default 1.97.1
       - name: Run E02 placement-runtime tests
         shell: bash
-        run: cargo test -p ptah-placement-runtime --test e02_authority --test e02_placement --test e02_offers
+        run: cargo test -p ptah-placement-runtime --test e02_authority --test e02_placement --test e02_offers --test e02_reservations
       - name: Run E02 Node-link offer wire test
         shell: bash
         run: cargo test -p ptah-node-link --test e02_offer_wire

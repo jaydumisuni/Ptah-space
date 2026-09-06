@@ -20,6 +20,9 @@ const ENVELOPE_SCHEMA: &str = "urn:ptah:schema:common:entity-envelope:0.1.0";
 const VERSION: &str = "0.1.0";
 const EXTENSION_KEY: &str = "ptah.e02_authority_recovery";
 
+type ReservationMap = HashMap<EntityId, StoredReservation>;
+type LeaseMap = HashMap<EntityId, StoredLease>;
+
 /// Durable E02 recovery failure. Recovery is fail-closed: no partially rebuilt
 /// authority is ever returned.
 #[derive(Debug, Error)]
@@ -152,154 +155,18 @@ impl DurableAuthorityStore {
         snapshot: &NodeResourceSnapshot,
         now: u64,
     ) -> Result<RecoveredAuthority, RecoveryError> {
-        let (reservations, leases) = latest(self.read_entries()?)?;
-        validate_histories(&reservations, &leases)?;
+        let durable = latest(self.read_entries()?)?;
+        validate_histories(&durable.reservations, &durable.leases)?;
 
-        let mut reservation_registry = ReservationRegistry::new(session, snapshot)?;
-        let mut current_reservations: Vec<_> = reservations
-            .values()
-            .filter(|value| value.matches(session))
-            .cloned()
-            .collect();
-        current_reservations.sort_by_key(|value| {
-            (value.created_at, value.reservation_ref.entity_id.to_string())
-        });
-
-        for value in &current_reservations {
-            if value.snapshot_ref != snapshot.snapshot_ref {
-                return Err(RecoveryError::StaleResourceEvidence);
-            }
-            let resources = value
-                .resources
-                .iter()
-                .map(StoredResource::runtime)
-                .collect::<Result<Vec<_>, _>>()?;
-            reservation_registry.reserve(
-                value.reservation_ref.clone(),
-                AuthorityBinding::new(
-                    value.attempt_ref.clone(),
-                    value.node_id,
-                    NodeGeneration::new(value.node_generation),
-                    ConnectionEpoch::new(value.connection_epoch),
-                ),
-                value.snapshot_ref.clone(),
-                resources,
-                value.created_at,
-                value.expires_at,
-            )?;
-        }
-
-        let mut lease_registry = LeaseRegistry::new();
-        let mut by_attempt: HashMap<EntityRef, Vec<StoredLease>> = HashMap::new();
-        let mut global_floor: HashMap<EntityRef, u64> = HashMap::new();
-        for value in leases.values() {
-            global_floor
-                .entry(value.attempt_ref.clone())
-                .and_modify(|floor| *floor = (*floor).max(value.fence))
-                .or_insert(value.fence);
-            if value.matches(session) {
-                by_attempt
-                    .entry(value.attempt_ref.clone())
-                    .or_default()
-                    .push(value.clone());
-            }
-        }
-
-        let mut attempts: Vec<_> = by_attempt.into_iter().collect();
-        attempts.sort_by_key(|(attempt, _)| attempt.entity_id.to_string());
-        for (attempt, mut attempt_leases) in attempts {
-            attempt_leases.sort_by_key(|value| value.fence);
-            if let Some(first) = attempt_leases.first()
-                && first.fence > 1
-            {
-                lease_registry.recover_fence_floor(attempt.clone(), fence(first.fence - 1)?);
-            }
-            for value in &attempt_leases {
-                let reservation = reservation_registry
-                    .reservation(&value.reservation_ref)
-                    .ok_or_else(|| {
-                        RecoveryError::Corrupt(format!(
-                            "Lease {} has no current-session Reservation",
-                            value.lease_ref.entity_id
-                        ))
-                    })?
-                    .clone();
-                let rebuilt = lease_registry.issue(
-                    &reservation,
-                    value.lease_ref.clone(),
-                    value.issued_at,
-                    value.expires_at,
-                )?;
-                if rebuilt.fence().value() != value.fence {
-                    return Err(RecoveryError::FenceMismatch {
-                        persisted: value.fence,
-                        reconstructed: rebuilt.fence().value(),
-                    });
-                }
-            }
-        }
-
-        for (attempt, floor) in global_floor {
-            lease_registry.recover_fence_floor(attempt, fence(floor)?);
-        }
-
-        for value in leases.values().filter(|value| value.matches(session)) {
-            match value.state {
-                StoredLeaseState::Active => {}
-                StoredLeaseState::Revoked => {
-                    if lease_registry.state(&value.lease_ref) == Some(LeaseState::Active) {
-                        lease_registry.revoke(&value.lease_ref)?;
-                    }
-                }
-                StoredLeaseState::Expired => {
-                    lease_registry.expire(value.expires_at);
-                }
-                StoredLeaseState::Superseded => {
-                    let superseded = lease_registry.state(&value.lease_ref)
-                        == Some(LeaseState::Superseded)
-                        || lease_registry
-                            .highest_fence(&value.attempt_ref)
-                            .is_some_and(|highest| highest.value() > value.fence);
-                    if !superseded {
-                        return Err(RecoveryError::Corrupt(format!(
-                            "Lease {} claims superseded without newer Fence",
-                            value.lease_ref.entity_id
-                        )));
-                    }
-                }
-            }
-        }
-        lease_registry.expire(now);
-
-        for value in &current_reservations {
-            match value.state {
-                StoredReservationState::Active => {}
-                StoredReservationState::Released => {
-                    reservation_registry.release(&value.reservation_ref, value.created_at)?;
-                }
-                StoredReservationState::Expired => {
-                    reservation_registry.expire(value.expires_at);
-                }
-                StoredReservationState::Revoked => {
-                    reservation_registry.revoke(&value.reservation_ref)?;
-                }
-            }
-        }
-        reservation_registry.expire(now);
-
-        for value in leases.values().filter(|value| value.matches(session)) {
-            if reservation_registry
-                .reservation(&value.reservation_ref)
-                .is_some_and(|reservation| reservation.state() != ReservationState::Active)
-                && lease_registry.state(&value.lease_ref) == Some(LeaseState::Active)
-            {
-                lease_registry.revoke(&value.lease_ref)?;
-            }
-        }
+        let mut replay = replay_reservations(session, snapshot, &durable.reservations)?;
+        let mut leases = replay_leases(session, &replay.registry, &durable.leases)?;
+        apply_lease_states(session, &mut leases, &durable.leases, now)?;
+        apply_reservation_states(&mut replay.registry, &replay.current, now)?;
+        revoke_leases_without_active_reservation(session, &replay.registry, &mut leases, &durable.leases)?;
 
         Ok(RecoveredAuthority {
-            reservations: reservation_registry,
-            leases: lease_registry,
+            reservations: replay.registry,
+            leases,
         })
     }
 
@@ -403,6 +270,205 @@ impl DurableAuthorityStore {
         result.sort_by_key(JournalEntry::sequence);
         Ok(result)
     }
+}
+
+struct DurableState {
+    reservations: ReservationMap,
+    leases: LeaseMap,
+}
+
+struct ReservationReplay {
+    registry: ReservationRegistry,
+    current: Vec<StoredReservation>,
+}
+
+fn replay_reservations(
+    session: &SessionBinding,
+    snapshot: &NodeResourceSnapshot,
+    reservations: &ReservationMap,
+) -> Result<ReservationReplay, RecoveryError> {
+    let mut registry = ReservationRegistry::new(session, snapshot)?;
+    let mut current: Vec<_> = reservations
+        .values()
+        .filter(|value| value.matches(session))
+        .cloned()
+        .collect();
+    current.sort_by_key(|value| (value.created_at, value.reservation_ref.entity_id.to_string()));
+
+    for value in &current {
+        if value.snapshot_ref != snapshot.snapshot_ref {
+            return Err(RecoveryError::StaleResourceEvidence);
+        }
+        let resources = value
+            .resources
+            .iter()
+            .map(StoredResource::runtime)
+            .collect::<Result<Vec<_>, _>>()?;
+        registry.reserve(
+            value.reservation_ref.clone(),
+            AuthorityBinding::new(
+                value.attempt_ref.clone(),
+                value.node_id,
+                NodeGeneration::new(value.node_generation),
+                ConnectionEpoch::new(value.connection_epoch),
+            ),
+            value.snapshot_ref.clone(),
+            resources,
+            value.created_at,
+            value.expires_at,
+        )?;
+    }
+    Ok(ReservationReplay { registry, current })
+}
+
+fn replay_leases(
+    session: &SessionBinding,
+    reservations: &ReservationRegistry,
+    leases: &LeaseMap,
+) -> Result<LeaseRegistry, RecoveryError> {
+    let mut registry = LeaseRegistry::new();
+    let mut by_attempt: HashMap<EntityRef, Vec<StoredLease>> = HashMap::new();
+    let mut global_floor: HashMap<EntityRef, u64> = HashMap::new();
+
+    for value in leases.values() {
+        global_floor
+            .entry(value.attempt_ref.clone())
+            .and_modify(|floor| *floor = (*floor).max(value.fence))
+            .or_insert(value.fence);
+        if value.matches(session) {
+            by_attempt
+                .entry(value.attempt_ref.clone())
+                .or_default()
+                .push(value.clone());
+        }
+    }
+
+    let mut attempts: Vec<_> = by_attempt.into_iter().collect();
+    attempts.sort_by_key(|(attempt, _)| attempt.entity_id.to_string());
+    for (attempt, mut attempt_leases) in attempts {
+        replay_attempt_leases(&mut registry, reservations, &attempt, &mut attempt_leases)?;
+    }
+    for (attempt, floor) in global_floor {
+        registry.recover_fence_floor(attempt, fence(floor)?);
+    }
+    Ok(registry)
+}
+
+fn replay_attempt_leases(
+    registry: &mut LeaseRegistry,
+    reservations: &ReservationRegistry,
+    attempt: &EntityRef,
+    attempt_leases: &mut [StoredLease],
+) -> Result<(), RecoveryError> {
+    attempt_leases.sort_by_key(|value| value.fence);
+    if let Some(first) = attempt_leases.first()
+        && first.fence > 1
+    {
+        registry.recover_fence_floor(attempt.clone(), fence(first.fence - 1)?);
+    }
+    for value in attempt_leases {
+        let reservation = reservations
+            .reservation(&value.reservation_ref)
+            .ok_or_else(|| {
+                RecoveryError::Corrupt(format!(
+                    "Lease {} has no current-session Reservation",
+                    value.lease_ref.entity_id
+                ))
+            })?
+            .clone();
+        let rebuilt = registry.issue(
+            &reservation,
+            value.lease_ref.clone(),
+            value.issued_at,
+            value.expires_at,
+        )?;
+        if rebuilt.fence().value() != value.fence {
+            return Err(RecoveryError::FenceMismatch {
+                persisted: value.fence,
+                reconstructed: rebuilt.fence().value(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn apply_lease_states(
+    session: &SessionBinding,
+    registry: &mut LeaseRegistry,
+    leases: &LeaseMap,
+    now: u64,
+) -> Result<(), RecoveryError> {
+    for value in leases.values().filter(|value| value.matches(session)) {
+        match value.state {
+            StoredLeaseState::Active => {}
+            StoredLeaseState::Revoked => {
+                if registry.state(&value.lease_ref) == Some(LeaseState::Active) {
+                    registry.revoke(&value.lease_ref)?;
+                }
+            }
+            StoredLeaseState::Expired => {
+                registry.expire(value.expires_at);
+            }
+            StoredLeaseState::Superseded => validate_superseded(registry, value)?,
+        }
+    }
+    registry.expire(now);
+    Ok(())
+}
+
+fn validate_superseded(registry: &LeaseRegistry, value: &StoredLease) -> Result<(), RecoveryError> {
+    let superseded = registry.state(&value.lease_ref) == Some(LeaseState::Superseded)
+        || registry
+            .highest_fence(&value.attempt_ref)
+            .is_some_and(|highest| highest.value() > value.fence);
+    if superseded {
+        Ok(())
+    } else {
+        Err(RecoveryError::Corrupt(format!(
+            "Lease {} claims superseded without newer Fence",
+            value.lease_ref.entity_id
+        )))
+    }
+}
+
+fn apply_reservation_states(
+    registry: &mut ReservationRegistry,
+    current: &[StoredReservation],
+    now: u64,
+) -> Result<(), RecoveryError> {
+    for value in current {
+        match value.state {
+            StoredReservationState::Active => {}
+            StoredReservationState::Released => {
+                registry.release(&value.reservation_ref, value.created_at)?;
+            }
+            StoredReservationState::Expired => {
+                registry.expire(value.expires_at);
+            }
+            StoredReservationState::Revoked => {
+                registry.revoke(&value.reservation_ref)?;
+            }
+        }
+    }
+    registry.expire(now);
+    Ok(())
+}
+
+fn revoke_leases_without_active_reservation(
+    session: &SessionBinding,
+    reservations: &ReservationRegistry,
+    leases: &mut LeaseRegistry,
+    durable_leases: &LeaseMap,
+) -> Result<(), RecoveryError> {
+    for value in durable_leases.values().filter(|value| value.matches(session)) {
+        let backing_inactive = reservations
+            .reservation(&value.reservation_ref)
+            .is_some_and(|reservation| reservation.state() != ReservationState::Active);
+        if backing_inactive && leases.state(&value.lease_ref) == Some(LeaseState::Active) {
+            leases.revoke(&value.lease_ref)?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -598,17 +664,9 @@ impl StoredLease {
     }
 }
 
-fn latest(
-    entries: Vec<JournalEntry>,
-) -> Result<
-    (
-        HashMap<EntityId, StoredReservation>,
-        HashMap<EntityId, StoredLease>,
-    ),
-    RecoveryError,
-> {
-    let mut reservations: HashMap<EntityId, StoredReservation> = HashMap::new();
-    let mut leases: HashMap<EntityId, StoredLease> = HashMap::new();
+fn latest(entries: Vec<JournalEntry>) -> Result<DurableState, RecoveryError> {
+    let mut reservations = HashMap::new();
+    let mut leases = HashMap::new();
     for entry in entries {
         match entry {
             JournalEntry::Reservation { value, .. } => {
@@ -637,12 +695,15 @@ fn latest(
             }
         }
     }
-    Ok((reservations, leases))
+    Ok(DurableState {
+        reservations,
+        leases,
+    })
 }
 
 fn validate_histories(
-    reservations: &HashMap<EntityId, StoredReservation>,
-    leases: &HashMap<EntityId, StoredLease>,
+    reservations: &ReservationMap,
+    leases: &LeaseMap,
 ) -> Result<(), RecoveryError> {
     let mut fences: HashMap<EntityRef, HashSet<u64>> = HashMap::new();
     for lease in leases.values() {

@@ -9,6 +9,7 @@ on:
       - Cargo.lock
       - crates/ptah-placement-runtime/**
       - crates/ptah-node-link/**
+      - crates/ptah-application-runtime/**
       - services/ptah-control/**
       - services/ptah-node/**
       - .github/workflows/e02-tdd.yml
@@ -41,9 +42,12 @@ jobs:
       - name: Run E02 Node dispatch and Provider integration tests
         shell: bash
         run: cargo test -p ptah-node --test e02_dispatch_guard --test e02_provider_dispatch
+      - name: Run D08 remote-placement integration
+        shell: bash
+        run: cargo test -p ptah-application-runtime --test d08_acceptance
       - name: Run E02 strict Clippy
         shell: bash
-        run: cargo clippy -p ptah-placement-runtime -p ptah-node-link -p ptah-control -p ptah-node --all-targets -- -D warnings
+        run: cargo clippy -p ptah-placement-runtime -p ptah-node-link -p ptah-control -p ptah-node -p ptah-application-runtime --all-targets -- -D warnings
       - name: Run formatting proof
         shell: bash
         run: cargo fmt --all -- --check

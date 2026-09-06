@@ -22,6 +22,11 @@ fn entity(kind: &str) -> EntityRef {
     EntityRef::new(kind).expect("valid entity kind")
 }
 
+fn active_agent() -> NodeAgent {
+    let bootstrap = NodeAgent::bootstrap().expect("bootstrap node");
+    NodeAgent::restart(bootstrap.restart_seed()).expect("post-bootstrap node generation")
+}
+
 fn reservation(agent: &NodeAgent, attempt_ref: EntityRef) -> DispatchReservationFrame {
     DispatchReservationFrame {
         reservation_ref: entity("resource.reservation"),
@@ -127,7 +132,7 @@ fn process_spec(program: &str, args: &[&str]) -> ProcessSpec {
 #[cfg(unix)]
 #[test]
 fn stale_e02_authority_never_enters_real_provider_path() {
-    let agent = NodeAgent::bootstrap().expect("node");
+    let agent = active_agent();
     let reservation = reservation(&agent, entity("activity.attempt"));
     let first = lease(&agent, &reservation, 1);
     let second = lease(&agent, &reservation, 2);
@@ -163,7 +168,7 @@ fn stale_e02_authority_never_enters_real_provider_path() {
 #[cfg(unix)]
 #[test]
 fn current_e02_authority_reaches_real_provider_but_a05_generation_still_fences() {
-    let agent = NodeAgent::bootstrap().expect("node");
+    let agent = active_agent();
     let reservation = reservation(&agent, entity("activity.attempt"));
     let lease = lease(&agent, &reservation, 1);
     let request = dispatch(&agent, &reservation, &lease);

@@ -8,6 +8,7 @@ on:
       - Cargo.toml
       - Cargo.lock
       - crates/ptah-placement-runtime/**
+      - crates/ptah-node-link/**
       - .github/workflows/e02-tdd.yml
   workflow_dispatch:
 
@@ -26,9 +27,12 @@ jobs:
           set -euo pipefail
           rustup toolchain install 1.97.1 --profile minimal --component clippy
           rustup default 1.97.1
-      - name: Run E02 targeted tests
+      - name: Run E02 placement-runtime tests
         shell: bash
-        run: cargo test -p ptah-placement-runtime --test e02_authority --test e02_placement
+        run: cargo test -p ptah-placement-runtime --test e02_authority --test e02_placement --test e02_offers
+      - name: Run E02 Node-link offer wire test
+        shell: bash
+        run: cargo test -p ptah-node-link --test e02_offer_wire
       - name: Run E02 strict Clippy
         shell: bash
-        run: cargo clippy -p ptah-placement-runtime --all-targets -- -D warnings
+        run: cargo clippy -p ptah-placement-runtime -p ptah-node-link --all-targets -- -D warnings

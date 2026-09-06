@@ -8,6 +8,7 @@
 mod authority;
 mod offers;
 mod placement;
+mod reservations;
 
 pub use authority::{
     AuthorityBinding, AuthorityError, DispatchAuthority, FenceToken, Lease, PlacementMetadata,
@@ -17,4 +18,7 @@ pub use offers::{NodeOffer, OfferError, validate_offer};
 pub use placement::{
     CandidateRejection, PlacementCandidate, PlacementPolicy, PlacementRequirement,
     ResourceRequirement, evaluate_candidate, select_candidate,
+};
+pub use reservations::{
+    ReservationError, ReservationRecord, ReservationRegistry, ReservationState, ReservedResource,
 };

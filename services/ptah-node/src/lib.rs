@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 //! E01 secure Node client plus E02 fail-closed dispatch authority guard.
 
-use ptah_identifiers::{ConnectionEpoch, EntityRef, NodeGeneration, NodeId};
+use native_process::{NativeProcessError, NativeProcessProvider, ProcessSpec};
+use ptah_activity_runtime::AttemptContext;
+use ptah_identifiers::{ConnectionEpoch, EntityId, EntityRef, NodeGeneration, NodeId};
 use ptah_node_agent::NodeAgent;
 use ptah_node_link::{
     DispatchLeaseFrame, DispatchRequestFrame, DispatchReservationFrame, HelloAck, LinkError,
@@ -324,6 +326,57 @@ impl NodeDispatchGuard {
         }
         Ok(())
     }
+}
+
+/// Failures from the narrow E02-to-A05 native Provider dispatch boundary.
+#[derive(Debug)]
+pub enum NodeProviderDispatchError {
+    /// E02 Node/session/Reservation/Lease/Fence authority rejected dispatch.
+    Authority(NodeDispatchError),
+    /// The real A05 Provider context no longer matches the A04 Attempt context.
+    ProviderContextMismatch,
+    /// The native A05 Provider rejected or failed mechanical execution.
+    Provider(NativeProcessError),
+}
+
+/// Spawn through the real A05 native-process Provider only after E02 authority
+/// admission and exact A04/A05 Provider-context currentness validation.
+///
+/// E02 does not copy or replace Provider identity/generation truth. The current
+/// Provider derives an [`AttemptContext`] from A05 and that context must equal the
+/// already selected A04 context before the Provider can execute.
+///
+/// # Errors
+///
+/// Returns [`NodeProviderDispatchError::Authority`] before entering Provider code
+/// for stale E02 authority, [`NodeProviderDispatchError::ProviderContextMismatch`]
+/// for stale A05 context, or [`NodeProviderDispatchError::Provider`] for an
+/// admitted Provider execution failure.
+pub fn spawn_native_process_if_authorized(
+    guard: &NodeDispatchGuard,
+    agent: &NodeAgent,
+    frame: &DispatchRequestFrame,
+    now_unix_seconds: u64,
+    provider: &NativeProcessProvider,
+    expected_attempt: &AttemptContext,
+    spec: ProcessSpec,
+) -> Result<EntityId, NodeProviderDispatchError> {
+    guard
+        .invoke_if_authorized(agent, frame, now_unix_seconds, || {
+            let current = provider
+                .attempt_context(
+                    expected_attempt.workload_generation,
+                    expected_attempt.facility_ref.clone(),
+                )
+                .map_err(NodeProviderDispatchError::Provider)?;
+            if current != *expected_attempt {
+                return Err(NodeProviderDispatchError::ProviderContextMismatch);
+            }
+            provider
+                .spawn(spec)
+                .map_err(NodeProviderDispatchError::Provider)
+        })
+        .map_err(NodeProviderDispatchError::Authority)?
 }
 
 /// Connect one Node to the E01 control plane, send its current A02 identity, and accept a matching hello acknowledgement.

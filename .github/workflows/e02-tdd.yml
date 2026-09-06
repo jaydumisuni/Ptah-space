@@ -7,11 +7,14 @@ on:
     paths:
       - Cargo.toml
       - Cargo.lock
+      - conformance/e02/**
       - crates/ptah-placement-runtime/**
       - crates/ptah-node-link/**
       - crates/ptah-application-runtime/**
       - services/ptah-control/**
       - services/ptah-node/**
+      - tools/check_e02_placement_authority.py
+      - tools/test_check_e02_placement_authority.py
       - .github/workflows/e02-tdd.yml
   workflow_dispatch:
 
@@ -30,6 +33,12 @@ jobs:
           set -euo pipefail
           rustup toolchain install 1.97.1 --profile minimal --component clippy --component rustfmt
           rustup default 1.97.1
+      - name: Run E02 corpus checker regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=tools python3 -m unittest -v tools/test_check_e02_placement_authority.py
+          python3 tools/check_e02_placement_authority.py --repo-root . --output "$RUNNER_TEMP/e02-corpus.json"
       - name: Run E02 placement-runtime tests
         shell: bash
         run: cargo test -p ptah-placement-runtime --test e02_authority --test e02_placement --test e02_offers --test e02_reservations --test e02_leases --test e02_recovery

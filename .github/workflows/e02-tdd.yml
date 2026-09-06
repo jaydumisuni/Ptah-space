@@ -10,6 +10,7 @@ on:
       - crates/ptah-placement-runtime/**
       - crates/ptah-node-link/**
       - services/ptah-control/**
+      - services/ptah-node/**
       - .github/workflows/e02-tdd.yml
   workflow_dispatch:
 
@@ -34,9 +35,12 @@ jobs:
       - name: Run E02 control authority test
         shell: bash
         run: cargo test -p ptah-control --test e02_placement
-      - name: Run E02 Node-link offer wire test
+      - name: Run E02 dispatch wire test
         shell: bash
-        run: cargo test -p ptah-node-link --test e02_offer_wire
+        run: cargo test -p ptah-node-link --test e02_offer_wire --test e02_dispatch_wire
+      - name: Run E02 Node dispatch guard test
+        shell: bash
+        run: cargo test -p ptah-node --test e02_dispatch_guard
       - name: Run E02 strict Clippy
         shell: bash
-        run: cargo clippy -p ptah-placement-runtime -p ptah-node-link -p ptah-control --all-targets -- -D warnings
+        run: cargo clippy -p ptah-placement-runtime -p ptah-node-link -p ptah-control -p ptah-node --all-targets -- -D warnings

@@ -1,3 +1,5 @@
+//! E03 transfer-ticket authority contract tests.
+
 use ptah_identifiers::{ConnectionEpoch, EntityRef, NodeGeneration, NodeId};
 use ptah_transfer::{
     E03TransferError, TransferMode, TransferPeerBinding, TransferPeerRole, TransferRouteCandidate,
@@ -209,15 +211,21 @@ fn ticket_rejects_invalid_geometry_digest_lifetime_and_route_set() {
 
 #[test]
 fn ticket_authorizes_only_routes_frozen_into_ticket() {
-    let ticket = ticket(source_binding(), target_binding(), vec![direct_route(), relay_route()])
-        .expect("valid E03 ticket");
+    let direct = direct_route();
+    let relay = relay_route();
+    let ticket = ticket(
+        source_binding(),
+        target_binding(),
+        vec![direct.clone(), relay.clone()],
+    )
+    .expect("valid E03 ticket");
 
-    assert_eq!(ticket.authorize_route(&direct_route()), Ok(()));
-    assert_eq!(ticket.authorize_route(&relay_route()), Ok(()));
+    assert_eq!(ticket.authorize_route(&direct), Ok(()));
+    assert_eq!(ticket.authorize_route(&relay), Ok(()));
 
     let unauthorized = TransferRouteCandidate {
         endpoint: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 44999),
-        ..direct_route()
+        ..direct
     };
     assert_eq!(
         ticket.authorize_route(&unauthorized),

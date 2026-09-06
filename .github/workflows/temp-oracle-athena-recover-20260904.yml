@@ -111,23 +111,35 @@ jobs:
           $oracleRoot = '${{ steps.roots.outputs.oracle_root }}'
           $app = Join-Path $oracleRoot 'dist\desktop\win-unpacked\Oracle.exe'
           if (-not (Test-Path -LiteralPath $app -PathType Leaf)) { throw ('ORACLE_EXE_MISSING:' + $app) }
+          $sessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
           @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-            [string]$_.ExecutablePath -eq $app
+            [string]$_.Name -ieq 'Oracle.exe' -and [int]$_.SessionId -eq $sessionId
           }) | ForEach-Object {
+            Write-Output ('ORACLE_GUI_SINGLE_INSTANCE_STOP=' + [string]$_.ExecutablePath)
             Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
           }
           Start-Sleep -Milliseconds 750
           $profile = Join-Path $oracleRoot 'build_config\windows-smoke-profile'
           New-Item -ItemType Directory -Path $profile -Force | Out-Null
-          $process = Start-Process -FilePath $app -ArgumentList @("--user-data-dir=$profile") -PassThru
+          $launch = Start-Process -FilePath $app -ArgumentList @("--user-data-dir=$profile") -PassThru
           try {
             $deadline = (Get-Date).AddSeconds(25)
+            $process = $null
             do {
               Start-Sleep -Milliseconds 500
-              $process.Refresh()
-            } while (-not $process.HasExited -and [string]::IsNullOrWhiteSpace($process.MainWindowTitle) -and (Get-Date) -lt $deadline)
-            if ($process.HasExited) { throw ('ORACLE_GUI_EXITED_EARLY:' + $process.ExitCode) }
-            if ([string]::IsNullOrWhiteSpace($process.MainWindowTitle)) { throw 'ORACLE_GUI_WINDOW_MISSING' }
+              $process = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+                [string]$_.ExecutablePath -eq $app -and [int]$_.SessionId -eq $sessionId
+              } | ForEach-Object {
+                Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+              } | Where-Object {
+                -not [string]::IsNullOrWhiteSpace($_.MainWindowTitle)
+              } | Select-Object -First 1)
+            } while (-not $process -and (Get-Date) -lt $deadline)
+            if (-not $process) {
+              $launch.Refresh()
+              $exit = if ($launch.HasExited) { [string]$launch.ExitCode } else { 'running-without-window' }
+              throw ('ORACLE_GUI_WINDOW_MISSING:' + $exit)
+            }
             Add-Type -AssemblyName System.Drawing
             Add-Type -AssemblyName System.Windows.Forms
             $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
@@ -146,7 +158,7 @@ jobs:
             Write-Output ('ORACLE_GUI_SCREENSHOT=' + $screenshot)
           } finally {
             @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-              [string]$_.ExecutablePath -eq $app
+              [string]$_.ExecutablePath -eq $app -and [int]$_.SessionId -eq $sessionId
             }) | ForEach-Object {
               Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
             }

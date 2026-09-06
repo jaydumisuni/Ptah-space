@@ -6,10 +6,15 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+native-process = { path = "../../adapters/native-process", version = "=0.0.0-phase0c" }
+ptah-activity-runtime = { path = "../../crates/ptah-activity-runtime", version = "=0.0.0-phase0c" }
 ptah-identifiers = { path = "../../crates/ptah-identifiers", version = "=0.0.0-phase0c" }
 ptah-node-agent = { path = "../../crates/ptah-node-agent", version = "=0.0.0-phase0c" }
 ptah-node-link = { path = "../../crates/ptah-node-link", version = "=0.0.0-phase0c" }
 tokio.workspace = true
+
+[dev-dependencies]
+ptah-provider-api = { path = "../../crates/ptah-provider-api", version = "=0.0.0-phase0c" }
 
 [lints]
 workspace = true

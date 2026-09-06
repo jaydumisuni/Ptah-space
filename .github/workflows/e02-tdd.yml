@@ -38,9 +38,9 @@ jobs:
       - name: Run E02 dispatch wire test
         shell: bash
         run: cargo test -p ptah-node-link --test e02_offer_wire --test e02_dispatch_wire
-      - name: Run E02 Node dispatch guard test
+      - name: Run E02 Node dispatch and Provider integration tests
         shell: bash
-        run: cargo test -p ptah-node --test e02_dispatch_guard
+        run: cargo test -p ptah-node --test e02_dispatch_guard --test e02_provider_dispatch
       - name: Run E02 strict Clippy
         shell: bash
         run: cargo clippy -p ptah-placement-runtime -p ptah-node-link -p ptah-control -p ptah-node --all-targets -- -D warnings

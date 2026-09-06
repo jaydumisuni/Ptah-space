@@ -51,3 +51,7 @@ jobs:
       - name: Task 1 inherited B01 regressions
         shell: bash
         run: cargo test -p ptah-transfer --test b01 --test b01_source_mutation --locked
+
+      - name: Task 2 protocol contract
+        shell: bash
+        run: cargo test -p ptah-node-transfer --test protocol --locked

@@ -162,7 +162,12 @@ impl DurableAuthorityStore {
         let mut leases = replay_leases(session, &replay.registry, &durable.leases)?;
         apply_lease_states(session, &mut leases, &durable.leases, now)?;
         apply_reservation_states(&mut replay.registry, &replay.current, now)?;
-        revoke_leases_without_active_reservation(session, &replay.registry, &mut leases, &durable.leases)?;
+        revoke_leases_without_active_reservation(
+            session,
+            &replay.registry,
+            &mut leases,
+            &durable.leases,
+        )?;
 
         Ok(RecoveredAuthority {
             reservations: replay.registry,
@@ -665,8 +670,8 @@ impl StoredLease {
 }
 
 fn latest(entries: Vec<JournalEntry>) -> Result<DurableState, RecoveryError> {
-    let mut reservations = HashMap::new();
-    let mut leases = HashMap::new();
+    let mut reservations: ReservationMap = HashMap::new();
+    let mut leases: LeaseMap = HashMap::new();
     for entry in entries {
         match entry {
             JournalEntry::Reservation { value, .. } => {

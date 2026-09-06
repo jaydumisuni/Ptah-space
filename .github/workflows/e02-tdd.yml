@@ -27,11 +27,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rustup toolchain install 1.97.1 --profile minimal --component clippy
+          rustup toolchain install 1.97.1 --profile minimal --component clippy --component rustfmt
           rustup default 1.97.1
       - name: Run E02 placement-runtime tests
         shell: bash
-        run: cargo test -p ptah-placement-runtime --test e02_authority --test e02_placement --test e02_offers --test e02_reservations --test e02_leases
+        run: cargo test -p ptah-placement-runtime --test e02_authority --test e02_placement --test e02_offers --test e02_reservations --test e02_leases --test e02_recovery
       - name: Run E02 control authority test
         shell: bash
         run: cargo test -p ptah-control --test e02_placement
@@ -44,3 +44,6 @@ jobs:
       - name: Run E02 strict Clippy
         shell: bash
         run: cargo clippy -p ptah-placement-runtime -p ptah-node-link -p ptah-control -p ptah-node --all-targets -- -D warnings
+      - name: Run formatting proof
+        shell: bash
+        run: cargo fmt --all -- --check

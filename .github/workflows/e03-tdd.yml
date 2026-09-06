@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   e03-tdd:
@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Pin Rust 1.97.1
         shell: bash
@@ -39,19 +39,6 @@ jobs:
           rustup default 1.97.1
           rustc -V | grep -q '^rustc 1.97.1 '
           cargo -V | grep -q '^cargo 1.97.1 '
-
-      - name: Generate and persist E03 workspace lock
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo generate-lockfile
-          if ! git diff --quiet -- Cargo.lock; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add Cargo.lock
-            git commit -m "chore(e03): refresh workspace lock for node transfer crate"
-            git push origin HEAD:e03-node-to-node-object-artifact-transfer
-          fi
 
       - name: Task 1 authority contract
         shell: bash
@@ -68,3 +55,11 @@ jobs:
       - name: Task 2 protocol contract
         shell: bash
         run: cargo test -p ptah-node-transfer --test protocol --locked
+
+      - name: Task 2 framing contract
+        shell: bash
+        run: cargo test -p ptah-node-transfer --test framing --locked
+
+      - name: Task 2 inherited E01 node-link regression
+        shell: bash
+        run: cargo test -p ptah-node-link --locked

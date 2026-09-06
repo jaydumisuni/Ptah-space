@@ -40,6 +40,17 @@ jobs:
           rustc -V | grep -q '^rustc 1.97.1 '
           cargo -V | grep -q '^cargo 1.97.1 '
 
+      - name: Generate updated workspace lock for E03 member
+        shell: bash
+        run: cargo generate-lockfile
+
+      - name: Retain generated E03 workspace lock
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e03-generated-lock-${{ github.sha }}
+          path: Cargo.lock
+          if-no-files-found: error
+
       - name: Task 1 authority contract
         shell: bash
         run: cargo test -p ptah-transfer --test e03_authority --locked

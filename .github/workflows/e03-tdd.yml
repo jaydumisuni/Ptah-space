@@ -4,6 +4,8 @@ on:
   push:
     branches: [e03-node-to-node-object-artifact-transfer]
     paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
       - "crates/ptah-transfer/Cargo.toml"
       - "crates/ptah-transfer/src/lib.rs"
       - "crates/ptah-transfer/src/e03/**"
@@ -45,3 +47,7 @@ jobs:
       - name: Task 1 cache and resume contract
         shell: bash
         run: cargo test -p ptah-transfer --test e03_cache_resume --locked
+
+      - name: Task 1 inherited B01 regressions
+        shell: bash
+        run: cargo test -p ptah-transfer --test b01 --test b01_source_mutation --locked

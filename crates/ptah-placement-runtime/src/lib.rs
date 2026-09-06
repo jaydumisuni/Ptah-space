@@ -6,12 +6,14 @@
 //! mechanical placement and execution-ownership authority.
 
 mod authority;
+mod offers;
 mod placement;
 
 pub use authority::{
     AuthorityBinding, AuthorityError, DispatchAuthority, FenceToken, Lease, PlacementMetadata,
     Reservation, authorize_dispatch,
 };
+pub use offers::{NodeOffer, OfferError, validate_offer};
 pub use placement::{
     CandidateRejection, PlacementCandidate, PlacementPolicy, PlacementRequirement,
     ResourceRequirement, evaluate_candidate, select_candidate,

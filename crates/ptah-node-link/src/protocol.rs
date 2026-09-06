@@ -1,6 +1,6 @@
 use crate::LinkError;
 use ptah_identifiers::{ConnectionEpoch, EntityRef, NodeGeneration, NodeId};
-use ptah_node_agent::NodeCapabilitySnapshot;
+use ptah_node_agent::{NodeCapabilitySnapshot, ResourceUnit};
 use serde::{Deserialize, Serialize};
 
 /// One negotiated E01 application-protocol version.
@@ -79,6 +79,47 @@ pub struct CapabilityAnnouncement {
     pub snapshot: NodeCapabilitySnapshot,
 }
 
+/// One bounded advisory resource quantity published by a Node offer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OfferedResource {
+    /// Stable A02 resource key.
+    pub resource_key: String,
+    /// Frozen A02 resource unit.
+    pub unit: ResourceUnit,
+    /// Advisory quantity currently offered by the Node.
+    pub quantity: f64,
+}
+
+/// Short-lived advisory E02 offer transported over the authenticated E01 link.
+///
+/// This frame carries decision input only. It cannot mint Reservation, Lease,
+/// Fence or dispatch authority.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NodeOfferFrame {
+    /// Unique canonical offer identity.
+    pub offer_ref: EntityRef,
+    /// Stable canonical Node identity.
+    pub node_id: NodeId,
+    /// Exact Node Generation that published the offer.
+    pub node_generation: NodeGeneration,
+    /// Exact authenticated E01 Connection Epoch.
+    pub connection_epoch: ConnectionEpoch,
+    /// Exact capability-snapshot evidence reference.
+    pub capability_snapshot_ref: EntityRef,
+    /// Exact resource-snapshot evidence reference.
+    pub resource_snapshot_ref: EntityRef,
+    /// Bounded advisory resource quantities.
+    pub offered_resources: Vec<OfferedResource>,
+    /// Optional normalized Node load score.
+    pub load_score: Option<u16>,
+    /// Optional bounded locality label used only for scoring.
+    pub locality: Option<String>,
+    /// Unix-second instant after which this offer is stale.
+    pub valid_until_unix_seconds: u64,
+    /// Positive sender-local nonce identifying this offer instance.
+    pub nonce: u64,
+}
+
 /// Constant-space liveness message bound to one exact session authority.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Heartbeat {
@@ -118,6 +159,8 @@ pub enum LinkMessage {
     HelloAck(HelloAck),
     /// Evidence-bound capability announcement.
     CapabilityAnnouncement(Box<CapabilityAnnouncement>),
+    /// Advisory E02 Node offer.
+    NodeOffer(Box<NodeOfferFrame>),
     /// Liveness projection.
     Heartbeat(Heartbeat),
     /// Generic acknowledgement.
@@ -136,6 +179,7 @@ impl LinkMessage {
             Self::Hello(_) => "hello",
             Self::HelloAck(_) => "hello_ack",
             Self::CapabilityAnnouncement(_) => "capability_announcement",
+            Self::NodeOffer(_) => "node_offer",
             Self::Heartbeat(_) => "heartbeat",
             Self::Ack(_) => "ack",
             Self::Error(_) => "error",

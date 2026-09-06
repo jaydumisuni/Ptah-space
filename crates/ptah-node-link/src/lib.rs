@@ -12,8 +12,9 @@ pub use enrollment::{ApprovedNodeEnrollment, CredentialFingerprint, EnrollmentLi
 pub use error::LinkError;
 pub use framing::{read_frame, write_frame};
 pub use protocol::{
-    CapabilityAnnouncement, Heartbeat, HelloAck, LinkAck, LinkErrorFrame, LinkMessage,
-    NodeHello, NodeOfferFrame, OfferedResource, ProtocolVersion, negotiate_version,
+    CapabilityAnnouncement, DispatchLeaseFrame, DispatchRequestFrame, DispatchReservationFrame,
+    Heartbeat, HelloAck, LinkAck, LinkErrorFrame, LinkMessage, NodeHello, NodeOfferFrame,
+    OfferedResource, ProtocolVersion, negotiate_version,
 };
 pub use session::{SessionBinding, SessionRegistry};
 pub use tls::{

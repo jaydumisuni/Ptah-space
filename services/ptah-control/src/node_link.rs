@@ -1,10 +1,64 @@
-use ptah_identifiers::NodeId;
+use crate::placement::PlacementGrant;
+use ptah_identifiers::{EntityRef, NodeId};
 use ptah_node_agent::{NodeCapabilitySnapshot, NodeResourceSnapshot};
 use ptah_node_link::{
-    ApprovedNodeEnrollment, CredentialFingerprint, LinkError, NodeHello, ProtocolVersion,
-    SessionBinding, SessionRegistry,
+    ApprovedNodeEnrollment, CredentialFingerprint, DispatchLeaseFrame, DispatchRequestFrame,
+    DispatchReservationFrame, LinkError, NodeHello, ProtocolVersion, SessionBinding,
+    SessionRegistry,
 };
 use std::collections::HashMap;
+
+/// Exact E02 authority frames emitted by control for one selected dispatch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DispatchAuthorityFrames {
+    /// Reservation authority sent before dispatch.
+    pub reservation: DispatchReservationFrame,
+    /// Lease/Fence authority sent before dispatch.
+    pub lease: DispatchLeaseFrame,
+    /// Execution-changing request guarded by those authorities.
+    pub request: DispatchRequestFrame,
+}
+
+/// Project one control-issued E02 grant onto the existing E01 wire vocabulary.
+#[must_use]
+pub fn build_dispatch_frames(
+    grant: &PlacementGrant,
+    dispatch_ref: EntityRef,
+    operation_ref: EntityRef,
+) -> DispatchAuthorityFrames {
+    let binding = grant.dispatch_authority().binding();
+    DispatchAuthorityFrames {
+        reservation: DispatchReservationFrame {
+            reservation_ref: grant.reservation().reservation_ref().clone(),
+            attempt_ref: binding.attempt_ref().clone(),
+            node_id: binding.node_id(),
+            node_generation: binding.node_generation(),
+            connection_epoch: binding.connection_epoch(),
+            expires_at_unix_seconds: grant.reservation().expires_at_unix_seconds(),
+        },
+        lease: DispatchLeaseFrame {
+            lease_ref: grant.lease().lease_ref().clone(),
+            reservation_ref: grant.lease().reservation_ref().clone(),
+            attempt_ref: binding.attempt_ref().clone(),
+            node_id: binding.node_id(),
+            node_generation: binding.node_generation(),
+            connection_epoch: binding.connection_epoch(),
+            fence: grant.lease().fence().value(),
+            expires_at_unix_seconds: grant.lease().expires_at_unix_seconds(),
+        },
+        request: DispatchRequestFrame {
+            dispatch_ref,
+            operation_ref,
+            attempt_ref: binding.attempt_ref().clone(),
+            reservation_ref: grant.reservation().reservation_ref().clone(),
+            lease_ref: grant.lease().lease_ref().clone(),
+            node_id: binding.node_id(),
+            node_generation: binding.node_generation(),
+            connection_epoch: binding.connection_epoch(),
+            fence: grant.lease().fence().value(),
+        },
+    }
+}
 
 /// Control-plane owner of current E01 enrollment projections and secure-session fences.
 #[derive(Debug)]

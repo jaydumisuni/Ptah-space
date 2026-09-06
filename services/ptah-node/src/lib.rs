@@ -1,11 +1,11 @@
 #![forbid(unsafe_code)]
-//! E01 thin Node-side secure-link client over the canonical A02 Node agent identity.
+//! E01 secure Node client plus E02 fail-closed dispatch authority guard.
 
-use ptah_identifiers::EntityRef;
+use ptah_identifiers::{ConnectionEpoch, EntityRef, NodeGeneration, NodeId};
 use ptah_node_agent::NodeAgent;
 use ptah_node_link::{
-    HelloAck, LinkError, LinkMessage, NodeHello, ProtocolVersion, TlsClientConfig, connect_tls,
-    read_frame, write_frame,
+    DispatchLeaseFrame, DispatchRequestFrame, DispatchReservationFrame, HelloAck, LinkError,
+    LinkMessage, NodeHello, ProtocolVersion, TlsClientConfig, connect_tls, read_frame, write_frame,
 };
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
@@ -54,6 +54,275 @@ impl NodeLinkClientConfig {
             agent_revision: self.agent_revision.clone(),
             capability_snapshot_ref: None,
         }
+    }
+}
+
+/// Stable Node-side E02 dispatch rejection classes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeDispatchError {
+    /// The Node's live E01 Generation/epoch no longer matches this guard.
+    SupersededSession,
+    /// Wire authority targets another stable Node.
+    NodeIdentityMismatch,
+    /// Wire authority targets another Node Generation.
+    NodeGenerationMismatch,
+    /// Wire authority targets another E01 Connection Epoch.
+    ConnectionEpochMismatch,
+    /// Reservation identity is unknown locally.
+    UnknownReservation,
+    /// Reservation validity has ended.
+    ExpiredReservation,
+    /// Attempt binding differs from the accepted Reservation/Lease.
+    AttemptMismatch,
+    /// Lease authority has not been accepted for this Attempt.
+    MissingCurrentLease,
+    /// Lease identity differs from current accepted authority.
+    LeaseMismatch,
+    /// Lease validity has ended.
+    ExpiredLease,
+    /// Fence zero is never valid execution authority.
+    InvalidFence,
+    /// Fence is lower than the permanently accepted current Fence.
+    StaleFence,
+    /// Fence is greater than the Fence accepted from control.
+    FutureFence,
+    /// Reservation binding differs from the accepted Lease.
+    ReservationMismatch,
+    /// Reservation identity was accepted more than once.
+    DuplicateReservation,
+    /// Lease identity was accepted more than once.
+    DuplicateLease,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FenceState {
+    attempt_ref: EntityRef,
+    highest: u64,
+}
+
+/// Node-local E02 authority state. This guard contains no scheduling policy and
+/// cannot mint authority; it only accepts and validates control-issued frames.
+#[derive(Debug, Clone)]
+pub struct NodeDispatchGuard {
+    node_id: NodeId,
+    node_generation: NodeGeneration,
+    connection_epoch: ConnectionEpoch,
+    reservations: Vec<DispatchReservationFrame>,
+    leases: Vec<DispatchLeaseFrame>,
+    fences: Vec<FenceState>,
+}
+
+impl NodeDispatchGuard {
+    /// Bind one guard to the exact live A02/E01 Node session.
+    #[must_use]
+    pub fn for_agent(agent: &NodeAgent) -> Self {
+        Self {
+            node_id: agent.node_id(),
+            node_generation: agent.generation(),
+            connection_epoch: agent.connection_epoch(),
+            reservations: Vec::new(),
+            leases: Vec::new(),
+            fences: Vec::new(),
+        }
+    }
+
+    /// Accept one control-issued Reservation authority for this exact live session.
+    ///
+    /// # Errors
+    ///
+    /// Rejects superseded/wrong session authority, duplicate identity, or expiry.
+    pub fn accept_reservation(
+        &mut self,
+        agent: &NodeAgent,
+        frame: &DispatchReservationFrame,
+        now_unix_seconds: u64,
+    ) -> Result<(), NodeDispatchError> {
+        self.assert_live_session(agent)?;
+        self.assert_frame_session(
+            frame.node_id,
+            frame.node_generation,
+            frame.connection_epoch,
+        )?;
+        if frame.expires_at_unix_seconds <= now_unix_seconds {
+            return Err(NodeDispatchError::ExpiredReservation);
+        }
+        if self
+            .reservations
+            .iter()
+            .any(|accepted| accepted.reservation_ref == frame.reservation_ref)
+        {
+            return Err(NodeDispatchError::DuplicateReservation);
+        }
+        self.reservations.push(frame.clone());
+        Ok(())
+    }
+
+    /// Accept one control-issued Lease/Fence only against a known live Reservation.
+    ///
+    /// # Errors
+    ///
+    /// Rejects missing/mismatched/expired Reservation or Lease authority, duplicate
+    /// Lease identity, non-positive Fence, and every Fence that does not advance the
+    /// Attempt's permanently retained Node-local Fence history.
+    pub fn accept_lease(
+        &mut self,
+        agent: &NodeAgent,
+        frame: &DispatchLeaseFrame,
+        now_unix_seconds: u64,
+    ) -> Result<(), NodeDispatchError> {
+        self.assert_live_session(agent)?;
+        self.assert_frame_session(
+            frame.node_id,
+            frame.node_generation,
+            frame.connection_epoch,
+        )?;
+        if frame.fence == 0 {
+            return Err(NodeDispatchError::InvalidFence);
+        }
+        if frame.expires_at_unix_seconds <= now_unix_seconds {
+            return Err(NodeDispatchError::ExpiredLease);
+        }
+        if self
+            .leases
+            .iter()
+            .any(|accepted| accepted.lease_ref == frame.lease_ref)
+        {
+            return Err(NodeDispatchError::DuplicateLease);
+        }
+        let reservation = self
+            .reservations
+            .iter()
+            .find(|accepted| accepted.reservation_ref == frame.reservation_ref)
+            .ok_or(NodeDispatchError::UnknownReservation)?;
+        if reservation.expires_at_unix_seconds <= now_unix_seconds {
+            return Err(NodeDispatchError::ExpiredReservation);
+        }
+        if reservation.attempt_ref != frame.attempt_ref {
+            return Err(NodeDispatchError::AttemptMismatch);
+        }
+        if frame.expires_at_unix_seconds > reservation.expires_at_unix_seconds {
+            return Err(NodeDispatchError::ReservationMismatch);
+        }
+        if let Some(fence) = self
+            .fences
+            .iter()
+            .find(|fence| fence.attempt_ref == frame.attempt_ref)
+            && frame.fence <= fence.highest
+        {
+            return Err(NodeDispatchError::StaleFence);
+        }
+        if let Some(fence) = self
+            .fences
+            .iter_mut()
+            .find(|fence| fence.attempt_ref == frame.attempt_ref)
+        {
+            fence.highest = frame.fence;
+        } else {
+            self.fences.push(FenceState {
+                attempt_ref: frame.attempt_ref.clone(),
+                highest: frame.fence,
+            });
+        }
+        self.leases.push(frame.clone());
+        Ok(())
+    }
+
+    /// Validate one execution-changing dispatch and invoke the supplied callback
+    /// only after every Node/session/Reservation/Lease/Fence check succeeds.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed [`NodeDispatchError`] without invoking `invoke` whenever
+    /// authority is missing, expired, mismatched, superseded, stale or future.
+    pub fn invoke_if_authorized<T, F>(
+        &self,
+        agent: &NodeAgent,
+        frame: &DispatchRequestFrame,
+        now_unix_seconds: u64,
+        invoke: F,
+    ) -> Result<T, NodeDispatchError>
+    where
+        F: FnOnce() -> T,
+    {
+        self.assert_live_session(agent)?;
+        self.assert_frame_session(
+            frame.node_id,
+            frame.node_generation,
+            frame.connection_epoch,
+        )?;
+        let reservation = self
+            .reservations
+            .iter()
+            .find(|accepted| accepted.reservation_ref == frame.reservation_ref)
+            .ok_or(NodeDispatchError::UnknownReservation)?;
+        if reservation.attempt_ref != frame.attempt_ref {
+            return Err(NodeDispatchError::AttemptMismatch);
+        }
+        if reservation.expires_at_unix_seconds <= now_unix_seconds {
+            return Err(NodeDispatchError::ExpiredReservation);
+        }
+        let highest = self
+            .fences
+            .iter()
+            .find(|fence| fence.attempt_ref == frame.attempt_ref)
+            .map(|fence| fence.highest)
+            .ok_or(NodeDispatchError::MissingCurrentLease)?;
+        if frame.fence < highest {
+            return Err(NodeDispatchError::StaleFence);
+        }
+        if frame.fence > highest {
+            return Err(NodeDispatchError::FutureFence);
+        }
+        let lease = self
+            .leases
+            .iter()
+            .find(|accepted| accepted.lease_ref == frame.lease_ref)
+            .ok_or(NodeDispatchError::LeaseMismatch)?;
+        if lease.attempt_ref != frame.attempt_ref {
+            return Err(NodeDispatchError::AttemptMismatch);
+        }
+        if lease.reservation_ref != frame.reservation_ref {
+            return Err(NodeDispatchError::ReservationMismatch);
+        }
+        if lease.fence != frame.fence {
+            return if lease.fence < highest {
+                Err(NodeDispatchError::StaleFence)
+            } else {
+                Err(NodeDispatchError::FutureFence)
+            };
+        }
+        if lease.expires_at_unix_seconds <= now_unix_seconds {
+            return Err(NodeDispatchError::ExpiredLease);
+        }
+        Ok(invoke())
+    }
+
+    fn assert_live_session(&self, agent: &NodeAgent) -> Result<(), NodeDispatchError> {
+        if agent.node_id() != self.node_id
+            || agent.generation() != self.node_generation
+            || agent.connection_epoch() != self.connection_epoch
+        {
+            return Err(NodeDispatchError::SupersededSession);
+        }
+        Ok(())
+    }
+
+    fn assert_frame_session(
+        &self,
+        node_id: NodeId,
+        node_generation: NodeGeneration,
+        connection_epoch: ConnectionEpoch,
+    ) -> Result<(), NodeDispatchError> {
+        if node_id != self.node_id {
+            return Err(NodeDispatchError::NodeIdentityMismatch);
+        }
+        if node_generation != self.node_generation {
+            return Err(NodeDispatchError::NodeGenerationMismatch);
+        }
+        if connection_epoch != self.connection_epoch {
+            return Err(NodeDispatchError::ConnectionEpochMismatch);
+        }
+        Ok(())
     }
 }
 

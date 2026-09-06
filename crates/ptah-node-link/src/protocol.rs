@@ -120,6 +120,67 @@ pub struct NodeOfferFrame {
     pub nonce: u64,
 }
 
+/// Control-issued Reservation authority projected onto the authenticated E01 link.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DispatchReservationFrame {
+    /// Canonical Reservation identity.
+    pub reservation_ref: EntityRef,
+    /// Canonical A04 Attempt identity.
+    pub attempt_ref: EntityRef,
+    /// Stable canonical target Node identity.
+    pub node_id: NodeId,
+    /// Exact target Node Generation.
+    pub node_generation: NodeGeneration,
+    /// Exact authenticated E01 Connection Epoch.
+    pub connection_epoch: ConnectionEpoch,
+    /// Fixed Reservation expiry instant.
+    pub expires_at_unix_seconds: u64,
+}
+
+/// Control-issued Lease/Fence authority projected onto the authenticated E01 link.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DispatchLeaseFrame {
+    /// Canonical Lease identity.
+    pub lease_ref: EntityRef,
+    /// Canonical Reservation identity held by this Lease.
+    pub reservation_ref: EntityRef,
+    /// Canonical A04 Attempt identity.
+    pub attempt_ref: EntityRef,
+    /// Stable canonical target Node identity.
+    pub node_id: NodeId,
+    /// Exact target Node Generation.
+    pub node_generation: NodeGeneration,
+    /// Exact authenticated E01 Connection Epoch.
+    pub connection_epoch: ConnectionEpoch,
+    /// Positive monotonic ownership Fence allocated by control.
+    pub fence: u64,
+    /// Fixed Lease expiry instant.
+    pub expires_at_unix_seconds: u64,
+}
+
+/// Execution-changing request carrying the exact authority selected by control.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DispatchRequestFrame {
+    /// Unique dispatch request identity.
+    pub dispatch_ref: EntityRef,
+    /// Existing A04 Operation identity to invoke after authority admission.
+    pub operation_ref: EntityRef,
+    /// Canonical A04 Attempt identity.
+    pub attempt_ref: EntityRef,
+    /// Canonical Reservation identity.
+    pub reservation_ref: EntityRef,
+    /// Canonical Lease identity.
+    pub lease_ref: EntityRef,
+    /// Stable canonical target Node identity.
+    pub node_id: NodeId,
+    /// Exact target Node Generation.
+    pub node_generation: NodeGeneration,
+    /// Exact authenticated E01 Connection Epoch.
+    pub connection_epoch: ConnectionEpoch,
+    /// Exact current control-issued ownership Fence.
+    pub fence: u64,
+}
+
 /// Constant-space liveness message bound to one exact session authority.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Heartbeat {
@@ -161,6 +222,12 @@ pub enum LinkMessage {
     CapabilityAnnouncement(Box<CapabilityAnnouncement>),
     /// Advisory E02 Node offer.
     NodeOffer(Box<NodeOfferFrame>),
+    /// Control-issued E02 Reservation authority.
+    DispatchReservation(DispatchReservationFrame),
+    /// Control-issued E02 Lease/Fence authority.
+    DispatchLease(DispatchLeaseFrame),
+    /// Execution-changing E02 request admitted only after Node-side authority validation.
+    DispatchRequest(DispatchRequestFrame),
     /// Liveness projection.
     Heartbeat(Heartbeat),
     /// Generic acknowledgement.
@@ -180,6 +247,9 @@ impl LinkMessage {
             Self::HelloAck(_) => "hello_ack",
             Self::CapabilityAnnouncement(_) => "capability_announcement",
             Self::NodeOffer(_) => "node_offer",
+            Self::DispatchReservation(_) => "dispatch_reservation",
+            Self::DispatchLease(_) => "dispatch_lease",
+            Self::DispatchRequest(_) => "dispatch_request",
             Self::Heartbeat(_) => "heartbeat",
             Self::Ack(_) => "ack",
             Self::Error(_) => "error",

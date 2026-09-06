@@ -17,7 +17,8 @@ mod window;
 pub use android::{AndroidProjectionRequest, project_android_application_session};
 pub use compatibility::{
     ApplicationOperation, CompatibilityDecision, CompatibilityRequirement, ExecutionDisposition,
-    NodeLocalCompatibility, PlatformClass, RemoteNodeRequirement, RequirementOutcome,
+    NodeLocalCompatibility, PlatformClass, RemoteNodeExecution, RemoteNodeRequirement,
+    RequirementOutcome,
 };
 pub use display::{
     DisplayLifecycle, DisplayObservation, DisplaySessionProjection, DisplaySessionRequest,

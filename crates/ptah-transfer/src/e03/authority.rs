@@ -144,6 +144,22 @@ impl TransferTicket {
         TransferMode::NodeToNode
     }
 
+    pub(super) const fn expected_size(&self) -> u64 {
+        self.expected_size
+    }
+
+    pub(super) fn canonical_sha256(&self) -> &str {
+        &self.canonical_sha256
+    }
+
+    pub(super) const fn range_size(&self) -> u64 {
+        self.range_size
+    }
+
+    pub(super) fn content_ref(&self) -> Option<&EntityRef> {
+        self.content_ref.as_ref()
+    }
+
     /// Validate one presented peer against the exact ticket-bound E01 authority.
     ///
     /// # Errors

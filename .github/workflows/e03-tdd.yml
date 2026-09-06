@@ -1,0 +1,43 @@
+name: E03 TDD
+
+on:
+  push:
+    branches: [e03-node-to-node-object-artifact-transfer]
+    paths:
+      - "crates/ptah-transfer/Cargo.toml"
+      - "crates/ptah-transfer/src/lib.rs"
+      - "crates/ptah-transfer/src/e03/**"
+      - "crates/ptah-transfer/tests/e03_*.rs"
+      - "crates/ptah-node-transfer/**"
+      - "services/ptah-control/src/transfer.rs"
+      - "services/ptah-control/tests/e03_*.rs"
+      - "services/ptah-node/src/transfer.rs"
+      - "services/ptah-node/tests/e03_*.rs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e03-tdd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out branch head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Pin Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component clippy --component rustfmt
+          rustup default 1.97.1
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+
+      - name: Task 1 authority contract
+        shell: bash
+        run: cargo test -p ptah-transfer --test e03_authority --locked

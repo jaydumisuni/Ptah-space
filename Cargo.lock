@@ -674,6 +674,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptah-node-transfer"
+version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-identifiers",
+ "ptah-node-link",
+ "ptah-transfer",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
+ "tokio",
+]
+
+[[package]]
 name = "ptah-object-store"
 version = "0.0.0-phase0c"
 dependencies = [

@@ -1,0 +1,285 @@
+name: E02 Placement Reservation Lease Fence Exact Head Proof
+
+on:
+  push:
+    branches: [e02-placement-reservation-lease-fence]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  E01_BASE: 18c1bb26bf074fd8146c2dd8e47838d658af8561
+  ROADMAP_AUTHORITY: dc2db457f1705d0cba80f17ab76e5e93f808aee0
+  TARGET_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  CARGO_TERM_COLOR: always
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  exact-head-e02:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact E02 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+
+      - name: Pin toolchain and exact candidate identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e02-proof"
+          mkdir -p "$PROOF"
+          rustup toolchain install 1.97.1 --profile minimal --component clippy --component rustfmt
+          rustup default 1.97.1
+          rustc -Vv | tee "$PROOF/rustc-version.txt"
+          cargo -V | tee "$PROOF/cargo-version.txt"
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          printf '%s\n' "$TARGET_SHA" > "$PROOF/exact-head.txt"
+          printf '%s\n' "$E01_BASE" > "$PROOF/e01-predecessor.txt"
+          printf '%s\n' "$ROADMAP_AUTHORITY" > "$PROOF/roadmap-authority.txt"
+          cat /etc/os-release > "$PROOF/host-os-release.txt"
+          uname -a > "$PROOF/host-uname.txt"
+
+      - name: Prove accepted predecessor and reviewed E02 delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e02-proof"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git fetch origin main e02-placement-reservation-lease-fence
+          test "$(git rev-parse origin/main)" = "$E01_BASE"
+          test "$(git merge-base "$E01_BASE" HEAD)" = "$E01_BASE"
+          test -z "$(git rev-list --min-parents=2 "$E01_BASE"..HEAD)"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            test "$(git rev-parse origin/e02-placement-reservation-lease-fence)" = "$TARGET_SHA"
+          fi
+          git diff --name-only "$E01_BASE"...HEAD | tee "$PROOF/changed-paths.txt"
+          python3 - <<'PY'
+          import subprocess
+          base = '18c1bb26bf074fd8146c2dd8e47838d658af8561'
+          expected = {
+              '.github/workflows/e02-placement-reservation-lease-fence.yml',
+              '.github/workflows/e02-tdd.yml',
+              'Cargo.lock',
+              'Cargo.toml',
+              'E02_PLACEMENT_RESERVATION_LEASE_FENCE.md',
+              'conformance/e02/placement-authority-cases.v0.1.0.json',
+              'crates/ptah-application-runtime/Cargo.toml',
+              'crates/ptah-application-runtime/src/compatibility.rs',
+              'crates/ptah-application-runtime/src/error.rs',
+              'crates/ptah-application-runtime/src/lib.rs',
+              'crates/ptah-application-runtime/tests/d08_acceptance/remote.rs',
+              'crates/ptah-node-link/src/lib.rs',
+              'crates/ptah-node-link/src/protocol.rs',
+              'crates/ptah-node-link/tests/e02_dispatch_wire.rs',
+              'crates/ptah-node-link/tests/e02_offer_wire.rs',
+              'crates/ptah-placement-runtime/Cargo.toml',
+              'crates/ptah-placement-runtime/src/authority.rs',
+              'crates/ptah-placement-runtime/src/durable.rs',
+              'crates/ptah-placement-runtime/src/leases.rs',
+              'crates/ptah-placement-runtime/src/lib.rs',
+              'crates/ptah-placement-runtime/src/offers.rs',
+              'crates/ptah-placement-runtime/src/placement.rs',
+              'crates/ptah-placement-runtime/src/reservations.rs',
+              'crates/ptah-placement-runtime/tests/e02_authority.rs',
+              'crates/ptah-placement-runtime/tests/e02_leases.rs',
+              'crates/ptah-placement-runtime/tests/e02_offers.rs',
+              'crates/ptah-placement-runtime/tests/e02_placement.rs',
+              'crates/ptah-placement-runtime/tests/e02_recovery.rs',
+              'crates/ptah-placement-runtime/tests/e02_reservations.rs',
+              'docs/superpowers/plans/2026-09-06-e02-placement-reservation-lease-fence.md',
+              'docs/superpowers/specs/2026-09-06-e02-placement-reservation-lease-fence-design.md',
+              'services/ptah-control/Cargo.toml',
+              'services/ptah-control/src/e01_lib.rs',
+              'services/ptah-control/src/node_link.rs',
+              'services/ptah-control/src/placement.rs',
+              'services/ptah-control/tests/e02_placement.rs',
+              'services/ptah-node/Cargo.toml',
+              'services/ptah-node/src/lib.rs',
+              'services/ptah-node/tests/e02_dispatch_guard.rs',
+              'services/ptah-node/tests/e02_provider_dispatch.rs',
+              'tools/check_e02_placement_authority.py',
+              'tools/test_check_e02_placement_authority.py',
+          }
+          changed = set(subprocess.check_output(
+              ['git', 'diff', '--name-only', f'{base}...HEAD'], text=True
+          ).splitlines())
+          if changed != expected:
+              raise SystemExit(
+                  f'E02 delta drift: missing={sorted(expected-changed)} '
+                  f'unexpected={sorted(changed-expected)}'
+              )
+          forbidden = [path for path in changed if path.startswith(('schemas/', 'migrations/'))]
+          if forbidden:
+              raise SystemExit(f'E02 modified frozen schema/migration surface: {sorted(forbidden)}')
+          PY
+          git diff --check "$E01_BASE"...HEAD
+
+      - name: Prove immutable external Action references
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e02-proof"
+          python3 - <<'PY' | tee "$PROOF/action-pin-audit.txt"
+          import re
+          from pathlib import Path
+          pin = re.compile(r'^[0-9a-f]{40}$')
+          failures = []
+          for path in sorted(Path('.github/workflows').glob('*.yml')):
+              for number, raw in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+                  stripped = raw.strip()
+                  if not stripped.startswith(('- uses:', 'uses:')):
+                      continue
+                  value = stripped.split('uses:', 1)[1].strip().split(' #', 1)[0].strip("'\"")
+                  if value.startswith('./'):
+                      continue
+                  if '@' not in value or pin.fullmatch(value.rsplit('@', 1)[1]) is None:
+                      failures.append((str(path), number, value))
+          if failures:
+              for path, number, value in failures:
+                  print(f'{path}:{number}: {value}')
+              raise SystemExit(f'{len(failures)} non-immutable Action references remain')
+          print('ALL_EXTERNAL_ACTION_REFERENCES_IMMUTABLY_PINNED')
+          PY
+
+      - name: Prove current dependency source and licence policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e02-proof"
+          python3 tools/check_rust_dependency_lock.py --output "$PROOF/dependency-lock.json"
+          cargo metadata --locked --format-version 1 > "$PROOF/cargo-metadata.json"
+          cargo install cargo-deny --version 0.19.4 --locked --root "$RUNNER_TEMP/cargo-deny"
+          "$RUNNER_TEMP/cargo-deny/bin/cargo-deny" check advisories bans licenses sources 2>&1 | tee "$PROOF/cargo-deny.txt"
+          test -s "$PROOF/cargo-deny.txt"
+
+      - name: Prove E02 corpus and checker regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e02-proof"
+          PYTHONPATH=tools python3 -m unittest -v tools/test_check_e02_placement_authority.py 2>&1 | tee "$PROOF/e02-corpus-regressions.txt"
+          python3 tools/check_e02_placement_authority.py --repo-root . --output "$PROOF/e02-corpus-validation.json"
+
+      - name: Prove E02 targeted authority boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e02-proof"
+          {
+            cargo test -p ptah-placement-runtime --locked --test e02_authority --test e02_placement --test e02_offers --test e02_reservations --test e02_leases --test e02_recovery -- --nocapture
+            cargo test -p ptah-control --locked --test e02_placement -- --nocapture
+            cargo test -p ptah-node-link --locked --test e02_offer_wire --test e02_dispatch_wire -- --nocapture
+            cargo test -p ptah-node --locked --test e02_dispatch_guard -- --nocapture
+          } 2>&1 | tee "$PROOF/e02-targeted-tests.txt"
+
+      - name: Prove real Provider dispatch ordering and A05 fencing
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e02-proof"
+          cargo test -p ptah-node --locked --test e02_provider_dispatch -- --nocapture 2>&1 | tee "$PROOF/provider-dispatch-tests.txt"
+
+      - name: Prove D08 remote-placement composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e02-proof"
+          cargo test -p ptah-application-runtime --locked --test d08_acceptance -- --nocapture 2>&1 | tee "$PROOF/d08-remote-placement-tests.txt"
+
+      - name: Prove E01 Node-link regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e02-proof"
+          {
+            cargo test -p ptah-node-link --locked -- --nocapture
+            cargo test -p ptah-control --locked --test e01_node_link -- --nocapture
+            cargo test -p ptah-node --locked --test e01_node_client -- --nocapture
+          } 2>&1 | tee "$PROOF/e01-regressions.txt"
+
+      - name: Prove D09 and deep Workspace checker regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e02-proof"
+          PYTHONPATH=tools python3 -m unittest -v tools/test_check_d09_full_workspace_release.py 2>&1 | tee "$PROOF/d09-regressions.txt"
+          python3 tools/check_d09_full_workspace_release.py --repo-root . --output "$PROOF/d09-validation.json"
+          PYTHONPATH=tools python3 tools/test_check_workspace_operations_donor_v2.py -v 2>&1 | tee "$PROOF/deep-workspace-regressions.txt"
+          python3 tools/check_workspace_operations_donor_v2.py --repo-root . --output "$PROOF/deep-workspace-validation.json"
+
+      - name: Prove formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e02-proof"
+          cargo fmt --all -- --check
+          printf 'CARGO_FMT_ALL_CHECK_OK\n' | tee "$PROOF/cargo-fmt.txt"
+
+      - name: Prove strict workspace Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e02-proof"
+          cargo clippy --workspace --all-targets --locked -- -D warnings 2>&1 | tee "$PROOF/cargo-clippy.txt"
+
+      - name: Prove full locked workspace tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e02-proof"
+          cargo test --workspace --locked -- --nocapture 2>&1 | tee "$PROOF/cargo-test.txt"
+
+      - name: Prove repository contains no textual secrets or private-key markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e02-proof"
+          PATTERN='BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}'
+          if grep -RInE --binary-files=without-match --exclude-dir=.git --exclude-dir=target "$PATTERN" . > "$PROOF/secret-scan-hits.txt"; then
+            cat "$PROOF/secret-scan-hits.txt"
+            exit 1
+          fi
+          printf 'NO_TEXTUAL_SECRET_OR_PRIVATE_KEY_MARKERS_FOUND\n' | tee "$PROOF/secret-scan.txt"
+
+      - name: Validate retained E02 proof bundle and clean exact candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e02-proof"
+          python3 tools/check_e02_placement_authority.py --repo-root . --proof-root "$PROOF" --output "$PROOF/e02-validation.json"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain)"
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          proof = Path(os.environ['RUNNER_TEMP']) / 'e02-proof'
+          lines = []
+          for path in sorted(proof.iterdir(), key=lambda item: item.name):
+              if path.name == 'SHA256SUMS.txt' or not path.is_file():
+                  continue
+              lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")
+          (proof / 'SHA256SUMS.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          PY
+          test -s "$PROOF/SHA256SUMS.txt"
+
+      - name: Retain exact E02 proof artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: e02-placement-authority-${{ env.TARGET_SHA }}
+          path: ${{ runner.temp }}/e02-proof
+          if-no-files-found: error
+          retention-days: 90

@@ -1,3 +1,4 @@
+use crate::TransferDataError;
 use ptah_identifiers::EntityRef;
 use ptah_transfer::TransferPeerRole;
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,22 @@ pub struct TransferProtocolVersion {
 impl TransferProtocolVersion {
     /// Current E03 protocol version.
     pub const CURRENT: Self = Self { major: 1, minor: 0 };
+
+    /// Prove that a peer speaks the same E03 protocol major.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransferDataError::ProtocolIncompatible`] when majors differ.
+    pub const fn ensure_compatible(self, remote: Self) -> Result<(), TransferDataError> {
+        if self.major == remote.major {
+            Ok(())
+        } else {
+            Err(TransferDataError::ProtocolIncompatible {
+                local_major: self.major,
+                remote_major: remote.major,
+            })
+        }
+    }
 }
 
 /// First bounded E03 control message sent on an authenticated data-plane stream.

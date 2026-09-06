@@ -5,9 +5,11 @@
 //! not reuse the E01 JSON control stream and does not create A07 storage truth.
 
 mod error;
+mod framing;
 mod protocol;
 
 pub use error::*;
+pub use framing::*;
 pub use protocol::*;
 pub use ptah_transfer::TransferPeerRole;
 

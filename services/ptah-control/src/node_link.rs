@@ -1,10 +1,64 @@
-use ptah_identifiers::NodeId;
-use ptah_node_agent::NodeCapabilitySnapshot;
+use crate::placement::PlacementGrant;
+use ptah_identifiers::{EntityRef, NodeId};
+use ptah_node_agent::{NodeCapabilitySnapshot, NodeResourceSnapshot};
 use ptah_node_link::{
-    ApprovedNodeEnrollment, CredentialFingerprint, LinkError, NodeHello, ProtocolVersion,
-    SessionBinding, SessionRegistry,
+    ApprovedNodeEnrollment, CredentialFingerprint, DispatchLeaseFrame, DispatchRequestFrame,
+    DispatchReservationFrame, LinkError, NodeHello, ProtocolVersion, SessionBinding,
+    SessionRegistry,
 };
 use std::collections::HashMap;
+
+/// Exact E02 authority frames emitted by control for one selected dispatch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DispatchAuthorityFrames {
+    /// Reservation authority sent before dispatch.
+    pub reservation: DispatchReservationFrame,
+    /// Lease/Fence authority sent before dispatch.
+    pub lease: DispatchLeaseFrame,
+    /// Execution-changing request guarded by those authorities.
+    pub request: DispatchRequestFrame,
+}
+
+/// Project one control-issued E02 grant onto the existing E01 wire vocabulary.
+#[must_use]
+pub fn build_dispatch_frames(
+    grant: &PlacementGrant,
+    dispatch_ref: EntityRef,
+    operation_ref: EntityRef,
+) -> DispatchAuthorityFrames {
+    let binding = grant.dispatch_authority().binding();
+    DispatchAuthorityFrames {
+        reservation: DispatchReservationFrame {
+            reservation_ref: grant.reservation().reservation_ref().clone(),
+            attempt_ref: binding.attempt_ref().clone(),
+            node_id: binding.node_id(),
+            node_generation: binding.node_generation(),
+            connection_epoch: binding.connection_epoch(),
+            expires_at_unix_seconds: grant.reservation().expires_at_unix_seconds(),
+        },
+        lease: DispatchLeaseFrame {
+            lease_ref: grant.lease().lease_ref().clone(),
+            reservation_ref: grant.lease().reservation_ref().clone(),
+            attempt_ref: binding.attempt_ref().clone(),
+            node_id: binding.node_id(),
+            node_generation: binding.node_generation(),
+            connection_epoch: binding.connection_epoch(),
+            fence: grant.lease().fence().value(),
+            expires_at_unix_seconds: grant.lease().expires_at_unix_seconds(),
+        },
+        request: DispatchRequestFrame {
+            dispatch_ref,
+            operation_ref,
+            attempt_ref: binding.attempt_ref().clone(),
+            reservation_ref: grant.reservation().reservation_ref().clone(),
+            lease_ref: grant.lease().lease_ref().clone(),
+            node_id: binding.node_id(),
+            node_generation: binding.node_generation(),
+            connection_epoch: binding.connection_epoch(),
+            fence: grant.lease().fence().value(),
+        },
+    }
+}
 
 /// Control-plane owner of current E01 enrollment projections and secure-session fences.
 #[derive(Debug)]
@@ -50,37 +104,40 @@ impl NodeLinkControl {
 
     /// Validate one A02 capability snapshot against the exact current secure session.
     ///
-    /// This method only validates E01 authority. It deliberately does not persist,
-    /// schedule, place, or transfer anything.
-    ///
     /// # Errors
     ///
-    /// Returns [`LinkError::SupersededConnection`] for an old session,
-    /// [`LinkError::NodeIdentityMismatch`] for a different Node, and the existing
-    /// stale Generation/epoch errors for a snapshot outside the accepted session.
+    /// Returns the existing E01 currentness/identity/generation/epoch error when
+    /// the snapshot is outside the accepted session.
     pub fn accept_capability(
         &self,
         binding: &SessionBinding,
         snapshot: &NodeCapabilitySnapshot,
     ) -> Result<(), LinkError> {
-        self.sessions.assert_current(binding)?;
+        self.assert_snapshot_binding(
+            binding,
+            snapshot.node_ref.entity_id,
+            snapshot.node_generation.value(),
+            snapshot.connection_epoch.value(),
+        )
+    }
 
-        if snapshot.node_ref.entity_id != binding.node_id.entity_id() {
-            return Err(LinkError::NodeIdentityMismatch);
-        }
-        if snapshot.node_generation != binding.node_generation {
-            return Err(LinkError::StaleNodeGeneration {
-                current: binding.node_generation.value(),
-                requested: snapshot.node_generation.value(),
-            });
-        }
-        if snapshot.connection_epoch != binding.connection_epoch {
-            return Err(LinkError::StaleConnectionEpoch {
-                current: binding.connection_epoch.value(),
-                requested: snapshot.connection_epoch.value(),
-            });
-        }
-        Ok(())
+    /// Validate one A02 resource snapshot against the exact current secure session.
+    ///
+    /// # Errors
+    ///
+    /// Returns the existing E01 currentness/identity/generation/epoch error when
+    /// the snapshot is outside the accepted session.
+    pub fn accept_resource(
+        &self,
+        binding: &SessionBinding,
+        snapshot: &NodeResourceSnapshot,
+    ) -> Result<(), LinkError> {
+        self.assert_snapshot_binding(
+            binding,
+            snapshot.node_ref.entity_id,
+            snapshot.node_generation.value(),
+            snapshot.connection_epoch.value(),
+        )
     }
 
     /// Return the exact current secure-session binding for one canonical Node.
@@ -103,5 +160,31 @@ impl NodeLinkControl {
             self.sessions.revoke_credential(fingerprint);
         }
         removed
+    }
+
+    fn assert_snapshot_binding(
+        &self,
+        binding: &SessionBinding,
+        entity_id: ptah_identifiers::EntityId,
+        node_generation: u64,
+        connection_epoch: u64,
+    ) -> Result<(), LinkError> {
+        self.sessions.assert_current(binding)?;
+        if entity_id != binding.node_id.entity_id() {
+            return Err(LinkError::NodeIdentityMismatch);
+        }
+        if node_generation != binding.node_generation.value() {
+            return Err(LinkError::StaleNodeGeneration {
+                current: binding.node_generation.value(),
+                requested: node_generation,
+            });
+        }
+        if connection_epoch != binding.connection_epoch.value() {
+            return Err(LinkError::StaleConnectionEpoch {
+                current: binding.connection_epoch.value(),
+                requested: connection_epoch,
+            });
+        }
+        Ok(())
     }
 }

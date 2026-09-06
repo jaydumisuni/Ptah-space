@@ -1,0 +1,62 @@
+name: E02 TDD
+
+on:
+  push:
+    branches:
+      - e02-placement-reservation-lease-fence
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - conformance/e02/**
+      - crates/ptah-placement-runtime/**
+      - crates/ptah-node-link/**
+      - crates/ptah-application-runtime/**
+      - services/ptah-control/**
+      - services/ptah-node/**
+      - tools/check_e02_placement_authority.py
+      - tools/test_check_e02_placement_authority.py
+      - .github/workflows/e02-tdd.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  placement-authority-targeted:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out E02 branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Pin Rust 1.97.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component clippy --component rustfmt
+          rustup default 1.97.1
+      - name: Run E02 corpus checker regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=tools python3 -m unittest -v tools/test_check_e02_placement_authority.py
+          python3 tools/check_e02_placement_authority.py --repo-root . --output "$RUNNER_TEMP/e02-corpus.json"
+      - name: Run E02 placement-runtime tests
+        shell: bash
+        run: cargo test -p ptah-placement-runtime --test e02_authority --test e02_placement --test e02_offers --test e02_reservations --test e02_leases --test e02_recovery
+      - name: Run E02 control authority test
+        shell: bash
+        run: cargo test -p ptah-control --test e02_placement
+      - name: Run E02 dispatch wire test
+        shell: bash
+        run: cargo test -p ptah-node-link --test e02_offer_wire --test e02_dispatch_wire
+      - name: Run E02 Node dispatch and Provider integration tests
+        shell: bash
+        run: cargo test -p ptah-node --test e02_dispatch_guard --test e02_provider_dispatch
+      - name: Run D08 remote-placement integration
+        shell: bash
+        run: cargo test -p ptah-application-runtime --test d08_acceptance
+      - name: Run E02 strict Clippy
+        shell: bash
+        run: cargo clippy -p ptah-placement-runtime -p ptah-node-link -p ptah-control -p ptah-node -p ptah-application-runtime --all-targets -- -D warnings
+      - name: Run formatting proof
+        shell: bash
+        run: cargo fmt --all -- --check

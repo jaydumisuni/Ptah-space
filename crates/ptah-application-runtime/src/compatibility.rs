@@ -2,6 +2,7 @@
 
 use crate::D08Error;
 use ptah_identifiers::EntityRef;
+use ptah_placement_runtime::DispatchAuthority;
 use ptah_provider_api::ProviderGeneration;
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +24,15 @@ pub enum PlatformClass {
     MacOsNode,
     /// iOS Simulator application requiring a compatible macOS/Xcode Simulator Node.
     IosSimulator,
+}
+
+impl PlatformClass {
+    const fn is_remote_programme_e(self) -> bool {
+        matches!(
+            self,
+            Self::WindowsNode | Self::WindowsVm | Self::MacOsNode | Self::IosSimulator
+        )
+    }
 }
 
 /// Frozen Application compatibility operation vocabulary used by D08.
@@ -79,6 +89,15 @@ pub enum CompatibilityDecision {
     Unknown,
     /// The compatibility evidence is no longer current.
     Stale,
+}
+
+impl CompatibilityDecision {
+    const fn admits_execution(self) -> bool {
+        matches!(
+            self,
+            Self::Compatible | Self::CompatibleWithConditions | Self::CompatibleForPartialScope
+        )
+    }
 }
 
 /// Frozen per-requirement outcome vocabulary.
@@ -189,12 +208,7 @@ impl NodeLocalCompatibility {
             return Err(D08Error::StaleCompatibility);
         }
 
-        let compatible_decision = matches!(
-            self.decision,
-            CompatibilityDecision::Compatible
-                | CompatibilityDecision::CompatibleWithConditions
-                | CompatibilityDecision::CompatibleForPartialScope
-        );
+        let compatible_decision = self.decision.admits_execution();
         if compatible_decision
             && self.requirements.iter().any(|requirement| {
                 requirement.mandatory
@@ -249,11 +263,42 @@ pub struct RemoteNodeRequirement {
     pub limitations: Vec<String>,
 }
 
+/// D08 compatibility plus the exact already-validated E02 authority that satisfied
+/// the Programme E remote-placement blocker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteNodeExecution {
+    platform: PlatformClass,
+    compatibility: NodeLocalCompatibility,
+    dispatch_authority: DispatchAuthority,
+}
+
+impl RemoteNodeExecution {
+    /// Remote roadmap platform admitted by this composition.
+    #[must_use]
+    pub const fn platform(&self) -> PlatformClass {
+        self.platform
+    }
+
+    /// Current D08 compatibility evidence for the selected Node.
+    #[must_use]
+    pub const fn compatibility(&self) -> &NodeLocalCompatibility {
+        &self.compatibility
+    }
+
+    /// Exact E02 Reservation/Lease/Fence dispatch authority for the selected Node.
+    #[must_use]
+    pub const fn dispatch_authority(&self) -> &DispatchAuthority {
+        &self.dispatch_authority
+    }
+}
+
 /// Current D08 disposition for an Application/platform operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExecutionDisposition {
     /// Exact current local compatibility permits Node-local execution admission.
     NodeLocalReady(Box<NodeLocalCompatibility>),
+    /// Current remote compatibility plus E02 dispatch authority satisfy the Programme E blocker.
+    RemoteNodeReady(Box<RemoteNodeExecution>),
     /// Device-local execution is owned by an existing Device runtime such as C10.
     DeviceLocalReady,
     /// Execution cannot be admitted until Programme E supplies a compatible remote Node.
@@ -303,18 +348,61 @@ impl ExecutionDisposition {
         }
     }
 
+    /// Compose current D08 compatibility with exact E02 authority for a Programme E
+    /// remote platform. This satisfies placement authority only; it creates no
+    /// Application Session, Display Session, transfer, checkpoint or OS-specific agent.
+    ///
+    /// # Errors
+    /// Returns a typed D08 failure for non-remote use, stale/incompatible evidence,
+    /// operation mismatch, or a Node identity/generation/epoch mismatch between D08
+    /// compatibility and E02 dispatch authority.
+    pub fn for_remote_platform_with_authority(
+        platform: PlatformClass,
+        operation: ApplicationOperation,
+        compatibility: NodeLocalCompatibility,
+        dispatch_authority: DispatchAuthority,
+        now: &str,
+    ) -> Result<Self, D08Error> {
+        if !platform.is_remote_programme_e() {
+            return Err(D08Error::RemoteNodeRequired);
+        }
+        if compatibility.operation != operation {
+            return Err(D08Error::CompatibilityOperationMismatch);
+        }
+        compatibility.validate_at(now)?;
+        if !compatibility.decision.admits_execution() {
+            return Err(D08Error::CompatibilityNotAdmitted);
+        }
+
+        let binding = dispatch_authority.binding();
+        let same_node = compatibility.node_ref.entity_id == binding.node_id().entity_id()
+            && compatibility.node_generation == binding.node_generation().value()
+            && compatibility.node_ref.node_generation == Some(binding.node_generation().value())
+            && compatibility.node_ref.connection_epoch == Some(binding.connection_epoch().value());
+        if !same_node {
+            return Err(D08Error::RemoteNodeAuthorityMismatch);
+        }
+
+        Ok(Self::RemoteNodeReady(Box::new(RemoteNodeExecution {
+            platform,
+            compatibility,
+            dispatch_authority,
+        })))
+    }
+
     /// Borrow exact node-local compatibility or fail closed for every non-local disposition.
     ///
     /// # Errors
-    /// Returns [`D08Error::RemoteNodeRequired`] for a remote dependency and
+    /// Returns [`D08Error::RemoteNodeRequired`] for an unresolved remote dependency and
     /// [`D08Error::MissingNodeLocalCompatibility`] for every other non-local disposition.
     pub const fn require_node_local(&self) -> Result<&NodeLocalCompatibility, D08Error> {
         match self {
             Self::NodeLocalReady(compatibility) => Ok(compatibility),
             Self::RequiresRemoteNode(_) => Err(D08Error::RemoteNodeRequired),
-            Self::DeviceLocalReady | Self::Unsupported | Self::Unknown => {
-                Err(D08Error::MissingNodeLocalCompatibility)
-            }
+            Self::RemoteNodeReady(_)
+            | Self::DeviceLocalReady
+            | Self::Unsupported
+            | Self::Unknown => Err(D08Error::MissingNodeLocalCompatibility),
         }
     }
 }

@@ -144,20 +144,94 @@ impl TransferTicket {
         TransferMode::NodeToNode
     }
 
-    pub(super) const fn expected_size(&self) -> u64 {
+    /// Exact control-issued transfer-ticket reference.
+    #[must_use]
+    pub const fn ticket_ref(&self) -> &EntityRef {
+        &self.ticket_ref
+    }
+
+    /// Exact A08 transfer request bound to this ticket.
+    #[must_use]
+    pub const fn request_ref(&self) -> &EntityRef {
+        &self.request_ref
+    }
+
+    /// Exact A08 transfer run bound to this ticket.
+    #[must_use]
+    pub const fn run_ref(&self) -> &EntityRef {
+        &self.run_ref
+    }
+
+    /// Exact activity attempt bound to this ticket.
+    #[must_use]
+    pub const fn attempt_ref(&self) -> &EntityRef {
+        &self.attempt_ref
+    }
+
+    /// Exact source E01 authority frozen into this ticket.
+    #[must_use]
+    pub const fn source(&self) -> &TransferPeerBinding {
+        &self.source
+    }
+
+    /// Exact target E01 authority frozen into this ticket.
+    #[must_use]
+    pub const fn target(&self) -> &TransferPeerBinding {
+        &self.target
+    }
+
+    /// Optional A07 content reference expected by the transfer.
+    #[must_use]
+    pub const fn content_ref(&self) -> Option<&EntityRef> {
+        self.content_ref.as_ref()
+    }
+
+    /// Optional A07 artifact reference expected by the transfer.
+    #[must_use]
+    pub const fn artifact_ref(&self) -> Option<&EntityRef> {
+        self.artifact_ref.as_ref()
+    }
+
+    /// Exact expected complete byte count.
+    #[must_use]
+    pub const fn expected_size(&self) -> u64 {
         self.expected_size
     }
 
-    pub(super) fn canonical_sha256(&self) -> &str {
+    /// Canonical SHA-256 expected for the complete byte sequence.
+    #[must_use]
+    pub fn canonical_sha256(&self) -> &str {
         &self.canonical_sha256
     }
 
-    pub(super) const fn range_size(&self) -> u64 {
+    /// Exact transfer range size frozen into this ticket.
+    #[must_use]
+    pub const fn range_size(&self) -> u64 {
         self.range_size
     }
 
-    pub(super) fn content_ref(&self) -> Option<&EntityRef> {
-        self.content_ref.as_ref()
+    /// Explicit transport routes frozen into this ticket.
+    #[must_use]
+    pub fn routes(&self) -> &[TransferRouteCandidate] {
+        &self.routes
+    }
+
+    /// Ticket issuance time.
+    #[must_use]
+    pub const fn issued_at_unix_seconds(&self) -> u64 {
+        self.issued_at_unix_seconds
+    }
+
+    /// Ticket expiry time.
+    #[must_use]
+    pub const fn expires_at_unix_seconds(&self) -> u64 {
+        self.expires_at_unix_seconds
+    }
+
+    /// Per-issuance nonce supplied by the control authority.
+    #[must_use]
+    pub const fn nonce(&self) -> u64 {
+        self.nonce
     }
 
     /// Validate one presented peer against the exact ticket-bound E01 authority.

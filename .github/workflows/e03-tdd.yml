@@ -16,6 +16,8 @@ on:
       - "services/ptah-control/src/e01_lib.rs"
       - "services/ptah-control/src/transfer.rs"
       - "services/ptah-control/tests/e03_*.rs"
+      - "services/ptah-node/Cargo.toml"
+      - "services/ptah-node/src/lib.rs"
       - "services/ptah-node/src/transfer.rs"
       - "services/ptah-node/tests/e03_*.rs"
   workflow_dispatch:
@@ -43,11 +45,7 @@ jobs:
           rustc -V | grep -q '^rustc 1.97.1 '
           cargo -V | grep -q '^cargo 1.97.1 '
 
-      - name: Recover remaining committed E03 plan
-        shell: bash
-        run: sed -n '250,760p' docs/superpowers/plans/2026-09-06-e03-node-to-node-object-artifact-transfer.md
-
-      - name: Generate and persist Task 3 workspace lock
+      - name: Generate and persist E03 workspace lock
         shell: bash
         run: |
           set -euo pipefail
@@ -56,7 +54,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add Cargo.lock
-            git commit -m "chore(e03): refresh workspace lock for transfer authority"
+            git commit -m "chore(e03): refresh workspace lock for node transfer"
             git push origin HEAD:e03-node-to-node-object-artifact-transfer
           fi
 
@@ -86,4 +84,14 @@ jobs:
 
       - name: Task 3 control transfer authority
         shell: bash
-        run: cargo test -p ptah-control --test e03_transfer_authority --locked
+        run: |
+          cargo test -p ptah-control --test e03_transfer_authority --locked
+          cargo test -p ptah-control --test e02_placement --locked
+
+      - name: Task 4 node-local ticket guard
+        shell: bash
+        run: cargo test -p ptah-node --test e03_transfer_guard --locked
+
+      - name: Task 4 inherited E02 dispatch guard
+        shell: bash
+        run: cargo test -p ptah-node --test e02_dispatch_guard --locked

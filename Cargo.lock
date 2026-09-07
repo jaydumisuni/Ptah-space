@@ -645,6 +645,7 @@ dependencies = [
  "ptah-node-agent",
  "ptah-node-link",
  "ptah-provider-api",
+ "ptah-transfer",
  "tokio",
 ]
 

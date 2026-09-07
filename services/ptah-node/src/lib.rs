@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
-//! E01 secure Node client plus E02 fail-closed dispatch authority guard.
+//! E01 secure Node client plus E02 dispatch and E03 transfer authority guards.
+
+/// E03 Node-local transfer-ticket authority guard.
+pub mod transfer;
 
 use native_process::{NativeProcessError, NativeProcessProvider, ProcessSpec};
 use ptah_activity_runtime::AttemptContext;

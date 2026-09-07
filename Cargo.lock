@@ -560,6 +560,7 @@ dependencies = [
  "ptah-node-agent",
  "ptah-node-link",
  "ptah-placement-runtime",
+ "ptah-transfer",
  "serde",
  "serde_json",
 ]

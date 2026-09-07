@@ -11,6 +11,7 @@ ptah-activity-runtime = { path = "../../crates/ptah-activity-runtime", version =
 ptah-identifiers = { path = "../../crates/ptah-identifiers", version = "=0.0.0-phase0c" }
 ptah-node-agent = { path = "../../crates/ptah-node-agent", version = "=0.0.0-phase0c" }
 ptah-node-link = { path = "../../crates/ptah-node-link", version = "=0.0.0-phase0c" }
+ptah-transfer = { path = "../../crates/ptah-transfer", version = "=0.0.0-phase0c" }
 tokio.workspace = true
 
 [dev-dependencies]
@@ -26,3 +27,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "ptah-node"
 path = "src/main.rs"
+
+[[test]]
+name = "e03_transfer_guard"
+path = "tests/e03_transfer_guard.rs"

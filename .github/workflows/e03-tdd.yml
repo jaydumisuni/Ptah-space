@@ -4,6 +4,7 @@ on:
   push:
     branches: [e03-node-to-node-object-artifact-transfer]
     paths:
+      - ".github/workflows/e03-tdd.yml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "crates/ptah-transfer/Cargo.toml"
@@ -41,6 +42,17 @@ jobs:
           rustup default 1.97.1
           rustc -V | grep -q '^rustc 1.97.1 '
           cargo -V | grep -q '^cargo 1.97.1 '
+
+      - name: Generate Task 3 workspace lock
+        shell: bash
+        run: cargo generate-lockfile
+
+      - name: Retain generated Task 3 workspace lock
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: e03-task3-lock-${{ github.sha }}
+          path: Cargo.lock
+          if-no-files-found: error
 
       - name: Task 1 authority contract
         shell: bash

@@ -165,12 +165,13 @@ fn issuance_rejects_same_node_missing_session_and_expired_spec() {
 }
 
 #[test]
-fn supersession_and_revocation_fence_old_ticket() {
+fn supersession_reissue_and_revocation_fence_ticket_authority() {
     let (mut owner, mut source, target, source_fp, target_fp, source_enrollment_ref, _) =
         owner_with_two_nodes();
-    let ticket = owner
-        .issue_ticket(spec(&source, &target, vec![direct_route(target_fp)]), 100)
-        .expect("ticket issued");
+    let stable_run = reference("transfer.run");
+    let mut original_spec = spec(&source, &target, vec![direct_route(target_fp)]);
+    original_spec.run_ref = stable_run.clone();
+    let ticket = owner.issue_ticket(original_spec, 100).expect("ticket issued");
 
     source.reconnect().expect("source reconnect");
     owner
@@ -181,28 +182,18 @@ fn supersession_and_revocation_fence_old_ticket() {
         Err(TransferAuthorityError::SupersededSourceSession)
     );
 
-    let reissued = owner
-        .issue_ticket(spec(&source, &target, vec![direct_route(target_fp)]), 102)
-        .expect("reissued");
+    let mut reissue_spec = spec(&source, &target, vec![direct_route(target_fp)]);
+    reissue_spec.run_ref = stable_run.clone();
+    let reissued = owner.issue_ticket(reissue_spec, 102).expect("reissued");
+    assert_eq!(ticket.run_ref(), &stable_run);
+    assert_eq!(reissued.run_ref(), &stable_run);
     assert_ne!(ticket.ticket_ref(), reissued.ticket_ref());
     assert_ne!(ticket.nonce(), reissued.nonce());
-    assert_ne!(ticket.run_ref(), reissued.run_ref());
+    assert!(owner.assert_current(&reissued).is_ok());
 
-    let stable_run = reference("transfer.run");
-    let mut first_spec = spec(&source, &target, vec![direct_route(target_fp)]);
-    first_spec.run_ref = stable_run.clone();
-    let first = owner.issue_ticket(first_spec, 103).expect("first stable run");
-    let mut second_spec = spec(&source, &target, vec![direct_route(target_fp)]);
-    second_spec.run_ref = stable_run.clone();
-    let second = owner.issue_ticket(second_spec, 104).expect("second stable run");
-    assert_eq!(first.run_ref(), &stable_run);
-    assert_eq!(second.run_ref(), &stable_run);
-    assert_ne!(first.ticket_ref(), second.ticket_ref());
-    assert_ne!(first.nonce(), second.nonce());
-
-    assert!(owner.revoke_ticket(second.ticket_ref()));
+    assert!(owner.revoke_ticket(reissued.ticket_ref()));
     assert_eq!(
-        owner.assert_current(&second),
+        owner.assert_current(&reissued),
         Err(TransferAuthorityError::RevokedTicket)
     );
 }

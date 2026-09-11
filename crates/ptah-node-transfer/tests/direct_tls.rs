@@ -120,6 +120,7 @@ async fn direct_session_uses_existing_tls13_and_ticket_bound_peer_fingerprints()
         let mut tls = accept_tls(tcp, &server_config()).await.expect("server tls");
         assert!(tls.is_tls13());
         assert_eq!(tls.peer_fingerprint(), CredentialFingerprint::from_der(CLIENT_CERT));
+        let peer_fingerprint = tls.peer_fingerprint();
         let mut source = BytesSource {
             sha256: format!("{:x}", Sha256::digest(&bytes)),
             bytes,
@@ -127,7 +128,7 @@ async fn direct_session_uses_existing_tls13_and_ticket_bound_peer_fingerprints()
         DirectSourceSession::serve(
             tls.stream_mut(),
             &server_ticket,
-            tls.peer_fingerprint(),
+            peer_fingerprint,
             &mut source,
             2,
             Some(0),
@@ -142,12 +143,13 @@ async fn direct_session_uses_existing_tls13_and_ticket_bound_peer_fingerprints()
         .expect("client tls");
     assert!(tls.is_tls13());
     assert_eq!(tls.peer_fingerprint(), CredentialFingerprint::from_der(SERVER_CERT));
+    let peer_fingerprint = tls.peer_fingerprint();
     let temp = std::env::temp_dir().join(format!("ptah-e03-direct-{}.part", ticket.ticket_ref().entity_id));
     let mut cursor = DownloadCursor::default();
     let report = DirectTargetSession::pull_missing_ranges(
         tls.stream_mut(),
         &ticket,
-        tls.peer_fingerprint(),
+        peer_fingerprint,
         &temp,
         &mut cursor,
         2,

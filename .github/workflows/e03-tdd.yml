@@ -96,6 +96,10 @@ jobs:
         shell: bash
         run: cargo test -p ptah-node --test e02_dispatch_guard --locked
 
-      - name: Task 5 direct authenticated TLS RED frontier
+      - name: Task 5 direct authenticated TLS contract
         shell: bash
         run: cargo test -p ptah-node-transfer --test direct_tls --locked
+
+      - name: Task 5 node direct interruption/resume contract
+        shell: bash
+        run: cargo test -p ptah-node --test e03_direct_resume --locked

@@ -8,6 +8,7 @@ use ptah_node_link::{
 use ptah_node_transfer::{DirectSourceSession, DirectTargetSession, ExactRangeSource};
 use ptah_transfer::{
     DownloadCursor, TransferPeerBinding, TransferRouteCandidate, TransferRouteKind, TransferTicket,
+    VerifiedRange,
 };
 use sha2::{Digest, Sha256};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -159,6 +160,70 @@ async fn direct_session_uses_existing_tls13_and_ticket_bound_peer_fingerprints()
     .expect("pull handshake");
     assert_eq!(report.network_bytes, 0);
     assert_eq!(report.requested_ranges, 0);
+    server.await.expect("server join");
+    let _ = std::fs::remove_file(temp);
+}
+
+#[tokio::test]
+async fn direct_session_transfers_one_exact_verified_range() {
+    let bytes = b"one bounded direct e03 range".to_vec();
+    let expected_sha256 = format!("{:x}", Sha256::digest(&bytes));
+    let expected_range = VerifiedRange {
+        start: 0,
+        len: bytes.len() as u64,
+        sha256: expected_sha256.clone(),
+    };
+    let ticket = ticket(&bytes);
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let address = listener.local_addr().expect("address");
+    let server_ticket = ticket.clone();
+    let server = tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.expect("accept");
+        let mut tls = accept_tls(tcp, &server_config()).await.expect("server tls");
+        let peer_fingerprint = tls.peer_fingerprint();
+        let mut source = BytesSource {
+            sha256: format!("{:x}", Sha256::digest(&bytes)),
+            bytes,
+        };
+        DirectSourceSession::serve(
+            tls.stream_mut(),
+            &server_ticket,
+            peer_fingerprint,
+            &mut source,
+            1,
+            Some(1),
+        )
+        .await
+        .expect("serve one range")
+    });
+
+    let tcp = TcpStream::connect(address).await.expect("connect");
+    let mut tls = connect_tls(tcp, "localhost", &client_config())
+        .await
+        .expect("client tls");
+    let peer_fingerprint = tls.peer_fingerprint();
+    let temp = std::env::temp_dir().join(format!(
+        "ptah-e03-direct-one-range-{}.part",
+        ticket.ticket_ref().entity_id
+    ));
+    let _ = std::fs::remove_file(&temp);
+    let mut cursor = DownloadCursor::default();
+    let report = DirectTargetSession::pull_missing_ranges(
+        tls.stream_mut(),
+        &ticket,
+        peer_fingerprint,
+        &temp,
+        &mut cursor,
+        1,
+        Some(1),
+    )
+    .await
+    .expect("pull one range");
+
+    assert_eq!(report.network_bytes, expected_range.len);
+    assert_eq!(report.requested_ranges, 1);
+    assert!(cursor.contains(&expected_range));
+    assert_eq!(std::fs::read(&temp).expect("partial bytes"), b"one bounded direct e03 range");
     server.await.expect("server join");
     let _ = std::fs::remove_file(temp);
 }

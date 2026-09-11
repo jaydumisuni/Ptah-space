@@ -4,10 +4,12 @@
 //! This crate carries E03 control metadata and bounded range payloads. It does
 //! not reuse the E01 JSON control stream and does not create A07 storage truth.
 
+mod direct;
 mod error;
 mod framing;
 mod protocol;
 
+pub use direct::*;
 pub use error::*;
 pub use framing::*;
 pub use protocol::*;

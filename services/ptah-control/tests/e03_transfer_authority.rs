@@ -60,7 +60,11 @@ fn relay_route(fingerprint: CredentialFingerprint) -> TransferRouteCandidate {
     }
 }
 
-fn spec(source: &NodeAgent, target: &NodeAgent, routes: Vec<TransferRouteCandidate>) -> TransferTicketSpec {
+fn spec(
+    source: &NodeAgent,
+    target: &NodeAgent,
+    routes: Vec<TransferRouteCandidate>,
+) -> TransferTicketSpec {
     TransferTicketSpec {
         request_ref: reference("transfer.request"),
         run_ref: reference("transfer.run"),
@@ -127,9 +131,15 @@ fn issuance_binds_exact_current_sessions_and_preserves_explicit_routes() {
     assert_eq!(ticket.source().node_id, source.node_id());
     assert_eq!(ticket.source().node_generation, source.generation());
     assert_eq!(ticket.source().connection_epoch, source.connection_epoch());
-    assert_eq!(ticket.source().credential_fingerprint, *source_fp.as_bytes());
+    assert_eq!(
+        ticket.source().credential_fingerprint,
+        *source_fp.as_bytes()
+    );
     assert_eq!(ticket.target().node_id, target.node_id());
-    assert_eq!(ticket.target().credential_fingerprint, *target_fp.as_bytes());
+    assert_eq!(
+        ticket.target().credential_fingerprint,
+        *target_fp.as_bytes()
+    );
     assert_eq!(ticket.routes(), routes.as_slice());
     assert_eq!(ticket.issued_at_unix_seconds(), 100);
     assert_eq!(ticket.expires_at_unix_seconds(), 200);
@@ -171,7 +181,9 @@ fn supersession_reissue_and_revocation_fence_ticket_authority() {
     let stable_run = reference("transfer.run");
     let mut original_spec = spec(&source, &target, vec![direct_route(target_fp)]);
     original_spec.run_ref = stable_run.clone();
-    let ticket = owner.issue_ticket(original_spec, 100).expect("ticket issued");
+    let ticket = owner
+        .issue_ticket(original_spec, 100)
+        .expect("ticket issued");
 
     source.reconnect().expect("source reconnect");
     owner

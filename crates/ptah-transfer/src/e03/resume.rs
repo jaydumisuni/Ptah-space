@@ -22,7 +22,8 @@ pub fn validate_resume_cursor(
         return Ok(());
     }
 
-    let mut file = File::open(partial_path).map_err(|_| E03TransferError::RetainedRangeUnavailable)?;
+    let mut file =
+        File::open(partial_path).map_err(|_| E03TransferError::RetainedRangeUnavailable)?;
     let mut matched = 0_usize;
     let expected_size = ticket.expected_size();
     let range_size = ticket.range_size();

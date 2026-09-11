@@ -2,10 +2,12 @@
 
 use ptah_identifiers::EntityRef;
 use ptah_node_link::{
-    CredentialFingerprint, TlsClientConfig, TlsIdentity, TlsServerConfig, TlsTrustRoots, accept_tls,
-    connect_tls,
+    CredentialFingerprint, TlsClientConfig, TlsIdentity, TlsServerConfig, TlsTrustRoots,
+    accept_tls, connect_tls,
 };
-use ptah_node_transfer::{DirectSourceSession, DirectTargetSession, ExactRangeSource, MAX_RANGE_BYTES};
+use ptah_node_transfer::{
+    DirectSourceSession, DirectTargetSession, ExactRangeSource, MAX_RANGE_BYTES,
+};
 use ptah_transfer::{
     DownloadCursor, TransferPeerBinding, TransferRouteCandidate, TransferRouteKind, TransferTicket,
     VerifiedRange,
@@ -101,7 +103,9 @@ impl ExactRangeSource for BytesSource {
     fn read_exact_range(&mut self, start: u64, len: u64) -> Result<Vec<u8>, String> {
         let start = usize::try_from(start).map_err(|_| String::from("start"))?;
         let len = usize::try_from(len).map_err(|_| String::from("len"))?;
-        let end = start.checked_add(len).ok_or_else(|| String::from("overflow"))?;
+        let end = start
+            .checked_add(len)
+            .ok_or_else(|| String::from("overflow"))?;
         self.bytes
             .get(start..end)
             .map(ToOwned::to_owned)
@@ -120,7 +124,10 @@ async fn direct_session_uses_existing_tls13_and_ticket_bound_peer_fingerprints()
         let (tcp, _) = listener.accept().await.expect("accept");
         let mut tls = accept_tls(tcp, &server_config()).await.expect("server tls");
         assert!(tls.is_tls13());
-        assert_eq!(tls.peer_fingerprint(), CredentialFingerprint::from_der(CLIENT_CERT));
+        assert_eq!(
+            tls.peer_fingerprint(),
+            CredentialFingerprint::from_der(CLIENT_CERT)
+        );
         let peer_fingerprint = tls.peer_fingerprint();
         let mut source = BytesSource {
             sha256: format!("{:x}", Sha256::digest(&bytes)),
@@ -135,7 +142,7 @@ async fn direct_session_uses_existing_tls13_and_ticket_bound_peer_fingerprints()
             Some(0),
         )
         .await
-        .expect("serve")
+        .expect("serve");
     });
 
     let tcp = TcpStream::connect(address).await.expect("connect");
@@ -143,9 +150,15 @@ async fn direct_session_uses_existing_tls13_and_ticket_bound_peer_fingerprints()
         .await
         .expect("client tls");
     assert!(tls.is_tls13());
-    assert_eq!(tls.peer_fingerprint(), CredentialFingerprint::from_der(SERVER_CERT));
+    assert_eq!(
+        tls.peer_fingerprint(),
+        CredentialFingerprint::from_der(SERVER_CERT)
+    );
     let peer_fingerprint = tls.peer_fingerprint();
-    let temp = std::env::temp_dir().join(format!("ptah-e03-direct-{}.part", ticket.ticket_ref().entity_id));
+    let temp = std::env::temp_dir().join(format!(
+        "ptah-e03-direct-{}.part",
+        ticket.ticket_ref().entity_id
+    ));
     let mut cursor = DownloadCursor::default();
     let report = DirectTargetSession::pull_missing_ranges(
         tls.stream_mut(),
@@ -194,7 +207,7 @@ async fn direct_session_transfers_one_exact_verified_range() {
             Some(1),
         )
         .await
-        .expect("serve one range")
+        .expect("serve one range");
     });
 
     let tcp = TcpStream::connect(address).await.expect("connect");
@@ -223,7 +236,10 @@ async fn direct_session_transfers_one_exact_verified_range() {
     assert_eq!(report.network_bytes, expected_range.len);
     assert_eq!(report.requested_ranges, 1);
     assert!(cursor.contains(&expected_range));
-    assert_eq!(std::fs::read(&temp).expect("partial bytes"), b"one bounded direct e03 range");
+    assert_eq!(
+        std::fs::read(&temp).expect("partial bytes"),
+        b"one bounded direct e03 range"
+    );
     server.await.expect("server join");
     let _ = std::fs::remove_file(temp);
 }
@@ -268,7 +284,7 @@ async fn direct_session_resumes_from_verified_cursor_without_retransmitting_reta
             Some(1),
         )
         .await
-        .expect("serve resumed tail")
+        .expect("serve resumed tail");
     });
 
     let tcp = TcpStream::connect(address).await.expect("connect");
@@ -305,7 +321,6 @@ async fn direct_session_resumes_from_verified_cursor_without_retransmitting_reta
     server.await.expect("server join");
     let _ = std::fs::remove_file(temp);
 }
-
 
 #[tokio::test]
 async fn direct_session_transfers_two_sequential_missing_ranges_in_one_session() {
@@ -347,7 +362,7 @@ async fn direct_session_transfers_two_sequential_missing_ranges_in_one_session()
             Some(2),
         )
         .await
-        .expect("serve two sequential ranges")
+        .expect("serve two sequential ranges");
     });
 
     let tcp = TcpStream::connect(address).await.expect("connect");
@@ -382,7 +397,6 @@ async fn direct_session_transfers_two_sequential_missing_ranges_in_one_session()
     server.await.expect("server join");
     let _ = std::fs::remove_file(temp);
 }
-
 
 #[tokio::test]
 async fn direct_session_source_stops_cleanly_when_target_finishes_before_range_limit() {

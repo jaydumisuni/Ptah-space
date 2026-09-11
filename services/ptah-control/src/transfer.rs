@@ -192,10 +192,7 @@ impl TransferAuthorityOwner {
     /// # Errors
     ///
     /// Rejects unknown/mutated, revoked, source-superseded or target-superseded tickets.
-    pub fn assert_current(
-        &self,
-        ticket: &TransferTicket,
-    ) -> Result<(), TransferAuthorityError> {
+    pub fn assert_current(&self, ticket: &TransferTicket) -> Result<(), TransferAuthorityError> {
         let state = self
             .tickets
             .get(ticket.ticket_ref())
@@ -206,16 +203,12 @@ impl TransferAuthorityOwner {
         if state.revoked {
             return Err(TransferAuthorityError::RevokedTicket);
         }
-        if self
-            .node_link
-            .current_session(state.source_session.node_id)
+        if self.node_link.current_session(state.source_session.node_id)
             != Some(&state.source_session)
         {
             return Err(TransferAuthorityError::SupersededSourceSession);
         }
-        if self
-            .node_link
-            .current_session(state.target_session.node_id)
+        if self.node_link.current_session(state.target_session.node_id)
             != Some(&state.target_session)
         {
             return Err(TransferAuthorityError::SupersededTargetSession);

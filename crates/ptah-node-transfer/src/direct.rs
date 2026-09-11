@@ -1,7 +1,8 @@
 use crate::{
-    MAX_RANGE_BYTES, RangeAck, RangeDataHeader, RangeRequest, TransferComplete, TransferControlMessage,
-    TransferDataError, TransferHello, TransferHelloAck, TransferProtocolVersion,
-    read_control_frame, read_range_payload, write_control_frame, write_range_payload,
+    MAX_RANGE_BYTES, RangeAck, RangeDataHeader, RangeRequest, TransferComplete,
+    TransferControlMessage, TransferDataError, TransferHello, TransferHelloAck,
+    TransferProtocolVersion, read_control_frame, read_range_payload, write_control_frame,
+    write_range_payload,
 };
 use ptah_node_link::CredentialFingerprint;
 use ptah_transfer::{DownloadCursor, TransferPeerRole, TransferTicket, VerifiedRange};
@@ -119,9 +120,8 @@ impl DirectSourceSession {
             return Err(DirectSessionError::SourceIdentityMismatch);
         }
 
-        let hello = match read_control_frame(stream).await? {
-            TransferControlMessage::Hello(hello) => hello,
-            _ => return Err(DirectSessionError::PeerRoleMismatch),
+        let TransferControlMessage::Hello(hello) = read_control_frame(stream).await? else {
+            return Err(DirectSessionError::PeerRoleMismatch);
         };
         if hello.ticket_ref != *ticket.ticket_ref() {
             return Err(DirectSessionError::TicketMismatch);
@@ -183,9 +183,8 @@ impl DirectSourceSession {
             .await?;
             write_range_payload(stream, &header, &payload).await?;
 
-            let ack = match read_control_frame(stream).await? {
-                TransferControlMessage::RangeAck(ack) => ack,
-                _ => return Err(DirectSessionError::RangeMismatch),
+            let TransferControlMessage::RangeAck(ack) = read_control_frame(stream).await? else {
+                return Err(DirectSessionError::RangeMismatch);
             };
             if ack.ticket_ref != *ticket.ticket_ref() {
                 return Err(DirectSessionError::TicketMismatch);
@@ -229,31 +228,7 @@ impl DirectTargetSession {
         if max_in_flight_ranges == 0 {
             return Err(DirectSessionError::InvalidRangeWindow);
         }
-        if *peer_fingerprint.as_bytes() != ticket.source().credential_fingerprint {
-            return Err(DirectSessionError::PeerFingerprintMismatch);
-        }
-
-        write_control_frame(
-            stream,
-            &TransferControlMessage::Hello(TransferHello {
-                protocol: TransferProtocolVersion::CURRENT,
-                ticket_ref: ticket.ticket_ref().clone(),
-                role: TransferPeerRole::Target,
-            }),
-        )
-        .await?;
-
-        let ack = match read_control_frame(stream).await? {
-            TransferControlMessage::HelloAck(ack) => ack,
-            _ => return Err(DirectSessionError::AdmissionRejected),
-        };
-        if ack.ticket_ref != *ticket.ticket_ref() {
-            return Err(DirectSessionError::TicketMismatch);
-        }
-        TransferProtocolVersion::CURRENT.ensure_compatible(ack.protocol)?;
-        if !ack.accepted {
-            return Err(DirectSessionError::AdmissionRejected);
-        }
+        admit_target(stream, ticket, peer_fingerprint).await?;
 
         let range_limit = stop_after_ranges.unwrap_or(1);
         if range_limit == 0 || ticket.expected_size() == 0 {
@@ -298,9 +273,10 @@ impl DirectTargetSession {
             )
             .await?;
 
-            let header = match read_control_frame(stream).await? {
-                TransferControlMessage::RangeDataHeader(header) => header,
-                _ => return Err(DirectSessionError::RangeMismatch),
+            let TransferControlMessage::RangeDataHeader(header) =
+                read_control_frame(stream).await?
+            else {
+                return Err(DirectSessionError::RangeMismatch);
             };
             if header.ticket_ref != *ticket.ticket_ref() {
                 return Err(DirectSessionError::TicketMismatch);
@@ -341,6 +317,39 @@ impl DirectTargetSession {
 
         Ok(report)
     }
+}
+
+async fn admit_target<S>(
+    stream: &mut S,
+    ticket: &TransferTicket,
+    peer_fingerprint: CredentialFingerprint,
+) -> Result<(), DirectSessionError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    if *peer_fingerprint.as_bytes() != ticket.source().credential_fingerprint {
+        return Err(DirectSessionError::PeerFingerprintMismatch);
+    }
+    write_control_frame(
+        stream,
+        &TransferControlMessage::Hello(TransferHello {
+            protocol: TransferProtocolVersion::CURRENT,
+            ticket_ref: ticket.ticket_ref().clone(),
+            role: TransferPeerRole::Target,
+        }),
+    )
+    .await?;
+    let TransferControlMessage::HelloAck(ack) = read_control_frame(stream).await? else {
+        return Err(DirectSessionError::AdmissionRejected);
+    };
+    if ack.ticket_ref != *ticket.ticket_ref() {
+        return Err(DirectSessionError::TicketMismatch);
+    }
+    TransferProtocolVersion::CURRENT.ensure_compatible(ack.protocol)?;
+    if !ack.accepted {
+        return Err(DirectSessionError::AdmissionRejected);
+    }
+    Ok(())
 }
 
 fn first_missing_range(

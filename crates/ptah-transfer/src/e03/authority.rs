@@ -21,7 +21,7 @@ pub struct TransferPeerBinding {
     pub node_id: NodeId,
     /// Exact current Node Generation.
     pub node_generation: NodeGeneration,
-    /// Exact current E01 ConnectionEpoch.
+    /// Exact current E01 `ConnectionEpoch`.
     pub connection_epoch: ConnectionEpoch,
     /// SHA-256 bytes of the authenticated E01 end-entity credential.
     pub credential_fingerprint: [u8; 32],

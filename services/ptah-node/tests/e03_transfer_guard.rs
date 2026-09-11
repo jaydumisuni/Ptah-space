@@ -5,7 +5,8 @@ use ptah_node::transfer::{NodeTransferError, NodeTransferGuard};
 use ptah_node_agent::NodeAgent;
 use ptah_node_link::CredentialFingerprint;
 use ptah_transfer::{
-    TransferPeerBinding, TransferPeerRole, TransferRouteCandidate, TransferRouteKind, TransferTicket,
+    TransferPeerBinding, TransferPeerRole, TransferRouteCandidate, TransferRouteKind,
+    TransferTicket,
 };
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -64,15 +65,23 @@ fn source_and_target_accept_only_their_exact_ticket_side() {
     let mut source_guard = NodeTransferGuard::for_agent(&source);
     let mut target_guard = NodeTransferGuard::for_agent(&target);
 
-    assert!(source_guard
-        .accept_ticket(&source, TransferPeerRole::Source, &ticket, 11)
-        .is_ok());
-    assert!(target_guard
-        .accept_ticket(&target, TransferPeerRole::Target, &ticket, 11)
-        .is_ok());
+    assert!(
+        source_guard
+            .accept_ticket(&source, TransferPeerRole::Source, &ticket, 11)
+            .is_ok()
+    );
+    assert!(
+        target_guard
+            .accept_ticket(&target, TransferPeerRole::Target, &ticket, 11)
+            .is_ok()
+    );
     assert_eq!(
-        NodeTransferGuard::for_agent(&source)
-            .accept_ticket(&source, TransferPeerRole::Target, &ticket, 11),
+        NodeTransferGuard::for_agent(&source).accept_ticket(
+            &source,
+            TransferPeerRole::Target,
+            &ticket,
+            11
+        ),
         Err(NodeTransferError::WrongRole)
     );
     assert_eq!(source_guard.ticket(ticket.ticket_ref()), Some(&ticket));
@@ -95,9 +104,11 @@ fn wrong_peer_fingerprint_and_stale_live_session_fail_closed() {
         guard.authorize_peer(&source, &ticket, wrong_fp, 12),
         Err(NodeTransferError::PeerFingerprintMismatch)
     );
-    assert!(guard
-        .authorize_peer(&source, &ticket, target_fp, 12)
-        .is_ok());
+    assert!(
+        guard
+            .authorize_peer(&source, &ticket, target_fp, 12)
+            .is_ok()
+    );
 
     source.reconnect().expect("reconnect");
     assert_eq!(

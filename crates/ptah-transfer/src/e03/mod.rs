@@ -34,7 +34,7 @@ pub enum E03TransferError {
     /// Presented Node Generation differs from ticket authority.
     #[error("E03 transfer Node Generation mismatch")]
     NodeGenerationMismatch,
-    /// Presented ConnectionEpoch differs from ticket authority.
+    /// Presented `ConnectionEpoch` differs from ticket authority.
     #[error("E03 transfer ConnectionEpoch mismatch")]
     ConnectionEpochMismatch,
     /// Presented credential fingerprint differs from ticket authority.

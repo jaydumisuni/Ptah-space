@@ -26,14 +26,18 @@ where
             declared_len: payload.len(),
         });
     }
-    let len = u32::try_from(payload.len()).map_err(|_| TransferDataError::ControlFrameTooLarge {
-        declared_len: payload.len(),
-    })?;
+    let len =
+        u32::try_from(payload.len()).map_err(|_| TransferDataError::ControlFrameTooLarge {
+            declared_len: payload.len(),
+        })?;
     writer
         .write_all(&len.to_be_bytes())
         .await
-        .map_err(map_io)?;
-    writer.write_all(&payload).await.map_err(map_io)?;
+        .map_err(|error| map_io(&error))?;
+    writer
+        .write_all(&payload)
+        .await
+        .map_err(|error| map_io(&error))?;
     Ok(())
 }
 
@@ -44,16 +48,19 @@ where
 ///
 /// Rejects oversized declarations before payload allocation, premature EOF,
 /// invalid JSON and non-EOF asynchronous I/O failures.
-pub async fn read_control_frame<R>(reader: &mut R) -> Result<TransferControlMessage, TransferDataError>
+pub async fn read_control_frame<R>(
+    reader: &mut R,
+) -> Result<TransferControlMessage, TransferDataError>
 where
     R: AsyncRead + Unpin,
 {
     let mut prefix = [0_u8; 4];
     read_exact(reader, &mut prefix).await?;
-    let declared_len = usize::try_from(u32::from_be_bytes(prefix))
-        .map_err(|_| TransferDataError::ControlFrameTooLarge {
+    let declared_len = usize::try_from(u32::from_be_bytes(prefix)).map_err(|_| {
+        TransferDataError::ControlFrameTooLarge {
             declared_len: usize::MAX,
-        })?;
+        }
+    })?;
     if declared_len > MAX_CONTROL_FRAME_BYTES {
         return Err(TransferDataError::ControlFrameTooLarge { declared_len });
     }
@@ -88,7 +95,10 @@ where
     if sha256(payload) != header.sha256 {
         return Err(TransferDataError::RangeDigestMismatch);
     }
-    writer.write_all(payload).await.map_err(map_io)
+    writer
+        .write_all(payload)
+        .await
+        .map_err(|error| map_io(&error))
 }
 
 /// Read exactly the raw bytes named by one E03 range header and verify their
@@ -131,10 +141,14 @@ async fn read_exact<R>(reader: &mut R, buffer: &mut [u8]) -> Result<(), Transfer
 where
     R: AsyncRead + Unpin,
 {
-    reader.read_exact(buffer).await.map(|_| ()).map_err(map_io)
+    reader
+        .read_exact(buffer)
+        .await
+        .map(|_| ())
+        .map_err(|error| map_io(&error))
 }
 
-fn map_io(error: std::io::Error) -> TransferDataError {
+fn map_io(error: &std::io::Error) -> TransferDataError {
     if error.kind() == std::io::ErrorKind::UnexpectedEof {
         TransferDataError::UnexpectedEof
     } else {

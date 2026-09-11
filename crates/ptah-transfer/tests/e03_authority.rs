@@ -81,12 +81,22 @@ fn ticket(
 fn ticket_authorizes_only_exact_current_peer_binding() {
     let source = source_binding();
     let target = target_binding();
-    let ticket = ticket(source.clone(), target.clone(), vec![direct_route(), relay_route()])
-        .expect("valid E03 ticket");
+    let ticket = ticket(
+        source.clone(),
+        target.clone(),
+        vec![direct_route(), relay_route()],
+    )
+    .expect("valid E03 ticket");
 
     assert_eq!(ticket.transfer_mode(), TransferMode::NodeToNode);
-    assert_eq!(ticket.authorize_peer(TransferPeerRole::Source, &source, 150), Ok(()));
-    assert_eq!(ticket.authorize_peer(TransferPeerRole::Target, &target, 150), Ok(()));
+    assert_eq!(
+        ticket.authorize_peer(TransferPeerRole::Source, &source, 150),
+        Ok(())
+    );
+    assert_eq!(
+        ticket.authorize_peer(TransferPeerRole::Target, &target, 150),
+        Ok(())
+    );
 
     let stale_source = TransferPeerBinding {
         node_generation: NodeGeneration::new(source.node_generation.value() + 1),
@@ -181,7 +191,10 @@ fn ticket_rejects_invalid_geometry_digest_lifetime_and_route_set() {
         200,
         1,
     );
-    assert_eq!(invalid_digest, Err(E03TransferError::InvalidCanonicalDigest));
+    assert_eq!(
+        invalid_digest,
+        Err(E03TransferError::InvalidCanonicalDigest)
+    );
 
     let invalid_lifetime = TransferTicket::new(
         reference("transfer.ticket"),

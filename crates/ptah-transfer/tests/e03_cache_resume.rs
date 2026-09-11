@@ -3,8 +3,8 @@
 use ptah_identifiers::{ConnectionEpoch, EntityRef, NodeGeneration, NodeId};
 use ptah_transfer::{
     CacheDecision, DownloadCursor, E03TransferError, TransferCachePolicy, TransferPeerBinding,
-    TransferRouteCandidate, TransferRouteKind, TransferTicket, VerifiedCacheEvidence, VerifiedRange,
-    decide_cache, validate_resume_cursor,
+    TransferRouteCandidate, TransferRouteKind, TransferTicket, VerifiedCacheEvidence,
+    VerifiedRange, decide_cache, validate_resume_cursor,
 };
 use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
@@ -89,8 +89,8 @@ fn verified_exact_cache_can_be_reused_but_policy_can_force_network() {
             Some(&evidence)
         ),
         Ok(CacheDecision::ReuseVerified {
-            content_ref,
-            location_ref,
+            content_ref: Box::new(content_ref),
+            location_ref: Box::new(location_ref),
         })
     );
     assert_eq!(
@@ -164,7 +164,8 @@ fn retained_verified_ranges_are_reread_before_resume() {
         .write(true)
         .open(&path)
         .expect("reopen partial test file");
-    file.seek(SeekFrom::Start(7)).expect("seek into retained range");
+    file.seek(SeekFrom::Start(7))
+        .expect("seek into retained range");
     file.write_all(&[0xff]).expect("mutate retained byte");
     file.flush().expect("flush retained-byte mutation");
 

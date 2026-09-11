@@ -48,7 +48,10 @@ async fn oversized_control_frame_is_rejected_before_payload_allocation() {
     let prefix = u32::try_from(declared_len)
         .expect("control-frame bound fits u32")
         .to_be_bytes();
-    writer.write_all(&prefix).await.expect("write raw length prefix");
+    writer
+        .write_all(&prefix)
+        .await
+        .expect("write raw length prefix");
 
     assert!(matches!(
         read_control_frame(&mut reader).await,
@@ -79,7 +82,10 @@ async fn short_range_payload_is_rejected_as_unexpected_eof() {
     let bytes = b"abcd";
     let expected = header(bytes);
     let (mut writer, mut reader) = duplex(16);
-    writer.write_all(b"ab").await.expect("write truncated payload");
+    writer
+        .write_all(b"ab")
+        .await
+        .expect("write truncated payload");
     drop(writer);
 
     assert!(matches!(

@@ -2,10 +2,12 @@
 
 use ptah_identifiers::EntityRef;
 use ptah_node_link::{
-    CredentialFingerprint, TlsClientConfig, TlsIdentity, TlsServerConfig, TlsTrustRoots, accept_tls,
-    connect_tls,
+    CredentialFingerprint, TlsClientConfig, TlsIdentity, TlsServerConfig, TlsTrustRoots,
+    accept_tls, connect_tls,
 };
-use ptah_node_transfer::{DirectSourceSession, DirectTargetSession, ExactRangeSource, MAX_RANGE_BYTES};
+use ptah_node_transfer::{
+    DirectSourceSession, DirectTargetSession, ExactRangeSource, MAX_RANGE_BYTES,
+};
 use ptah_transfer::{
     DownloadCursor, TransferPeerBinding, TransferRouteCandidate, TransferRouteKind, TransferTicket,
 };
@@ -14,10 +16,14 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use tokio::net::{TcpListener, TcpStream};
 
 const CA_CERT: &[u8] = include_bytes!("../../../crates/ptah-node-link/tests/fixtures/ca.cert.der");
-const SERVER_CERT: &[u8] = include_bytes!("../../../crates/ptah-node-link/tests/fixtures/server.cert.der");
-const SERVER_KEY: &[u8] = include_bytes!("../../../crates/ptah-node-link/tests/fixtures/server.key.der");
-const CLIENT_CERT: &[u8] = include_bytes!("../../../crates/ptah-node-link/tests/fixtures/client.cert.der");
-const CLIENT_KEY: &[u8] = include_bytes!("../../../crates/ptah-node-link/tests/fixtures/client.key.der");
+const SERVER_CERT: &[u8] =
+    include_bytes!("../../../crates/ptah-node-link/tests/fixtures/server.cert.der");
+const SERVER_KEY: &[u8] =
+    include_bytes!("../../../crates/ptah-node-link/tests/fixtures/server.key.der");
+const CLIENT_CERT: &[u8] =
+    include_bytes!("../../../crates/ptah-node-link/tests/fixtures/client.cert.der");
+const CLIENT_KEY: &[u8] =
+    include_bytes!("../../../crates/ptah-node-link/tests/fixtures/client.key.der");
 
 fn reference(kind: &str) -> EntityRef {
     EntityRef::new(kind).expect("reference")
@@ -99,7 +105,9 @@ impl ExactRangeSource for BytesSource {
     fn read_exact_range(&mut self, start: u64, len: u64) -> Result<Vec<u8>, String> {
         let start = usize::try_from(start).map_err(|_| String::from("start"))?;
         let len = usize::try_from(len).map_err(|_| String::from("len"))?;
-        let end = start.checked_add(len).ok_or_else(|| String::from("overflow"))?;
+        let end = start
+            .checked_add(len)
+            .ok_or_else(|| String::from("overflow"))?;
         self.bytes
             .get(start..end)
             .map(ToOwned::to_owned)
@@ -161,7 +169,7 @@ async fn transfer_pass(
 #[tokio::test]
 async fn direct_transfer_resumes_only_missing_ranges_after_interruption() {
     let bytes: Vec<u8> = (0..(5 * MAX_RANGE_BYTES + 123))
-        .map(|index| (index % 251) as u8)
+        .map(|index| u8::try_from(index % 251).expect("index modulo 251 fits u8"))
         .collect();
     let source_sha256 = format!("{:x}", Sha256::digest(&bytes));
     let ticket = ticket(&bytes);
@@ -177,7 +185,10 @@ async fn direct_transfer_resumes_only_missing_ranges_after_interruption() {
 
     let second = transfer_pass(bytes.clone(), &ticket, &destination, &mut cursor, 4).await;
     assert_eq!(second.resumed_ranges, 2);
-    assert_eq!(second.network_bytes, bytes.len() as u64 - first.network_bytes);
+    assert_eq!(
+        second.network_bytes,
+        bytes.len() as u64 - first.network_bytes
+    );
     assert_eq!(
         format!(
             "{:x}",

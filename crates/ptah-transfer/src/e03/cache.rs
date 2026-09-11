@@ -33,9 +33,9 @@ pub enum CacheDecision {
     /// Reuse an already-verified A07 Content/Location pair locally.
     ReuseVerified {
         /// Existing canonical Content reference.
-        content_ref: EntityRef,
+        content_ref: Box<EntityRef>,
         /// Existing canonical verified Storage Location reference.
-        location_ref: EntityRef,
+        location_ref: Box<EntityRef>,
     },
 }
 
@@ -70,7 +70,7 @@ pub fn decide_cache(
     }
 
     Ok(CacheDecision::ReuseVerified {
-        content_ref: evidence.content_ref.clone(),
-        location_ref: evidence.location_ref.clone(),
+        content_ref: Box::new(evidence.content_ref.clone()),
+        location_ref: Box::new(evidence.location_ref.clone()),
     })
 }

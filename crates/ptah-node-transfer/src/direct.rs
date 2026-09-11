@@ -5,7 +5,9 @@ use crate::{
     write_range_payload,
 };
 use ptah_node_link::CredentialFingerprint;
-use ptah_transfer::{DownloadCursor, TransferPeerRole, TransferTicket, VerifiedRange};
+use ptah_transfer::{
+    DownloadCursor, TransferPeerRole, TransferRouteKind, TransferTicket, VerifiedRange,
+};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{File, OpenOptions},
@@ -36,15 +38,32 @@ pub trait ExactRangeSource {
     fn read_exact_range(&mut self, start: u64, len: u64) -> Result<Vec<u8>, String>;
 }
 
+/// Stable route failure evidence retained across E03 route attempts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteFailure {
+    /// Route kind that failed.
+    pub kind: TransferRouteKind,
+    /// Stable bounded failure detail.
+    pub error: String,
+}
+
 /// Result of one target-side direct-transfer pass.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectTransferReport {
+    /// Route used by this transfer pass.
+    pub route_kind: TransferRouteKind,
     /// Raw payload bytes received during this pass.
     pub network_bytes: u64,
     /// Exact ranges requested during this pass.
     pub requested_ranges: usize,
+    /// Exact ranges accepted after verified persistence during this pass.
+    pub accepted_ranges: usize,
     /// Leading verified ranges retained and reused from an earlier pass.
     pub resumed_ranges: usize,
+    /// Whole-file SHA-256 observed from destination bytes once complete.
+    pub whole_sha256: Option<String>,
+    /// Route failures retained as evidence; direct success begins empty.
+    pub failures: Vec<RouteFailure>,
 }
 
 /// Direct E03 session admission and bounded range-exchange failures.
@@ -233,18 +252,26 @@ impl DirectTargetSession {
         let range_limit = stop_after_ranges.unwrap_or(1);
         if range_limit == 0 || ticket.expected_size() == 0 {
             return Ok(DirectTransferReport {
+                route_kind: TransferRouteKind::Direct,
                 network_bytes: 0,
                 requested_ranges: 0,
+                accepted_ranges: 0,
                 resumed_ranges: 0,
+                whole_sha256: None,
+                failures: Vec::new(),
             });
         }
 
         let (_, resumed_ranges) =
             first_missing_range(partial_path, cursor, ticket.expected_size())?;
         let mut report = DirectTransferReport {
+            route_kind: TransferRouteKind::Direct,
             network_bytes: 0,
             requested_ranges: 0,
+            accepted_ranges: 0,
             resumed_ranges,
+            whole_sha256: None,
+            failures: Vec::new(),
         };
 
         for _ in 0..range_limit {
@@ -313,6 +340,14 @@ impl DirectTargetSession {
                 .requested_ranges
                 .checked_add(1)
                 .ok_or(DirectSessionError::RangeMismatch)?;
+            report.accepted_ranges = report
+                .accepted_ranges
+                .checked_add(1)
+                .ok_or(DirectSessionError::RangeMismatch)?;
+        }
+
+        if first_missing_range(partial_path, cursor, ticket.expected_size())?.0.is_none() {
+            report.whole_sha256 = Some(sha256_file(partial_path, ticket.expected_size())?);
         }
 
         Ok(report)
@@ -431,6 +466,17 @@ fn persist_exact_range(path: &Path, start: u64, payload: &[u8]) -> Result<(), Di
     file.flush()
         .map_err(|error| DirectSessionError::PartialWrite(error.to_string()))?;
     Ok(())
+}
+
+fn sha256_file(path: &Path, expected_size: u64) -> Result<String, DirectSessionError> {
+    let mut file = File::open(path)
+        .map_err(|error| DirectSessionError::PartialRead(error.to_string()))?;
+    let len = usize::try_from(expected_size)
+        .map_err(|error| DirectSessionError::PartialRead(error.to_string()))?;
+    let mut bytes = vec![0_u8; len];
+    file.read_exact(&mut bytes)
+        .map_err(|error| DirectSessionError::PartialRead(error.to_string()))?;
+    Ok(sha256(&bytes))
 }
 
 fn sha256(bytes: &[u8]) -> String {

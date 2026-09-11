@@ -7,8 +7,8 @@ use ptah_node_link::CredentialFingerprint;
 use ptah_transfer::{DownloadCursor, TransferPeerRole, TransferTicket, VerifiedRange};
 use sha2::{Digest, Sha256};
 use std::{
-    fs::OpenOptions,
-    io::{Seek, SeekFrom, Write},
+    fs::{File, OpenOptions},
+    io::{Read, Seek, SeekFrom, Write},
     path::Path,
 };
 use thiserror::Error;
@@ -74,6 +74,9 @@ pub enum DirectSessionError {
     /// A range control frame did not describe the exact request currently in flight.
     #[error("E03 direct range response does not match the exact request")]
     RangeMismatch,
+    /// A retained partial range could not be read for resume verification.
+    #[error("E03 direct retained-range read failed: {0}")]
+    PartialRead(String),
     /// A verified range could not be persisted to the partial file.
     #[error("E03 direct partial-file write failed: {0}")]
     PartialWrite(String),
@@ -186,8 +189,9 @@ pub struct DirectTargetSession;
 impl DirectTargetSession {
     /// Admit the ticket-bound source and pull at most one bounded missing range.
     ///
-    /// This slice intentionally proves only the first non-zero range exchange;
-    /// multi-range scheduling/resume remains a separate TDD frontier.
+    /// Retained cursor ranges are reused only when the bytes still present in
+    /// the partial file hash to the cursor-bound digest. This keeps resume
+    /// selection local and fail-closed without widening the transfer protocol.
     ///
     /// # Errors
     ///
@@ -241,10 +245,19 @@ impl DirectTargetSession {
             });
         }
 
-        let len = ticket.expected_size().min(MAX_RANGE_BYTES as u64);
+        let Some((start, len)) = first_missing_range(
+            partial_path,
+            cursor,
+            ticket.expected_size(),
+        )? else {
+            return Ok(DirectTransferReport {
+                network_bytes: 0,
+                requested_ranges: 0,
+            });
+        };
         let request = RangeRequest {
             ticket_ref: ticket.ticket_ref().clone(),
-            start: 0,
+            start,
             len,
         };
         write_control_frame(
@@ -289,6 +302,53 @@ impl DirectTargetSession {
             requested_ranges: 1,
         })
     }
+}
+
+fn first_missing_range(
+    partial_path: &Path,
+    cursor: &DownloadCursor,
+    expected_size: u64,
+) -> Result<Option<(u64, u64)>, DirectSessionError> {
+    let mut retained = match File::open(partial_path) {
+        Ok(file) => Some(file),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(DirectSessionError::PartialRead(error.to_string())),
+    };
+    let mut start = 0_u64;
+
+    while start < expected_size {
+        let len = (expected_size - start).min(MAX_RANGE_BYTES as u64);
+        let len_usize = usize::try_from(len)
+            .map_err(|error| DirectSessionError::PartialRead(error.to_string()))?;
+        let mut reusable = false;
+
+        if let Some(file) = retained.as_mut() {
+            file.seek(SeekFrom::Start(start))
+                .map_err(|error| DirectSessionError::PartialRead(error.to_string()))?;
+            let mut bytes = vec![0_u8; len_usize];
+            match file.read_exact(&mut bytes) {
+                Ok(()) => {
+                    let candidate = VerifiedRange {
+                        start,
+                        len,
+                        sha256: sha256(&bytes),
+                    };
+                    reusable = cursor.contains(&candidate);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {}
+                Err(error) => return Err(DirectSessionError::PartialRead(error.to_string())),
+            }
+        }
+
+        if !reusable {
+            return Ok(Some((start, len)));
+        }
+        start = start
+            .checked_add(len)
+            .ok_or(DirectSessionError::RangeMismatch)?;
+    }
+
+    Ok(None)
 }
 
 fn validate_request(request: &RangeRequest, expected_size: u64) -> Result<(), DirectSessionError> {

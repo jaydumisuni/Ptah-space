@@ -1,7 +1,7 @@
 use crate::{
     MAX_RANGE_BYTES, RangeAck, RangeDataHeader, RangeRequest, TransferControlMessage,
-    TransferDataError, TransferHello, TransferHelloAck, TransferProtocolVersion, read_control_frame,
-    read_range_payload, write_control_frame, write_range_payload,
+    TransferDataError, TransferHello, TransferHelloAck, TransferProtocolVersion,
+    read_control_frame, read_range_payload, write_control_frame, write_range_payload,
 };
 use ptah_node_link::CredentialFingerprint;
 use ptah_transfer::{DownloadCursor, TransferPeerRole, TransferTicket, VerifiedRange};
@@ -86,8 +86,8 @@ pub enum DirectSessionError {
 pub struct DirectSourceSession;
 
 impl DirectSourceSession {
-    /// Admit one target over an already-authenticated TLS 1.3 stream and, when
-    /// requested by the caller, serve one exact bounded range.
+    /// Admit one target over an already-authenticated TLS 1.3 stream and serve
+    /// the caller-bounded number of exact ranges sequentially on that session.
     ///
     /// # Errors
     ///
@@ -139,44 +139,47 @@ impl DirectSourceSession {
         )
         .await?;
 
-        if stop_after_ranges == Some(0) {
+        let range_limit = stop_after_ranges.unwrap_or(1);
+        if range_limit == 0 {
             return Ok(());
         }
 
-        let request = match read_control_frame(stream).await? {
-            TransferControlMessage::RangeRequest(request) => request,
-            _ => return Err(DirectSessionError::RangeMismatch),
-        };
-        if request.ticket_ref != *ticket.ticket_ref() {
-            return Err(DirectSessionError::TicketMismatch);
-        }
-        validate_request(&request, ticket.expected_size())?;
+        for _ in 0..range_limit {
+            let request = match read_control_frame(stream).await? {
+                TransferControlMessage::RangeRequest(request) => request,
+                _ => return Err(DirectSessionError::RangeMismatch),
+            };
+            if request.ticket_ref != *ticket.ticket_ref() {
+                return Err(DirectSessionError::TicketMismatch);
+            }
+            validate_request(&request, ticket.expected_size())?;
 
-        let payload = source
-            .read_exact_range(request.start, request.len)
-            .map_err(DirectSessionError::SourceRead)?;
-        let header = RangeDataHeader {
-            ticket_ref: ticket.ticket_ref().clone(),
-            start: request.start,
-            len: request.len,
-            sha256: sha256(&payload),
-        };
-        write_control_frame(
-            stream,
-            &TransferControlMessage::RangeDataHeader(header.clone()),
-        )
-        .await?;
-        write_range_payload(stream, &header, &payload).await?;
+            let payload = source
+                .read_exact_range(request.start, request.len)
+                .map_err(DirectSessionError::SourceRead)?;
+            let header = RangeDataHeader {
+                ticket_ref: ticket.ticket_ref().clone(),
+                start: request.start,
+                len: request.len,
+                sha256: sha256(&payload),
+            };
+            write_control_frame(
+                stream,
+                &TransferControlMessage::RangeDataHeader(header.clone()),
+            )
+            .await?;
+            write_range_payload(stream, &header, &payload).await?;
 
-        let ack = match read_control_frame(stream).await? {
-            TransferControlMessage::RangeAck(ack) => ack,
-            _ => return Err(DirectSessionError::RangeMismatch),
-        };
-        if ack.ticket_ref != *ticket.ticket_ref() {
-            return Err(DirectSessionError::TicketMismatch);
-        }
-        if ack.start != header.start || ack.len != header.len || ack.sha256 != header.sha256 {
-            return Err(DirectSessionError::RangeMismatch);
+            let ack = match read_control_frame(stream).await? {
+                TransferControlMessage::RangeAck(ack) => ack,
+                _ => return Err(DirectSessionError::RangeMismatch),
+            };
+            if ack.ticket_ref != *ticket.ticket_ref() {
+                return Err(DirectSessionError::TicketMismatch);
+            }
+            if ack.start != header.start || ack.len != header.len || ack.sha256 != header.sha256 {
+                return Err(DirectSessionError::RangeMismatch);
+            }
         }
 
         Ok(())
@@ -187,7 +190,8 @@ impl DirectSourceSession {
 pub struct DirectTargetSession;
 
 impl DirectTargetSession {
-    /// Admit the ticket-bound source and pull at most one bounded missing range.
+    /// Admit the ticket-bound source and pull a caller-bounded number of missing
+    /// ranges sequentially on the authenticated session.
     ///
     /// Retained cursor ranges are reused only when the bytes still present in
     /// the partial file hash to the cursor-bound digest. This keeps resume
@@ -238,69 +242,78 @@ impl DirectTargetSession {
             return Err(DirectSessionError::AdmissionRejected);
         }
 
-        if stop_after_ranges == Some(0) || ticket.expected_size() == 0 {
+        let range_limit = stop_after_ranges.unwrap_or(1);
+        if range_limit == 0 || ticket.expected_size() == 0 {
             return Ok(DirectTransferReport {
                 network_bytes: 0,
                 requested_ranges: 0,
             });
         }
 
-        let Some((start, len)) = first_missing_range(
-            partial_path,
-            cursor,
-            ticket.expected_size(),
-        )? else {
-            return Ok(DirectTransferReport {
-                network_bytes: 0,
-                requested_ranges: 0,
-            });
+        let mut report = DirectTransferReport {
+            network_bytes: 0,
+            requested_ranges: 0,
         };
-        let request = RangeRequest {
-            ticket_ref: ticket.ticket_ref().clone(),
-            start,
-            len,
-        };
-        write_control_frame(
-            stream,
-            &TransferControlMessage::RangeRequest(request.clone()),
-        )
-        .await?;
 
-        let header = match read_control_frame(stream).await? {
-            TransferControlMessage::RangeDataHeader(header) => header,
-            _ => return Err(DirectSessionError::RangeMismatch),
-        };
-        if header.ticket_ref != *ticket.ticket_ref() {
-            return Err(DirectSessionError::TicketMismatch);
-        }
-        if header.start != request.start || header.len != request.len {
-            return Err(DirectSessionError::RangeMismatch);
-        }
-
-        let payload = read_range_payload(stream, &header).await?;
-        persist_exact_range(partial_path, header.start, &payload)?;
-        let verified = VerifiedRange {
-            start: header.start,
-            len: header.len,
-            sha256: header.sha256.clone(),
-        };
-        cursor.mark_verified(verified.clone());
-
-        write_control_frame(
-            stream,
-            &TransferControlMessage::RangeAck(RangeAck {
+        for _ in 0..range_limit {
+            let Some((start, len)) =
+                first_missing_range(partial_path, cursor, ticket.expected_size())?
+            else {
+                break;
+            };
+            let request = RangeRequest {
                 ticket_ref: ticket.ticket_ref().clone(),
-                start: verified.start,
-                len: verified.len,
-                sha256: verified.sha256,
-            }),
-        )
-        .await?;
+                start,
+                len,
+            };
+            write_control_frame(
+                stream,
+                &TransferControlMessage::RangeRequest(request.clone()),
+            )
+            .await?;
 
-        Ok(DirectTransferReport {
-            network_bytes: header.len,
-            requested_ranges: 1,
-        })
+            let header = match read_control_frame(stream).await? {
+                TransferControlMessage::RangeDataHeader(header) => header,
+                _ => return Err(DirectSessionError::RangeMismatch),
+            };
+            if header.ticket_ref != *ticket.ticket_ref() {
+                return Err(DirectSessionError::TicketMismatch);
+            }
+            if header.start != request.start || header.len != request.len {
+                return Err(DirectSessionError::RangeMismatch);
+            }
+
+            let payload = read_range_payload(stream, &header).await?;
+            persist_exact_range(partial_path, header.start, &payload)?;
+            let verified = VerifiedRange {
+                start: header.start,
+                len: header.len,
+                sha256: header.sha256.clone(),
+            };
+            cursor.mark_verified(verified.clone());
+
+            write_control_frame(
+                stream,
+                &TransferControlMessage::RangeAck(RangeAck {
+                    ticket_ref: ticket.ticket_ref().clone(),
+                    start: verified.start,
+                    len: verified.len,
+                    sha256: verified.sha256,
+                }),
+            )
+            .await?;
+
+            report.network_bytes = report
+                .network_bytes
+                .checked_add(header.len)
+                .ok_or(DirectSessionError::RangeMismatch)?;
+            report.requested_ranges = report
+                .requested_ranges
+                .checked_add(1)
+                .ok_or(DirectSessionError::RangeMismatch)?;
+        }
+
+        Ok(report)
     }
 }
 

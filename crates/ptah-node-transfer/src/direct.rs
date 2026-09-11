@@ -1,5 +1,5 @@
 use crate::{
-    MAX_RANGE_BYTES, RangeAck, RangeDataHeader, RangeRequest, TransferControlMessage,
+    MAX_RANGE_BYTES, RangeAck, RangeDataHeader, RangeRequest, TransferComplete, TransferControlMessage,
     TransferDataError, TransferHello, TransferHelloAck, TransferProtocolVersion,
     read_control_frame, read_range_payload, write_control_frame, write_range_payload,
 };
@@ -147,6 +147,17 @@ impl DirectSourceSession {
         for _ in 0..range_limit {
             let request = match read_control_frame(stream).await? {
                 TransferControlMessage::RangeRequest(request) => request,
+                TransferControlMessage::Complete(complete) => {
+                    if complete.ticket_ref != *ticket.ticket_ref() {
+                        return Err(DirectSessionError::TicketMismatch);
+                    }
+                    if complete.size != ticket.expected_size()
+                        || complete.canonical_sha256 != ticket.canonical_sha256()
+                    {
+                        return Err(DirectSessionError::RangeMismatch);
+                    }
+                    return Ok(());
+                }
                 _ => return Err(DirectSessionError::RangeMismatch),
             };
             if request.ticket_ref != *ticket.ticket_ref() {
@@ -259,6 +270,15 @@ impl DirectTargetSession {
             let Some((start, len)) =
                 first_missing_range(partial_path, cursor, ticket.expected_size())?
             else {
+                write_control_frame(
+                    stream,
+                    &TransferControlMessage::Complete(TransferComplete {
+                        ticket_ref: ticket.ticket_ref().clone(),
+                        size: ticket.expected_size(),
+                        canonical_sha256: ticket.canonical_sha256().to_owned(),
+                    }),
+                )
+                .await?;
                 break;
             };
             let request = RangeRequest {

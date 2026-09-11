@@ -1,10 +1,16 @@
 use crate::{
-    TransferControlMessage, TransferDataError, TransferHello, TransferHelloAck,
-    TransferProtocolVersion, read_control_frame, write_control_frame,
+    MAX_RANGE_BYTES, RangeAck, RangeDataHeader, RangeRequest, TransferControlMessage,
+    TransferDataError, TransferHello, TransferHelloAck, TransferProtocolVersion, read_control_frame,
+    read_range_payload, write_control_frame, write_range_payload,
 };
 use ptah_node_link::CredentialFingerprint;
-use ptah_transfer::{DownloadCursor, TransferPeerRole, TransferTicket};
-use std::path::Path;
+use ptah_transfer::{DownloadCursor, TransferPeerRole, TransferTicket, VerifiedRange};
+use sha2::{Digest, Sha256};
+use std::{
+    fs::OpenOptions,
+    io::{Seek, SeekFrom, Write},
+    path::Path,
+};
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -38,7 +44,7 @@ pub struct DirectTransferReport {
     pub requested_ranges: usize,
 }
 
-/// Direct E03 session admission failures.
+/// Direct E03 session admission and bounded range-exchange failures.
 #[derive(Debug, Error)]
 pub enum DirectSessionError {
     /// Existing bounded E03 framing/protocol failure.
@@ -62,25 +68,28 @@ pub enum DirectSessionError {
     /// The peer explicitly rejected the admission handshake.
     #[error("E03 direct session admission was rejected")]
     AdmissionRejected,
-    /// Range exchange is intentionally deferred until its own RED contract exists.
-    #[error("E03 direct range exchange is not implemented beyond admission yet")]
-    RangeExchangeNotImplemented,
+    /// The source could not serve the exact requested range.
+    #[error("E03 direct source range read failed: {0}")]
+    SourceRead(String),
+    /// A range control frame did not describe the exact request currently in flight.
+    #[error("E03 direct range response does not match the exact request")]
+    RangeMismatch,
+    /// A verified range could not be persisted to the partial file.
+    #[error("E03 direct partial-file write failed: {0}")]
+    PartialWrite(String),
 }
 
 /// Source-side direct authenticated E03 session.
 pub struct DirectSourceSession;
 
 impl DirectSourceSession {
-    /// Admit one target over an already-authenticated TLS 1.3 stream.
-    ///
-    /// This step proves only ticket identity, peer role, protocol compatibility,
-    /// TLS credential binding and source byte identity. Range exchange remains a
-    /// separate TDD frontier.
+    /// Admit one target over an already-authenticated TLS 1.3 stream and, when
+    /// requested by the caller, serve one exact bounded range.
     ///
     /// # Errors
     ///
-    /// Rejects any admission mismatch or framing failure. A non-zero range
-    /// execution request is rejected until the range-exchange contract is added.
+    /// Rejects any admission, authority, framing, exact-range, digest or
+    /// acknowledgement mismatch.
     pub async fn serve<S, R>(
         stream: &mut S,
         ticket: &TransferTicket,
@@ -131,7 +140,43 @@ impl DirectSourceSession {
             return Ok(());
         }
 
-        Err(DirectSessionError::RangeExchangeNotImplemented)
+        let request = match read_control_frame(stream).await? {
+            TransferControlMessage::RangeRequest(request) => request,
+            _ => return Err(DirectSessionError::RangeMismatch),
+        };
+        if request.ticket_ref != *ticket.ticket_ref() {
+            return Err(DirectSessionError::TicketMismatch);
+        }
+        validate_request(&request, ticket.expected_size())?;
+
+        let payload = source
+            .read_exact_range(request.start, request.len)
+            .map_err(DirectSessionError::SourceRead)?;
+        let header = RangeDataHeader {
+            ticket_ref: ticket.ticket_ref().clone(),
+            start: request.start,
+            len: request.len,
+            sha256: sha256(&payload),
+        };
+        write_control_frame(
+            stream,
+            &TransferControlMessage::RangeDataHeader(header.clone()),
+        )
+        .await?;
+        write_range_payload(stream, &header, &payload).await?;
+
+        let ack = match read_control_frame(stream).await? {
+            TransferControlMessage::RangeAck(ack) => ack,
+            _ => return Err(DirectSessionError::RangeMismatch),
+        };
+        if ack.ticket_ref != *ticket.ticket_ref() {
+            return Err(DirectSessionError::TicketMismatch);
+        }
+        if ack.start != header.start || ack.len != header.len || ack.sha256 != header.sha256 {
+            return Err(DirectSessionError::RangeMismatch);
+        }
+
+        Ok(())
     }
 }
 
@@ -139,22 +184,21 @@ impl DirectSourceSession {
 pub struct DirectTargetSession;
 
 impl DirectTargetSession {
-    /// Admit the ticket-bound source and prepare a bounded missing-range pull.
+    /// Admit the ticket-bound source and pull at most one bounded missing range.
     ///
-    /// The current TDD slice deliberately stops after a successful admission
-    /// when `stop_after_ranges` is zero. Actual range exchange is the next
-    /// separately tested frontier.
+    /// This slice intentionally proves only the first non-zero range exchange;
+    /// multi-range scheduling/resume remains a separate TDD frontier.
     ///
     /// # Errors
     ///
-    /// Rejects any admission mismatch or framing failure. A non-zero range
-    /// execution request is rejected until the range-exchange contract is added.
+    /// Rejects any admission, authority, framing, exact-range, digest or local
+    /// persistence failure.
     pub async fn pull_missing_ranges<S>(
         stream: &mut S,
         ticket: &TransferTicket,
         peer_fingerprint: CredentialFingerprint,
-        _partial_path: &Path,
-        _cursor: &mut DownloadCursor,
+        partial_path: &Path,
+        cursor: &mut DownloadCursor,
         max_in_flight_ranges: usize,
         stop_after_ranges: Option<usize>,
     ) -> Result<DirectTransferReport, DirectSessionError>
@@ -190,13 +234,93 @@ impl DirectTargetSession {
             return Err(DirectSessionError::AdmissionRejected);
         }
 
-        if stop_after_ranges == Some(0) {
+        if stop_after_ranges == Some(0) || ticket.expected_size() == 0 {
             return Ok(DirectTransferReport {
                 network_bytes: 0,
                 requested_ranges: 0,
             });
         }
 
-        Err(DirectSessionError::RangeExchangeNotImplemented)
+        let len = ticket.expected_size().min(MAX_RANGE_BYTES as u64);
+        let request = RangeRequest {
+            ticket_ref: ticket.ticket_ref().clone(),
+            start: 0,
+            len,
+        };
+        write_control_frame(
+            stream,
+            &TransferControlMessage::RangeRequest(request.clone()),
+        )
+        .await?;
+
+        let header = match read_control_frame(stream).await? {
+            TransferControlMessage::RangeDataHeader(header) => header,
+            _ => return Err(DirectSessionError::RangeMismatch),
+        };
+        if header.ticket_ref != *ticket.ticket_ref() {
+            return Err(DirectSessionError::TicketMismatch);
+        }
+        if header.start != request.start || header.len != request.len {
+            return Err(DirectSessionError::RangeMismatch);
+        }
+
+        let payload = read_range_payload(stream, &header).await?;
+        persist_exact_range(partial_path, header.start, &payload)?;
+        let verified = VerifiedRange {
+            start: header.start,
+            len: header.len,
+            sha256: header.sha256.clone(),
+        };
+        cursor.mark_verified(verified.clone());
+
+        write_control_frame(
+            stream,
+            &TransferControlMessage::RangeAck(RangeAck {
+                ticket_ref: ticket.ticket_ref().clone(),
+                start: verified.start,
+                len: verified.len,
+                sha256: verified.sha256,
+            }),
+        )
+        .await?;
+
+        Ok(DirectTransferReport {
+            network_bytes: header.len,
+            requested_ranges: 1,
+        })
     }
+}
+
+fn validate_request(request: &RangeRequest, expected_size: u64) -> Result<(), DirectSessionError> {
+    if request.len == 0 || request.len > MAX_RANGE_BYTES as u64 {
+        return Err(DirectSessionError::RangeMismatch);
+    }
+    let end = request
+        .start
+        .checked_add(request.len)
+        .ok_or(DirectSessionError::RangeMismatch)?;
+    if end > expected_size {
+        return Err(DirectSessionError::RangeMismatch);
+    }
+    Ok(())
+}
+
+fn persist_exact_range(path: &Path, start: u64, payload: &[u8]) -> Result<(), DirectSessionError> {
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(path)
+        .map_err(|error| DirectSessionError::PartialWrite(error.to_string()))?;
+    file.seek(SeekFrom::Start(start))
+        .map_err(|error| DirectSessionError::PartialWrite(error.to_string()))?;
+    file.write_all(payload)
+        .map_err(|error| DirectSessionError::PartialWrite(error.to_string()))?;
+    file.flush()
+        .map_err(|error| DirectSessionError::PartialWrite(error.to_string()))?;
+    Ok(())
+}
+
+fn sha256(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
 }

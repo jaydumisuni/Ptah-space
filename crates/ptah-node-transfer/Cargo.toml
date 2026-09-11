@@ -29,3 +29,7 @@ path = "tests/protocol.rs"
 [[test]]
 name = "framing"
 path = "tests/framing.rs"
+
+[[test]]
+name = "direct_tls"
+path = "tests/direct_tls.rs"

@@ -42,6 +42,8 @@ pub struct DirectTransferReport {
     pub network_bytes: u64,
     /// Exact ranges requested during this pass.
     pub requested_ranges: usize,
+    /// Leading verified ranges retained and reused from an earlier pass.
+    pub resumed_ranges: usize,
 }
 
 /// Direct E03 session admission and bounded range-exchange failures.
@@ -258,18 +260,22 @@ impl DirectTargetSession {
             return Ok(DirectTransferReport {
                 network_bytes: 0,
                 requested_ranges: 0,
+                resumed_ranges: 0,
             });
         }
 
+        let (_, resumed_ranges) =
+            first_missing_range(partial_path, cursor, ticket.expected_size())?;
         let mut report = DirectTransferReport {
             network_bytes: 0,
             requested_ranges: 0,
+            resumed_ranges,
         };
 
         for _ in 0..range_limit {
-            let Some((start, len)) =
-                first_missing_range(partial_path, cursor, ticket.expected_size())?
-            else {
+            let (next_range, _) =
+                first_missing_range(partial_path, cursor, ticket.expected_size())?;
+            let Some((start, len)) = next_range else {
                 write_control_frame(
                     stream,
                     &TransferControlMessage::Complete(TransferComplete {
@@ -341,13 +347,14 @@ fn first_missing_range(
     partial_path: &Path,
     cursor: &DownloadCursor,
     expected_size: u64,
-) -> Result<Option<(u64, u64)>, DirectSessionError> {
+) -> Result<(Option<(u64, u64)>, usize), DirectSessionError> {
     let mut retained = match File::open(partial_path) {
         Ok(file) => Some(file),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => return Err(DirectSessionError::PartialRead(error.to_string())),
     };
     let mut start = 0_u64;
+    let mut resumed_ranges = 0_usize;
 
     while start < expected_size {
         let len = (expected_size - start).min(MAX_RANGE_BYTES as u64);
@@ -374,14 +381,17 @@ fn first_missing_range(
         }
 
         if !reusable {
-            return Ok(Some((start, len)));
+            return Ok((Some((start, len)), resumed_ranges));
         }
+        resumed_ranges = resumed_ranges
+            .checked_add(1)
+            .ok_or(DirectSessionError::RangeMismatch)?;
         start = start
             .checked_add(len)
             .ok_or(DirectSessionError::RangeMismatch)?;
     }
 
-    Ok(None)
+    Ok((None, resumed_ranges))
 }
 
 fn validate_request(request: &RangeRequest, expected_size: u64) -> Result<(), DirectSessionError> {

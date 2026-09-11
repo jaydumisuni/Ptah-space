@@ -15,7 +15,9 @@ ptah-transfer = { path = "../../crates/ptah-transfer", version = "=0.0.0-phase0c
 tokio.workspace = true
 
 [dev-dependencies]
+ptah-node-transfer = { path = "../../crates/ptah-node-transfer", version = "=0.0.0-phase0c" }
 ptah-provider-api = { path = "../../crates/ptah-provider-api", version = "=0.0.0-phase0c" }
+sha2.workspace = true
 
 [lints]
 workspace = true

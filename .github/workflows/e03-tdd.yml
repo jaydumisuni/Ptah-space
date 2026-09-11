@@ -95,3 +95,7 @@ jobs:
       - name: Task 4 inherited E02 dispatch guard
         shell: bash
         run: cargo test -p ptah-node --test e02_dispatch_guard --locked
+
+      - name: Task 5 direct authenticated TLS RED frontier
+        shell: bash
+        run: cargo test -p ptah-node-transfer --test direct_tls --locked

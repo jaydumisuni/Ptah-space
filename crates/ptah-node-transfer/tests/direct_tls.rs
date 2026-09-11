@@ -305,3 +305,80 @@ async fn direct_session_resumes_from_verified_cursor_without_retransmitting_reta
     server.await.expect("server join");
     let _ = std::fs::remove_file(temp);
 }
+
+
+#[tokio::test]
+async fn direct_session_transfers_two_sequential_missing_ranges_in_one_session() {
+    let first_len = MAX_RANGE_BYTES;
+    let tail = b"second-range";
+    let mut bytes = vec![0x3c; first_len];
+    bytes.extend_from_slice(tail);
+
+    let first_range = VerifiedRange {
+        start: 0,
+        len: first_len as u64,
+        sha256: format!("{:x}", Sha256::digest(&bytes[..first_len])),
+    };
+    let second_range = VerifiedRange {
+        start: first_len as u64,
+        len: tail.len() as u64,
+        sha256: format!("{:x}", Sha256::digest(tail)),
+    };
+
+    let ticket = ticket(&bytes);
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let address = listener.local_addr().expect("address");
+    let server_ticket = ticket.clone();
+    let server_bytes = bytes.clone();
+    let server = tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.expect("accept");
+        let mut tls = accept_tls(tcp, &server_config()).await.expect("server tls");
+        let peer_fingerprint = tls.peer_fingerprint();
+        let mut source = BytesSource {
+            sha256: format!("{:x}", Sha256::digest(&server_bytes)),
+            bytes: server_bytes,
+        };
+        DirectSourceSession::serve(
+            tls.stream_mut(),
+            &server_ticket,
+            peer_fingerprint,
+            &mut source,
+            1,
+            Some(2),
+        )
+        .await
+        .expect("serve two sequential ranges")
+    });
+
+    let tcp = TcpStream::connect(address).await.expect("connect");
+    let mut tls = connect_tls(tcp, "localhost", &client_config())
+        .await
+        .expect("client tls");
+    let peer_fingerprint = tls.peer_fingerprint();
+    let temp = std::env::temp_dir().join(format!(
+        "ptah-e03-direct-two-ranges-{}.part",
+        ticket.ticket_ref().entity_id
+    ));
+    let _ = std::fs::remove_file(&temp);
+    let mut cursor = DownloadCursor::default();
+
+    let report = DirectTargetSession::pull_missing_ranges(
+        tls.stream_mut(),
+        &ticket,
+        peer_fingerprint,
+        &temp,
+        &mut cursor,
+        1,
+        Some(2),
+    )
+    .await
+    .expect("pull two sequential ranges");
+
+    assert_eq!(report.network_bytes, bytes.len() as u64);
+    assert_eq!(report.requested_ranges, 2);
+    assert!(cursor.contains(&first_range));
+    assert!(cursor.contains(&second_range));
+    assert_eq!(std::fs::read(&temp).expect("two-range bytes"), bytes);
+    server.await.expect("server join");
+    let _ = std::fs::remove_file(temp);
+}

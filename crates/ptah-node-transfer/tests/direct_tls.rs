@@ -389,8 +389,12 @@ async fn direct_session_transfers_two_sequential_missing_ranges_in_one_session()
     .await
     .expect("pull two sequential ranges");
 
+    assert_eq!(report.route_kind, TransferRouteKind::Direct);
     assert_eq!(report.network_bytes, bytes.len() as u64);
     assert_eq!(report.requested_ranges, 2);
+    assert_eq!(report.accepted_ranges, 2);
+    assert_eq!(report.whole_sha256.as_deref(), Some(ticket.canonical_sha256()));
+    assert!(report.failures.is_empty());
     assert!(cursor.contains(&first_range));
     assert!(cursor.contains(&second_range));
     assert_eq!(std::fs::read(&temp).expect("two-range bytes"), bytes);

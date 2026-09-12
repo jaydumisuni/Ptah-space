@@ -8,11 +8,13 @@ mod direct;
 mod error;
 mod framing;
 mod protocol;
+mod relay;
 
 pub use direct::*;
 pub use error::*;
 pub use framing::*;
 pub use protocol::*;
+pub use relay::*;
 pub use ptah_transfer::TransferPeerRole;
 
 /// Frozen E03 application protocol identifier.

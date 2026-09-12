@@ -1,3 +1,4 @@
+use crate::{MAX_RANGE_BYTES, RangeDataHeader, RangeRequest};
 use ptah_identifiers::EntityRef;
 use ptah_transfer::{
     E03TransferError, TransferPeerBinding, TransferPeerRole, TransferRouteCandidate,
@@ -29,6 +30,37 @@ pub enum RelayAdmissionError {
     /// The short-lived ticket is no longer live.
     #[error("E03 relay ticket expired")]
     ExpiredTicket,
+}
+
+/// Stable failures for bounded single-hop relay range forwarding.
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+pub enum RelayForwardError {
+    /// The presented ticket is not registered with this broker.
+    #[error("E03 relay ticket is unknown")]
+    UnknownTicket,
+    /// Both exact ticket peers have not completed relay admission.
+    #[error("E03 relay source and target are not both paired")]
+    PeersNotPaired,
+    /// Request or payload metadata references a different ticket.
+    #[error("E03 relay range ticket does not match paired ticket")]
+    TicketMismatch,
+    /// Range request, header, and payload lengths or offsets disagree.
+    #[error("E03 relay range metadata is inconsistent")]
+    RangeMetadataMismatch,
+    /// The requested range exceeds the frozen E03 per-frame bound.
+    #[error("E03 relay range exceeds the bounded frame limit")]
+    RangeTooLarge,
+}
+
+/// One bounded range frame forwarded without creating relay storage authority.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelayForwardedRange {
+    /// Exact target-issued request being forwarded.
+    pub request: RangeRequest,
+    /// Exact source-produced range header being forwarded.
+    pub header: RangeDataHeader,
+    /// The single bounded in-flight payload; this is not canonical storage.
+    pub payload: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -112,6 +144,53 @@ impl RelayBroker {
         )
     }
 
+    /// Forward one exact bounded range only after both ticket peers are paired.
+    ///
+    /// The relay retains no canonical object state; the returned payload is the
+    /// single bounded in-flight range and the target remains responsible for
+    /// digest verification and destination persistence.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed when the ticket is unknown, both exact peers are not paired,
+    /// ticket identities differ, range metadata is inconsistent, or the range
+    /// exceeds the frozen E03 per-frame bound.
+    pub fn forward_range(
+        &self,
+        ticket_ref: &EntityRef,
+        request: RangeRequest,
+        header: RangeDataHeader,
+        payload: &[u8],
+    ) -> Result<RelayForwardedRange, RelayForwardError> {
+        let state = self
+            .tickets
+            .iter()
+            .find(|state| state.ticket.ticket_ref() == ticket_ref)
+            .ok_or(RelayForwardError::UnknownTicket)?;
+
+        if !state.source_registered || !state.target_registered {
+            return Err(RelayForwardError::PeersNotPaired);
+        }
+        if request.ticket_ref != *ticket_ref || header.ticket_ref != *ticket_ref {
+            return Err(RelayForwardError::TicketMismatch);
+        }
+        if request.start != header.start
+            || request.len != header.len
+            || request.len != payload.len() as u64
+        {
+            return Err(RelayForwardError::RangeMetadataMismatch);
+        }
+        if request.len > MAX_RANGE_BYTES as u64 {
+            return Err(RelayForwardError::RangeTooLarge);
+        }
+
+        Ok(RelayForwardedRange {
+            request,
+            header,
+            payload: payload.to_vec(),
+        })
+    }
+
     fn register_peer(
         &mut self,
         ticket_ref: &EntityRef,
@@ -139,7 +218,10 @@ impl RelayBroker {
         if relay_tls_fingerprint != route.expected_peer_fingerprint {
             return Err(RelayAdmissionError::RelayFingerprintMismatch);
         }
-        match state.ticket.authorize_peer(role, presented_peer, now_unix_seconds) {
+        match state
+            .ticket
+            .authorize_peer(role, presented_peer, now_unix_seconds)
+        {
             Ok(()) => {}
             Err(E03TransferError::ExpiredTicket) => {
                 return Err(RelayAdmissionError::ExpiredTicket);

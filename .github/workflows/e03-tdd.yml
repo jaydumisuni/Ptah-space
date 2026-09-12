@@ -107,3 +107,7 @@ jobs:
       - name: Task 6 explicit relay authorization contract
         shell: bash
         run: cargo test -p ptah-node-transfer --test relay_tls --locked
+
+      - name: Task 6 node direct-failure relay resume contract
+        shell: bash
+        run: cargo test -p ptah-node --test e03_relay_resume --locked

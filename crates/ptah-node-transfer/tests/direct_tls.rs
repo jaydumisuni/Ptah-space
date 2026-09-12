@@ -245,6 +245,63 @@ async fn direct_session_transfers_one_exact_verified_range() {
 }
 
 #[tokio::test]
+async fn direct_session_does_not_mark_cursor_verified_when_persisted_bytes_cannot_be_reread() {
+    let bytes = b"durability must precede cursor authority".to_vec();
+    let expected_range = VerifiedRange {
+        start: 0,
+        len: bytes.len() as u64,
+        sha256: format!("{:x}", Sha256::digest(&bytes)),
+    };
+    let ticket = ticket(&bytes);
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let address = listener.local_addr().expect("address");
+    let server_ticket = ticket.clone();
+    let server = tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.expect("accept");
+        let mut tls = accept_tls(tcp, &server_config()).await.expect("server tls");
+        let peer_fingerprint = tls.peer_fingerprint();
+        let mut source = BytesSource {
+            sha256: format!("{:x}", Sha256::digest(&bytes)),
+            bytes,
+        };
+        DirectSourceSession::serve(
+            tls.stream_mut(),
+            &server_ticket,
+            peer_fingerprint,
+            &mut source,
+            1,
+            Some(1),
+        )
+        .await
+    });
+
+    let tcp = TcpStream::connect(address).await.expect("connect");
+    let mut tls = connect_tls(tcp, "localhost", &client_config())
+        .await
+        .expect("client tls");
+    let peer_fingerprint = tls.peer_fingerprint();
+    let mut cursor = DownloadCursor::default();
+    let result = DirectTargetSession::pull_missing_ranges(
+        tls.stream_mut(),
+        &ticket,
+        peer_fingerprint,
+        std::path::Path::new("/dev/null"),
+        &mut cursor,
+        1,
+        Some(1),
+    )
+    .await;
+
+    assert!(result.is_err(), "non-retained bytes must fail persistence verification");
+    assert!(
+        !cursor.contains(&expected_range),
+        "cursor authority must follow durable re-read verification"
+    );
+    drop(tls);
+    let _ = server.await.expect("server join");
+}
+
+#[tokio::test]
 async fn direct_session_resumes_from_verified_cursor_without_retransmitting_retained_range() {
     let first_len = MAX_RANGE_BYTES;
     let tail = b"resume-tail";

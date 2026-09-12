@@ -66,6 +66,13 @@ pub struct DirectTransferReport {
     pub failures: Vec<RouteFailure>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct DirectPullPolicy {
+    max_in_flight_ranges: usize,
+    stop_after_ranges: Option<usize>,
+    retain_connection_loss: bool,
+}
+
 /// Direct E03 session admission and bounded range-exchange failures.
 #[derive(Debug, Error)]
 pub enum DirectSessionError {
@@ -244,35 +251,82 @@ impl DirectTargetSession {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        if max_in_flight_ranges == 0 {
+        Self::pull_missing_ranges_inner(
+            stream,
+            ticket,
+            peer_fingerprint,
+            partial_path,
+            cursor,
+            DirectPullPolicy {
+                max_in_flight_ranges,
+                stop_after_ranges,
+                retain_connection_loss: false,
+            },
+        )
+        .await
+    }
+
+    /// Pull missing direct ranges while retaining a transport-level connection
+    /// loss as stable route-failure evidence after any already-verified ranges.
+    ///
+    /// Protocol, authority, digest and persistence failures still fail closed;
+    /// only an EOF or underlying I/O loss is converted into
+    /// `RouteFailure { Direct, "connection_lost" }` for explicit route fallback.
+    ///
+    /// # Errors
+    ///
+    /// Returns all non-connection-loss direct-session failures unchanged.
+    pub async fn pull_missing_ranges_retaining_connection_loss<S>(
+        stream: &mut S,
+        ticket: &TransferTicket,
+        peer_fingerprint: CredentialFingerprint,
+        partial_path: &Path,
+        cursor: &mut DownloadCursor,
+        max_in_flight_ranges: usize,
+        stop_after_ranges: Option<usize>,
+    ) -> Result<DirectTransferReport, DirectSessionError>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        Self::pull_missing_ranges_inner(
+            stream,
+            ticket,
+            peer_fingerprint,
+            partial_path,
+            cursor,
+            DirectPullPolicy {
+                max_in_flight_ranges,
+                stop_after_ranges,
+                retain_connection_loss: true,
+            },
+        )
+        .await
+    }
+
+    async fn pull_missing_ranges_inner<S>(
+        stream: &mut S,
+        ticket: &TransferTicket,
+        peer_fingerprint: CredentialFingerprint,
+        partial_path: &Path,
+        cursor: &mut DownloadCursor,
+        policy: DirectPullPolicy,
+    ) -> Result<DirectTransferReport, DirectSessionError>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        if policy.max_in_flight_ranges == 0 {
             return Err(DirectSessionError::InvalidRangeWindow);
         }
         admit_target(stream, ticket, peer_fingerprint).await?;
 
-        let range_limit = stop_after_ranges.unwrap_or(1);
+        let range_limit = policy.stop_after_ranges.unwrap_or(1);
         if range_limit == 0 || ticket.expected_size() == 0 {
-            return Ok(DirectTransferReport {
-                route_kind: TransferRouteKind::Direct,
-                network_bytes: 0,
-                requested_ranges: 0,
-                accepted_ranges: 0,
-                resumed_ranges: 0,
-                whole_sha256: None,
-                failures: Vec::new(),
-            });
+            return Ok(direct_transfer_report(0));
         }
 
         let (_, resumed_ranges) =
             first_missing_range(partial_path, cursor, ticket.expected_size())?;
-        let mut report = DirectTransferReport {
-            route_kind: TransferRouteKind::Direct,
-            network_bytes: 0,
-            requested_ranges: 0,
-            accepted_ranges: 0,
-            resumed_ranges,
-            whole_sha256: None,
-            failures: Vec::new(),
-        };
+        let mut report = direct_transfer_report(resumed_ranges);
 
         for _ in 0..range_limit {
             let (next_range, _) =
@@ -294,15 +348,24 @@ impl DirectTargetSession {
                 start,
                 len,
             };
-            write_control_frame(
+            if let Err(error) = write_control_frame(
                 stream,
                 &TransferControlMessage::RangeRequest(request.clone()),
             )
-            .await?;
+            .await
+            {
+                retain_route_connection_loss_or_error(&mut report, policy, error)?;
+                break;
+            }
 
-            let TransferControlMessage::RangeDataHeader(header) =
-                read_control_frame(stream).await?
-            else {
+            let response = match read_control_frame(stream).await {
+                Ok(response) => response,
+                Err(error) => {
+                    retain_route_connection_loss_or_error(&mut report, policy, error)?;
+                    break;
+                }
+            };
+            let TransferControlMessage::RangeDataHeader(header) = response else {
                 return Err(DirectSessionError::RangeMismatch);
             };
             if header.ticket_ref != *ticket.ticket_ref() {
@@ -312,7 +375,13 @@ impl DirectTargetSession {
                 return Err(DirectSessionError::RangeMismatch);
             }
 
-            let payload = read_range_payload(stream, &header).await?;
+            let payload = match read_range_payload(stream, &header).await {
+                Ok(payload) => payload,
+                Err(error) => {
+                    retain_route_connection_loss_or_error(&mut report, policy, error)?;
+                    break;
+                }
+            };
             let verified =
                 persist_exact_range(partial_path, header.start, &payload, &header.sha256)?;
             cursor.mark_verified(verified.clone());
@@ -350,6 +419,48 @@ impl DirectTargetSession {
         }
 
         Ok(report)
+    }
+}
+
+fn direct_transfer_report(resumed_ranges: usize) -> DirectTransferReport {
+    DirectTransferReport {
+        route_kind: TransferRouteKind::Direct,
+        network_bytes: 0,
+        requested_ranges: 0,
+        accepted_ranges: 0,
+        resumed_ranges,
+        whole_sha256: None,
+        failures: Vec::new(),
+    }
+}
+
+fn retain_route_connection_loss_or_error(
+    report: &mut DirectTransferReport,
+    policy: DirectPullPolicy,
+    error: TransferDataError,
+) -> Result<(), DirectSessionError> {
+    if policy.retain_connection_loss && retain_route_connection_loss(report, &error) {
+        Ok(())
+    } else {
+        Err(error.into())
+    }
+}
+
+fn retain_route_connection_loss(
+    report: &mut DirectTransferReport,
+    error: &TransferDataError,
+) -> bool {
+    if matches!(
+        error,
+        TransferDataError::UnexpectedEof | TransferDataError::Io(_)
+    ) {
+        report.failures.push(RouteFailure {
+            kind: TransferRouteKind::Direct,
+            error: String::from("connection_lost"),
+        });
+        true
+    } else {
+        false
     }
 }
 

@@ -1,7 +1,7 @@
 //! E03 explicit single-hop relay authorization contract.
 
 use ptah_identifiers::{ConnectionEpoch, EntityRef, NodeGeneration, NodeId};
-use ptah_node_transfer::{RelayAdmissionError, RelayBroker};
+use ptah_node_transfer::{RangeDataHeader, RangeRequest, RelayAdmissionError, RelayBroker};
 use ptah_transfer::{
     TransferPeerBinding, TransferRouteCandidate, TransferRouteKind, TransferTicket,
 };
@@ -63,7 +63,12 @@ fn relay_rejects_ticket_without_its_exact_relay_candidate() {
     let source = binding([0x10; 32]);
     let target = binding([0x20; 32]);
     let authorized = relay_route(reference("relay.authorized"));
-    let ticket = ticket_with_route(reference("transfer.ticket"), source.clone(), target, authorized);
+    let ticket = ticket_with_route(
+        reference("transfer.ticket"),
+        source.clone(),
+        target,
+        authorized,
+    );
     let mut broker = RelayBroker::new(vec![ticket.clone()]);
     let ambient = relay_route(reference("relay.ambient"));
 
@@ -84,7 +89,12 @@ fn relay_rejects_wrong_relay_tls_fingerprint() {
     let source = binding([0x10; 32]);
     let target = binding([0x20; 32]);
     let route = relay_route(reference("relay.authorized"));
-    let ticket = ticket_with_route(reference("transfer.ticket"), source.clone(), target, route.clone());
+    let ticket = ticket_with_route(
+        reference("transfer.ticket"),
+        source.clone(),
+        target,
+        route.clone(),
+    );
     let mut broker = RelayBroker::new(vec![ticket.clone()]);
 
     assert_eq!(
@@ -98,26 +108,19 @@ fn relay_rejects_two_source_peers_for_one_ticket() {
     let source = binding([0x10; 32]);
     let target = binding([0x20; 32]);
     let route = relay_route(reference("relay.authorized"));
-    let ticket = ticket_with_route(reference("transfer.ticket"), source.clone(), target, route.clone());
+    let ticket = ticket_with_route(
+        reference("transfer.ticket"),
+        source.clone(),
+        target,
+        route.clone(),
+    );
     let mut broker = RelayBroker::new(vec![ticket.clone()]);
 
     broker
-        .register_source(
-            ticket.ticket_ref(),
-            &route,
-            &source,
-            RELAY_FINGERPRINT,
-            11,
-        )
+        .register_source(ticket.ticket_ref(), &route, &source, RELAY_FINGERPRINT, 11)
         .expect("first source");
     assert_eq!(
-        broker.register_source(
-            ticket.ticket_ref(),
-            &route,
-            &source,
-            RELAY_FINGERPRINT,
-            11,
-        ),
+        broker.register_source(ticket.ticket_ref(), &route, &source, RELAY_FINGERPRINT, 11,),
         Err(RelayAdmissionError::SourceAlreadyRegistered),
     );
 }
@@ -160,7 +163,12 @@ fn relay_rejects_expired_ticket() {
     let source = binding([0x10; 32]);
     let target = binding([0x20; 32]);
     let route = relay_route(reference("relay.authorized"));
-    let ticket = ticket_with_route(reference("transfer.ticket"), source.clone(), target, route.clone());
+    let ticket = ticket_with_route(
+        reference("transfer.ticket"),
+        source.clone(),
+        target,
+        route.clone(),
+    );
     let mut broker = RelayBroker::new(vec![ticket.clone()]);
 
     assert_eq!(
@@ -173,4 +181,51 @@ fn relay_rejects_expired_ticket() {
         ),
         Err(RelayAdmissionError::ExpiredTicket),
     );
+}
+
+#[test]
+fn relay_forwards_one_exact_range_only_after_both_ticket_peers_are_paired() {
+    let source = binding([0x10; 32]);
+    let target = binding([0x20; 32]);
+    let route = relay_route(reference("relay.authorized"));
+    let ticket = ticket_with_route(
+        reference("transfer.ticket"),
+        source.clone(),
+        target.clone(),
+        route.clone(),
+    );
+    let mut broker = RelayBroker::new(vec![ticket.clone()]);
+
+    broker
+        .register_source(ticket.ticket_ref(), &route, &source, RELAY_FINGERPRINT, 11)
+        .expect("source");
+    broker
+        .register_target(ticket.ticket_ref(), &route, &target, RELAY_FINGERPRINT, 11)
+        .expect("target");
+
+    let payload = b"relay-range".to_vec();
+    let request = RangeRequest {
+        ticket_ref: ticket.ticket_ref().clone(),
+        start: 1024,
+        len: payload.len() as u64,
+    };
+    let header = RangeDataHeader {
+        ticket_ref: ticket.ticket_ref().clone(),
+        start: request.start,
+        len: request.len,
+        sha256: "22".repeat(32),
+    };
+
+    let forwarded = broker
+        .forward_range(
+            ticket.ticket_ref(),
+            request.clone(),
+            header.clone(),
+            &payload,
+        )
+        .expect("forward exact range");
+
+    assert_eq!(forwarded.request, request);
+    assert_eq!(forwarded.header, header);
+    assert_eq!(forwarded.payload, payload);
 }

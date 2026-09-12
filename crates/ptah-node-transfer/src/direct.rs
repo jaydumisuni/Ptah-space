@@ -313,12 +313,8 @@ impl DirectTargetSession {
             }
 
             let payload = read_range_payload(stream, &header).await?;
-            persist_exact_range(partial_path, header.start, &payload)?;
-            let verified = VerifiedRange {
-                start: header.start,
-                len: header.len,
-                sha256: header.sha256.clone(),
-            };
+            let verified =
+                persist_exact_range(partial_path, header.start, &payload, &header.sha256)?;
             cursor.mark_verified(verified.clone());
 
             write_control_frame(
@@ -346,7 +342,10 @@ impl DirectTargetSession {
                 .ok_or(DirectSessionError::RangeMismatch)?;
         }
 
-        if first_missing_range(partial_path, cursor, ticket.expected_size())?.0.is_none() {
+        if first_missing_range(partial_path, cursor, ticket.expected_size())?
+            .0
+            .is_none()
+        {
             report.whole_sha256 = Some(sha256_file(partial_path, ticket.expected_size())?);
         }
 
@@ -452,9 +451,15 @@ fn validate_request(request: &RangeRequest, expected_size: u64) -> Result<(), Di
     Ok(())
 }
 
-fn persist_exact_range(path: &Path, start: u64, payload: &[u8]) -> Result<(), DirectSessionError> {
+fn persist_exact_range(
+    path: &Path,
+    start: u64,
+    payload: &[u8],
+    expected_sha256: &str,
+) -> Result<VerifiedRange, DirectSessionError> {
     let mut file = OpenOptions::new()
         .create(true)
+        .read(true)
         .write(true)
         .truncate(false)
         .open(path)
@@ -465,12 +470,29 @@ fn persist_exact_range(path: &Path, start: u64, payload: &[u8]) -> Result<(), Di
         .map_err(|error| DirectSessionError::PartialWrite(error.to_string()))?;
     file.flush()
         .map_err(|error| DirectSessionError::PartialWrite(error.to_string()))?;
-    Ok(())
+    file.sync_data()
+        .map_err(|error| DirectSessionError::PartialWrite(error.to_string()))?;
+
+    file.seek(SeekFrom::Start(start))
+        .map_err(|error| DirectSessionError::PartialRead(error.to_string()))?;
+    let mut persisted = vec![0_u8; payload.len()];
+    file.read_exact(&mut persisted)
+        .map_err(|error| DirectSessionError::PartialRead(error.to_string()))?;
+    let persisted_sha256 = sha256(&persisted);
+    if persisted_sha256 != expected_sha256 {
+        return Err(TransferDataError::RangeDigestMismatch.into());
+    }
+
+    Ok(VerifiedRange {
+        start,
+        len: payload.len() as u64,
+        sha256: persisted_sha256,
+    })
 }
 
 fn sha256_file(path: &Path, expected_size: u64) -> Result<String, DirectSessionError> {
-    let mut file = File::open(path)
-        .map_err(|error| DirectSessionError::PartialRead(error.to_string()))?;
+    let mut file =
+        File::open(path).map_err(|error| DirectSessionError::PartialRead(error.to_string()))?;
     let len = usize::try_from(expected_size)
         .map_err(|error| DirectSessionError::PartialRead(error.to_string()))?;
     let mut bytes = vec![0_u8; len];

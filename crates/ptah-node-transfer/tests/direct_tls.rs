@@ -292,7 +292,10 @@ async fn direct_session_does_not_mark_cursor_verified_when_persisted_bytes_canno
     )
     .await;
 
-    assert!(result.is_err(), "non-retained bytes must fail persistence verification");
+    assert!(
+        result.is_err(),
+        "non-retained bytes must fail persistence verification"
+    );
     assert!(
         !cursor.contains(&expected_range),
         "cursor authority must follow durable re-read verification"
@@ -450,7 +453,10 @@ async fn direct_session_transfers_two_sequential_missing_ranges_in_one_session()
     assert_eq!(report.network_bytes, bytes.len() as u64);
     assert_eq!(report.requested_ranges, 2);
     assert_eq!(report.accepted_ranges, 2);
-    assert_eq!(report.whole_sha256.as_deref(), Some(ticket.canonical_sha256()));
+    assert_eq!(
+        report.whole_sha256.as_deref(),
+        Some(ticket.canonical_sha256())
+    );
     assert!(report.failures.is_empty());
     assert!(cursor.contains(&first_range));
     assert!(cursor.contains(&second_range));

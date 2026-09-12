@@ -133,7 +133,7 @@ impl ExactRangeSource for BytesSource {
     }
 }
 
-async fn direct_first_range(
+async fn direct_until_forced_loss(
     bytes: Vec<u8>,
     ticket: &TransferTicket,
     partial_path: &std::path::Path,
@@ -168,17 +168,17 @@ async fn direct_first_range(
         .await
         .expect("client tls");
     let peer_fingerprint = tls.peer_fingerprint();
-    let report = DirectTargetSession::pull_missing_ranges(
+    let report = DirectTargetSession::pull_missing_ranges_retaining_connection_loss(
         tls.stream_mut(),
         ticket,
         peer_fingerprint,
         partial_path,
         cursor,
         1,
-        Some(1),
+        Some(2),
     )
     .await
-    .expect("pull first range");
+    .expect("retain forced direct connection loss");
     server.await.expect("server join");
     report
 }
@@ -234,12 +234,16 @@ async fn direct_failure_continues_only_missing_ranges_through_explicit_relay() {
     let _ = std::fs::remove_file(&destination);
     let mut cursor = DownloadCursor::default();
 
-    let mut report = direct_first_range(bytes.clone(), &ticket, &destination, &mut cursor).await;
+    let report = direct_until_forced_loss(bytes.clone(), &ticket, &destination, &mut cursor).await;
     assert_eq!(report.network_bytes, MAX_RANGE_BYTES as u64);
-    report.failures.push(RouteFailure {
-        kind: TransferRouteKind::Direct,
-        error: String::from("connection_lost"),
-    });
+    assert_eq!(report.accepted_ranges, 1);
+    assert_eq!(
+        report.failures,
+        vec![RouteFailure {
+            kind: TransferRouteKind::Direct,
+            error: String::from("connection_lost"),
+        }]
+    );
 
     let mut broker = RelayBroker::new(vec![ticket.clone()]);
     broker

@@ -14,8 +14,8 @@ pub use direct::*;
 pub use error::*;
 pub use framing::*;
 pub use protocol::*;
-pub use relay::*;
 pub use ptah_transfer::TransferPeerRole;
+pub use relay::*;
 
 /// Frozen E03 application protocol identifier.
 pub const PROTOCOL_ID: &str = "ptah.node.transfer.v1";

@@ -6,7 +6,7 @@ on:
       - tmp/prime-manager-cookpit-kratos-20260913
 
 jobs:
-  diagnose-base07:
+  red-test:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 15
     steps:
@@ -15,22 +15,25 @@ jobs:
         with:
           ref: tmp/prime-manager-review-payload-20260913
           path: payload
-      - name: Verify malformed base_07 prefix
+      - name: Stage exact isolated KRATOS review workspace
         shell: bash
         run: |
           set -euo pipefail
-          D="$GITHUB_WORKSPACE/payload/tmp/prime-manager-review"
-          cd "$D"
-          echo '=== base_07 full ==='
-          wc -c base_07
-          sha256sum base_07
-          echo '=== base_07 first 12000 ==='
-          head -c 12000 base_07 > /tmp/base_07.prefix
-          wc -c /tmp/base_07.prefix
-          sha256sum /tmp/base_07.prefix
-          echo 'expected aea95ff13b3fc82ff08c12f94d3a30901a4305ad7fe7031785c33946794380c5'
-          echo '=== reconstructed with corrected prefix ==='
-          cat base_00 base_01 base_02 base_03 base_04 base_05 base_06 /tmp/base_07.prefix base_08 > /tmp/roadmap.corrected
-          wc -c /tmp/roadmap.corrected
-          sha256sum /tmp/roadmap.corrected
-          echo 'expected 65d754df5f9d5bbca74f3385945d01486845fa255cc44f9c2cf32ca29c521dc3'
+          W=/home/kratos/.oracle-work/prime-manager-review-cookpit
+          rm -rf "$W"
+          mkdir -p "$W"
+          cp -a "$GITHUB_WORKSPACE/payload/tmp/prime-manager-review/." "$W/"
+          cd "$W"
+          head -c 12000 base_07 > base_07.authority
+          cat base_00 base_01 base_02 base_03 base_04 base_05 base_06 base_07.authority base_08 > ROADMAP_BASE.md
+          test "$(wc -c < ROADMAP_BASE.md)" = "103455"
+          test "$(sha256sum ROADMAP_BASE.md | awk '{print $1}')" = "65d754df5f9d5bbca74f3385945d01486845fa255cc44f9c2cf32ca29c521dc3"
+          echo 'BASE_AUTHORITY_OK'
+          echo '=== PRIME AUTHORITY REPO UNTOUCHED ==='
+          git -C /home/kratos/Prime-Manager status --short --branch
+          git -C /home/kratos/Prime-Manager rev-parse HEAD
+      - name: RED - review gate implementation intentionally absent
+        shell: bash
+        run: |
+          cd /home/kratos/.oracle-work/prime-manager-review-cookpit
+          python3 -m unittest -v test_review_gate.py

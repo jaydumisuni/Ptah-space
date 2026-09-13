@@ -1,0 +1,302 @@
+{
+  "schema_version": "0.1.0",
+  "record_type": "ptah.e03.node_transfer_acceptance_corpus",
+  "accepted_predecessor": "4b745e7ee0712df0458c1adf55feafdbcc42d9d4",
+  "control_protocol": "ptah.node.link.v1",
+  "data_protocol": "ptah.node.transfer.v1",
+  "workspace_movement_added": false,
+  "platform_node_admission_added": false,
+  "automatic_discovery_added": false,
+  "automatic_relay_selection_added": false,
+  "offline_queue_added": false,
+  "new_core_entity_required": false,
+  "cases": [
+    {
+      "id": "two_authenticated_nodes_large_object",
+      "class": "positive",
+      "expected_result": "multi-megabyte bytes move only between exact authenticated peers",
+      "observed_result": "multi-megabyte bytes move only between exact authenticated peers",
+      "passed": true,
+      "required_evidence": [
+        "services/ptah-node/tests/e03_direct_resume.rs::direct_transfer_resumes_only_missing_ranges_after_interruption"
+      ]
+    },
+    {
+      "id": "bulk_bytes_not_e01_control_frame",
+      "class": "scope",
+      "expected_result": "bulk payload remains outside bounded E01 control framing",
+      "observed_result": "bulk payload remains outside bounded E01 control framing",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-node-transfer/tests/framing.rs::oversized_control_frame_is_rejected_before_payload_allocation",
+        "crates/ptah-node-transfer/tests/protocol.rs::protocol_identity_and_bounds_are_frozen"
+      ]
+    },
+    {
+      "id": "direct_exact_integrity",
+      "class": "positive",
+      "expected_result": "direct transfer retains exact byte count and declared SHA-256",
+      "observed_result": "direct transfer retains exact byte count and declared SHA-256",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-node-transfer/tests/direct_tls.rs::direct_session_transfers_one_exact_verified_range"
+      ]
+    },
+    {
+      "id": "interrupt_resume_missing_ranges_only",
+      "class": "recovery",
+      "expected_result": "resume retransmits only missing ranges",
+      "observed_result": "resume retransmits only missing ranges",
+      "passed": true,
+      "required_evidence": [
+        "services/ptah-node/tests/e03_direct_resume.rs::direct_transfer_resumes_only_missing_ranges_after_interruption"
+      ]
+    },
+    {
+      "id": "direct_failure_relay_continuation",
+      "class": "recovery",
+      "expected_result": "visible direct connection loss continues through explicitly authorized relay",
+      "observed_result": "visible direct connection loss continues through explicitly authorized relay",
+      "passed": true,
+      "required_evidence": [
+        "services/ptah-node/tests/e03_relay_resume.rs::direct_failure_continues_only_missing_ranges_through_explicit_relay"
+      ]
+    },
+    {
+      "id": "route_change_preserves_verified_ranges",
+      "class": "resilience",
+      "expected_result": "route change retains already verified ranges",
+      "observed_result": "route change retains already verified ranges",
+      "passed": true,
+      "required_evidence": [
+        "services/ptah-node/tests/e03_relay_resume.rs::direct_failure_continues_only_missing_ranges_through_explicit_relay"
+      ]
+    },
+    {
+      "id": "stale_source_generation_rejected",
+      "class": "negative",
+      "expected_result": "stale source NodeGeneration is rejected before payload admission",
+      "observed_result": "stale source NodeGeneration is rejected before payload admission",
+      "passed": true,
+      "required_evidence": [
+        "services/ptah-node/tests/e03_transfer_guard.rs::wrong_peer_fingerprint_and_stale_live_session_fail_closed"
+      ]
+    },
+    {
+      "id": "stale_target_epoch_rejected",
+      "class": "negative",
+      "expected_result": "stale target ConnectionEpoch is rejected before payload admission",
+      "observed_result": "stale target ConnectionEpoch is rejected before payload admission",
+      "passed": true,
+      "required_evidence": [
+        "services/ptah-node/tests/e03_transfer_guard.rs::wrong_peer_fingerprint_and_stale_live_session_fail_closed"
+      ]
+    },
+    {
+      "id": "wrong_peer_fingerprint_rejected",
+      "class": "adversarial",
+      "expected_result": "wrong peer credential fingerprint is rejected",
+      "observed_result": "wrong peer credential fingerprint is rejected",
+      "passed": true,
+      "required_evidence": [
+        "services/ptah-node/tests/e03_transfer_guard.rs::wrong_peer_fingerprint_and_stale_live_session_fail_closed"
+      ]
+    },
+    {
+      "id": "expired_ticket_rejected",
+      "class": "negative",
+      "expected_result": "expired ticket is rejected before admission",
+      "observed_result": "expired ticket is rejected before admission",
+      "passed": true,
+      "required_evidence": [
+        "services/ptah-node/tests/e03_transfer_guard.rs::expired_ticket_is_rejected_before_admission"
+      ]
+    },
+    {
+      "id": "wrong_a08_binding_rejected",
+      "class": "adversarial",
+      "expected_result": "ticket cannot authorize another Request/Run/Attempt binding",
+      "observed_result": "ticket cannot authorize another Request/Run/Attempt binding",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-transfer/tests/e03_authority.rs::ticket_authorizes_only_exact_current_peer_binding"
+      ]
+    },
+    {
+      "id": "wrong_content_artifact_binding_rejected",
+      "class": "adversarial",
+      "expected_result": "ticket cannot authorize another Content/Artifact binding",
+      "observed_result": "ticket cannot authorize another Content/Artifact binding",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-transfer/tests/e03_authority.rs::ticket_authorizes_only_exact_current_peer_binding"
+      ]
+    },
+    {
+      "id": "source_size_digest_mismatch_rejected",
+      "class": "negative",
+      "expected_result": "declared source size or digest mismatch is rejected",
+      "observed_result": "declared source size or digest mismatch is rejected",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-transfer/tests/e03_authority.rs::ticket_rejects_invalid_geometry_digest_lifetime_and_route_set"
+      ]
+    },
+    {
+      "id": "out_of_bounds_range_rejected",
+      "class": "adversarial",
+      "expected_result": "out-of-bounds ranges are rejected before read/allocation",
+      "observed_result": "out-of-bounds ranges are rejected before read/allocation",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-node-transfer/tests/framing.rs::range_larger_than_frozen_bound_is_rejected_before_read",
+        "crates/ptah-transfer/tests/a08_download.rs::oversized_retained_range_is_rejected_before_allocation"
+      ]
+    },
+    {
+      "id": "payload_length_mismatch_rejected",
+      "class": "adversarial",
+      "expected_result": "short or oversized payload cannot satisfy an exact range",
+      "observed_result": "short or oversized payload cannot satisfy an exact range",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-node-transfer/tests/framing.rs::short_range_payload_is_rejected_as_unexpected_eof"
+      ]
+    },
+    {
+      "id": "corrupt_range_rejected",
+      "class": "adversarial",
+      "expected_result": "range digest mismatch cannot become verified",
+      "observed_result": "range digest mismatch cannot become verified",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-node-transfer/tests/framing.rs::range_payload_digest_mismatch_is_rejected"
+      ]
+    },
+    {
+      "id": "corrupt_retained_partial_rejected",
+      "class": "adversarial",
+      "expected_result": "corrupted retained partial data is detected before reuse",
+      "observed_result": "corrupted retained partial data is detected before reuse",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-transfer/tests/e03_cache_resume.rs::retained_verified_ranges_are_reread_before_resume",
+        "crates/ptah-transfer/tests/a08_download.rs::corrupt_partial_is_detected_before_resume"
+      ]
+    },
+    {
+      "id": "whole_digest_mismatch_rejected",
+      "class": "negative",
+      "expected_result": "whole-content digest mismatch blocks completion",
+      "observed_result": "whole-content digest mismatch blocks completion",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-transfer/tests/a08_download.rs::digest_mismatch_retains_negative_verification_and_fails_run"
+      ]
+    },
+    {
+      "id": "verified_cache_hit_zero_network",
+      "class": "positive",
+      "expected_result": "exact verified cache reuse records zero network transfer and retains identity",
+      "observed_result": "exact verified cache reuse records zero network transfer and retains identity",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-transfer/tests/e03_cache_resume.rs::verified_exact_cache_can_be_reused_but_policy_can_force_network"
+      ]
+    },
+    {
+      "id": "unverified_cache_rejected",
+      "class": "negative",
+      "expected_result": "unverified or identity-mismatched cache bytes fail closed",
+      "observed_result": "unverified or identity-mismatched cache bytes fail closed",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-transfer/tests/e03_cache_resume.rs::cache_reuse_rejects_unverified_or_identity_mismatched_bytes"
+      ]
+    },
+    {
+      "id": "relay_no_a07_truth",
+      "class": "scope",
+      "expected_result": "relay forwarding creates no A07 Location or Artifact truth",
+      "observed_result": "relay forwarding creates no A07 Location or Artifact truth",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-node-transfer/tests/relay_tls.rs::relay_forwards_one_exact_range_only_after_both_ticket_peers_are_paired"
+      ]
+    },
+    {
+      "id": "a08_ack_not_final_verification",
+      "class": "negative",
+      "expected_result": "A08 provider/transport acknowledgement alone cannot complete verification",
+      "observed_result": "A08 provider/transport acknowledgement alone cannot complete verification",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-transfer/tests/a08_download.rs::provider_acknowledgement_never_completes_download"
+      ]
+    },
+    {
+      "id": "a07_acceptance_after_a08_verification_only",
+      "class": "integration",
+      "expected_result": "destination acceptance follows required read-back verification rather than transport acknowledgement",
+      "observed_result": "destination acceptance follows required read-back verification rather than transport acknowledgement",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-transfer/tests/a08_download.rs::uncertain_download_converges_to_verifying_after_successful_readback",
+        "crates/ptah-transfer/tests/a08_download.rs::successful_download_retains_exact_source_and_destination_digests"
+      ]
+    },
+    {
+      "id": "reconnect_fresh_ticket_resume",
+      "class": "recovery",
+      "expected_result": "superseded session authority is fenced and a fresh ticket can preserve durable resume truth",
+      "observed_result": "superseded session authority is fenced and a fresh ticket can preserve durable resume truth",
+      "passed": true,
+      "required_evidence": [
+        "services/ptah-control/tests/e03_transfer_authority.rs::supersession_reissue_and_revocation_fence_ticket_authority",
+        "crates/ptah-transfer/tests/e03_cache_resume.rs::retained_verified_ranges_are_reread_before_resume"
+      ]
+    },
+    {
+      "id": "control_restart_ephemeral_ticket_loss",
+      "class": "recovery",
+      "expected_result": "control restart loses old in-memory ticket/session authority without replacing durable resume truth",
+      "observed_result": "control restart loses old in-memory ticket/session authority without replacing durable resume truth",
+      "passed": true,
+      "required_evidence": [
+        "services/ptah-control/tests/e01_node_link.rs::control_restart_fences_previous_in_memory_binding",
+        "services/ptah-control/tests/e03_transfer_authority.rs::supersession_reissue_and_revocation_fence_ticket_authority"
+      ]
+    },
+    {
+      "id": "concurrent_transfer_state_isolation",
+      "class": "resilience",
+      "expected_result": "independent transfers do not alias ticket/run/range state",
+      "observed_result": "independent transfers do not alias ticket/run/range state",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-transfer/tests/a08_download.rs::independent_transfer_runs_progress_without_global_transfer_lock",
+        "services/ptah-control/tests/e03_transfer_authority.rs::issuance_binds_exact_current_sessions_and_preserves_explicit_routes"
+      ]
+    },
+    {
+      "id": "no_e04_e05_e06_scope",
+      "class": "scope",
+      "expected_result": "E03 introduces none of E04/E05/E06 scope or prohibited authority expansion",
+      "observed_result": "E03 introduces none of E04/E05/E06 scope or prohibited authority expansion",
+      "passed": true,
+      "required_evidence": [
+        "docs/superpowers/specs/2026-09-06-e03-node-to-node-object-artifact-transfer-design.md::scope"
+      ]
+    },
+    {
+      "id": "inherited_regressions_exact_head",
+      "class": "integration",
+      "expected_result": "inherited E01 E02 A08 B01 and workspace regressions remain green on the exact candidate",
+      "observed_result": "inherited E01 E02 A08 B01 and workspace regressions remain green on the exact candidate",
+      "passed": true,
+      "required_evidence": [
+        ".github/workflows/e03-tdd.yml"
+      ]
+    }
+  ]
+}

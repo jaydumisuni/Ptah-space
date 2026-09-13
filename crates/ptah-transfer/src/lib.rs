@@ -12,12 +12,14 @@
 //! does not redefine A08 verification or A13 Workspace recovery authority.
 
 mod b01;
+mod e03;
 mod engine;
 mod model;
 mod records;
 mod util;
 
 pub use b01::*;
+pub use e03::*;
 pub use engine::{TransferClock, TransferEngine, UploadSink};
 pub use model::*;
 

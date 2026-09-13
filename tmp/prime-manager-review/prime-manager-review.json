@@ -1,0 +1,55 @@
+{
+  "schema": "ttg.cookpit.project-profile.v1",
+  "project_id": "prime-manager-review",
+  "name": "Prime Manager Pre-Freeze Review",
+  "repository": "jaydumisuni/Prime-Manager",
+  "path": "/home/kratos/.oracle-work/prime-manager-review-cookpit",
+  "cadence": "active_fast",
+  "protected_branches": [
+    "main"
+  ],
+  "authority_bindings": [
+    {
+      "binding_id": "prime_manager_authority",
+      "kind": "git",
+      "path": "/home/kratos/Prime-Manager",
+      "timeout_seconds": 30
+    },
+    {
+      "binding_id": "cookpit_execution_layer",
+      "kind": "git",
+      "path": "/home/kratos/cookpit",
+      "timeout_seconds": 30
+    }
+  ],
+  "micro": {
+    "interval_minutes": 5,
+    "timeout_seconds": 300,
+    "commands": [
+      {
+        "argv": [
+          "python3",
+          "review_gate.py",
+          "--mode",
+          "micro"
+        ],
+        "gating": true
+      }
+    ]
+  },
+  "heavy": {
+    "interval_minutes": 20,
+    "timeout_seconds": 900,
+    "commands": [
+      {
+        "argv": [
+          "python3",
+          "review_gate.py",
+          "--mode",
+          "heavy"
+        ],
+        "gating": true
+      }
+    ]
+  }
+}

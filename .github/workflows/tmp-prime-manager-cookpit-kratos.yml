@@ -6,7 +6,7 @@ on:
       - tmp/prime-manager-cookpit-kratos-20260913
 
 jobs:
-  diagnose-payload:
+  diagnose-base07:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 15
     steps:
@@ -15,30 +15,22 @@ jobs:
         with:
           ref: tmp/prime-manager-review-payload-20260913
           path: payload
-      - name: Diagnose exact chunk bytes on KRATOS
+      - name: Verify malformed base_07 prefix
         shell: bash
         run: |
           set -euo pipefail
           D="$GITHUB_WORKSPACE/payload/tmp/prime-manager-review"
           cd "$D"
-          echo '=== STAGED CHUNK HASHES ==='
-          for f in base_00 base_01 base_02 base_03 base_04 base_05 base_06 base_07 base_08; do
-            wc -c "$f"
-            sha256sum "$f"
-          done
-          echo '=== EXPECTED CHUNK HASHES ==='
-          cat <<'EOF'
-          base_00 75db9aa34462329284485be4c8bd8d64a0c649b00b8c03e528c1c42a3c2226c6
-          base_01 aac7599792c964c8384655e8053765a2e4c30730420b952cf6121ae03f13a462
-          base_02 d0453aa0deb5926b6e981814ae45fe148ebe34ab8dc7d695d9d3ce8686afeccc
-          base_03 bbeb1df508bd8e854cc54cc94b803f661c884824f336b0415b26a497decb8fa4
-          base_04 f6eb8fad9ec2bbab9b10ab922ee428b964cf9294e92ba7d16e9baaaf59eaadcd
-          base_05 f8ea0322bfe01dd8c279920efa34ce84f0ef1b890733758b8766cdfe18117831
-          base_06 badbb765b246cf8c47a95d35ee3fa3cef53f6b6fe0fef030aa1d5e8c7d110b33
-          base_07 aea95ff13b3fc82ff08c12f94d3a30901a4305ad7fe7031785c33946794380c5
-          base_08 964761be0618e0d9c1f1249b9c768756d66a13e19caf846bf5ff1c4295d15230
-          EOF
-          cat base_00 base_01 base_02 base_03 base_04 base_05 base_06 base_07 base_08 > /tmp/prime-manager-roadmap-base.bin
-          echo '=== ASSEMBLED ==='
-          wc -c /tmp/prime-manager-roadmap-base.bin
-          sha256sum /tmp/prime-manager-roadmap-base.bin
+          echo '=== base_07 full ==='
+          wc -c base_07
+          sha256sum base_07
+          echo '=== base_07 first 12000 ==='
+          head -c 12000 base_07 > /tmp/base_07.prefix
+          wc -c /tmp/base_07.prefix
+          sha256sum /tmp/base_07.prefix
+          echo 'expected aea95ff13b3fc82ff08c12f94d3a30901a4305ad7fe7031785c33946794380c5'
+          echo '=== reconstructed with corrected prefix ==='
+          cat base_00 base_01 base_02 base_03 base_04 base_05 base_06 /tmp/base_07.prefix base_08 > /tmp/roadmap.corrected
+          wc -c /tmp/roadmap.corrected
+          sha256sum /tmp/roadmap.corrected
+          echo 'expected 65d754df5f9d5bbca74f3385945d01486845fa255cc44f9c2cf32ca29c521dc3'

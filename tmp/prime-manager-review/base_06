@@ -1,0 +1,267 @@
+re-safe handshake yields current Core authority identity/epoch, permitted Host identity/assurance, contract-set/version ranges, and compatibility status even when normal contracts do not overlap.
+
+## PM-BOOTSTRAP-002 — CORE_INCOMPATIBLE
+
+If bootstrap succeeds but normal contract overlap fails, Manager can truthfully enter `CORE_INCOMPATIBLE` rather than generic connection failure. Zero-overlap at bootstrap fails closed.
+
+## PM-BIND-001 — Binding/Invalidation Matrix
+
+Every authority-bearing object declares its reaction to Host identity/rebind, Security-State version, Core epoch, Auth/session epoch, client instance, Provider incarnation, execution incarnation, and contract/schema generation.
+
+Allowed reactions include `INVALIDATE`, `RESET`, `REVALIDATE`, `RECONCILE`, `PRESERVE_HISTORICAL`.
+
+## PM-OPMODE-001 — Operational/Degraded Modes
+
+Per-capability/source operational state can distinguish full, read-only, stale-read-only, Auth degraded, Provider degraded, projection degraded, Core incompatible, Core unavailable, experimental-only, etc. Each declares allowed reads/writes and disclosure behavior. No degraded mode creates a Host bypass.
+
+## PM-OPMODE-002 — Auth-Degraded Rule
+
+If Auth authority is unavailable, new high-risk mutation or newly elevated disclosure fails closed unless an already-issued claim/grant explicitly supports bounded offline verification under its contract. Auth outage never creates a weaker fallback prompt.
+
+## PM-OPMODE-003 — Core-Unavailable Scope
+
+`CORE_UNAVAILABLE` describes loss/degradation after Manager already has a valid UI/session path; it is not a promise that Manager can cold-start when application admission/Core substrate itself is unavailable.
+
+---
+
+# Z. CONTRACT REGISTRY, VERSIONING, AND CAPABILITY LIFECYCLE
+
+## PM-CONTRACT-001 — Stable Contract Identity
+
+Every load-bearing normative contract and every proof subject has a stable ID, owner, semantic version, status, and definition fingerprint. Section numbers are presentation only.
+
+## PM-CONTRACT-002 — Semantic Change Requires Version Change
+
+A stable ID cannot keep the same semantic version while its normative definition changes.
+
+## PM-CONTRACT-003 — Monotonic Accepted-Contract Registry
+
+Accepted contract remains recorded until explicitly preserved/moved/superseded/removed-with-rationale.
+
+## PM-CONTRACT-004 — Immediate-Prior-Candidate Regression Diff
+
+Regression Diff compares the current candidate against both the immediately prior roadmap candidate and the monotonic accepted-contract registry. Repository state is historical evidence, not automatically the review baseline.
+
+## PM-CONTRACT-005 — Canonical Contract Package
+
+Prime emits machine-readable schemas/fixtures for Rust/native/TypeScript consumers from one contract registry/package; implementations do not manually reinvent safety semantics.
+
+## PM-WIRE-001 — Lossless Wire Semantics
+
+Freeze lossless integer representation, native string/byte representation, canonical typed serialization, duplicate-key rejection, structural/cardinality/nesting bounds, canonicalization algorithm/version, schema/framing/version axes, and anti-downgrade behavior.
+
+## PM-WIRE-002 — Unknown Safety-Bearing Fields
+
+Unknown safety-bearing request fields fail closed. Response additions are ignorable only where contract explicitly marks them additive/safe.
+
+## PM-WIRE-003 — Historical Decodability
+
+Retained evidence/audit/transaction records bind old contract/schema versions. Historical definitions/decoders remain available at least for their retention horizon.
+
+## PM-CAP-001 — Capability Lifecycle
+
+`INTRODUCE → COEXIST → DEPRECATE → prove consumer migration → RETIRE`.
+
+Manager does not silently reinterpret/retire capabilities still consumed by Shell/Terminal/other first-party clients.
+
+---
+
+# AA. PROOF AND ASSURANCE FRAMEWORK
+
+## PM-PROOF-001 — Exact Proof World
+
+A proof claim cannot splice green results from incompatible builds, kernels, Providers, policy/security generations, configs, or runs unless the claim explicitly permits composition.
+
+## PM-PROOF-002 — Mandatory Dependency Axes
+
+Each proof class defines mandatory dependency axes. Authors cannot omit dependencies merely to preserve PASS.
+
+## PM-PROOF-003 — Claim Scope
+
+Examples include `EXACT_HOST`, `HARDWARE_CLASS`, `BACKEND_VERSION`, `CONTRACT_ONLY`, `SECURITY_PROPERTY`, `PERFORMANCE_ENVELOPE`.
+
+## PM-PROOF-004 — Preconditions
+
+Proof claim lists required kernel features, memory floor, Provider trust tier, hardware capability, filesystem/storage mode, configuration, or other required environment.
+
+## PM-PROOF-005 — Proof Identity/Integrity
+
+Proof bundles are immutable/content-addressed and integrity-protected. Proof evidence may itself be disclosure-classified.
+
+## PM-PROOF-006 — Proof Invalidation
+
+Changing a mandatory dependency makes the old proof inapplicable to the changed body by default.
+
+## PM-PROOF-007 — Reviewed Equivalence
+
+Equivalence is a separate reviewed artifact. It does not rewrite the historical PASS and is not automatically transitive.
+
+## PM-PROOF-008 — Reviewer/Evidence Independence
+
+Evidence/reviewer relationship records `INDEPENDENT`, `NOT_INDEPENDENT`, or `UNKNOWN_INDEPENDENCE`. Different model/tool names do not automatically establish independence.
+
+## PM-PROOF-009 — Mandatory Falsifier Frontier
+
+Safety-relevant production-support claims derive required falsifier families/instances from frozen contracts. A named test is not proof the perturbation happened; a no-op perturbation does not count. Open fuzzing is empirical unless a bounded domain is actually exhausted.
+
+## PM-PROOF-010 — Restraint Proof
+
+Qualification includes safe controls proving that ordinary valid actions remain usable, redundant paths are not falsely protected, and unrelated optional-domain UNKNOWN does not globally disable the Host.
+
+## PM-PROOF-011 — Bidirectional Proof-Subject Resolution
+
+Run both:
+
+```text
+requirement → stable contract ID(s) → proof/fixture → expected PASS → claim scope
+```
+
+and:
+
+```text
+proof requirement → stable contract ID(s) → normative subject → expected PASS
+```
+
+An orphaned proof family is a regression finding.
+
+## PM-PROOF-012 — Proof/Support Historical Key Rotation
+
+Support/proof/evidence/audit signatures record algorithm/key epoch; key rotation preserves historical verification while old keys cannot issue new current authority.
+
+---
+
+# AB. ROADMAP REVIEW GATES
+
+## PM-GATE-DEF-001 — Definition Coverage
+
+Every normative load-bearing concept has exactly one authoritative definition/reference and concept kind.
+
+## PM-GATE-ID-001 — Stable-ID Coverage
+
+Every normative contract and proof subject has a stable contract ID. Section-only proof subjects fail.
+
+## PM-GATE-REG-001 — Contract Regression Diff
+
+Every accepted contract from the immediate prior candidate and monotonic registry is accounted for. Silent deletion or silent semantic change blocks freeze.
+
+## PM-GATE-MECH-001 — Authority-Mechanism Gate
+
+Claims such as exclusive, fenced, non-occludable, durable-before-effect, rollback-resistant, revocation-bounded, control-isolated, or renderer-isolated must identify the enforcing mechanism class and proof obligation.
+
+## PM-GATE-SM-001 — State-Machine Closure
+
+Every stateful object defines creation, legal transitions, terminal/nonterminal states, idempotency, expiry, crash/restart, rollback compatibility, and retention/disposal where applicable.
+
+## PM-GATE-PROOF-001 — Proof-Subject Resolution
+
+Every proof requirement resolves to stable normative contracts and scoreable expected behavior, and every required product property resolves to a proof path.
+
+## PM-GATE-PHASE-001 — Phase Feasibility
+
+No phase requires proof or implementation that cannot yet exist. PM0 freezes foundational/PM1-required contracts and measurement methodology; implementation-dependent production envelopes are earned later.
+
+## PM-GATE-DISTRESS-001 — Distress Gate
+
+Production requires proof of the frozen minimum distress function set under CPU saturation, memory pressure, I/O pressure, process churn, service storm, Provider degradation, and audit/evidence pressure, without Manager outranking Core/Recovery/essential security/input authority.
+
+## PM-GATE-INDEP-001 — Independent Falsification
+
+After all internal gates are zero-defect for the same Review Input World, an independent reviewer attacks that exact world. Accepted corrections create a new Review Input World and require rerunning affected gates/review.
+
+---
+
+# AC. PM0 — FOUNDATIONAL CONTRACT FREEZE
+
+PM0 freezes the foundational and PM1-required architecture. It does not pretend to fully specify every future PM4/PM5 feature.
+
+PM0 must freeze or explicitly reference at least:
+
+- Manager TCB and process isolation;
+- renderer/broker Profiles/Policies;
+- distress property dimensions;
+- Host identity/lineage;
+- Security-State anti-rollback;
+- Core Authority Lease;
+- Auth/Login-Session and time basis;
+- Assurance/trusted interaction;
+- ManagementControlSession registry;
+- DependencyGraph and closure semantics;
+- Decision World/coherence;
+- AssessmentEnvelope;
+- Impact/Protection/Risk/Compatibility/Health/Availability;
+- policy composition and Admission Obligation Set;
+- Privileged Effect Descriptors;
+- AuthorizationDecision;
+- Control Authority Bundle;
+- Developer/Test and Support authority;
+- five client data families;
+- Current-State Projection;
+- Disclosure Context/Classification;
+- Security Audit;
+- Preflight/Privileged Request Admission;
+- Host Action lifecycle/evidence;
+- Provider trust/transport/mutation;
+- execution-path/incarnation semantics;
+- live workload registry/Prime Exec;
+- workload/process/service identity;
+- resource/value/control semantics;
+- runtime/persistent policy revision semantics;
+- quiescence and transition foundations;
+- Domain Transaction observation/idempotency foundation;
+- artifact security foundation;
+- telemetry/event/subscription semantics;
+- control-plane isolation/fairness;
+- Core bootstrap negotiation;
+- Binding/Invalidation Matrix;
+- contract registry/wire/versioning;
+- proof/support framework.
+
+## PM-PM0-TOOLS-001 — Deterministic Fixtures
+
+PM0 creates deterministic fixtures for normal and adversarial identities, protection, closure, Provider, Auth, projection, wire, evidence, transition, and rollback cases.
+
+## PM-PM0-TOOLS-002 — Fake/Replay Core
+
+Provide deterministic fake/replay Core for UI development, contract testing, race testing, disclosure testing, and failure injection. Fixture proof is not real-backend proof.
+
+## PM-PM0-TOOLS-003 — Fuzz/Property Plan
+
+Define parser/framing/canonicalization/unknown-enum/Provider-evidence/reset/idempotency property tests.
+
+## PM-PM0-TOOLS-004 — Dependency Matrix
+
+Every PM1 feature maps:
+
+```text
+feature
+→ authority
+→ capability/version
+→ schema/transport
+→ permission
+→ disclosure classification
+→ effect descriptor
+→ assessment inputs
+→ assurance requirement
+→ evidence/reconciliation class
+→ support requirement
+→ degraded fallback
+→ proof requirement
+```
+
+## PM-PM0-RESOURCE-001 — Resource Budget Methodology
+
+PM0 freezes mandatory measurement dimensions and provisional safety ceilings. PM1/PM1.5 measures real implementation and freezes the production envelope.
+
+---
+
+# AD. PM1 — OPERATOR FIRST LIGHT
+
+PM1 delivers the first genuinely useful live Manager backed by Prime authority.
+
+## PM1-OVERVIEW-001 — Overview Surface
+
+Show Host identity/assurance/lineage, Security-State continuity, generation/kernel/Core, renderer/broker versions, operation-scoped support state, capability health/availability/activation, CPU/memory/GPU/storage/network/thermal/power, scoped workload/process/service counts, current Domain Transactions, and important unresolved Host Actions.
+
+## PM1-WORKLOADS-001 — Workloads Surface
+
+Show workload identity, app, owner/admitter, initiator, Profile/Policy revisions, generation, runtime/backend, execution path/placement/Provider, lifecycle, h

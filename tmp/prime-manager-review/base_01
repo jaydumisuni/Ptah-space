@@ -1,0 +1,272 @@
+system/network capabilities when explicitly required, and opaque authority material.
+
+## PM-ARCH-004 — External Origin Isolation
+
+External URLs/help/docs/Provider pages open in a separate unprivileged context without the Manager bridge.
+
+## PM-ARCH-005 — Devtools Boundary
+
+Production remote debugging/devtools remain disabled unless explicitly governed by Developer/Test authority.
+
+## PM-ARCH-006 — Broker Failure
+
+Broker failure immediately removes privileged UI capability. Renderer enters unprivileged disconnected mode and purges protected broker-origin state as required.
+
+## PM-ARCH-007 — Client Instance Continuity
+
+Broker/process restart does not automatically preserve Manager client identity. Continuity requires mechanical proof from Prime application/session authority; otherwise a new client instance is minted.
+
+## PM-MANAGER-POLICY-001 — Renderer/Broker Profiles
+
+Renderer and broker use separate scoped Profiles/Policies or mechanically equivalent isolation. Manager is not made UID 0 simply to survive pressure or access Core.
+
+## PM-MANAGER-POLICY-002 — No Unproven SYSTEM_UTILITY Escape Hatch
+
+A new broad privileged system class is not invented merely to make Manager harder to kill. Any such class requires separate Prime architecture review/proof.
+
+## PM-DISTRESS-001 — Manager Distress Properties
+
+PM0 freezes the dimensions and provisional ceilings for:
+
+- renderer/broker memory;
+- relative OOM posture;
+- CPU scheduling posture;
+- I/O posture;
+- control responsiveness;
+- telemetry/detail shedding;
+- renderer restartability;
+- minimum distress function set.
+
+Actual production envelope is measured in PM1/PM1.5.
+
+---
+
+# E. HOST IDENTITY, LINEAGE, AND SECURITY-STATE CONTINUITY
+
+## PM-HOST-001 — Host Identity Authority
+
+Prime owns Host identity. Host identity is not merely a clonable disk UUID.
+
+## PM-HOST-002 — Identity Assurance
+
+Host identity declares an assurance/strength class such as hardware/enrollment anchored, externally enrolled, storage-only, or ambiguous. Remote/fleet mutation may require a minimum assurance class.
+
+## PM-HOST-003 — Host Identity Lifecycle
+
+Portable states include:
+
+- `ENROLLING`;
+- `ACTIVE`;
+- `REBIND_REQUIRED`;
+- `AMBIGUOUS_OR_FORKED`;
+- `RETIRED`.
+
+## PM-HOST-004 — Material Hardware Change
+
+Materially different hardware normally produces a new Host identity plus an immutable lineage edge. Preserving the same Host identity requires an explicit mechanically proven continuity policy.
+
+## PM-HOST-005 — Clone/Fork Safety
+
+Cloned/forked storage cannot silently create two identical authoritative Hosts. Ambiguous/forked identity causes remote/fleet mutation to fail closed.
+
+## PM-HOST-006 — Lineage Is Not Authority Inheritance
+
+Lineage does not automatically transfer grants, remote trust, pending actions/transactions, support claims, disclosure contexts, or current-state cache.
+
+## PM-HOST-007 — Manager State Scoping
+
+Pure layout may be global. Principal preferences are principal-scoped. Host-derived cache/search/selection binds Host identity, lineage, principal, and relevant source/security epochs. Disclosure-gated detail is memory-only unless classification permits persistence.
+
+## PM-HOST-008 — Host Rebind Discontinuity
+
+If Host identity/lineage changes while Manager is connected, target-bound preflights, approvals, grants, projections, caches, and remote trust assumptions are invalidated/reset before further privileged operation.
+
+## PM-SECSTATE-001 — Rollback-Sensitive Security State
+
+Replay-sensitive security state cannot rely solely on restorable Host storage.
+
+## PM-SECSTATE-002 — Security-State Anchor
+
+Prime uses a rollback-resistant anchor class such as hardware monotonic state, external enrollment ledger, or another approved non-restorable trust anchor.
+
+## PM-SECSTATE-003 — Security-State Version
+
+Conceptually binds:
+
+```text
+host_identity
+anchor_identity
+security_epoch
+monotonic_commit_index
+authenticated_state_root
+```
+
+A coarse epoch alone is insufficient.
+
+## PM-SECSTATE-004 — Crash-Consistent Security Commit
+
+Rollback-sensitive state becomes authoritative only when durable state and the rollback-protected anchor consistently commit. Crash/mismatch recovers to the exact committed version or `SECURITY_STATE_UNCERTAIN`.
+
+## PM-SECSTATE-005 — SecurityStateContinuityAssessment
+
+Possible results include `CONTINUOUS`, `ROLLBACK_DETECTED`, and `UNVERIFIABLE`. Each high-risk operation declares the minimum continuity required.
+
+## PM-SECSTATE-006 — Security-State History Discontinuity
+
+Rollback detection creates an explicit trust/history discontinuity. Prime does not fabricate seamless evidence/audit continuity across a rewind.
+
+## PM-SECSTATE-007 — Generation-Independent Readability
+
+Minimum security continuity metadata/anchor semantics are readable by retained Recovery/security authority. An older Core that cannot interpret them fails affected high-risk operations closed.
+
+---
+
+# F. CURRENT CORE AUTHORITY
+
+## PM-CORE-001 — Core Authority Lease
+
+Only one active Core mutation authority exists per Host authority domain. Epoch alone is not exclusivity.
+
+## PM-CORE-002 — Enforced Exclusivity
+
+Supervisor/kernel/privilege infrastructure or equivalent independently enforces the Core Authority Lease/fence.
+
+## PM-CORE-003 — Core Lease Lifecycle
+
+Core Authority Lease defines acquisition, active ownership, fencing/revocation, loss/recovery, and terminal release. Successor authority is not granted merely because a timeout fired; the prior authority must be fenced or reconciled.
+
+## PM-CORE-004 — Stale Core Revocation
+
+A superseded Core loses authority to admit mutations, issue Provider commands, create current AuthorizationDecisions, publish authoritative current projections, or append new Core-authoritative evidence/audit.
+
+## PM-CORE-005 — Privileged Handle Fencing
+
+Old Core cannot retain reusable privileged Host mutation handles after losing the lease.
+
+## PM-CORE-006 — Core IPC Authentication
+
+Broker authenticates the current Core authority identity/epoch, not merely a socket pathname or UID.
+
+---
+
+# G. AUTH, SESSION, TIME, AND ASSURANCE
+
+## PM-AUTHN-001 — Principal Identity
+
+Principal identity is opaque/incarnation-safe. Username/display name is presentation only. Deleted/recreated names do not inherit prior authority/history.
+
+## PM-AUTHN-002 — Login Session Lifecycle
+
+Portable states include `ESTABLISHING`, `ACTIVE_UNLOCKED`, `LOCKED`, and `TERMINATED`, with explicit user-switch/issuer-restart semantics.
+
+## PM-AUTHN-003 — Session Invalidation Effects
+
+Lock/logout/user-switch/issuer/security-state changes define effects on disclosure contexts, approval challenges, assurance claims, candidate requests, and subscriptions. Unlock never resurrects expired elevation.
+
+## PM-AUTHN-004 — Credential Boundary
+
+Manager never receives passwords, PINs, biometric material, passkeys, or reusable credentials.
+
+## PM-TIME-001 — Security Time Basis
+
+Wall clock is not the sole authority for grants, preflights, executor leases, support validity, or other security expiry. Security-sensitive time uses issuer-owned monotonic/lease/secure-time semantics with conservative invalidation when continuity is uncertain.
+
+## PM-ASSUR-001 — Typed Assurance Claims
+
+Examples include `AUTHENTICATED_SESSION`, `RECENT_REAUTH`, `TRUSTED_LOCAL_USER_PRESENCE`, `TRUSTED_REMOTE_HUMAN_APPROVAL`, `AUTHORIZED_AUTOMATION`, and `RECOVERY_AUTHORITY`.
+
+## PM-ASSUR-002 — Assurance Predicate
+
+Effect descriptors define typed assurance predicates over claim type, issuer/epoch, Host, principal, session, audience, interaction Provider, freshness, presence semantics, and explicit conjunction/disjunction.
+
+## PM-ASSUR-003 — Incomparability
+
+No generic scalar ranking substitutes unrelated claim types. Unknown/incomparable claims fail closed.
+
+## PM-ASSUR-004 — Trusted Local Approval Mechanism
+
+Trusted approval requires a compositor/system-owned reserved security presentation plus trusted input provenance that ordinary renderer z-order/input injection cannot satisfy.
+
+## PM-ASSUR-005 — High-Risk Consent Disclosure
+
+If Prime cannot legally disclose enough Core-resolved target/effect information for the operator to distinguish what is being approved, that human-confirmed high-risk operation is unavailable.
+
+## PM-ASSUR-006 — Approval Challenge Lifecycle
+
+Trusted approval challenges define `ISSUED`, `APPROVED`, `DENIED`, `EXPIRED`, `CANCELLED`, and `INVALIDATED` or equivalent. Terminal state never reopens. Session/issuer/preflight changes invalidate affected challenges. Rate/concurrency bounds prevent prompt flooding.
+
+---
+
+# H. MANAGEMENT CONTROL SESSIONS, DEPENDENCIES, AND CONTROL PATHS
+
+## PM-CTRLSESS-001 — ManagementControlSession Registry
+
+Every Prime-managed privileged control client must acquire an active ManagementControlSession lease before obtaining control authority.
+
+## PM-CTRLSESS-002 — Session Scope
+
+Can include Manager, Terminal, approved remote Manager, Oracle, or another explicitly admitted control client.
+
+## PM-CTRLSESS-003 — Session Lifecycle
+
+Portable states: `ESTABLISHING`, `ACTIVE`, `CLOSING`, `ENDED`, `LOST_OR_UNKNOWN`.
+
+## PM-CTRLSESS-004 — Session Data
+
+Contains client/system actor, principal where relevant, transport/path resources, source, lifecycle, revision, and disclosure classification.
+
+## PM-CTRLSESS-005 — Continuity
+
+Identity survives Core/transport restart only when mechanically proven; otherwise a new control-session identity is created.
+
+## PM-DEP-001 — DependencyGraph
+
+Edges include subject, dependency, type, direction, authority/source, revision, and closure state. Graph may be cyclic or incomplete. Missing edge does not prove missing dependency.
+
+## PM-DEP-002 — Bounded Dependency Evaluation
+
+Dependency analysis is work/cardinality bounded. Exceeding limits produces incomplete/UNKNOWN, never safe-by-timeout.
+
+## PM-CTRLPATH-001 — ControlPathAssessment
+
+Canonical scope covers every Prime-managed authorized active control session potentially affected by the effect, not only the requester.
+
+## PM-CTRLPATH-002 — ControlPath Coverage
+
+Assessment distinguishes complete coverage of Prime-managed control paths from partial/unknown external or unmanaged coverage.
+
+## PM-CTRLPATH-003 — Disclosure-Safe Projection
+
+Canonical impact may know another protected admin session exists while the requester receives only a safe reason such as “current management connectivity would be disrupted.”
+
+---
+
+# I. SET CLOSURE, COHERENCE, AND APPLICABILITY
+
+## PM-CLOSE-001 — Omission-Sensitive Collection Contract
+
+Target sets, dependency sets, control-session sets, protection constraints, blockers, Provider sets, and admission-obligation sets declare scope, generation/revision, closure grade, witness/basis, and unresolved remainder.
+
+## PM-CLOSE-002 — Closure Grades
+
+At minimum: `EXACT`, `CONSERVATIVE_SUPERSET`, `PARTIAL`, `UNKNOWN`.
+
+## PM-CLOSE-003 — Empty-Set Burden
+
+“No blocker exists” requires closure evidence. Empty result from incomplete source does not prove absence.
+
+## PM-CLOSE-004 — Closure Escape
+
+A source later proven to have omitted a required member after claiming `EXACT` triggers qualification/support reassessment, invalidates affected current positive decisions, and causes prior dependent actions to be impact-analyzed/annotated without rewriting history.
+
+## PM-APPLIC-001 — Three-Valued Safety Applicability
+
+Safety-contract applicability is `TRUE`, `FALSE`, or `UNKNOWN`. Proving FALSE carries the required absence/closure burden. Missing facts do not become FALSE.
+
+## PM-WORLD-001 — Coherent Control Decision World
+
+Admission cannot splice authentic but mutually non-coexistent safety facts into a Frankenworld.
+
+## PM-WORLD-002 — Decision World Inputs
+
+Relevant coherence can bind Host identity, Security-State version, Core epoch, Auth/session epoch, client instance, target revisions, Provider incarnation, execution incarnation, DependencyGraph revision, control-

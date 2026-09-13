@@ -11,6 +11,9 @@ on:
       - "crates/ptah-transfer/src/lib.rs"
       - "crates/ptah-transfer/src/e03/**"
       - "crates/ptah-transfer/tests/e03_*.rs"
+      - "conformance/e03/**"
+      - "tools/check_e03_node_transfer.py"
+      - "tools/test_check_e03_node_transfer.py"
       - "crates/ptah-node-transfer/**"
       - "services/ptah-control/Cargo.toml"
       - "services/ptah-control/src/e01_lib.rs"
@@ -45,18 +48,23 @@ jobs:
           rustc -V | grep -q '^rustc 1.97.1 '
           cargo -V | grep -q '^cargo 1.97.1 '
 
-      - name: Generate and persist E03 workspace lock
+      - name: Pin Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+
+      - name: Verify committed workspace lock is clean
         shell: bash
         run: |
           set -euo pipefail
-          cargo generate-lockfile
-          if ! git diff --quiet -- Cargo.lock; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add Cargo.lock
-            git commit -m "chore(e03): refresh workspace lock for node transfer"
-            git push origin HEAD:e03-node-to-node-object-artifact-transfer
-          fi
+          cargo metadata --locked --no-deps >/dev/null
+          git diff --exit-code -- Cargo.lock
+
+      - name: Task 9 exact conformance corpus
+        shell: bash
+        run: |
+          python3 -m unittest -v tools/test_check_e03_node_transfer.py
+          python3 tools/check_e03_node_transfer.py --repo-root . --output "$RUNNER_TEMP/e03-validation.json"
 
       - name: Task 1 authority contract
         shell: bash
@@ -111,3 +119,15 @@ jobs:
       - name: Task 6 node direct-failure relay resume contract
         shell: bash
         run: cargo test -p ptah-node --test e03_relay_resume --locked
+
+      - name: Task 10 full inherited workspace regressions
+        shell: bash
+        run: cargo test --workspace --locked
+
+      - name: Task 10 rustfmt
+        shell: bash
+        run: cargo fmt --all -- --check
+
+      - name: Task 10 strict workspace Clippy
+        shell: bash
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings

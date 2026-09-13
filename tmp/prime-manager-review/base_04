@@ -1,0 +1,249 @@
+stinguish `CORE_OBSERVED`, `PROVIDER_ATTESTED`, `POSTCONDITION_RECONCILED`, `CAUSALITY_PROVEN`, `CURRENT_STATE_MATCHES_NO_CAUSALITY`, `CONFLICTING_EVIDENCE`, `UNKNOWN`.
+
+## PM-EVID-003 — Write-Ahead Admission
+
+Evidence-required Host Action is not admitted until its minimum required initial record is durable.
+
+## PM-EVID-004 — Evidence Capacity Reservation
+
+Required lifecycle/final evidence capacity is action-bound and reserved before dispatch. Reservation survives required restart boundaries and is released only at the contract-defined resolved/retention point.
+
+## PM-EVID-005 — Storage Failure After Dispatch
+
+If required final evidence cannot be persisted, do not report a clean terminal result. The action remains/re-enters unresolved reconciliation state.
+
+## PM-EVID-006 — Retention Ordering
+
+Replay/idempotency/reconciliation metadata survives at least the entire legal execution/result/reconciliation horizon.
+
+## PM-EVID-007 — Evidence Expiry
+
+Intentional authorized expiry is `EVIDENCE_EXPIRED`, not fictitious absence.
+
+## PM-EVID-008 — Evidence Corruption
+
+Corruption is explicit; damaged records are preserved and marked untrusted.
+
+## PM-EVID-009 — Evidence Integrity
+
+Security-grade integrity uses keyed/signature/tamper-evident mechanisms as required, with algorithm/key epochs for historical verification.
+
+## PM-EVID-010 — Rollback-Evident Evidence Class
+
+Where policy requires evidence to reveal full-storage rollback, the evidence durability class is bound to the rollback-resistant security anchor.
+
+## PM-EVID-011 — EvidenceProjection
+
+Canonical evidence and client-visible evidence are separate. EvidenceProjection applies current disclosure policy and may coarsen protected fields without falsifying the canonical record.
+
+## PM-EVID-012 — ActionResultProjection
+
+Canonical `NO_CHANGE`, prior state, actor/dependency details, or other sensitive result facts may be truthfully coarsened for the client when policy requires.
+
+## PM-EVID-013 — Mutation Authority Does Not Imply Disclosure
+
+A principal may be allowed to cause an effect without being allowed to enumerate every dependent object or full evidence detail.
+
+## PM-EVID-014 — Orphaned Action Discovery
+
+Core provides authorized discovery/reconciliation of recent unresolved actions. Creator provenance remains immutable; a new authorized Manager may reconcile without becoming creator.
+
+## PM-EVID-015 — Cross-Record Correlation Retention
+
+If a correlated Action/Transaction record expires earlier than the other, the surviving record keeps stable correlation and reports the other side `EXPIRED/UNAVAILABLE` rather than silently dropping the relationship.
+
+---
+
+# T. PROVIDER AUTHORITY AND EXECUTION PATH
+
+## PM-PROVIDER-001 — Provider Trust Lifecycle
+
+Portable states include `DISCOVERED`, `AUTHENTICATED_UNADMITTED`, `ADMITTED_FOR_SCOPE`, `QUARANTINED`, `REVOKED`, `RETIRED`.
+
+## PM-PROVIDER-002 — Operation-Scoped Trust
+
+Read/telemetry trust does not imply mutation trust.
+
+## PM-PROVIDER-003 — Authenticated Provider Transport
+
+Provider channels bind endpoint identity, integrity, anti-replay, confidentiality where required, Core/Provider epochs, and negotiated capability/version semantics.
+
+## PM-PROVIDER-004 — Provider Mutation Contract
+
+Defines Provider incarnation, target identity, fence, action correlation, execution deadline/lease, commit boundary, replay class, cancellation, and evidence semantics.
+
+## PM-PROVIDER-005 — Provider Selection Binding
+
+An effect authorized against Provider A does not silently execute through Provider B unless the contract explicitly proves safe equivalent failover.
+
+## PM-PROVIDER-006 — Provider Restart Continuity
+
+New Provider incarnation cannot claim old action completion unless durable action continuity across restart is mechanically proven.
+
+## PM-PROVIDER-007 — Semantic Fault Containment
+
+Reject/quarantine reused impossible identities, wrong fence/target, stale Core, regressing sequence, impossible lifecycle, contradictory accounting, and other schema-valid semantic violations.
+
+## PM-PROVIDER-008 — Provider Cardinality Bounds
+
+Per-Provider/source object/edge/event cardinality and work limits prevent an authenticated Provider from exhausting Host/Manager resources. Exceeding limits yields explicit PARTIAL/DEGRADED/UNKNOWN behavior.
+
+## PM-PROVIDER-009 — Late Commit Violation
+
+Post-lease commit is a Provider protocol violation; reconcile actual target state, degrade/quarantine as required, and never pretend no effect occurred.
+
+## PM-PROVIDER-010 — Trust Revocation Timing
+
+Revocation blocks future delegation. Pending uncommitted work is fenced/cancelled where supported. Committed effects are reconciled; history is qualified rather than rewritten.
+
+## PM-PROVIDER-011 — Provider UI Isolation
+
+Provider HTML/JS never executes inside the bridge-enabled Manager application context. Provider-specific UI extensions, if ever supported, use a separate sandbox/security domain. Untrusted artwork is decoded outside the trusted broker.
+
+## PM-PROVIDER-012 — Provider Activation Lifecycle
+
+Portable activation states include dormant/starting/active/stopping/failed/unavailable or equivalent. Activation is distinct from health and capability availability. Explicit operator activation/deactivation is a typed effect; automatic policy activation is a mechanical policy event.
+
+## PM-EXEC-001 — Execution Path
+
+Execution is a bounded ordered path such as Host → Provider → VM → guest → runtime/container → process.
+
+## PM-EXEC-002 — Execution Layer Contract
+
+Each layer declares authority/incarnation, placement revision, observation depth, mutation depth, accounting scope, clock domain, locator namespace, and continuity semantics.
+
+## PM-EXEC-003 — Snapshot/Restore Incarnation
+
+Execution layers capable of snapshot/clone/restore/fork change incarnation when continuity cannot be mechanically preserved. Old IDs/fences/cursors cannot target resurrected earlier state.
+
+## PM-EXEC-004 — Placement Migration Continuity
+
+Identity survives migration only when mechanically proven by the authoritative layer; otherwise new identity or UNKNOWN continuity.
+
+## PM-EXEC-005 — Nested Mutation Correlation
+
+One originating Host Action correlation is preserved end-to-end while each authority layer contributes its own authenticated fence/result evidence.
+
+---
+
+# U. WORKLOAD, PROCESS, AND SERVICE MODELS
+
+## PM-WORKLOAD-001 — Workload Identity Model
+
+Application → Profile revision → launch/admission → Workload Launch/Attempt → optional live Workload Instance → processes.
+
+## PM-WORKLOAD-002 — Workload Ownership
+
+Prime Exec records workload owner/admitter explicitly. Execution UID/account is separate. Historical principal IDs are not re-resolved from current usernames.
+
+## PM-WORKLOAD-003 — Workload Lifecycle
+
+Portable states include admitted/starting/running/suspended/stopping/completed/failed/interrupted/lost-or-unknown or equivalent.
+
+## PM-WORKLOAD-004 — Workload Completion
+
+Portable completion distinguishes success/failure/termination/crash/interruption/UNKNOWN as appropriate.
+
+## PM-WORKLOAD-005 — Workload Continuity
+
+Backend declares continuity across Core restart, Host reboot, Provider reconnect, and migration. Continuity requires mechanical proof.
+
+## PM-WORKLOAD-006 — Live Workload Registry
+
+Core owns recoverable current workload truth including lifecycle, placement, Profile/Policy, process membership, Provider, runtime overrides, effective enforcement, and transition/quiescence state.
+
+## PM-EXEC-PRIME-001 — Asynchronous Prime Exec
+
+Prime Exec admits, assigns identities, durably records admission, returns a live identity, supervises asynchronously, emits lifecycle events, and preserves completion evidence. Launch API does not wait for process exit.
+
+## PM-WORKLOAD-007 — Launch Provenance
+
+Record initiating principal/client/system authority, application, exact Profile/Policy revisions, generation, runtime/backend, Provider, and upstream correlation.
+
+## PM-PROCESS-001 — Process Identity
+
+PID alone is insufficient. After Core restart, continuity requires boot epoch + PID + mechanically verified process-start identity and relevant domain identity. Otherwise new process identity or UNKNOWN continuity.
+
+## PM-PROCESS-002 — Process Revision Domains
+
+Action-relevant revisions can include lifecycle, executable/image, credentials/security, workload membership, placement, and protection-relevant state.
+
+## PM-PROCESS-003 — exec()/Credential/Placement Safety
+
+Relevant changes can stale an effect even if PID remains the same.
+
+## PM-PROCESS-004 — Process Attribution
+
+Processes may be managed workload members, Host/system, unmanaged user, Provider/runtime helper, shared infrastructure, or unattributed. Membership need not be exclusive.
+
+## PM-PROCESS-005 — Shared Infrastructure
+
+Shared helpers are not arbitrarily assigned or charged to one workload. Per-workload control is available only where the backend can isolate the effect.
+
+## PM-PROCESS-006 — Ownership / Initiator / Execution Credential
+
+These are separate concepts and authoritative sources.
+
+## PM-PROCESS-007 — Invocation Model
+
+Do not assume universal Unix argv. Represent authoritative native invocation, parsed/derived representation, provenance, and safe display.
+
+## PM-PROCESS-008 — Native String / Path Model
+
+Preserve authoritative platform representation, including arbitrary Unix bytes and Windows-native representations, separately from safe Unicode display.
+
+## PM-PROCESS-009 — Process Tree Control
+
+Tree effects define descendant resolution, newly created descendants, per-target authorization/protection, convergence bounds, survivor reporting, and target-set semantics. Managed workload stop is preferred where it better represents intent.
+
+## PM-DISPLAY-001 — Safe Machine-Supplied Display
+
+Machine-controlled strings are escaped, bounded, bidi-isolated, and never interpreted as markup. High-risk surfaces show stable identity/domain alongside display labels.
+
+## PM-SERVICE-001 — Service Model
+
+Separate service definition, immutable component definition revision, Host override/config revision, activation instances, workload/process relationships, Provider, and persistence kind.
+
+## PM-SERVICE-002 — Service Target Scopes
+
+`SERVICE_DEFINITION`, `ACTIVATION_INSTANCE`, `ALL_CURRENT_ACTIVATIONS` are distinct targets. Persistent activation configuration is separate from runtime control.
+
+## PM-SERVICE-003 — One-Shot Semantics
+
+Successful one-shot service may complete and become inactive.
+
+## PM-SERVICE-004 — Supervisor Truth
+
+Terminating one child does not imply service/workload stopped; replacement child may appear while the higher-level lifecycle remains active.
+
+## PM-SERVICE-005 — Service CAS
+
+Persistent service override/config changes use compare-and-swap against the observed revision; concurrent writer yields conflict.
+
+## PM-SERVICE-006 — Activation Revision Pinning
+
+Every activation records the definition/config revision it started from. Updating definition/override does not rewrite running activation provenance.
+
+## PM-SERVICE-007 — Activation Continuity
+
+Activation identity survives authority restart only when mechanically reconstructable; otherwise prior activation becomes ended/lost-or-unknown and newly observed activation gets a new identity.
+
+## PM-SERVICE-008 — Restart Count Epoch
+
+Displayed restart counts include their source/reset epoch.
+
+## PM-SUSPEND-001 — Multi-Causal Suspension
+
+Effective suspension can have multiple causes. Resume removes only the authorized cause it controls; other active causes keep the target suspended.
+
+---
+
+# V. RESOURCE ACCOUNTING, CONTROLS, AND HARDWARE
+
+## PM-RESOURCE-001 — Metric Semantics
+
+Every quantitative metric declares unit, denominator where applicable, source/provenance, accounting domain, freshness, and limitations.
+
+## PM-RESOURCE-002 — Accounting Domains
+
+Examples: `HOST_LOCAL`, `WORKLOAD_LOCAL`, `GU

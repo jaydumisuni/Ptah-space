@@ -25,6 +25,10 @@ class ReviewGateTests(unittest.TestCase):
         self.assertIn('PM-ONE-001', report['duplicate_ids'])
         self.assertFalse(report['ok'])
 
+    def test_titleless_stable_id_heading_is_recognized(self):
+        ids = review_gate.extract_ids('### PM-PROOF-WORLD-FENCE-001\n')
+        self.assertEqual(ids, ['PM-PROOF-WORLD-FENCE-001'])
+
     def test_required_latest_contracts_and_proof_subjects_close(self):
         required = sorted(review_gate.REQUIRED_LATEST_IDS)
         contracts = '\n'.join(f'## {item} — Contract' for item in required)

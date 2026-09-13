@@ -6,63 +6,33 @@ on:
       - tmp/prime-manager-cookpit-kratos-20260913
 
 jobs:
-  probe:
+  red-test:
     runs-on: [self-hosted, kratos, ptah]
     timeout-minutes: 15
     steps:
-      - name: Probe KRATOS Cookpit and Prime Manager read-only
+      - name: Checkout Prime Manager review payload
+        uses: actions/checkout@v4
+        with:
+          ref: tmp/prime-manager-review-payload-20260913
+          path: payload
+      - name: Stage isolated KRATOS review workspace
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== HOST ==='
-          hostname
-          id
-
-          echo '=== COOKPIT CHECKOUT SEARCH ==='
-          python3 - <<'PY'
-          import os, subprocess
-          roots=['/home/kratos','/home/kratos/.oracle-work']
-          seen=set()
-          for root in roots:
-              if not os.path.isdir(root):
-                  continue
-              for cur, dirs, files in os.walk(root):
-                  rel=os.path.relpath(cur, root)
-                  depth=0 if rel=='.' else rel.count(os.sep)+1
-                  if depth>6:
-                      dirs[:] = []
-                      continue
-                  if '.git' in dirs or '.git' in files:
-                      try:
-                          origin=subprocess.check_output(['git','-C',cur,'remote','get-url','origin'],stderr=subprocess.DEVNULL,text=True).strip()
-                      except Exception:
-                          origin=''
-                      low=(origin+' '+cur).lower()
-                      if 'cookpit' in low or 'prime-manager' in low:
-                          if cur not in seen:
-                              seen.add(cur)
-                              print('FOUND_REPO',cur)
-                              print('ORIGIN',origin)
-                              for cmd in (["git","-C",cur,"status","--short","--branch"],["git","-C",cur,"rev-parse","HEAD"]):
-                                  try:
-                                      print(subprocess.check_output(cmd,stderr=subprocess.STDOUT,text=True).rstrip())
-                                  except Exception as e:
-                                      print('ERR',cmd,e)
-                      if '.git' in dirs:
-                          dirs.remove('.git')
-          PY
-
-          echo '=== COOKPIT STATE ==='
-          STATE=/home/kratos/.local/state/ttg-cookpit
-          if [ -d "$STATE" ]; then
-            find "$STATE" -maxdepth 4 -type f \( -name 'micro-latest.json' -o -name 'heavy-latest.json' -o -name 'attention.json' -o -name 'CURRENT*' \) -print | sort | head -200
-          else
-            echo "NO_STATE_ROOT $STATE"
-          fi
-
-          echo '=== COOKPIT TIMERS ==='
-          systemctl --user list-timers --all 2>/dev/null | grep -i cookpit || true
-          systemctl --user list-units --all 2>/dev/null | grep -Ei 'cookpit|prime-manager' || true
-
-          echo '=== PRIME MANAGER ROADMAP LOCAL CANDIDATES ==='
-          find /home/kratos -maxdepth 7 -type f -name ROADMAP.md 2>/dev/null | grep -Ei 'prime|manager' | sort | head -100 || true
+          W=/home/kratos/.oracle-work/prime-manager-review-cookpit
+          rm -rf "$W"
+          mkdir -p "$W"
+          cp -a "$GITHUB_WORKSPACE/payload/tmp/prime-manager-review/." "$W/"
+          cd "$W"
+          cat base_00 base_01 base_02 base_03 base_04 base_05 base_06 base_07 base_08 > ROADMAP_BASE.md
+          echo '=== BASE HASH ==='
+          sha256sum ROADMAP_BASE.md
+          test "$(sha256sum ROADMAP_BASE.md | awk '{print $1}')" = "65d754df5f9d5bbca74f3385945d01486845fa255cc44f9c2cf32ca29c521dc3"
+          echo '=== PRIME AUTHORITY REPO UNTOUCHED ==='
+          git -C /home/kratos/Prime-Manager status --short --branch
+          git -C /home/kratos/Prime-Manager rev-parse HEAD
+      - name: RED - review gate tests must fail because implementation is absent
+        shell: bash
+        run: |
+          cd /home/kratos/.oracle-work/prime-manager-review-cookpit
+          python3 -m unittest -v test_review_gate.py

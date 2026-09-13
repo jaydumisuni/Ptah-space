@@ -1,0 +1,245 @@
+EST_LOCAL`, `PROVIDER_REMOTE`, `PROVIDER_OVERHEAD`, `SHARED`, `UNATTRIBUTED`.
+
+## PM-RESOURCE-003 — No Silent Remote/Guest Aggregation
+
+Remote/guest/Provider values never silently enter Host-local totals.
+
+## PM-RESOURCE-004 — Anti-Double-Counting
+
+Explicit rules prevent naive double counting of tmpfs, zram, integrated-GPU shared memory, guest memory plus Host VM process, reflink/shared storage, and similar shared resources.
+
+## PM-VALUE-001 — Common Observation Value States
+
+Where applicable distinguish `PRESENT`, `UNKNOWN`, `UNAVAILABLE`, `UNSUPPORTED`, `NOT_APPLICABLE`, `REDACTED`, `TRUNCATED`. Disclosure may omit field/object entirely if existence is protected.
+
+## PM-LIMIT-001 — Limit States
+
+Distinguish `VALUE`, `ZERO`, `UNSET`, `INHERITED`, `DEFAULT_AUTO`, `UNLIMITED`, `DISABLED`, `UNSUPPORTED`, `UNAVAILABLE`, `UNKNOWN`.
+
+## PM-RESOURCE-005 — Resource Control Families
+
+Separate scheduler priority, CPU weight, CPU quota, affinity/cpuset, memory, swap, process count, runtime duration, I/O weight/bandwidth, storage quota, GPU, network, and device controls.
+
+## PM-RESOURCE-006 — Enforcement Layer
+
+Every control names the layer that actually enforces it, such as Host cgroup, VM allocation, guest workload, container, or remote Provider quota.
+
+## PM-RESOURCE-007 — Declared vs Effective
+
+Keep declared Policy, effective enforcement, inherited constraints, runtime override, external/Provider constraints, emergency clamps, and drift separate.
+
+## PM-RESOURCE-008 — Enforcement Strength
+
+Examples include `HARD`, `PROVIDER_ENFORCED`, `BEST_EFFORT`, `ADVISORY`, `UNKNOWN`.
+
+## PM-RESOURCE-009 — Enforcement Readback
+
+Requested setting is not proof. Read effective state where mechanically possible.
+
+## PM-CPU-001 — Scalable CPU Affinity
+
+No fixed 32/64-bit mask. CPU sets/ranges bind topology revision and execution layer, including guest-vCPU vs Host-CPU scope.
+
+## PM-CPU-002 — Scheduler Priority
+
+Prime exposes bounded canonical priority intent plus backend-native/effective detail. Unsafe real-time classes require separate authority/proof.
+
+## PM-OVERRIDE-001 — Runtime Override Lifecycle
+
+Override records identity, source, revision, scope, direction, expiry, revocation, Core-restart behavior, reboot behavior, and effective readback.
+
+## PM-OVERRIDE-002 — Override Direction Classes
+
+Each mutable field declares tighten-only, bounded ordinary change, elevated broadening, or future-launch-only semantics.
+
+## PM-OVERRIDE-003 — Broadening Expiry Guarantee
+
+Temporary broadening is offered only where the authoritative enforcement layer can guarantee or reconcile expiry/revocation after client/Core failure.
+
+## PM-POLREV-001 — Persistent Profile/Policy Revision
+
+Persistent changes use immutable base + coherent derived revision + CAS + atomic public commit. Concurrent writers conflict. Revert creates/selects a new revision rather than rewriting history.
+
+## PM-POLREV-002 — Running Workload Pinning
+
+Running workload remains pinned to the admitted revision unless a separate runtime-override/control effect changes current effective state.
+
+## PM-POLREV-003 — Component Update / Override Rebase
+
+When a signed component definition changes, Prime explicitly revalidates/rebases Host overrides or reports conflict; it never silently discards or reinterprets them.
+
+## PM-HW-001 — Live HardwareGraph / Capability Projection
+
+PM1 uses revisioned live Host hardware, capability, and Provider projections. Startup-only snapshots are insufficient. Attach/remove/activation/health changes update without restarting Manager.
+
+## PM-HW-002 — Host Hardware Scope
+
+Top-level Hardware/Storage/Network/Thermal surfaces represent the current Prime Host. Guest/remote hardware appears only in an explicit nested target/execution context.
+
+## PM-HW-003 — Device Identity Strength
+
+Device/interface/storage/sensor identity declares strength/scope such as persistent, serial-backed, topology-scoped, boot-scoped, session-scoped, ambiguous.
+
+## PM-HW-004 — Presence vs Assignment
+
+Separate physically present, driver bound, Host available, passed through, assigned to VM/Provider, and unavailable.
+
+---
+
+# W. QUIESCENCE, TRANSITIONS, DOMAIN TRANSACTIONS, AND ARTIFACT FOUNDATION
+
+## PM-QUIESCE-001 — QuiescenceAssessment
+
+Includes transition kind, blockers, closure/coverage, authority/epoch, relevant revisions, Impact/Protection references, expiry, and fence/token.
+
+## PM-QUIESCE-002 — Quiescence Results
+
+Portable results include `SAFE`, `BLOCKED`, `REQUIRES_CONFIRMATION`, `UNKNOWN`. SAFE requires sufficient authoritative coverage, not merely “all visible workloads looked fine.”
+
+## PM-QUIESCE-003 — Transition-Specific Scope
+
+No generic safe/quiescence badge. Assessment is explicitly scoped to REBOOT, SUSPEND, GENERATION_SWITCH, etc.
+
+## PM-QUIESCE-004 — Transition Commit Fence
+
+Immediately before destructive handoff, transition authority revalidates, enters quiescing, blocks/classifies newly arriving conflicting workloads/actions/transactions/diagnostics, then commits.
+
+## PM-TRANS-001 — Transition Lease
+
+Contains owner transaction, transition authority epoch, incompatible-transition scope, fence, acquisition, renewal, loss, reconciliation, and release semantics.
+
+## PM-TRANS-002 — Transition Mutual Exclusion
+
+Incompatible transitions such as reboot/rollback/Recovery boot cannot commit concurrently.
+
+## PM-TRANS-003 — Transition Lease Loss
+
+Timeout/owner death after quiescing/destructive progress does not automatically free the Host for another transition; the prior transaction must be reconciled/fenced first.
+
+## PM-TRANS-004 — Transition Abort
+
+If preparation changes Host state and transition fails, record actual preparatory effects, run defined compensations where safe, and allow PARTIAL/REQUIRES_OPERATOR rather than fabricating restoration.
+
+## PM-HANDOFF-001 — Recovery Handoff Marker
+
+Small, generation-independent, Host/lineage-bound, versioned, tamper-evident, secret-minimal, early-Recovery-readable, one-transition correlation record. It is evidence/handoff state, not a reusable command.
+
+## PM-HANDOFF-002 — Handoff Replay/Compatibility
+
+After reconciliation the marker becomes consumed/historical. Older Recovery that cannot authenticate/understand a newer marker preserves/ignores safely and does not claim transition correlation.
+
+## PM-DTX-001 — Domain Transaction Model
+
+Domain-owned long lifecycle such as update, rollback, component transaction, Recovery, or system transition.
+
+## PM-DTX-002 — Transaction Fields
+
+Stable transaction identity, domain owner/authority epoch, lifecycle/phase, outcome, progress semantics, blockers, continuity/durability class, cancellation availability, request-idempotency identity, limitations, disclosure projection.
+
+## PM-DTX-003 — Current-State/Event Observation
+
+Current transaction state appears in Current-State Projection; transitions may appear in Mechanical Events. Domain authority owns durable truth.
+
+## PM-DTX-004 — Durable Creation / Lost Response
+
+Same request ID + same canonical digest reconciles same created object; same ID + different digest conflicts. Creation record is durable before irreversible work. Authorized recent-object discovery exists if client loses returned ID.
+
+## PM-DTX-005 — Rollback Compatibility
+
+Older authority preserves unknown newer transaction state and reports unsupported/unresolved rather than deleting or inventing completion.
+
+## PM-DTX-006 — System Transition Specialization
+
+Reboot/shutdown/suspend/generation-switch/rollback/Recovery mutation uses Domain Transaction semantics when that capability is implemented. PM1 may initially observe transition state without exposing every transition action.
+
+## PM-ARTIFACT-001 — Artifact Security Foundation
+
+Foundational invariants: effective classification floor before byte 1, immutable canonical artifact identity/body, digest/version, generation separate from release authorization, partial output remains classified, strong disposal not claimed from ordinary unlink on COW storage.
+
+## PM-ARTIFACT-002 — Concrete Artifact Jobs Are Phase-Scoped
+
+Concrete long-running export/diagnostic ArtifactJob lifecycle enters the phase that first implements the feature through the Contract Delta Gate; it is not an artificial PM1 prerequisite.
+
+---
+
+# X. TELEMETRY, EVENTS, SUBSCRIPTIONS, AND CONTROL-PLANE ISOLATION
+
+## PM-TELEM-001 — Telemetry Semantics
+
+Telemetry is sampled, bounded, potentially lossy, explicit about gaps, and separate from lifecycle truth.
+
+## PM-TELEM-002 — Counter Semantics
+
+Counters declare width, monotonicity, reset epoch/token, wrap behavior, source, and scope.
+
+## PM-TELEM-003 — Percentage Denominator
+
+Every percentage identifies its denominator/basis.
+
+## PM-TELEM-004 — Source/Schema Replacement
+
+Existing streams pin source/Provider/schema semantics. Replacement continues only under explicit compatible semantics; otherwise reset/re-negotiate.
+
+## PM-TELEM-005 — Historical Telemetry
+
+History preserves time range, resolution, aggregation, source epochs, gaps, resets, denominator changes, and does not silently smooth semantic discontinuities.
+
+## PM-TIMEOBS-001 — Uptime/Duration Reset Domains
+
+Every displayed uptime/duration names the reset domain—Host boot, Core instance, Provider session, workload instance, service activation—and whether suspend time counts.
+
+## PM-EVENT-001 — Mechanical Event Contract
+
+Events define identity, delivery semantics, replay horizon, deduplication, overflow, authorized-data gaps, source/epoch, and version behavior.
+
+## PM-EVENT-002 — Source Loss Is Not Object Death
+
+Provider/source loss does not synthesize process/service/workload exit.
+
+## PM-EVENT-003 — Unknown Event Semantics
+
+Older client may ignore only event classes explicitly declared additive/safe-to-ignore, and then history interpretation is marked PARTIAL. Unknown safety-significant semantics force reset/renegotiation rather than permissive drop.
+
+## PM-SUB-001 — Subscription Lease/Liveness
+
+Projection/telemetry/event subscriptions have owner-bound leases, heartbeat/liveness semantics, source state, expiry, and cleanup after client crash.
+
+## PM-SUB-002 — Shared Observation Collectors
+
+Compatible collectors/Providers may be shared/reference-counted. Closing one Manager instance releases only its lease; it does not stop a collector still required by other clients/system authorities.
+
+## PM-CTRLPLANE-001 — Traffic-Class Isolation
+
+Security/recovery/control traffic has reserved queue/service capacity isolated from telemetry/diagnostics via separate bounded channels/queues or guaranteed priority multiplexing.
+
+## PM-CTRLPLANE-002 — Client/Source Fairness
+
+Within traffic classes, Core enforces per-ManagementControlSession/client/system/principal/source and global limits for concurrency, rate, outstanding preflights, subscriptions, diagnostics, and work budget. Many sessions cannot evade quotas.
+
+---
+
+# Y. RESOURCE LOCATORS, ERRORS, BOOTSTRAP, BINDING, AND OPERATIONAL MODES
+
+## PM-LOCATOR-001 — Resource Locator
+
+Typed locators distinguish Host, container, guest, Provider, and immutable/content-addressed artifact resources.
+
+## PM-LOCATOR-002 — Locator Operations
+
+`REVEAL_LOCATION`, `READ`, `FETCH`, `EXPORT` are separate. REVEAL does not authorize READ/EXECUTE.
+
+## PM-LOCATOR-003 — Path/Reparse/Symlink Safety
+
+Path-based operations re-resolve under authorized scope and bind object identity/handle/version to prevent stale pathname replacement races.
+
+## PM-ERROR-001 — Safe Error Envelope
+
+Production errors expose stable machine-readable code, disclosure-safe human message, diagnostic correlation ID, and separately authorized detail where applicable. Free-form backend text never controls logic.
+
+## PM-LIMITATION-001 — Stable Limitation Codes
+
+Machine-readable limitation codes, not human strings, control retry/safety/availability logic.
+
+## PM-BOOTSTRAP-001 — Core Hello / Negotiation
+
+Minimal authenticated disclosu

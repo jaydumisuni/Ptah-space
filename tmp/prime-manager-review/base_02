@@ -1,0 +1,276 @@
+session registry revision, policy/support generation, and assessment inputs.
+
+## PM-WORLD-003 — Coherence Rule
+
+Each input declares whether it must share exact generation, may be revalidated at admission, may be historical-only, or may tolerate bounded freshness.
+
+---
+
+# J. ASSESSMENTS AND POLICY COMPOSITION
+
+## PM-ASSESS-001 — AssessmentEnvelope
+
+Every authoritative derived assessment carries authority/epoch, subject/scope, input revision set/digest, result, closure/completeness, freshness/expiry, stable reasons, disclosure classification, and limitations.
+
+## PM-ASSESS-002 — Assessment Completeness
+
+At minimum: `COMPLETE_FOR_DECLARED_SCOPE`, `PARTIAL`, `UNKNOWN`. Downstream safety logic does not treat PARTIAL as complete.
+
+## PM-IMPACT-001 — ImpactAssessment
+
+Includes affected targets, dependency/shared-infrastructure effects, target-set effects, control-session/path effects, disconnects, state/data-loss possibility, persistence, reversibility/compensation, and UNKNOWN consequences.
+
+## PM-PROT-001 — ProtectionAssessment
+
+Protection is effect/action, context, and target-set specific.
+
+## PM-PROT-002 — Conjunctive Protection
+
+All applicable protection constraints must be satisfied. UI severity is only a summary.
+
+## PM-PROT-003 — Protection Classes
+
+Possible summary classes include `NONE`, `CAUTION`, `ELEVATED`, `CRITICAL`, `ABSOLUTE`, `RECOVERY_ONLY`, `UNKNOWN`. UNKNOWN never means NONE.
+
+## PM-PROT-004 — Contextual Protection
+
+Protection may change with topology/state, such as sole control interface, sole Provider, current Core, transition authority, essential compositor/input.
+
+## PM-PROT-005 — Aggregate Protection
+
+Individually safe targets can be unsafe as a set.
+
+## PM-PROT-006 — Protection Override
+
+Every constraint declares whether it is ordinary-overridable, stronger-assurance-overridable, specific-authority-only, Recovery-only, or absolute through ordinary Manager/Core admission.
+
+## PM-PROT-007 — Distributed Commit Protection
+
+Remote/provider effects that require commit-time dynamic protection must use a short-lived/fenced safety lease or explicit commit revalidation. If the executor cannot satisfy the required rule, mutation is unavailable.
+
+## PM-RISK-001 — RiskAssessment
+
+Prime-owned risk can classify `ROUTINE`, `DISRUPTIVE`, `DESTRUCTIVE`, `CRITICAL`, `UNKNOWN` or equivalent. Risk is not permission.
+
+## PM-COMPAT-001 — CompatibilityAssessment
+
+Compatibility is authority-owned and scoped to capability/Provider/Profile/workload/schema/operation. Possible results include `COMPATIBLE`, `PARTIAL`, `INCOMPATIBLE`, `UNKNOWN`.
+
+## PM-HEALTH-001 — Health/Readiness Authority
+
+Lifecycle and health/readiness are separate. Health/readiness comes from the authoritative domain capability or remains UNKNOWN. Manager never derives HEALTHY from RUNNING, low CPU, or no recent error.
+
+## PM-AVAIL-001 — ActionAvailabilityAssessment
+
+Per effect/action kind + target/context. Possible states include `AVAILABLE`, `REQUIRES_PREFLIGHT`, `REQUIRES_STEP_UP`, `REQUIRES_ACTIVATION`, `EXPERIMENTAL_ONLY`, `UNAVAILABLE`, `UNSUPPORTED`, `UNKNOWN`.
+
+## PM-AVAIL-002 — Cheap Availability
+
+Inventory rendering does not run expensive full safety analysis or wake dormant machinery simply to color a button. Cheap summary may return `REQUIRES_PREFLIGHT` or `REQUIRES_ACTIVATION`.
+
+## PM-POLICY-001 — Conservative Policy Composition
+
+Applicable mandatory constraints compose conservatively. Generic “most specific wins” cannot weaken higher authority. Lower authority may tighten. Broadening requires explicitly typed override authority.
+
+## PM-POLICY-002 — Admission Obligation Set
+
+Every candidate effect generates all applicable mandatory contract/policy/context obligation instances. UI may deduplicate presentation; Core admission cannot erase multiplicity.
+
+---
+
+# K. PRIVILEGED EFFECT DESCRIPTORS, AUTHORIZATION, AND POSITIVE ADMISSION
+
+## PM-EFFECT-001 — Privileged Effect Descriptor
+
+Every privileged Host Action kind and privileged Domain Transaction kind has a versioned descriptor in the active contract registry.
+
+Each descriptor declares at least:
+
+- effect kind and descriptor version;
+- target type and target-set resolution semantics;
+- required collection-closure grade;
+- operation-scoped SupportAssessment requirement;
+- minimum Security-State continuity;
+- target-type-specific authorization attributes;
+- required permission family;
+- AssurancePredicate;
+- preflight requirement/receipt type;
+- DependencyGraph/ControlPath requirements;
+- Impact/Protection/Risk requirements;
+- Provider/executor binding and failover semantics;
+- mutation-conflict domain;
+- fence/commit semantics;
+- replay/reconciliation class;
+- execution deadline/lease;
+- cancellation/compensation semantics;
+- expected-disconnect scope;
+- PostconditionPredicate;
+- mandatory audit class;
+- evidence durability/reserve requirements;
+- evidence-strength floor where required;
+- control-plane priority class;
+- result/evidence disclosure-projection class.
+
+Missing/unknown/incomplete descriptor blocks production admission.
+
+## PM-PERM-001 — Permission Families
+
+Prime defines granular families for ordinary inventory, sensitive inventory, process control, workload control, service control, resource control, diagnostics, export/externalization, protected reads, and recovery/transition requests.
+
+## PM-IDTAX-001 — Identifier / Precondition / Authority Taxonomy
+
+Identifiers such as Host/workload/process/action/transaction IDs are not credentials. Revision/fence/preflight tokens are integrity/precondition material, not authority. Cursors are continuation state. Grants/credentials are authority material.
+
+## PM-AUTHZ-001 — AuthorizationDecision
+
+Core creates the final authoritative AuthorizationDecision at the actual admission or protected-disclosure commit boundary from current inputs. It is not a reusable standing “allow.”
+
+## PM-AUTHZ-002 — AuthorizationDecision Inputs
+
+Can include principal/session/client, permission, target-type-specific security attributes, target revisions, support/compatibility, impact, protection, risk, assurance, Security-State continuity, policy, and classification.
+
+## PM-AUTHZ-003 — Decision Snapshot for Evidence
+
+Durable Action/Audit records preserve an immutable decision snapshot/reference with relevant input revisions and stable reason so later policy change does not erase why the operation was allowed at the time.
+
+## PM-CAB-001 — Control Authority Bundle
+
+Normal production control binds one complete authorized generation of the Prime contract set, authorization/security semantics, support authority, evidence/audit law, wire/schema generation, Provider mutation contracts, and relevant protection/risk semantics.
+
+## PM-CAB-002 — No Partial Activation
+
+Normal production cannot combine half-upgraded safety generations. Candidate bundles are Test/Developer-eligible only.
+
+## PM-CAB-003 — CAB Activation Authority
+
+The first production CAB is rooted in pre-existing Prime release/security authority plus explicit owner/frozen-architecture approval. A CAB cannot self-activate.
+
+## PM-CAB-004 — CAB Lifecycle
+
+CAB states distinguish candidate, Test/Developer eligible, production-active, superseded, revoked/retired as applicable. Terminal states do not resurrect.
+
+## PM-ADMIT-001 — Positive Control Admission Law
+
+Prime may admit a privileged effect only when:
+
+- exact Decision World is coherent;
+- current CAB is valid;
+- effect descriptor is known/current;
+- target identity/fences are valid;
+- required collections satisfy closure grade;
+- mandatory UNKNOWN is absent;
+- contradictions are resolved or explicitly block;
+- every Admission Obligation closes;
+- SupportAssessment satisfies descriptor requirement;
+- assurance predicate is satisfied;
+- protection permits admission;
+- risk requirements are satisfied;
+- mandatory audit/evidence capacity is available;
+- executor/Provider fencing is valid;
+- Security-State continuity satisfies the descriptor.
+
+“No blocker found” is insufficient.
+
+---
+
+# L. DEVELOPER/TEST AND PRODUCTION SUPPORT
+
+## PM-DEV-001 — Developer/Test Authority
+
+Explicit Prime security state with principal/session scope, allowed operation classes, expiry, revocation, audit, and proof purpose.
+
+## PM-DEV-002 — Eligibility Only
+
+Developer/Test authority can make an experimental path eligible for proof. It never bypasses identity, protection, assurance, disclosure, evidence, audit, or Provider fencing.
+
+## PM-DEV-003 — Same Production Path
+
+PM1.5 proof exercises the same Core/Provider implementation intended for production support; a separate test-only path cannot qualify production behavior.
+
+## PM-SUPPORT-001 — Release Support Trust
+
+Production support claims are authenticated by Prime release/support trust, not self-asserted by Provider or renderer.
+
+## PM-SUPPORT-002 — Operation-Scoped Support
+
+Inventory, telemetry, mutation, and other operation scopes are independently supportable.
+
+## PM-SUPPORT-003 — Support Claim
+
+Contains claim identity, operation scope, implementation version, required contract generation, proof references/scopes/preconditions, validity/offline semantics, signer/key epoch, and revocation state.
+
+## PM-SUPPORT-004 — Support Claim Lifecycle
+
+Support claim status has issue/active/expired/revoked/superseded semantics. Terminal states do not reopen.
+
+## PM-SUPPORT-005 — SupportAssessment
+
+Core combines the authenticated claim with the exact mechanically observed dependency set required by the claim, including security continuity and Provider trust, to derive `PRODUCTION_SUPPORTED`, `EXPERIMENTAL`, `UNPROVEN`, `REVOKED`, `UNSUPPORTED`, or `UNKNOWN`.
+
+## PM-SUPPORT-006 — Revocation Timing
+
+Revocation affects future admission once learned. Historical evidence preserves the support state used at original admission. Already-committed effects are not rewritten.
+
+## PM-SUPPORT-007 — Offline Validity
+
+High-risk offline Hosts do not trust cached support claims indefinitely.
+
+## PM-SUPPORT-008 — Historical Key Verification
+
+Support-signing key rotation preserves historical verification while old keys cannot issue new current authority.
+
+---
+
+# M. AUTHORITATIVE CLIENT DATA FAMILIES
+
+## PM-DATA-001 — Five Data Families
+
+```text
+1. Current-State Projection
+2. Telemetry
+3. Mechanical Events
+4. Host Action Evidence
+5. Security Audit
+```
+
+Domain Transactions are authority-owned current-state objects plus events/history.
+
+## PM-OBSENV-001 — Common Observation Envelope
+
+Dynamic facts carry relevant Host/generation/boot/Core/security/source epochs, source identity, observation time, source sequence/time where applicable, local receipt time for remote data, revision, provenance, declared scope, closure/completeness, freshness, and limitations.
+
+---
+
+# N. CURRENT-STATE PROJECTION
+
+## PM-PROJ-001 — Projection Operations
+
+`UPSERT`, `RETRACT`, `RESET`.
+
+## PM-PROJ-002 — Projection Instance
+
+Carries instance ID, ordered delivery sequence, source/schema generation, disclosure context, and query specification. Frames from old instances are discarded.
+
+## PM-PROJ-003 — Projection Lifecycle
+
+Creation, active delivery, RESET/expiry/termination are explicit. Terminal projection instance never resurrects.
+
+## PM-PROJ-004 — Gap-Free Snapshot/Continuation Join
+
+Initial snapshot and continuation point share one race-free logical boundary or equivalent mechanism proving no unobservable gap.
+
+## PM-PROJ-005 — RETRACT Semantics
+
+RETRACT means no longer in the current authorized projection. It does not assert lifecycle death.
+
+## PM-PROJ-006 — RESET Semantics
+
+RESET applies on relevant disclosure/session/Host/rebind/security/source/schema/control-state discontinuity.
+
+## PM-PROJ-007 — Scope / Closure / Freshness / Truncation Axes
+
+These remain separate. `FILTERED_BY_POLICY` is not the same as `PARTIAL_SOURCE`.
+
+## PM-PROJ-008 — Bounded Convergence
+
+Catch-up cost is bounded by current state/cardinality/resource policy rather t

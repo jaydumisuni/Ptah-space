@@ -1,0 +1,348 @@
+# PRIME MANAGER — FULL PRE-FREEZE ROADMAP REVIEW CANDIDATE
+
+**Product:** Prime Manager  
+**Repository:** `jaydumisuni/Prime-Manager`  
+**Authority:** THETECHGUY DIGITAL SOLUTIONS / Prime OS architecture  
+**Status:** **PRE-FREEZE — INDEPENDENT REVIEW TARGET**  
+**PM0 implementation:** **NOT STARTED**  
+**GitHub:** **UNCHANGED**  
+**Purpose:** Independent falsification of the complete Prime Manager architecture before roadmap freeze.
+
+This document is the next materialized review candidate. It is built from the monotonic accepted-contract registry and the accepted amendments from all prior internal, independent, regression, and SRG-assisted review passes. It is not a rewrite of only the latest prose candidate.
+
+A section number is presentation only. **Stable contract IDs are authoritative review references.**
+
+---
+
+# A. REVIEW AUTHORITY AND REVIEW WORLD
+
+## PM-RAB-GENESIS-001 — Genesis Roadmap Review Authority Bundle
+
+The project owner has adopted `PM-RAB-GENESIS-001 v1.0` as the external bootstrap review authority for this roadmap family.
+
+The active RAB defines:
+
+- Definition Coverage;
+- Stable-ID Coverage;
+- Contract Regression Diff;
+- Authority-Mechanism review;
+- State-Machine Closure;
+- Proof-Subject Resolution in both directions;
+- Phase Feasibility;
+- independent falsification mandate;
+- immediate-prior-candidate baseline selection;
+- monotonic accepted-contract-registry rules;
+- Review Input World construction;
+- candidate/RAB non-self-reference;
+- reviewer/evidence independence provenance;
+- owner-risk separation from engineering truth.
+
+A candidate may propose a future RAB version. It cannot activate that version against its own review.
+
+## PM-ACR-GENESIS-001 — Genesis Accepted-Contract Registry
+
+The first Accepted-Contract Registry is an owner-adopted, content-addressed baseline derived from the immediately prior accepted roadmap candidate plus explicitly accepted amendments.
+
+After genesis, registry evolution is monotonic. Every accepted contract must be one of:
+
+- `PRESERVED`;
+- `MOVED_BY_REFERENCE`;
+- `SUPERSEDED_BY`;
+- `REMOVED_WITH_RATIONALE`.
+
+Silent disappearance is forbidden.
+
+## PM-RVW-001 — Review Input World
+
+The Review Input World is:
+
+```text
+candidate roadmap digest
++ ordered accepted-amendment-set digest
++ accepted-contract-registry generation
++ active RAB digest/version
++ immediately-prior-candidate identity
++ regression baseline identity
+```
+
+Gate outputs are **not** part of the world they evaluate.
+
+## PM-RVW-002 — Review Evidence Bundle
+
+The Review Evidence Bundle contains gate reports and independent-review evidence, each bound to one exact Review Input World.
+
+At minimum:
+
+- Definition Coverage report;
+- Stable-ID Coverage report;
+- Contract Regression Diff report;
+- Authority-Mechanism report;
+- State-Machine Closure report;
+- Proof-Subject Resolution report;
+- Phase Feasibility report;
+- independent-review findings and dispositions.
+
+## PM-RVW-003 — Roadmap Assurance Capsule
+
+A final freeze produces an immutable Roadmap Assurance Capsule containing:
+
+- Review Input World;
+- Review Evidence Bundle;
+- final accepted-contract-registry generation;
+- independent-review independence provenance;
+- owner freeze decision.
+
+## PM-RVW-004 — Bounded Saturation
+
+“Saturated” means only:
+
+> Every mandatory obligation inside the frozen review domain has closed at its required authority, closure, coherence, mechanism, lifecycle, and proof level, with no mandatory UNKNOWN or unresolved contradiction.
+
+It does not claim universal omniscience.
+
+## PM-RVW-005 — Candidate Cannot Judge Itself
+
+Candidate changes to review gates or review authority are proposals for later RAB generations. They cannot become active in the review evaluating those changes.
+
+## PM-RVW-006 — Owner Risk Is Not Engineering Truth
+
+An owner may accept business/deployment risk. That decision cannot:
+
+- turn `UNKNOWN` into known;
+- turn `NEEDS WORK` into PASS;
+- turn `UNPROVEN` into `PRODUCTION_SUPPORTED`;
+- mint proof;
+- erase an engineering blocker.
+
+---
+
+# B. PRODUCT DEFINITION AND PERMANENT RULES
+
+## PM-PRODUCT-001 — Product Definition
+
+Prime Manager is Prime OS’s first-party deep Host-management and operator application.
+
+It exists to let an authorized operator inspect a Prime Host and request bounded mechanical effects through Prime-owned authority.
+
+Prime Manager is not:
+
+- another Prime Core;
+- another Auth authority;
+- another Recovery authority;
+- another distributed orchestrator;
+- another shell;
+- a generic root console;
+- a systemd/cgroup frontend pretending to be Prime architecture;
+- a Task Manager / Activity Monitor / System Informer clone.
+
+## PM-PRODUCT-002 — Core Operator Questions
+
+Prime Manager should make it possible to answer, with explicit confidence/authority:
+
+- What Host is this?
+- How strong is its identity?
+- What lineage/rebind state applies?
+- Is security-state continuity intact?
+- Which generation/kernel/Core is active?
+- Which Core currently holds mutation authority?
+- Which capabilities and Providers exist?
+- Which operation scopes are implemented, experimental, production-supported, revoked, unavailable, or UNKNOWN?
+- Which workloads/processes/services exist and why?
+- Which Profile/Policy revisions admitted them?
+- Which runtime/provider/execution path implements them?
+- Which machine facts are exact, partial, filtered, stale, estimated, attested, or UNKNOWN?
+- Which controls are currently available, protected, risky, or prohibited?
+- What impact would a requested effect have?
+- Which assurance is required?
+- What was rejected before admission?
+- What was durably admitted?
+- What mechanically happened?
+- What evidence proves the conclusion?
+- What remains unresolved?
+- Which Domain Transactions or transitions block Host changes?
+- Which proof/support body makes an operation production-supported?
+
+## PM-RULE-001 — Workload First, Process Deep
+
+Prime-managed logical workloads are the primary management abstraction where Prime owns workload identity. Process truth remains inspectable.
+
+## PM-RULE-002 — Prime Owns Machine Truth
+
+Manager consumes, presents, requests, and reconciles. Prime/Core/domain authorities observe authoritatively, authorize, mutate, audit, and evidence.
+
+## PM-RULE-003 — UNKNOWN Conservation
+
+UNKNOWN remains UNKNOWN until authoritative evidence resolves it. Missing facts never silently become FALSE, safe, absent, supported, complete, healthy, or authorized.
+
+## PM-RULE-004 — Contradiction Conservation
+
+Conflicting authenticated safety facts remain explicit conflict/UNKNOWN unless the owning authority defines an authoritative resolution rule. “Latest wins” is not a generic safety rule.
+
+## PM-RULE-005 — No Optimistic Machine Truth
+
+Clicking an action never causes Manager to optimistically rewrite authoritative state.
+
+## PM-RULE-006 — Support Broadly, Activate Narrowly
+
+Opening or browsing Manager must not unnecessarily wake or activate dormant hardware, Providers, VMs, runtimes, storage, or invasive diagnostics.
+
+## PM-RULE-007 — Observation Is Not Mutation
+
+Reads and preflight do not hide the requested mechanical effect. Observation activation is separately described and governed.
+
+## PM-RULE-008 — Visible Is Not Automatically Externalizable
+
+Display permission does not automatically grant persistence, clipboard, export, printing, notification, download, remote transfer, or crash-log permission.
+
+## PM-RULE-009 — No Safety by Denial
+
+A system that “passes” by denying every control is not qualified. Proof includes clean controls demonstrating that safe ordinary operations remain possible.
+
+## PM-RULE-010 — Distress Usefulness
+
+Manager should remain useful for a frozen minimum function set during the qualified pressure envelope while the required Prime substrate remains functional.
+
+Required substrate can include:
+
+- current Core authority;
+- required Auth/Login-Session authority;
+- essential compositor/input path;
+- Manager broker/UI runtime;
+- mandatory evidence/audit path for the requested effect.
+
+Distress usefulness does **not** mean Manager:
+
+- outranks Core;
+- outranks Recovery;
+- outranks trusted Auth;
+- outranks essential compositor/input;
+- can cold-start when Core/application-admission substrate itself is unavailable.
+
+Prime Terminal/Recovery remain fallback paths.
+
+---
+
+# C. AUTHORITY BOUNDARIES AND ECOSYSTEM
+
+## PM-AUTHORITY-001 — Prime/Core Ownership
+
+Prime OS/Core owns or mediates:
+
+- Host identity and lineage;
+- Security-State continuity;
+- Core authority;
+- Auth/Login-Session;
+- Provider admission/trust;
+- capability registry;
+- Application Profiles;
+- Workload Policies;
+- live workload registry;
+- process/service authority;
+- hardware graph;
+- resource accounting/enforcement;
+- dependency/control-session truth;
+- assessments;
+- AuthorizationDecision;
+- Host Actions;
+- Security Audit;
+- Host Action Evidence;
+- quiescence/transitions;
+- disclosure;
+- support applicability.
+
+## PM-AUTHORITY-002 — Manager Ownership
+
+Manager owns presentation, navigation, search/filter/sort, visualization, bounded presentation history, non-authoritative preferences/cache, selection/follow state, request UX, evidence UX, and diagnostic UX.
+
+## PM-AUTHORITY-003 — No Direct Privileged Bypass
+
+Manager never obtains Host authority merely by:
+
+- UID 0;
+- broad privileged socket groups;
+- generic root shell;
+- direct `/proc`/`/sys` mutation;
+- direct cgroup/systemd authority.
+
+## PM-ECO-001 — AgentOps Boundary
+
+AgentOps owns semantic durable Operations. Manager interactive fleet fan-out is not a hidden AgentOps replacement.
+
+## PM-ECO-002 — Ptah Boundary
+
+Ptah may impose stronger higher-level constraints. It does not silently weaken Prime safety.
+
+## PM-ECO-003 — Origins Boundary
+
+Host discovery/aggregation is not Host-control authority.
+
+## PM-ECO-004 — Hunter / Oracle / Grid-Knight Boundary
+
+These are separate consumers/advisory systems with their own authorization/disclosure scopes. Their conclusions remain derived/advisory and do not automatically become Prime machine truth, protection, risk, or authorization.
+
+## PM-ECO-005 — Terminal Boundary
+
+Prime Terminal owns PTY/session/command semantics. Manager is not another Terminal.
+
+## PM-ECO-006 — Recovery Boundary
+
+Prime Recovery remains independent emergency/break-glass authority. Manager never silently becomes Recovery.
+
+---
+
+# D. TRUST MODEL AND MANAGER PROCESS ARCHITECTURE
+
+## PM-TCB-001 — Trusted Computing Base
+
+For a privileged local operation, the TCB includes as applicable:
+
+- kernel / Prime security primitives;
+- current Core authority;
+- Auth/Login-Session authority;
+- trusted interaction path;
+- minimal Manager broker;
+- operation-scoped authoritative Provider;
+- release/support trust root where production eligibility is safety-bearing.
+
+## PM-TCB-002 — Untrusted UI Domain
+
+Treat as untrusted:
+
+- Manager renderer;
+- WebView renderer/GPU/network/utility subprocesses;
+- arbitrary executable metadata;
+- Provider-supplied text/artwork/content;
+- external web content.
+
+## PM-TCB-003 — Out-of-Scope TCB Failure
+
+Manager cannot guarantee security if the kernel, current Core, Auth authority, trusted interaction authority, support trust root, or owner-controlled Recovery authority is compromised.
+
+## PM-ARCH-001 — Renderer/Broker Split
+
+```text
+untrusted UI process tree
+        ↓
+typed origin-bound bridge
+        ↓
+minimal trusted broker
+        ↓
+authenticated current-Core IPC
+```
+
+## PM-ARCH-002 — Renderer Restrictions
+
+Renderer and UI subprocesses cannot:
+
+- open Core IPC;
+- inherit Core handles;
+- receive reusable credentials/grants;
+- retain authoritative preflight/fence material;
+- ptrace/debug/inject broker;
+- access broker memory;
+- execute Provider HTML/JS in bridge-enabled context;
+- intentionally persist protected Host data through browser storage.
+
+## PM-ARCH-003 — Broker Restrictions
+
+Broker is minimal, schema-bound, and not a generic executor. It receives only scoped Core IPC, scoped file

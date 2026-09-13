@@ -6,16 +6,16 @@ on:
       - tmp/prime-manager-cookpit-kratos-20260913
 
 jobs:
-  parser-regression-red:
+  green-cookpit:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout Prime Manager review payload
         uses: actions/checkout@v4
         with:
           ref: tmp/prime-manager-review-payload-20260913
           path: payload
-      - name: RED - titleless stable-ID regression
+      - name: Stage exact isolated KRATOS review workspace
         shell: bash
         run: |
           set -euo pipefail
@@ -24,4 +24,59 @@ jobs:
           mkdir -p "$W"
           cp -a "$GITHUB_WORKSPACE/payload/tmp/prime-manager-review/." "$W/"
           cd "$W"
+          head -c 12000 base_07 > base_07.authority
+          cat base_00 base_01 base_02 base_03 base_04 base_05 base_06 base_07.authority base_08 > ROADMAP_BASE.md
+          test "$(wc -c < ROADMAP_BASE.md)" = "103455"
+          test "$(sha256sum ROADMAP_BASE.md | awk '{print $1}')" = "65d754df5f9d5bbca74f3385945d01486845fa255cc44f9c2cf32ca29c521dc3"
+          echo 'BASE_AUTHORITY_OK'
+          echo '=== PRIME MANAGER AUTHORITY BEFORE ==='
+          git -C /home/kratos/Prime-Manager status --short --branch
+          git -C /home/kratos/Prime-Manager rev-parse HEAD
+      - name: GREEN - unit tests
+        shell: bash
+        run: |
+          cd /home/kratos/.oracle-work/prime-manager-review-cookpit
           python3 -m unittest -v test_review_gate.py
+      - name: Cookpit micro lane
+        shell: bash
+        run: |
+          cd /home/kratos/cookpit
+          python3 -m ttg_cookpit.cli run \
+            --profile /home/kratos/.oracle-work/prime-manager-review-cookpit/prime-manager-review.json \
+            --mode micro \
+            --state-root /home/kratos/.local/state/ttg-cookpit
+      - name: Cookpit heavy lane
+        shell: bash
+        run: |
+          cd /home/kratos/cookpit
+          python3 -m ttg_cookpit.cli run \
+            --profile /home/kratos/.oracle-work/prime-manager-review-cookpit/prime-manager-review.json \
+            --mode heavy \
+            --state-root /home/kratos/.local/state/ttg-cookpit
+      - name: Evidence and authority after
+        shell: bash
+        run: |
+          set -euo pipefail
+          W=/home/kratos/.oracle-work/prime-manager-review-cookpit
+          STATE=/home/kratos/.local/state/ttg-cookpit/projects/prime-manager-review
+          echo '=== REVIEW WORLD ==='
+          cat "$W/gate-report-micro.json"
+          cat "$W/gate-report-heavy.json"
+          echo '=== COOKPIT EVIDENCE ==='
+          find "$STATE" -maxdepth 3 -type f -print | sort || true
+          for f in "$STATE/evidence/micro-latest.json" "$STATE/evidence/heavy-latest.json"; do
+            if [ -f "$f" ]; then
+              echo "--- $f"
+              cat "$f"
+            fi
+          done
+          echo '=== COOKPIT STATUS ==='
+          cd /home/kratos/cookpit
+          python3 -m ttg_cookpit.cli status \
+            --profile "$W/prime-manager-review.json" \
+            --state-root /home/kratos/.local/state/ttg-cookpit
+          echo '=== PRIME MANAGER AUTHORITY AFTER ==='
+          git -C /home/kratos/Prime-Manager status --short --branch
+          git -C /home/kratos/Prime-Manager rev-parse HEAD
+          test "$(git -C /home/kratos/Prime-Manager rev-parse HEAD)" = "375ca5475d97d9378e5ecfd86ff2c24b5137c103"
+          test -z "$(git -C /home/kratos/Prime-Manager status --porcelain)"

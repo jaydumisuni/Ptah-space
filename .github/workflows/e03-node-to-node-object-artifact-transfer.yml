@@ -1,0 +1,306 @@
+name: E03 Node-to-Node Object Artifact Transfer Exact Head Proof
+
+on:
+  push:
+    branches: [e03-node-to-node-object-artifact-transfer]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  E02_BASE: 4b745e7ee0712df0458c1adf55feafdbcc42d9d4
+  TARGET_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  CARGO_TERM_COLOR: always
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  exact-head-e03:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact E03 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+
+      - name: Pin toolchain and exact candidate identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e03-proof"
+          mkdir -p "$PROOF"
+          rustup toolchain install 1.97.1 --profile minimal --component clippy --component rustfmt
+          rustup default 1.97.1
+          rustc -Vv | tee "$PROOF/rustc-version.txt"
+          cargo -V | tee "$PROOF/cargo-version.txt"
+          python3 --version 2>&1 | tee "$PROOF/python-version.txt"
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          python3 --version | grep -q '^Python 3.13.'
+          printf '%s\n' "$TARGET_SHA" > "$PROOF/exact-head.txt"
+          printf '%s\n' "$E02_BASE" > "$PROOF/e02-predecessor.txt"
+          cat /etc/os-release > "$PROOF/host-os-release.txt"
+          uname -a > "$PROOF/host-uname.txt"
+
+      - name: Prove accepted predecessor and exact reviewed E03 delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e03-proof"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git fetch origin main e03-node-to-node-object-artifact-transfer
+          test "$(git rev-parse origin/main)" = "$E02_BASE"
+          test "$(git merge-base "$E02_BASE" HEAD)" = "$E02_BASE"
+          test -z "$(git rev-list --min-parents=2 "$E02_BASE"..HEAD)"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            test "$(git rev-parse origin/e03-node-to-node-object-artifact-transfer)" = "$TARGET_SHA"
+          fi
+          git diff --name-only "$E02_BASE"...HEAD | tee "$PROOF/changed-paths.txt"
+          python3 - <<'PY'
+          import subprocess
+          base = '4b745e7ee0712df0458c1adf55feafdbcc42d9d4'
+          expected = {
+              '.github/workflows/e03-node-to-node-object-artifact-transfer.yml',
+              '.github/workflows/e03-tdd.yml',
+              'Cargo.lock',
+              'Cargo.toml',
+              'E03_NODE_TO_NODE_OBJECT_ARTIFACT_TRANSFER.md',
+              'conformance/e03/node-transfer-cases.v0.1.0.json',
+              'crates/ptah-node-transfer/Cargo.toml',
+              'crates/ptah-node-transfer/src/direct.rs',
+              'crates/ptah-node-transfer/src/error.rs',
+              'crates/ptah-node-transfer/src/framing.rs',
+              'crates/ptah-node-transfer/src/lib.rs',
+              'crates/ptah-node-transfer/src/protocol.rs',
+              'crates/ptah-node-transfer/src/relay.rs',
+              'crates/ptah-node-transfer/tests/direct_tls.rs',
+              'crates/ptah-node-transfer/tests/framing.rs',
+              'crates/ptah-node-transfer/tests/protocol.rs',
+              'crates/ptah-node-transfer/tests/relay_tls.rs',
+              'crates/ptah-transfer/Cargo.toml',
+              'crates/ptah-transfer/src/e03/authority.rs',
+              'crates/ptah-transfer/src/e03/cache.rs',
+              'crates/ptah-transfer/src/e03/mod.rs',
+              'crates/ptah-transfer/src/e03/resume.rs',
+              'crates/ptah-transfer/src/lib.rs',
+              'crates/ptah-transfer/tests/e03_authority.rs',
+              'crates/ptah-transfer/tests/e03_cache_resume.rs',
+              'docs/superpowers/plans/2026-09-06-e03-node-to-node-object-artifact-transfer.md',
+              'docs/superpowers/specs/2026-09-06-e03-node-to-node-object-artifact-transfer-design.md',
+              'services/ptah-control/Cargo.toml',
+              'services/ptah-control/src/e01_lib.rs',
+              'services/ptah-control/src/transfer.rs',
+              'services/ptah-control/tests/e03_transfer_authority.rs',
+              'services/ptah-node/Cargo.toml',
+              'services/ptah-node/src/lib.rs',
+              'services/ptah-node/src/transfer.rs',
+              'services/ptah-node/tests/e03_direct_resume.rs',
+              'services/ptah-node/tests/e03_relay_resume.rs',
+              'services/ptah-node/tests/e03_transfer_guard.rs',
+              'tools/check_e03_node_transfer.py',
+              'tools/test_check_e03_node_transfer.py',
+          }
+          changed = set(subprocess.check_output(['git','diff','--name-only',f'{base}...HEAD'], text=True).splitlines())
+          if changed != expected:
+              raise SystemExit(f'E03 delta drift: missing={sorted(expected-changed)} unexpected={sorted(changed-expected)}')
+          forbidden = [p for p in changed if p.startswith(('schemas/','migrations/'))]
+          if forbidden:
+              raise SystemExit(f'E03 modified frozen schema/migration surface: {sorted(forbidden)}')
+          PY
+          git diff --check "$E02_BASE"...HEAD
+
+      - name: Prove immutable external Action references
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e03-proof"
+          python3 - <<'PY' | tee "$PROOF/action-pin-audit.txt"
+          import re
+          from pathlib import Path
+          pin = re.compile(r'^[0-9a-f]{40}$')
+          failures=[]
+          for path in sorted(Path('.github/workflows').glob('*.yml')):
+              for number,raw in enumerate(path.read_text(encoding='utf-8').splitlines(),1):
+                  stripped=raw.strip()
+                  if not stripped.startswith(('- uses:','uses:')): continue
+                  value=stripped.split('uses:',1)[1].strip().split(' #',1)[0].strip("'\"")
+                  if value.startswith('./'): continue
+                  if '@' not in value or pin.fullmatch(value.rsplit('@',1)[1]) is None:
+                      failures.append((str(path),number,value))
+          if failures:
+              for item in failures: print(f'{item[0]}:{item[1]}: {item[2]}')
+              raise SystemExit(f'{len(failures)} non-immutable Action references remain')
+          print('ALL_EXTERNAL_ACTION_REFERENCES_IMMUTABLY_PINNED')
+          PY
+
+      - name: Prove dependency source licence and no new registry package family
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e03-proof"
+          python3 tools/check_rust_dependency_lock.py --output "$PROOF/dependency-lock.json"
+          cargo metadata --locked --format-version 1 > "$PROOF/cargo-metadata.json"
+          git show "$E02_BASE:Cargo.lock" > "$RUNNER_TEMP/e02-Cargo.lock"
+          python3 - <<'PY' | tee "$PROOF/registry-delta.txt"
+          import tomllib
+          from pathlib import Path
+          def registry_names(path):
+              data=tomllib.loads(Path(path).read_text(encoding='utf-8'))
+              return {p['name'] for p in data.get('package',[]) if str(p.get('source','')).startswith('registry+')}
+          base=registry_names(Path(__import__('os').environ['RUNNER_TEMP'])/'e02-Cargo.lock')
+          current=registry_names('Cargo.lock')
+          added=sorted(current-base)
+          if added: raise SystemExit(f'E03 added registry package names: {added}')
+          print('NO_NEW_REGISTRY_PACKAGE_NAMES')
+          PY
+          cargo install cargo-deny --version 0.19.4 --locked --root "$RUNNER_TEMP/cargo-deny"
+          "$RUNNER_TEMP/cargo-deny/bin/cargo-deny" check advisories bans licenses sources 2>&1 | tee "$PROOF/cargo-deny.txt"
+
+      - name: Prove exact 28-case E03 corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e03-proof"
+          python3 -m unittest -v tools/test_check_e03_node_transfer.py 2>&1 | tee "$PROOF/e03-corpus-regressions.txt"
+          python3 tools/check_e03_node_transfer.py --repo-root . --output "$PROOF/e03-corpus-validation.json"
+          grep -q '"case_count": 28' "$PROOF/e03-corpus-validation.json"
+          grep -q '"status": "pass"' "$PROOF/e03-corpus-validation.json"
+
+      - name: Prove E03 authority cache and bounded protocol
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e03-proof"
+          {
+            cargo test -p ptah-transfer --locked --test e03_authority --test e03_cache_resume -- --nocapture
+            cargo test -p ptah-node-transfer --locked --test protocol --test framing -- --nocapture
+            cargo test -p ptah-control --locked --test e03_transfer_authority -- --nocapture
+            cargo test -p ptah-node --locked --test e03_transfer_guard -- --nocapture
+          } 2>&1 | tee "$PROOF/e03-authority-cache-protocol.txt"
+
+      - name: Prove real direct TLS and interruption resume
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e03-proof"
+          {
+            cargo test -p ptah-node-transfer --locked --test direct_tls -- --nocapture
+            cargo test -p ptah-node --locked --test e03_direct_resume -- --nocapture
+          } 2>&1 | tee "$PROOF/e03-direct-resume.txt"
+
+      - name: Prove explicit relay authorization and continuation
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e03-proof"
+          {
+            cargo test -p ptah-node-transfer --locked --test relay_tls -- --nocapture
+            cargo test -p ptah-node --locked --test e03_relay_resume -- --nocapture
+          } 2>&1 | tee "$PROOF/e03-relay-continuation.txt"
+
+      - name: Prove reconnect restart and concurrent isolation evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e03-proof"
+          {
+            cargo test -p ptah-control --locked --test e01_node_link -- --nocapture
+            cargo test -p ptah-control --locked --test e03_transfer_authority -- --nocapture
+            cargo test -p ptah-transfer --locked --test e03_cache_resume -- --nocapture
+            cargo test -p ptah-transfer --locked --test a08 independent_transfer_runs_progress_without_global_transfer_lock -- --nocapture
+          } 2>&1 | tee "$PROOF/e03-recovery-isolation.txt"
+
+      - name: Prove A08 verification and A07 acceptance composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e03-proof"
+          {
+            cargo test -p ptah-transfer --locked --test a08 -- --nocapture
+            cargo test -p ptah-object-store --locked --test a07 -- --nocapture
+          } 2>&1 | tee "$PROOF/a08-a07-composition.txt"
+
+      - name: Prove inherited E01 E02 A08 B01 regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e03-proof"
+          {
+            cargo test -p ptah-node-link --locked -- --nocapture
+            cargo test -p ptah-control --locked --test e01_node_link --test e02_placement -- --nocapture
+            cargo test -p ptah-node --locked --test e01_node_client --test e02_dispatch_guard --test e02_provider_dispatch -- --nocapture
+            cargo test -p ptah-placement-runtime --locked -- --nocapture
+            cargo test -p ptah-transfer --locked --test a08 --test b01 --test b01_source_mutation -- --nocapture
+          } 2>&1 | tee "$PROOF/inherited-e01-e02-a08-b01.txt"
+
+      - name: Prove D09 and deep Workspace checker regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e03-proof"
+          PYTHONPATH=tools python3 -m unittest -v tools/test_check_d09_full_workspace_release.py 2>&1 | tee "$PROOF/d09-regressions.txt"
+          python3 tools/check_d09_full_workspace_release.py --repo-root . --output "$PROOF/d09-validation.json"
+          PYTHONPATH=tools python3 tools/test_check_workspace_operations_donor_v2.py -v 2>&1 | tee "$PROOF/deep-workspace-regressions.txt"
+          python3 tools/check_workspace_operations_donor_v2.py --repo-root . --output "$PROOF/deep-workspace-validation.json"
+
+      - name: Prove formatting strict Clippy and full workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e03-proof"
+          cargo fmt --all -- --check
+          printf 'CARGO_FMT_ALL_CHECK_OK\n' | tee "$PROOF/cargo-fmt.txt"
+          cargo clippy --workspace --all-targets --locked -- -D warnings 2>&1 | tee "$PROOF/cargo-clippy.txt"
+          cargo test --workspace --locked -- --nocapture 2>&1 | tee "$PROOF/cargo-test.txt"
+
+      - name: Prove repository contains no textual secrets or private-key markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e03-proof"
+          PATTERN='BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}'
+          if grep -RInE --binary-files=without-match --exclude-dir=.git --exclude-dir=target "$PATTERN" . > "$PROOF/secret-scan-hits.txt"; then
+            cat "$PROOF/secret-scan-hits.txt"
+            exit 1
+          fi
+          printf 'NO_TEXTUAL_SECRET_OR_PRIVATE_KEY_MARKERS_FOUND\n' | tee "$PROOF/secret-scan.txt"
+
+      - name: Validate retained E03 proof bundle and clean exact candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e03-proof"
+          for file in exact-head.txt changed-paths.txt action-pin-audit.txt dependency-lock.json registry-delta.txt cargo-deny.txt e03-corpus-regressions.txt e03-corpus-validation.json e03-authority-cache-protocol.txt e03-direct-resume.txt e03-relay-continuation.txt e03-recovery-isolation.txt a08-a07-composition.txt inherited-e01-e02-a08-b01.txt d09-regressions.txt deep-workspace-regressions.txt cargo-fmt.txt cargo-clippy.txt cargo-test.txt secret-scan.txt; do
+            test -s "$PROOF/$file"
+          done
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain)"
+          python3 - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          proof=Path(os.environ['RUNNER_TEMP'])/'e03-proof'
+          lines=[]
+          for path in sorted(proof.iterdir(),key=lambda p:p.name):
+              if path.name=='SHA256SUMS.txt' or not path.is_file(): continue
+              lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")
+          (proof/'SHA256SUMS.txt').write_text('\n'.join(lines)+'\n',encoding='utf-8')
+          PY
+          test -s "$PROOF/SHA256SUMS.txt"
+
+      - name: Retain exact E03 proof artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: e03-node-transfer-${{ env.TARGET_SHA }}
+          path: ${{ runner.temp }}/e03-proof
+          if-no-files-found: error
+          retention-days: 90

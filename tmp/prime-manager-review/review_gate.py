@@ -9,7 +9,7 @@ from pathlib import Path
 
 BASE_EXPECTED_SHA = "65d754df5f9d5bbca74f3385945d01486845fa255cc44f9c2cf32ca29c521dc3"
 PRIME_EXPECTED_HEAD = "375ca5475d97d9378e5ecfd86ff2c24b5137c103"
-ID_RE = re.compile(r"^#{2,4}\s+(PM-[A-Z0-9-]+)\s+—", re.MULTILINE)
+ID_RE = re.compile(r"^#{2,4}\s+(PM-[A-Z0-9-]+)(?:\s+—.*)?\s*$", re.MULTILINE)
 
 REQUIRED_LATEST_IDS = {
     "PM-RAB-GENESIS-001", "PM-ACR-GENESIS-001", "PM-EFFECT-001", "PM-RULE-010",

@@ -1,0 +1,263 @@
+han raw churn history. Failure to converge returns explicit PARTIAL/DEGRADED/UNKNOWN.
+
+## PM-PROJ-009 — Stable Pagination
+
+One stable snapshot/continuation domain, deterministic ordering, stable tie-breaker, explicit snapshot expiry.
+
+## PM-PROJ-010 — Filter/Sort Disclosure
+
+Hidden fields cannot become existence oracles through filtering, sorting, grouping, search indexing, or derived columns.
+
+## PM-PROJ-011 — Tombstone
+
+Disclosure-safe bounded historical projection of a mechanically ended object. Disclosure retraction/source loss never creates a tombstone.
+
+## PM-PROJ-012 — Cross-Projection Consistency
+
+Prime does not imply one atomic whole-Host snapshot. Workload/process/service/hardware/telemetry/transaction/evidence revisions may differ. Relationships can be live, tombstoned, stale, or unresolved.
+
+---
+
+# O. DISCLOSURE AND PRESENTATION
+
+## PM-DISC-001 — DisclosureContext
+
+Binds principal, login session, client instance, Host, scope, policy, Auth epoch, expiry/lease.
+
+## PM-DISC-002 — DisclosureContext Lifecycle
+
+Issued/active/expired/revoked/invalidated semantics are explicit. Terminal context never reopens.
+
+## PM-DISC-003 — Revocation Propagation Bound
+
+Protected streaming has a bounded revocation-propagation guarantee or uses short self-expiring leases. If neither can be guaranteed, the protected stream is unavailable.
+
+## PM-DISC-004 — Stale Read-Only
+
+Core/source loss does not extend grants. Sensitive data purges at enforceable expiry; permitted non-sensitive cache may remain visibly stale.
+
+## PM-DISC-005 — Non-Disclosing Existence
+
+Where existence is protected, client distinctions may collapse across `NOT_FOUND`, `DENIED`, ActionAvailability, history/evidence lookup, counts, and related paths.
+
+## PM-CLASS-001 — Disclosure Classification
+
+Each protected class defines eligible presentation paths, persistence, swap/hibernate/crash rules, externalization, mandatory audit, retention/disposal, and declassification behavior.
+
+## PM-CLASS-002 — Presentation Classes
+
+Examples: `ORDINARY_MANAGER_UI`, `TRUSTED_PRIME_PRESENTATION_PATH`, `BROKER_ONLY`, `NOT_PRESENTABLE`.
+
+## PM-CLASS-003 — Capability-Based Presentation
+
+A class may use a presentation path only if that path can enforce the required egress/capture/persistence/accessibility controls. No best-effort security claim.
+
+## PM-CLASS-004 — Classification Propagation
+
+Derived data inherits relevant sensitivity unless a versioned authoritative declassification/coarsening transform explicitly changes it.
+
+## PM-CLASS-005 — Digest Classification
+
+Hashes/digests are not automatically declassified.
+
+## PM-CLASS-006 — Logical Revocation Is Not Forensic Erasure
+
+Projection purge stops authorized access; it does not promise forensic zeroization of webview heap, swap, hibernation, or prior external copies. Classes requiring stronger post-display erasure must not enter ordinary renderer memory.
+
+## PM-DISC-006 — Positive Disclosure Release Law
+
+Protected bytes leave Prime authority only when the DisclosureContext is current, classification is known, presentation/egress path is eligible, query/filter/sort semantics are authorized, mandatory audit is accepted, authorized transforms are applied, and no mandatory disclosure UNKNOWN remains.
+
+## PM-PORTAL-001 — Scoped Externalization Capability
+
+If protected clipboard/save/print/download/navigation is offered, it must use an authoritative scoped Prime portal/capability. Manager does not gain broad filesystem/home/network authority merely for convenience.
+
+## PM-COMPLETE-001 — Async Completion Authorization
+
+Action completion UI/notifications are authorized at delivery time. Session B does not inherit Session A’s completion disclosure merely because it is now active.
+
+---
+
+# P. SECURITY AUDIT
+
+## PM-AUDIT-001 — Audit Record
+
+Contains audit identity, Host/security-state context, actor/client/principal, decision reference, event type, authority epoch, classification, integrity metadata, retention, and contract/schema versions.
+
+## PM-AUDIT-002 — Mandatory Audit Ordering
+
+If policy requires audit before protected disclosure/effect, the minimum audit record is durable before release/effect.
+
+## PM-AUDIT-003 — Denied Request Logging Failure
+
+A denied request remains denied even if recording the denial later fails. Audit subsystem failure may trigger fault/throttle/alert; it never grants the request.
+
+## PM-AUDIT-004 — Audit Integrity
+
+Security-grade audit integrity uses keyed/signature/tamper-evident mechanisms when required. Plain adjacent hashes are insufficient for offline-tamper claims.
+
+## PM-AUDIT-005 — Rollback-Evident Audit
+
+Policies needing rollback detection use an anchored rollback-evident durability class.
+
+## PM-AUDIT-006 — Audit Query Continuation
+
+Audit/history cursors bind Host, source, principal, DisclosureContext, schema, and expiry. Elevated cursors cannot be replayed after the context ends.
+
+## PM-AUDIT-007 — Historical Verification
+
+Integrity algorithm/key epoch is retained so old records remain verifiable after key rotation; old keys cannot sign new current records.
+
+---
+
+# Q. CONTROL REQUESTS, PREFLIGHT, AND PRIVILEGED ADMISSION
+
+## PM-REQUEST-001 — Control Request Result
+
+Pre-admission results such as `DENIED`, `PROHIBITED`, `STALE`, `UNSUPPORTED`, `INCOMPATIBLE`, `REQUIRES_STEP_UP`, `PREFLIGHT_REQUIRED`, and `INVALID_REQUEST` are not Host Actions and guarantee `NO_MACHINE_EFFECT` for the rejected request.
+
+## PM-PREFLIGHT-001 — Preflight Purity
+
+Preflight does not hide the target effect.
+
+## PM-OBS-001 — ObservationCostDescriptor
+
+Observation capabilities declare passive, activation-required, or invasive behavior, resource-cost class, expected side effects, Provider/device/runtime activation requirement, and whether explicit authorization/evidence is required.
+
+## PM-PREFLIGHT-002 — Explicit Observation Activation
+
+If deeper inspection requires activation, that activation is an explicit separately governed/evidenced effect; after state settles, preflight reruns.
+
+## PM-PREFLIGHT-003 — PreflightReceipt
+
+Binds canonical request digest, target/set identity, relevant revisions/fences, Provider/incarnation, placement, DependencyGraph revision, control-session/control-path revisions, Impact/Protection/Risk assessment references, closure state, observation activations already completed, expiry, and disclosure-safe approval projection.
+
+## PM-PREFLIGHT-004 — Receipt Lifecycle
+
+Issued/active/expired/consumed/invalidated semantics are explicit. Terminal receipt never reopens.
+
+## PM-REQ-001 — Candidate Effect Identity
+
+Candidate effect ID exists before trusted approval.
+
+## PM-REQ-002 — Approval Binding
+
+Trusted approval binds candidate ID + request digest + preflight receipt + assurance context.
+
+## PM-REQ-003 — Final Re-Evaluation
+
+Core recomputes current safety/authorization at the admission boundary.
+
+## PM-REQ-004 — Crash-Consistent Redemption
+
+Authorization is durably bound to exactly one candidate ID. Same authorization + different candidate ID is denied.
+
+## PM-REQ-005 — Definitive Rejection Tombstone
+
+Definitively rejected candidate cannot later become admitted. Rejection/replay tombstone persists across any restart that could outlive the retry/approval horizon.
+
+## PM-REQ-006 — Redeemed Not Admitted
+
+After crash, the same candidate may be explicitly reconciled/resumed only after fresh revalidation and while the approval remains applicable. It never silently auto-resubmits.
+
+## PM-REQ-007 — Request Namespace Binding
+
+Candidate/request replay namespaces bind Host identity, Security-State version, and requesting client/system authority.
+
+## PM-REQ-008 — No Hidden Local Mutation Queue
+
+Core disconnect before admission never causes the broker to silently queue and auto-submit later. Reconcile the candidate first; if not admitted, require the contract-defined explicit resume/fresh path.
+
+---
+
+# R. HOST ACTION MODEL
+
+## PM-ACTION-001 — Host Action Starts at Durable Admission
+
+Pre-admission denial is not a Host Action.
+
+## PM-ACTION-002 — Portable Lifecycle Axes
+
+At minimum distinguish durable admission, dispatch, commit/effect boundary, reconciliation state, and terminal/nonterminal outcome.
+
+Portable outcomes include `SUCCEEDED`, `FAILED`, `PARTIAL`, `NO_CHANGE`, `CANCELLED`, `UNKNOWN_FINAL_STATE` or equivalent.
+
+## PM-ACTION-003 — Desired-State Preference
+
+Prefer absolute desired-state effects such as STOP/SUSPEND/SET_VALUE over replay-ambiguous toggles/increments.
+
+## PM-ACTION-004 — No Silent Escalation
+
+Graceful terminate never silently becomes force-stop.
+
+## PM-ACTION-005 — Cancellation Is Not Rollback
+
+Cancellation is pre-commit where supported. Post-commit compensation/revert is a new effect/action.
+
+## PM-ACTION-006 — Unknown Outcome Is a Retry Fence
+
+Reconcile first; do not blindly resubmit.
+
+## PM-ACTION-007 — Mutation Conflict Domain
+
+Conflicting effects from Manager/Terminal/system authorities serialize, use an authoritative mutation lease/fence, or return conflict.
+
+## PM-ACTION-008 — Composite Action Phases
+
+Every phase is evidenced separately. Revalidate target/definition/Provider/protection between phases.
+
+## PM-ACTION-009 — Expected Disconnect Scopes
+
+Explicit scopes include Manager client, Core control channel, graphical session, Provider link, remote Host link, Host reboot, and Host power, each with its own reconciliation rule.
+
+## PM-ACTION-010 — Read-After-Write Reconciliation
+
+Where mechanically available, successful action result exposes resulting revision/state and event/projection continuation information for authoritative reconciliation.
+
+## PM-ACTION-011 — Self-Target Safety
+
+Manager renderer/broker self-stop/suspend/starvation is protection-assessed. Self-stop requires expected-disconnect semantics. Self-suspend/starvation is unavailable without another authorized recovery/control path.
+
+## PM-ACTION-012 — Stable UI Targeting
+
+Actions bind stable object/target-set identity, never table row position.
+
+## PM-ACTION-013 — Historical/Paused View Safety
+
+Acting from paused/history/tombstone views re-resolves the current live target and reruns required preflight/authorization.
+
+## PM-ACTION-014 — Multi-Target Semantics
+
+Every bulk/tree effect declares `ALL_OR_NONE`, `PARTITIONED`, or another explicit semantic. Manager never silently drops failed members and continues on a changed set without recomputing the exact set digest and aggregate safety.
+
+## PM-ACTION-015 — No Implied Atomicity
+
+Unless an authoritative backend explicitly guarantees all-or-none, multi-target effects may partially commit and must expose per-target outcomes/unknowns.
+
+## PM-ACTION-016 — Dynamic Target Bounds
+
+Expanding target discovery is bounded by cardinality/work/time. Exceeding the bound yields truthful PARTIAL/INCOMPLETE rather than unbounded Host work.
+
+## PM-POST-001 — PostconditionPredicate
+
+Reconciliable effects declare a typed predicate over a defined target/state/revision domain with results `SATISFIED`, `NOT_SATISFIED`, `UNKNOWN`.
+
+## PM-POST-002 — Postcondition Is Not Causality
+
+Satisfied postcondition does not prove the action caused it. Not-satisfied later does not prove the action never committed.
+
+## PM-REPLAY-001 — Replay/Reconciliation Classes
+
+Every effect descriptor declares a class such as `IDEMPOTENT_STATE_SET`, `QUERYABLE_BY_ACTION_ID`, `POSTCONDITION_RECONCILABLE`, `DURABLE_HANDOFF_RECONCILABLE`, `ONE_SHOT_UNRECONCILABLE` or equivalent.
+
+---
+
+# S. HOST ACTION EVIDENCE
+
+## PM-EVID-001 — Canonical Evidence Record
+
+Includes action ID, Host/lineage, generation/boot/Core/Security-State context, creator/client/system actor, target/preconditions, Provider/execution path, canonical request digest, AuthorizationDecision snapshot/reference, support claim/SupportAssessment, relevant contract/schema versions, phases, requested/effective values, outcome, evidence strength, and limitations.
+
+## PM-EVID-002 — Evidence Strength
+
+At minimum di

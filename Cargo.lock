@@ -849,6 +849,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptah-workspace-movement"
+version = "0.1.0"
+dependencies = [
+ "ptah-checkpoint",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"

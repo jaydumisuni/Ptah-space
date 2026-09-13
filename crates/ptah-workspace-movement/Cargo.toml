@@ -1,0 +1,11 @@
+[package]
+name = "ptah-workspace-movement"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+ptah-checkpoint = { path = "../ptah-checkpoint" }
+
+[lints]
+workspace = true

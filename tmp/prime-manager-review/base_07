@@ -1,0 +1,491 @@
+ealth/readiness, resource usage, accounting domains, declared/effective controls, runtime overrides, and action-specific availability.
+
+No generic `Protected: yes/no` and no generic `Safe` quiescence badge.
+
+## PM1-PROCESSES-001 — Processes Surface
+
+Show stable process identity, PID aliases, execution domain, lifecycle/native state, executable identity strength, native invocation, workload/service relationships, attribution, resource use, and action-specific availability.
+
+## PM1-ACTIONS-001 — Initial Control Set
+
+Where implemented/testable:
+
+- graceful terminate;
+- force-stop;
+- tree terminate;
+- workload stop;
+- suspend/resume;
+- scheduler priority;
+- CPU affinity.
+
+PM1 functional completion may use Developer/Test eligibility. Production support is earned only after PM1.5.
+
+## PM1-PERFORMANCE-001 — Performance Surface
+
+Every displayed quantity includes unit, denominator where applicable, provenance, freshness, and accounting scope.
+
+## PM1-HARDWARE-001 — Hardware Surface
+
+Uses live revisioned Host hardware/capability/Provider projections. Guest/remote hardware appears only in nested target context.
+
+## PM1-SURFACES-001 — Storage / Network / Thermals / Services / Drivers / Prime
+
+Consume Prime-authoritative data and keep ordinary configuration in Settings/Shell where appropriate.
+
+## PM1-REQUEST-UI-001 — Request Result UI
+
+Pre-admission failures appear as Control Request Results. Only durably admitted Host Actions appear in Action/Evidence views.
+
+## PM1-SELF-DIAGNOSTICS-001 — Manager Self-Diagnostics
+
+Show renderer/broker digests, Profiles/Policies, bridge version, Core/Auth contract versions, support-registry/CAB generation, operational modes, subscriptions, resource use, and bounded non-sensitive logs.
+
+## PM1-ACCESSIBILITY-001 — Accessibility
+
+Keyboard completeness, visible focus, semantic labeling, DPI/text scaling, reduced motion, and no color-only meaning. Trusted approval accessibility preserves assurance semantics.
+
+## PM1-PREFERENCE-001 — Preference Failure Fallback
+
+Missing/read-only/corrupt preference storage falls back to defaults/memory-only preferences and never blocks core management or justifies broader filesystem access.
+
+## PM1-DEPENDENCY-001 — Required vs Optional Capabilities
+
+A minimal required capability set supports authenticated Host/Core identification and truthful degraded state. Optional GPU/deep-storage/diagnostic Providers degrade only their own surfaces.
+
+---
+
+# AE. PM1.5 — ADVERSARIAL AND PHYSICAL PROOF
+
+PM1.5 proves the PM1 implementation and foundational security properties against the same production code paths.
+
+## PM-PROOF-PHYSICAL-001 — Normal Host Proof
+
+Prove Host identity, workload/process/service lifecycle, hardware, telemetry, supported controls, and enforcement readback on the qualified Host/backend.
+
+## PM-PROOF-ORACLE-001 — Independent Mechanical Oracle
+
+Selected mechanical facts compare against independent native/kernel observations where independence is required. Agreement with Core alone is insufficient.
+
+## PM-PROOF-TRUSTED-INPUT-001
+
+Attack overlay, synthetic input, stale challenge, challenge flooding, wrong assurance type, and accessibility/remote trusted-interaction paths.
+
+## PM-PROOF-RENDERER-BROKER-001
+
+Attack direct Core access, inherited handles, ptrace/injection, broker-memory access, bridge impersonation, and renderer utility-subprocess escape.
+
+## PM-PROOF-CORE-SPLITBRAIN-001
+
+Attempt second/stale Core, stale privileged handles, stale publication, stale AuthorizationDecisions/evidence writes.
+
+## PM-PROOF-HOST-CLONE-001
+
+Clone/rebind storage/hardware, stale cache, remote trust, lineage, and handoff-marker behavior.
+
+## PM-PROOF-SECSTATE-ROLLBACK-001
+
+Rewind replay tombstones/revocations/security state; prove anchor mismatch detection, old grant/request invalidation, fail-closed remote/high-risk behavior, explicit history discontinuity, and recovery to valid new continuity.
+
+## PM-PROOF-CONTROLPATH-001
+
+Exercise multiple Manager/Terminal/remote control sessions and path changes between preflight/admission.
+
+## PM-PROOF-CLOSURE-ESCAPE-001
+
+A source falsely claiming EXACT then revealing a missed required member must trigger support/qualification reassessment and dependent-decision invalidation.
+
+## PM-PROOF-PROJECTION-001
+
+High churn, slow client, snapshot/stream race, disclosure RESET, delayed old frame, hidden sort/filter fields, mixed base/elevated contexts.
+
+## PM-PROOF-DISTRESS-001
+
+CPU saturation, memory pressure, I/O pressure, process churn, service storm, Provider degradation, audit/evidence pressure. Verify minimum distress function set and priority ceiling.
+
+## PM-PROOF-OBSERVER-EFFECT-001
+
+Opening Manager/panels must not unnecessarily activate dormant hardware/Providers beyond the ObservationCostDescriptor.
+
+## PM-PROOF-HOTPLUG-001
+
+Hardware/capability/Provider projections respond to attach/remove/reprobe/activation/health changes without Manager restart.
+
+## PM-PROOF-CONTROLPLANE-ABUSE-001
+
+Flood reads, preflights, low-risk requests, subscriptions, and diagnostics from one/many clients. Verify control/security/recovery responsiveness and per-client/source fairness.
+
+## PM-PROOF-PROVIDER-001
+
+Wrong fence, stale Core, Provider restart/restore, late commit, semantic-invalid payload, Provider object/edge cardinality flood, trust revocation.
+
+## PM-PROOF-ACTION-CRASH-001
+
+Crash at every legal boundary: before approval, after approval, after redemption, before admission, after admission, after dispatch, after commit, before final evidence, after final evidence, broker/Core/Provider restart.
+
+## PM-PROOF-REPLAY-001
+
+Exercise every declared replay/reconciliation class and candidate-rejection/redeemed-not-admitted semantics.
+
+## PM-PROOF-EVIDENCE-AUDIT-001
+
+Evidence capacity, corruption, media failure, mandatory-audit ordering, rollback-evident integrity, historical key verification.
+
+## PM-PROOF-PROCESS-RACE-001
+
+PID reuse, `exec()`, credential/membership/placement change, fork during tree kill, protected descendant, supervisor replacement.
+
+## PM-PROOF-SERVICE-RACE-001
+
+Service definition/config revision change, activation restart, one-shot semantics, composite restart, CAS conflict, component update/override rebase.
+
+## PM-PROOF-RUNTIME-OVERRIDE-001
+
+Core restart, still-enforced override, expiry, revocation, reboot, older generation unable to parse newer override.
+
+## PM-PROOF-WIRE-001
+
+Non-UTF8 Unix bytes, Windows-native strings, >2^53 values, duplicate keys, deep/large structures, unknown enums, bridge mismatch, canonicalization consistency, fail-fast structural validation.
+
+## PM-PROOF-TELEMETRY-001
+
+Counter reset/wrap, source replacement, topology/denominator change, freshness, clock skew, suspend/resume gaps.
+
+## PM-PROOF-DISCLOSURE-001
+
+Browser persistence, external origin, clipboard/file portal if enabled, notifications, stale elevated fields, session-change completion delivery, filter/sort existence channels.
+
+## PM-PROOF-SUPPORT-001
+
+Proof invalidation, support revocation, offline validity, read-only proof vs mutation support, equivalence composition, exact dependency applicability.
+
+## PM-PROOF-RESTRAINT-001
+
+Demonstrate safe ordinary control remains allowed, redundant control paths are not falsely protected, and unrelated optional-domain UNKNOWN does not disable unrelated safe capabilities.
+
+---
+
+# AF. PRODUCTION SUPPORT AFTER PM1.5
+
+## PM-PRODUCTION-001 — Support Issuance Sequence
+
+```text
+implementation functionally complete
+→ exact Proof World passes
+→ immutable proof body fixed
+→ operation-scoped support claim issued
+→ Core SupportAssessment validates current dependency set
+→ production operation becomes available
+```
+
+PM1 functional completion and production support are separate milestones.
+
+---
+
+# AG. PM2 — DEEP SYSTEM CONTROL
+
+## PM2-PHASE-001 — Phase Scope
+
+Through the Phase Contract Delta Gate, PM2 may add thread inspection, open files/maps/sockets, deep I/O, deep resource controls, pressure/throttling, startup/background, deep services/storage/network/hardware, and restart-workload composites.
+
+Every new load-bearing contract passes the same authority/definition/proof process before implementation.
+
+---
+
+# AH. PM3 — PRIME INTELLIGENCE
+
+## PM3-PHASE-001 — Phase Scope
+
+Through Contract Delta review, PM3 may deepen Profile/Policy provenance, revocation, component ownership, effective constraints, generation/update/recovery intelligence, and component/service relationship.
+
+Manager remains consumer of the underlying Prime domain authorities.
+
+---
+
+# AI. PM4 — DIAGNOSTICS / INCIDENT ANALYSIS
+
+## PM4-PHASE-001 — Phase Scope
+
+Through Contract Delta review, PM4 may add Host timeline, process/thread samples, dumps, traces, diagnostic bundles, concrete ArtifactJobs, and export provenance.
+
+Artifact generation/release remains disclosure-classified and independently authorized.
+
+---
+
+# AJ. PM5 — REMOTE / FLEET
+
+## PM5-001 — Remote Transport Dependency
+
+Requires authenticated Prime remote Host capability transport. Manager does not invent a hidden permanent fleet daemon.
+
+## PM5-002 — Host Self-Authority
+
+Every remote Host remains self-authoritative.
+
+## PM5-003 — Discovery Is Not Authorization
+
+Origins/discovery does not grant control.
+
+## PM5-004 — Remote Principal/Assurance Scope
+
+Local Host assurance does not automatically satisfy another Host. Explicit federation is required.
+
+## PM5-005 — Target Clarity
+
+Remote approval identifies Host label, immutable Host ID, trust/identity assurance, exact target, execution domain, and Provider where relevant.
+
+## PM5-006 — Per-Host Negotiation
+
+Each Host independently negotiates capability/support/authorization.
+
+## PM5-007 — Fleet Correlation
+
+One fleet correlation ID plus one distinct Host Action ID per Host target.
+
+## PM5-008 — Fleet Target Snapshot
+
+Dynamic target filters resolve to an immutable target-set snapshot/digest before approval.
+
+## PM5-009 — Cross-Host Safety Authority
+
+Manager may present per-Host protection/transition assessments. Cross-Host quorum/redundancy/rolling-update safety is authoritative only when supplied by an approved distributed authority; otherwise cross-Host aggregate safety is UNKNOWN.
+
+## PM5-010 — Per-Host Authorization
+
+Each Host independently evaluates permission, protection, risk, assurance, Security-State continuity, Provider trust, and support.
+
+## PM5-011 — Interactive Fan-Out
+
+If Manager dies, already-admitted Host Actions continue and unsent targets remain unsent. No hidden durable Manager command queue.
+
+## PM5-012 — Offline Rule
+
+Unreachable Host mutation is unavailable by default.
+
+## PM5-013 — Explicit Partial Results
+
+Offline/incompatible/denied/partial targets remain explicit and are never silently dropped from the requested target-set digest.
+
+## PM5-014 — Remote Disclosure Intersection
+
+Protected remote data requires both remote Host authorization and current local Manager-session disclosure authority.
+
+## PM5-015 — Remote Credential Boundary
+
+Manager preferences/cache do not store long-lived remote private keys/bearer credentials. Those remain in approved Auth/Secret authority; broker receives scoped session/channel handles.
+
+## PM5-016 — Remote Broker Network Scope
+
+Broker receives only approved Prime remote transport/destination authority, not general unrestricted internet access. Renderer has no direct fleet control transport.
+
+---
+
+# AK. CROSS-PHASE PERMANENT GATES
+
+## PM-XGATE-AUTHORITY — Authority Gate
+No competing Host authority.
+
+## PM-XGATE-DEFINITION — Definition Gate
+No undefined load-bearing concepts.
+
+## PM-XGATE-MECHANISM — Mechanism Gate
+No safety promise without an enforcing mechanism class.
+
+## PM-XGATE-IDENTITY — Identity Gate
+No reuse-safe identity/fence → no mutation.
+
+## PM-XGATE-CLOSURE — Closure Gate
+No omission-sensitive positive claim without sufficient set closure.
+
+## PM-XGATE-COHERENCE — Coherence Gate
+No Frankenworld safety decision.
+
+## PM-XGATE-UNKNOWN — UNKNOWN Gate
+Mandatory UNKNOWN/contradiction is conserved and blocks positive admission where required.
+
+## PM-XGATE-PROTECTION — Protection Gate
+Protection is effect/context/target-set specific.
+
+## PM-XGATE-ASSURANCE — Assurance Gate
+Typed satisfaction only.
+
+## PM-XGATE-DISCLOSURE — Disclosure Gate
+Presentation/egress path must enforce classification requirements.
+
+## PM-XGATE-AUDIT — Audit Gate
+Mandatory audit precedes the protected effect/release it is required to cover.
+
+## PM-XGATE-EVIDENCE — Evidence Gate
+Required evidence durability/reserve precedes admission.
+
+## PM-XGATE-SUPPORT — Support Gate
+Implemented/experimental/unproven/production-supported remain distinct.
+
+## PM-XGATE-PROOF — Proof Gate
+Exact Proof World, exact scope, preconditions, dependency manifest, falsifier frontier.
+
+## PM-XGATE-RESTRAINT — Restraint Gate
+Deny-everything cannot qualify.
+
+## PM-XGATE-CONTROLPLANE — Control-Plane Gate
+Security/control/recovery remain responsive under noisy observation/control clients.
+
+## PM-XGATE-TRANSITION — Transition Gate
+Mutable Host transitions use authoritative quiescence and fenced transaction authority.
+
+## PM-XGATE-ROLLBACK — Rollback Gate
+Security-critical rollback cannot silently rewind replay/revocation truth.
+
+## PM-XGATE-REGRESSION — Regression Gate
+Accepted contracts cannot silently disappear or change meaning.
+
+## PM-XGATE-PHASE — Phase Contract Delta Gate
+Every later-phase new authority/capability/schema/evidence/disclosure primitive re-enters Definition, Mechanism, State-Machine, Proof, and independent-review gates before implementation.
+
+---
+
+# AL. ENGINEERING EXECUTION ORDER
+
+1. Keep GitHub unchanged while roadmap review is active.
+2. Materialize this exact candidate and compute its digest.
+3. Bind the active `PM-RAB-GENESIS-001` and `PM-ACR-GENESIS-001` identities.
+4. Run Definition Coverage.
+5. Run Stable-ID Coverage.
+6. Run Contract Regression Diff against the immediately prior candidate and monotonic registry.
+7. Run Authority-Mechanism review.
+8. Run State-Machine Closure.
+9. Run bidirectional Proof-Subject Resolution.
+10. Run Phase Feasibility.
+11. Bind all reports to the same Review Input World.
+12. Independent reviewer attacks that exact Review Input World.
+13. Reconcile only evidence-backed findings.
+14. Any accepted correction creates a new Review Input World and reruns all affected gates/review.
+15. When final candidate has zero unresolved internal findings, independent-review PASS, exact gate-report bundle, and owner approval, freeze roadmap and emit Roadmap Assurance Capsule.
+16. Only then replace repository `ROADMAP.md` when the owner explicitly instructs it.
+17. Define/freeze required Prime OS post-P1 contract amendments.
+18. Implement foundational Prime contracts and fixtures.
+19. Build minimal trusted broker.
+20. Prove broker/UI isolation.
+21. Build PM1 UI.
+22. Reach functional PM1 completion under Test/Developer authority.
+23. Run PM1.5 hostile + physical proof.
+24. Issue operation-scoped production support claims for proven paths.
+25. Freeze first production Manager baseline.
+26. PM2→PM5 proceed through Contract Delta Gates.
+
+---
+
+# AM. INDEPENDENT REVIEW MANDATE
+
+The reviewer should explicitly attempt to falsify at least:
+
+1. Review Authority Bundle bootstrap and non-self-reference.
+2. Accepted-Contract Registry bootstrap/monotonicity.
+3. Host identity assurance/lineage/rebind/clone safety.
+4. Security-State rollback resistance and crash consistency.
+5. Core exclusivity/fencing and stale-authority publication.
+6. Manager TCB and renderer/broker isolation.
+7. Core bootstrap authentication.
+8. Auth/Login-Session lifecycle and principal reuse safety.
+9. Security time basis.
+10. Assurance satisfaction and trusted input/display mechanism.
+11. ManagementControlSession closure.
+12. DependencyGraph closure.
+13. ControlPathAssessment and disclosure-safe projection.
+14. collection closure and closure escape.
+15. Decision World coherence.
+16. AssessmentEnvelope completeness.
+17. ImpactAssessment.
+18. ProtectionAssessment, aggregate protection, and override rules.
+19. RiskAssessment.
+20. Compatibility/Health/Availability authority.
+21. policy composition and Admission Obligation Set.
+22. Privileged Effect Descriptor completeness.
+23. AuthorizationDecision.
+24. Control Authority Bundle activation/non-self-activation.
+25. Developer/Test eligibility.
+26. Release Support claims/SupportAssessment/revocation/offline validity.
+27. Current-State Projection and gap-free snapshot/stream join.
+28. scope/closure/freshness/truncation separation.
+29. filter/sort disclosure oracles.
+30. DisclosureContext revocation and stale-read-only behavior.
+31. presentation capability/classification enforcement.
+32. Security Audit ordering/integrity/rollback evidence.
+33. Control Request Result.
+34. ObservationCostDescriptor and preflight purity.
+35. PreflightReceipt.
+36. crash-consistent authorization redemption and candidate tombstones.
+37. Host Action lifecycle, concurrency, self-targeting, multi-target semantics.
+38. PostconditionPredicate and causality discipline.
+39. Host Action Evidence durability/reserve/integrity/projection.
+40. orphaned-action recovery.
+41. Provider trust/transport/mutation/restart/late commit/cardinality.
+42. execution path/incarnation/restore.
+43. workload registry/Prime Exec/continuity/provenance.
+44. process identity/exec/credential/membership/tree-control safety.
+45. service activation/CAS/one-shot/supervisor truth.
+46. resource accounting, anti-double-counting, effective enforcement/readback.
+47. runtime override expiry/recovery and persistent Policy/Profile CAS.
+48. QuiescenceAssessment and transition commit fence.
+49. transition lease/loss/abort.
+50. Recovery handoff marker.
+51. Domain Transaction idempotency/rollback compatibility.
+52. artifact security foundation and phase scoping.
+53. telemetry source/reset/clock semantics.
+54. event/source-loss semantics.
+55. subscription liveness/shared collectors.
+56. control-plane traffic isolation and per-client fairness.
+57. resource locator path-race safety.
+58. safe errors/limitation codes.
+59. operational/degraded modes.
+60. Binding/Invalidation Matrix.
+61. stable contract IDs/version fingerprints.
+62. immediate-prior-candidate regression diff.
+63. wire/canonicalization/anti-downgrade/historical decoders.
+64. capability lifecycle.
+65. exact Proof World and dependency manifests.
+66. proof scope/preconditions/equivalence/invalidation.
+67. reviewer/evidence independence.
+68. mandatory falsifier frontier.
+69. restraint proof.
+70. distress rule and priority ceiling.
+71. PM1 phase feasibility and production-support sequencing.
+72. later-phase Contract Delta rules.
+73. Roadmap Assurance Capsule construction.
+
+Reviewer verdict:
+
+```text
+PASS
+```
+
+or:
+
+```text
+NEEDS WORK
+- finding
+- affected stable contract ID(s)
+- consequence
+- minimum correction
+```
+
+or:
+
+```text
+BLOCK
+- contradiction
+- evidence
+- why roadmap/PM0 cannot safely proceed
+```
+
+---
+
+# AN. CURRENT DISPOSITION
+
+**Roadmap status:** PRE-FREEZE REVIEW CANDIDATE  
+**PM0:** NOT STARTED  
+**GitHub replacement:** NOT AUTHORIZED  
+**Owner-adopted review bootstrap:** `PM-RAB-GENESIS-001 v1.0`  
+**Accepted-contract-registry bootstrap:** `PM-ACR-GENESIS-001`  
+**Current purpose:** Run authoritative internal gates against this exact materialized candidate, then independent falsification.
+
+No PASS/freeze claim is made by this document merely because the text is comprehensive.

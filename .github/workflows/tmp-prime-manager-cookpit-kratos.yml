@@ -1,0 +1,68 @@
+name: tmp-prime-manager-cookpit-kratos
+
+on:
+  push:
+    branches:
+      - tmp/prime-manager-cookpit-kratos-20260913
+
+jobs:
+  probe:
+    runs-on: [self-hosted, kratos, ptah]
+    timeout-minutes: 15
+    steps:
+      - name: Probe KRATOS Cookpit and Prime Manager read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== HOST ==='
+          hostname
+          id
+
+          echo '=== COOKPIT CHECKOUT SEARCH ==='
+          python3 - <<'PY'
+          import os, subprocess
+          roots=['/home/kratos','/home/kratos/.oracle-work']
+          seen=set()
+          for root in roots:
+              if not os.path.isdir(root):
+                  continue
+              for cur, dirs, files in os.walk(root):
+                  rel=os.path.relpath(cur, root)
+                  depth=0 if rel=='.' else rel.count(os.sep)+1
+                  if depth>6:
+                      dirs[:] = []
+                      continue
+                  if '.git' in dirs or '.git' in files:
+                      try:
+                          origin=subprocess.check_output(['git','-C',cur,'remote','get-url','origin'],stderr=subprocess.DEVNULL,text=True).strip()
+                      except Exception:
+                          origin=''
+                      low=(origin+' '+cur).lower()
+                      if 'cookpit' in low or 'prime-manager' in low:
+                          if cur not in seen:
+                              seen.add(cur)
+                              print('FOUND_REPO',cur)
+                              print('ORIGIN',origin)
+                              for cmd in (["git","-C",cur,"status","--short","--branch"],["git","-C",cur,"rev-parse","HEAD"]):
+                                  try:
+                                      print(subprocess.check_output(cmd,stderr=subprocess.STDOUT,text=True).rstrip())
+                                  except Exception as e:
+                                      print('ERR',cmd,e)
+                      if '.git' in dirs:
+                          dirs.remove('.git')
+          PY
+
+          echo '=== COOKPIT STATE ==='
+          STATE=/home/kratos/.local/state/ttg-cookpit
+          if [ -d "$STATE" ]; then
+            find "$STATE" -maxdepth 4 -type f \( -name 'micro-latest.json' -o -name 'heavy-latest.json' -o -name 'attention.json' -o -name 'CURRENT*' \) -print | sort | head -200
+          else
+            echo "NO_STATE_ROOT $STATE"
+          fi
+
+          echo '=== COOKPIT TIMERS ==='
+          systemctl --user list-timers --all 2>/dev/null | grep -i cookpit || true
+          systemctl --user list-units --all 2>/dev/null | grep -Ei 'cookpit|prime-manager' || true
+
+          echo '=== PRIME MANAGER ROADMAP LOCAL CANDIDATES ==='
+          find /home/kratos -maxdepth 7 -type f -name ROADMAP.md 2>/dev/null | grep -Ei 'prime|manager' | sort | head -100 || true

@@ -6,6 +6,8 @@ license = "Apache-2.0"
 
 [dependencies]
 ptah-checkpoint = { path = "../ptah-checkpoint" }
+ptah-placement-runtime = { path = "../ptah-placement-runtime" }
+ptah-identifiers = { path = "../ptah-identifiers" }
 
 [lints]
 workspace = true

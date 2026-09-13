@@ -853,6 +853,8 @@ name = "ptah-workspace-movement"
 version = "0.1.0"
 dependencies = [
  "ptah-checkpoint",
+ "ptah-identifiers",
+ "ptah-placement-runtime",
 ]
 
 [[package]]

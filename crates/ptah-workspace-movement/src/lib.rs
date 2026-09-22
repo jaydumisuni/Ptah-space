@@ -9,6 +9,10 @@ use ptah_placement_runtime::{
     authorize_dispatch, AuthorityBinding, AuthorityError, FenceToken, Lease, PlacementMetadata,
     Reservation,
 };
+use ptah_transfer::{
+    E03TransferError, TransferPeerRole, TransferRouteCandidate, TransferRouteKind, TransferTicket,
+    TransferVerificationReport,
+};
 
 /// Mechanical E04 progress. No phase is success except [`Self::Recovered`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,11 +83,55 @@ pub struct AuthorizedWorkspaceMove {
     pub target: TargetAuthorityEvidence,
 }
 
+/// Exact E03/A08 evidence retained after target-side read-back verification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VaultTransferEvidence {
+    /// Exact control-issued E03 ticket.
+    pub ticket_ref: EntityRef,
+    /// Exact A08 run bound into the E03 ticket.
+    pub run_ref: EntityRef,
+    /// Exact A08 verification record proving destination read-back.
+    pub verification_ref: EntityRef,
+    /// Explicit E03 route class actually admitted for this movement.
+    pub route_kind: TransferRouteKind,
+    /// Destination digest independently read back by A08.
+    pub destination_sha256: String,
+    /// Exact destination byte count independently observed by A08.
+    pub observed_size: u64,
+}
+
+/// E04 operation whose exact Vault bytes are proven at the target and await B06/A13 re-verification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransferredWorkspaceMove {
+    /// Current mechanical phase.
+    pub phase: WorkspaceMovePhase,
+    /// Exact source owner evidence.
+    pub source: WorkspaceMoveEvidence,
+    /// Exact target dispatch authority.
+    pub target: TargetAuthorityEvidence,
+    /// Existing E03/A08 transfer proof; E04 owns no second transfer cursor or run.
+    pub transfer: VaultTransferEvidence,
+}
+
 /// E04 orchestration failures preserve the owner boundary that rejected progress.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceMoveError {
     /// E02 rejected target dispatch authority.
     Placement(AuthorityError),
+    /// E03 rejected the ticket, current peer or selected route.
+    Transfer(E03TransferError),
+    /// The E03 ticket is not bound to the exact E02 target Attempt/session.
+    TransferTargetAuthorityMismatch,
+    /// The E03 ticket does not name the exact B06 Vault digest being moved.
+    TransferSourceDigestMismatch,
+    /// The A08 verification belongs to a different transfer run.
+    TransferRunMismatch,
+    /// Transport/finalization evidence exists without successful destination read-back verification.
+    TransferNotVerified,
+    /// A08 source or destination digest differs from the exact B06 Vault digest.
+    TransferDigestMismatch,
+    /// A08 destination byte count differs from the E03 ticket's exact expected size.
+    TransferSizeMismatch,
 }
 
 /// Stateless E04 coordinator.
@@ -135,6 +183,71 @@ impl WorkspaceMover {
                 reservation_ref: authority.reservation_ref().clone(),
                 lease_ref: authority.lease_ref().clone(),
                 fence: authority.fence(),
+            },
+        })
+    }
+
+    /// Consume existing E03 route authority plus final A08 destination read-back evidence.
+    ///
+    /// E04 does not transfer bytes, discover routes, or maintain a cursor. Direct/relay
+    /// execution and verified-range resume remain E03/A08 responsibilities. This method
+    /// only advances when those owners prove the exact Vault bytes at the exact target.
+    ///
+    /// # Errors
+    /// Returns the first E02/E03/A08 authority or integrity mismatch observed.
+    pub fn accept_transfer(
+        authorized: AuthorizedWorkspaceMove,
+        ticket: &TransferTicket,
+        route: &TransferRouteCandidate,
+        verification: &TransferVerificationReport,
+        now_unix_seconds: u64,
+    ) -> Result<TransferredWorkspaceMove, WorkspaceMoveError> {
+        let target = ticket.target();
+        let binding = &authorized.target.binding;
+        if ticket.attempt_ref() != binding.attempt_ref()
+            || target.node_id != binding.node_id()
+            || target.node_generation != binding.node_generation()
+            || target.connection_epoch != binding.connection_epoch()
+        {
+            return Err(WorkspaceMoveError::TransferTargetAuthorityMismatch);
+        }
+
+        ticket
+            .authorize_peer(TransferPeerRole::Target, target, now_unix_seconds)
+            .map_err(WorkspaceMoveError::Transfer)?;
+        ticket
+            .authorize_route(route)
+            .map_err(WorkspaceMoveError::Transfer)?;
+
+        if ticket.canonical_sha256() != authorized.source.source_archive_sha256 {
+            return Err(WorkspaceMoveError::TransferSourceDigestMismatch);
+        }
+        if &verification.run_ref != ticket.run_ref() {
+            return Err(WorkspaceMoveError::TransferRunMismatch);
+        }
+        if verification.verification_state != "verified" {
+            return Err(WorkspaceMoveError::TransferNotVerified);
+        }
+        if verification.source_sha256.as_deref() != Some(ticket.canonical_sha256())
+            || verification.destination_sha256 != ticket.canonical_sha256()
+        {
+            return Err(WorkspaceMoveError::TransferDigestMismatch);
+        }
+        if verification.observed_size != ticket.expected_size() {
+            return Err(WorkspaceMoveError::TransferSizeMismatch);
+        }
+
+        Ok(TransferredWorkspaceMove {
+            phase: WorkspaceMovePhase::Reverifying,
+            source: authorized.source,
+            target: authorized.target,
+            transfer: VaultTransferEvidence {
+                ticket_ref: ticket.ticket_ref().clone(),
+                run_ref: ticket.run_ref().clone(),
+                verification_ref: verification.verification_ref.clone(),
+                route_kind: route.kind,
+                destination_sha256: verification.destination_sha256.clone(),
+                observed_size: verification.observed_size,
             },
         })
     }

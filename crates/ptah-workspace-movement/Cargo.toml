@@ -8,6 +8,7 @@ license = "Apache-2.0"
 ptah-checkpoint = { path = "../ptah-checkpoint" }
 ptah-placement-runtime = { path = "../ptah-placement-runtime" }
 ptah-identifiers = { path = "../ptah-identifiers" }
+ptah-transfer = { path = "../ptah-transfer" }
 
 [lints]
 workspace = true

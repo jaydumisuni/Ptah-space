@@ -855,6 +855,7 @@ dependencies = [
  "ptah-checkpoint",
  "ptah-identifiers",
  "ptah-placement-runtime",
+ "ptah-transfer",
 ]
 
 [[package]]

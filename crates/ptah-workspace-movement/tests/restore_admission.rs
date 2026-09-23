@@ -329,7 +329,6 @@ fn restore(
 ) -> Result<(ptah_workspace_movement::RestoredWorkspaceMove, Backend), WorkspaceMoveError> {
     let restored = WorkspaceMover::restore_target(
         f.reverified,
-        "attempt:restore:e04-task5",
         target,
         vec!["evidence:compatibility:e04-task5".to_owned()],
         evaluated_ms,
@@ -361,6 +360,10 @@ fn exact_compatible_target_restores_but_does_not_claim_recovered() {
         restored.compatibility.decision.outcome,
         CompatibilityOutcome::Compatible
     );
+    assert_eq!(
+        restored.restore_run.attempt_ref,
+        restored.target.binding.attempt_ref().entity_id.to_string()
+    );
     assert_eq!(backend.restore_calls, 1);
     assert_ne!(restored.phase, WorkspaceMovePhase::Recovered);
 }
@@ -373,7 +376,6 @@ fn missing_b06_or_a13_capability_blocks_before_restore_effect() {
         let mut f = fixture(Vec::new());
         let result = WorkspaceMover::restore_target(
             f.reverified,
-            "attempt:restore:missing-capability",
             target,
             vec!["evidence:compatibility".to_owned()],
             COMPAT_EVALUATED_MS,
@@ -452,7 +454,6 @@ fn retained_conflicts_fail_closed_before_restore() {
     let mut f = fixture(vec!["conflict:retained:e04-task5".to_owned()]);
     let result = WorkspaceMover::restore_target(
         f.reverified,
-        "attempt:restore:conflicted",
         exact_target(),
         vec!["evidence:compatibility".to_owned()],
         COMPAT_EVALUATED_MS,
@@ -486,7 +487,6 @@ fn stale_revoked_and_expired_lease_block_restore() {
         .expect("newer owner");
     let result = WorkspaceMover::restore_target(
         stale.reverified,
-        "attempt:restore:stale-lease",
         exact_target(),
         vec!["evidence:compatibility".to_owned()],
         COMPAT_EVALUATED_MS,
@@ -511,7 +511,6 @@ fn stale_revoked_and_expired_lease_block_restore() {
         .expect("revoke lease");
     let result = WorkspaceMover::restore_target(
         revoked.reverified,
-        "attempt:restore:revoked-lease",
         exact_target(),
         vec!["evidence:compatibility".to_owned()],
         COMPAT_EVALUATED_MS,
@@ -532,7 +531,6 @@ fn stale_revoked_and_expired_lease_block_restore() {
     let mut expired = fixture(Vec::new());
     let result = WorkspaceMover::restore_target(
         expired.reverified,
-        "attempt:restore:expired-lease",
         exact_target(),
         vec!["evidence:compatibility".to_owned()],
         COMPAT_EVALUATED_MS,
@@ -559,7 +557,6 @@ fn revoked_reservation_blocks_even_if_lease_bytes_are_unchanged() {
         .expect("revoke reservation");
     let result = WorkspaceMover::restore_target(
         f.reverified,
-        "attempt:restore:revoked-reservation",
         exact_target(),
         vec!["evidence:compatibility".to_owned()],
         COMPAT_EVALUATED_MS,
@@ -596,7 +593,6 @@ fn current_lease_must_match_the_exact_retained_target_session_and_fence() {
     );
     let result = WorkspaceMover::restore_target(
         f.reverified,
-        "attempt:restore:wrong-session",
         exact_target(),
         vec!["evidence:compatibility".to_owned()],
         COMPAT_EVALUATED_MS,

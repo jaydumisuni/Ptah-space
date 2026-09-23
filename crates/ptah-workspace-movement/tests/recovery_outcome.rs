@@ -293,7 +293,6 @@ fn restored() -> ptah_workspace_movement::RestoredWorkspaceMove {
 
     WorkspaceMover::restore_target(
         reverified,
-        "attempt:restore:e04-task6",
         exact_target(),
         vec!["evidence:compatibility:e04-task6".to_owned()],
         1_000,

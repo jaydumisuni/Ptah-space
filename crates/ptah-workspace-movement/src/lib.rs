@@ -133,6 +133,14 @@ pub enum WorkspaceMoveError {
     TargetAuthorityMismatch,
     /// Retained B06 conflicts require explicit resolution before restore.
     RetainedConflicts(Vec<String>),
+    /// Owner evidence supplied for restart reconstruction does not bind exactly.
+    OwnerEvidenceMismatch(&'static str),
+    /// Retry evidence must originate from a prior non-success recovery outcome.
+    RetryRequiresPriorFailure,
+    /// Retry reused the prior A04 Attempt instead of presenting a fresh Attempt.
+    RetryAttemptReused,
+    /// Retry changed the immutable source Vault/checkpoint identity.
+    RetrySourceMismatch,
     /// E03 rejected the ticket, current peer or selected route.
     Transfer(E03TransferError),
     /// The E03 ticket is not bound to the exact E02 target Attempt/session.
@@ -232,6 +240,71 @@ impl RecoveryVerifiedWorkspaceMove {
     pub const fn imported_vault(&self) -> &ImportedSessionVault {
         &self.imported_vault
     }
+}
+
+/// Non-authoritative terminal projection reconstructed from exact owner evidence.
+///
+/// This record carries no Vault bytes or execution capability. It can explain coordinator
+/// progress after restart but cannot authorize a transfer or restore.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReconstructedWorkspaceMoveEvidence {
+    /// Terminal phase derived only from the A13 recovery outcome.
+    pub phase: WorkspaceMovePhase,
+    /// Exact immutable source projection.
+    pub source: WorkspaceMoveEvidence,
+    /// Exact E02 target projection retained by the completed Attempt.
+    pub target: TargetAuthorityEvidence,
+    /// Exact E03/A08 transfer projection.
+    pub transfer: VaultTransferEvidence,
+    /// Exact A13 restore run.
+    pub restore_run: RestoreRun,
+    /// Exact A13 Recovery Verification.
+    pub recovery_verification: RecoveryVerification,
+}
+
+/// Evidence that one failed movement was followed by a distinct fresh Attempt.
+///
+/// This record is history only. Both Attempts must already have their own owner evidence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceMoveRetryEvidence {
+    /// Immutable source identity shared by the prior movement and retry.
+    pub source: WorkspaceMoveEvidence,
+    /// Prior failed A04 Attempt.
+    pub prior_attempt_ref: EntityRef,
+    /// Prior A13 restore run.
+    pub prior_restore_run_ref: String,
+    /// Prior A13 non-success verification retained as evidence.
+    pub prior_recovery_verification: RecoveryVerification,
+    /// Fresh A04 Attempt used by the retry.
+    pub fresh_attempt_ref: EntityRef,
+    /// Fresh A13 restore run.
+    pub fresh_restore_run_ref: String,
+    /// Fresh A13 verification retained without reinterpretation.
+    pub fresh_recovery_verification: RecoveryVerification,
+}
+
+/// Composite evidence axes used to prove concurrent movement isolation.
+///
+/// This is not a new canonical identity. It is a read-only projection of existing B06, E02,
+/// E03 and A08 references and carries no authority.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceMoveIsolationEvidence {
+    /// Immutable source projection, including Workspace/checkpoint/Vault digest.
+    pub source: WorkspaceMoveEvidence,
+    /// Exact A04 Attempt plus Node generation/session binding.
+    pub target_binding: AuthorityBinding,
+    /// Exact E02 Reservation.
+    pub reservation_ref: EntityRef,
+    /// Exact E02 Lease.
+    pub lease_ref: EntityRef,
+    /// Exact E02 ownership Fence.
+    pub fence: FenceToken,
+    /// Exact E03 ticket.
+    pub ticket_ref: EntityRef,
+    /// Exact A08 transfer run.
+    pub run_ref: EntityRef,
+    /// Exact A08 read-back verification.
+    pub verification_ref: EntityRef,
 }
 
 /// Stateless E04 coordinator.
@@ -407,7 +480,6 @@ impl WorkspaceMover {
     #[allow(clippy::too_many_arguments)]
     pub fn restore_target<B: CheckpointBackend>(
         mut reverified: ReverifiedWorkspaceMove,
-        restore_attempt_ref: impl Into<String>,
         restore_target: RestoreTarget,
         compatibility_evidence_refs: Vec<String>,
         compatibility_evaluated_at_unix_ms: u64,
@@ -419,6 +491,12 @@ impl WorkspaceMover {
         authority_now_unix_seconds: u64,
         backend: &mut B,
     ) -> Result<RestoredWorkspaceMove, WorkspaceMoveError> {
+        let restore_attempt_ref = reverified
+            .target
+            .binding
+            .attempt_ref()
+            .entity_id
+            .to_string();
         let compatibility = reverified
             .imported_vault
             .evaluate_compatibility(
@@ -503,11 +581,7 @@ impl WorkspaceMover {
             unresolved_operation_refs,
             evidence_refs,
         );
-        let phase = if recovery_verification.outcome == RecoveryOutcome::Recovered {
-            WorkspaceMovePhase::Recovered
-        } else {
-            WorkspaceMovePhase::Failed
-        };
+        let phase = terminal_phase(recovery_verification.outcome);
 
         RecoveryVerifiedWorkspaceMove {
             phase,
@@ -520,5 +594,116 @@ impl WorkspaceMover {
             recovery_verification,
             imported_vault: restored.imported_vault,
         }
+    }
+
+    /// Reconstruct terminal coordinator progress from exact owner-linked evidence.
+    ///
+    /// This helper validates bindings only. It returns no imported Vault and therefore cannot
+    /// be used as restore authority after a coordinator restart.
+    ///
+    /// # Errors
+    /// Returns `OwnerEvidenceMismatch` for any rebound owner record.
+    pub fn reconstruct_terminal_evidence(
+        source: WorkspaceMoveEvidence,
+        target: TargetAuthorityEvidence,
+        transfer: VaultTransferEvidence,
+        restore_run: RestoreRun,
+        recovery_verification: RecoveryVerification,
+    ) -> Result<ReconstructedWorkspaceMoveEvidence, WorkspaceMoveError> {
+        if transfer.destination_sha256 != source.source_archive_sha256 {
+            return Err(WorkspaceMoveError::OwnerEvidenceMismatch(
+                "transfer destination_sha256",
+            ));
+        }
+        if restore_run.checkpoint_bundle_ref != source.checkpoint_bundle_ref {
+            return Err(WorkspaceMoveError::OwnerEvidenceMismatch(
+                "restore checkpoint_bundle_ref",
+            ));
+        }
+        if restore_run.attempt_ref != target.binding.attempt_ref().entity_id.to_string() {
+            return Err(WorkspaceMoveError::OwnerEvidenceMismatch(
+                "restore attempt_ref",
+            ));
+        }
+        if recovery_verification.restore_run_ref != restore_run.restore_run_id {
+            return Err(WorkspaceMoveError::OwnerEvidenceMismatch(
+                "recovery restore_run_ref",
+            ));
+        }
+        if recovery_verification.target_materialization_generation
+            != restore_run.target_materialization_generation
+        {
+            return Err(WorkspaceMoveError::OwnerEvidenceMismatch(
+                "recovery target_materialization_generation",
+            ));
+        }
+
+        Ok(ReconstructedWorkspaceMoveEvidence {
+            phase: terminal_phase(recovery_verification.outcome),
+            source,
+            target,
+            transfer,
+            restore_run,
+            recovery_verification,
+        })
+    }
+
+    /// Retain one failed movement and a distinct fresh retry as an evidence chain.
+    ///
+    /// # Errors
+    /// Fails when the prior movement was already recovered, the retry reuses its Attempt, or
+    /// the retry does not concern the exact same immutable source Vault/checkpoint.
+    pub fn record_retry(
+        prior: &ReconstructedWorkspaceMoveEvidence,
+        fresh: &ReconstructedWorkspaceMoveEvidence,
+    ) -> Result<WorkspaceMoveRetryEvidence, WorkspaceMoveError> {
+        if prior.recovery_verification.outcome == RecoveryOutcome::Recovered
+            || prior.phase != WorkspaceMovePhase::Failed
+        {
+            return Err(WorkspaceMoveError::RetryRequiresPriorFailure);
+        }
+        if prior.source != fresh.source {
+            return Err(WorkspaceMoveError::RetrySourceMismatch);
+        }
+        if prior.target.binding.attempt_ref() == fresh.target.binding.attempt_ref() {
+            return Err(WorkspaceMoveError::RetryAttemptReused);
+        }
+
+        Ok(WorkspaceMoveRetryEvidence {
+            source: prior.source.clone(),
+            prior_attempt_ref: prior.target.binding.attempt_ref().clone(),
+            prior_restore_run_ref: prior.restore_run.restore_run_id.clone(),
+            prior_recovery_verification: prior.recovery_verification.clone(),
+            fresh_attempt_ref: fresh.target.binding.attempt_ref().clone(),
+            fresh_restore_run_ref: fresh.restore_run.restore_run_id.clone(),
+            fresh_recovery_verification: fresh.recovery_verification.clone(),
+        })
+    }
+
+    /// Project the exact owner references that isolate one movement Attempt from another.
+    #[must_use]
+    pub fn isolation_evidence(
+        source: &WorkspaceMoveEvidence,
+        target: &TargetAuthorityEvidence,
+        transfer: &VaultTransferEvidence,
+    ) -> WorkspaceMoveIsolationEvidence {
+        WorkspaceMoveIsolationEvidence {
+            source: source.clone(),
+            target_binding: target.binding.clone(),
+            reservation_ref: target.reservation_ref.clone(),
+            lease_ref: target.lease_ref.clone(),
+            fence: target.fence,
+            ticket_ref: transfer.ticket_ref.clone(),
+            run_ref: transfer.run_ref.clone(),
+            verification_ref: transfer.verification_ref.clone(),
+        }
+    }
+}
+
+const fn terminal_phase(outcome: RecoveryOutcome) -> WorkspaceMovePhase {
+    if matches!(outcome, RecoveryOutcome::Recovered) {
+        WorkspaceMovePhase::Recovered
+    } else {
+        WorkspaceMovePhase::Failed
     }
 }

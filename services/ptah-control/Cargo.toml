@@ -17,6 +17,8 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+ptah-android-runtime = { path = "../../crates/ptah-android-runtime", version = "=0.0.0-phase0c" }
+ptah-device-runtime = { path = "../../crates/ptah-device-runtime", version = "=0.0.0-phase0c" }
 ptah-provider-api = { path = "../../crates/ptah-provider-api", version = "=0.0.0-phase0c" }
 
 [lints]

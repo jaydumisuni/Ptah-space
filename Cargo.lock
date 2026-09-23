@@ -555,7 +555,9 @@ version = "0.0.0-phase0c"
 name = "ptah-control"
 version = "0.0.0-phase0c"
 dependencies = [
+ "ptah-android-runtime",
  "ptah-application-runtime",
+ "ptah-device-runtime",
  "ptah-identifiers",
  "ptah-node-agent",
  "ptah-node-link",

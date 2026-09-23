@@ -70,7 +70,17 @@ Before adding the permanent proof workflow, Task 8 established:
 
 These results are development evidence, not a substitute for the permanent exact-head GitHub Actions proof.
 
-Retained exact-head artifact digest: **PENDING PERMANENT PROOF**.
+Retained exact-head proof for candidate `0a4cc4f037a71b774e780714e415f994fd371a7d`:
+
+- GitHub Actions run: `35832825170`;
+- retained artifact ID: `10737777519`;
+- retained artifact name: `e04-compatible-workspace-movement-0a4cc4f037a71b774e780714e415f994fd371a7d`;
+- GitHub artifact digest: `sha256:095db7082df17c43551da4db23329335a4228e1804b290f0d1eb6b1400d98e49`;
+- retained proof manifest exact tree: `20c001462b79631af08a367970f1f46fff260408`;
+- retained proof manifest evidence-index SHA-256: `701a2f860eb252730ec51e3bb9e95434ddf94bde604c321e90dc7be2a8e841f1`;
+- all 23 downloaded retained checksum entries were independently re-hashed with zero mismatches.
+
+This is exact-head proof evidence only. It does not claim that E04 has been merged.
 
 ## Shipping gate
 

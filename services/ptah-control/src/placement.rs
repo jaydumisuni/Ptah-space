@@ -1,12 +1,16 @@
 use crate::node_link::NodeLinkControl;
 use ptah_identifiers::{EntityRef, NodeId};
-use ptah_node_agent::{NodeCapabilitySnapshot, NodeResourceSnapshot};
+use ptah_node_agent::{NodeCapabilitySnapshot, NodeResourceSnapshot, NodeStateProjection};
 use ptah_node_link::{CredentialFingerprint, LinkError, NodeHello, SessionBinding};
 use ptah_placement_runtime::{
     AuthorityBinding, AuthorityError, DispatchAuthority, Lease, LeaseError, LeaseRegistry,
     PlacementMetadata, PlacementPolicy, PlacementRequirement, Reservation, ReservationError,
     ReservationRegistry, ReservedResource, authorize_dispatch, evaluate_candidate,
     select_candidate,
+};
+use ptah_platform_admission::{
+    PlatformAdmissionDecision, PlatformAdmissionProfile, PlatformAdmissionRejection,
+    PlatformNodeClass, evaluate_platform_admission,
 };
 
 /// Stable failures from the control-plane E02 authority owner.
@@ -24,6 +28,10 @@ pub enum PlacementControlError {
     Authority(AuthorityError),
     /// The E01 session carried by an existing grant is no longer current.
     SupersededSession,
+    /// E05-specific placement requires a current matching platform admission.
+    PlatformAdmissionRequired,
+    /// Exact E01/A02 evidence failed the pure E05 platform-admission policy.
+    PlatformAdmission(PlatformAdmissionRejection),
 }
 
 impl From<ReservationError> for PlacementControlError {
@@ -41,6 +49,36 @@ impl From<LeaseError> for PlacementControlError {
 impl From<AuthorityError> for PlacementControlError {
     fn from(value: AuthorityError) -> Self {
         Self::Authority(value)
+    }
+}
+
+impl From<PlatformAdmissionRejection> for PlacementControlError {
+    fn from(value: PlatformAdmissionRejection) -> Self {
+        Self::PlatformAdmission(value)
+    }
+}
+
+/// Exact timing window used when E02 mints Reservation and Lease authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlacementAuthorityTiming {
+    now: u64,
+    reservation_expires_at: u64,
+    lease_expires_at: u64,
+}
+
+impl PlacementAuthorityTiming {
+    /// Construct one explicit authority timing window.
+    #[must_use]
+    pub const fn new(
+        now_unix_seconds: u64,
+        reservation_expires_at_unix_seconds: u64,
+        lease_expires_at_unix_seconds: u64,
+    ) -> Self {
+        Self {
+            now: now_unix_seconds,
+            reservation_expires_at: reservation_expires_at_unix_seconds,
+            lease_expires_at: lease_expires_at_unix_seconds,
+        }
     }
 }
 
@@ -79,10 +117,18 @@ impl PlacementGrant {
 }
 
 #[derive(Debug, Clone)]
+struct StoredPlatformAdmission {
+    state: NodeStateProjection,
+    profile: PlatformAdmissionProfile,
+    decision: PlatformAdmissionDecision,
+}
+
+#[derive(Debug, Clone)]
 struct NodePlacementState {
     session: SessionBinding,
     capabilities: Option<NodeCapabilitySnapshot>,
     resources: Option<NodeResourceSnapshot>,
+    platform_admission: Option<StoredPlatformAdmission>,
     reservations: Option<ReservationRegistry>,
 }
 
@@ -92,6 +138,7 @@ impl NodePlacementState {
             session,
             capabilities: None,
             resources: None,
+            platform_admission: None,
             reservations: None,
         }
     }
@@ -155,6 +202,7 @@ impl PlacementAuthorityOwner {
             return Err(LinkError::SupersededConnection);
         };
         state.capabilities = Some(snapshot.clone());
+        state.platform_admission = None;
         Ok(())
     }
 
@@ -177,6 +225,50 @@ impl PlacementAuthorityOwner {
         Ok(())
     }
 
+    /// Evaluate and retain E05 admission for one exact current E01/A02 binding.
+    ///
+    /// This method returns only non-authoritative admission evidence. It cannot
+    /// allocate an E02 Reservation, Lease, Fence or dispatch authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns a superseded-session error when the E01 binding is no longer
+    /// current, a platform-admission-required error when current capability
+    /// evidence is absent, or a typed E05 policy rejection.
+    pub fn admit_platform_node(
+        &mut self,
+        binding: &SessionBinding,
+        node_state: &NodeStateProjection,
+        profile: &PlatformAdmissionProfile,
+    ) -> Result<PlatformAdmissionDecision, PlacementControlError> {
+        let Some(current) = self.node_link.current_session(binding.node_id) else {
+            return Err(PlacementControlError::SupersededSession);
+        };
+        if current != binding {
+            return Err(PlacementControlError::SupersededSession);
+        }
+
+        let Some(index) = self
+            .nodes
+            .iter()
+            .position(|state| state.session == *binding)
+        else {
+            return Err(PlacementControlError::SupersededSession);
+        };
+        let capabilities = self.nodes[index]
+            .capabilities
+            .as_ref()
+            .ok_or(PlacementControlError::PlatformAdmissionRequired)?;
+        let decision = evaluate_platform_admission(binding, node_state, capabilities, profile)?;
+
+        self.nodes[index].platform_admission = Some(StoredPlatformAdmission {
+            state: node_state.clone(),
+            profile: profile.clone(),
+            decision: decision.clone(),
+        });
+        Ok(decision)
+    }
+
     /// Deterministically select one eligible current Node and mint its Reservation,
     /// Lease/Fence and dispatch authority. The API intentionally accepts no Fence
     /// input; Fence values can only originate from this owner's allocator.
@@ -194,26 +286,110 @@ impl PlacementAuthorityOwner {
         reservation_expires_at_unix_seconds: u64,
         lease_expires_at_unix_seconds: u64,
     ) -> Result<PlacementGrant, PlacementControlError> {
+        self.place_and_issue_inner(
+            None,
+            requirement,
+            policy,
+            reserved_resources,
+            PlacementAuthorityTiming::new(
+                now_unix_seconds,
+                reservation_expires_at_unix_seconds,
+                lease_expires_at_unix_seconds,
+            ),
+        )
+    }
+
+    /// Select only a current E05-admitted platform Node, then delegate authority
+    /// allocation to the unchanged E02 Reservation/Lease/Fence machinery.
+    ///
+    /// # Errors
+    ///
+    /// Returns a platform-admission-required error when no current exact
+    /// admission exists for the requested class. Once an admitted candidate
+    /// exists, ordinary E02 eligibility and authority errors remain unchanged.
+    pub fn place_admitted_and_issue(
+        &mut self,
+        platform_class: PlatformNodeClass,
+        requirement: &PlacementRequirement,
+        policy: PlacementPolicy,
+        reserved_resources: Vec<ReservedResource>,
+        timing: PlacementAuthorityTiming,
+    ) -> Result<PlacementGrant, PlacementControlError> {
+        self.place_and_issue_inner(
+            Some(platform_class),
+            requirement,
+            policy,
+            reserved_resources,
+            timing,
+        )
+    }
+
+    fn place_and_issue_inner(
+        &mut self,
+        required_platform: Option<PlatformNodeClass>,
+        requirement: &PlacementRequirement,
+        policy: PlacementPolicy,
+        reserved_resources: Vec<ReservedResource>,
+        timing: PlacementAuthorityTiming,
+    ) -> Result<PlacementGrant, PlacementControlError> {
+        let selected_index = self.select_eligible_index(required_platform, requirement, policy)?;
+        self.issue_selected(selected_index, requirement, reserved_resources, timing)
+    }
+
+    fn select_eligible_index(
+        &self,
+        required_platform: Option<PlatformNodeClass>,
+        requirement: &PlacementRequirement,
+        policy: PlacementPolicy,
+    ) -> Result<usize, PlacementControlError> {
+        let has_matching_admission = required_platform.is_some_and(|platform_class| {
+            self.nodes.iter().any(|state| {
+                self.node_link
+                    .current_session(state.session.node_id)
+                    .is_some_and(|current| current == &state.session)
+                    && platform_admission_matches(state, platform_class)
+            })
+        });
+
         let candidates = self.nodes.iter().filter_map(|state| {
             let current = self.node_link.current_session(state.session.node_id)?;
             if current != &state.session {
+                return None;
+            }
+            if required_platform
+                .is_some_and(|platform_class| !platform_admission_matches(state, platform_class))
+            {
                 return None;
             }
             let capabilities = state.capabilities.as_ref()?;
             let resources = state.resources.as_ref()?;
             evaluate_candidate(&state.session, capabilities, resources, requirement, policy).ok()
         });
-        let selected = select_candidate(candidates).ok_or(PlacementControlError::NoEligibleNode)?;
-        let selected_index = self
-            .nodes
+        let selected = select_candidate(candidates).ok_or_else(|| {
+            if required_platform.is_some() && !has_matching_admission {
+                PlacementControlError::PlatformAdmissionRequired
+            } else {
+                PlacementControlError::NoEligibleNode
+            }
+        })?;
+
+        self.nodes
             .iter()
             .position(|state| {
                 state.session.node_id == selected.node_id()
                     && state.session.node_generation == selected.node_generation()
                     && state.session.connection_epoch == selected.connection_epoch()
             })
-            .ok_or(PlacementControlError::NoEligibleNode)?;
+            .ok_or(PlacementControlError::NoEligibleNode)
+    }
 
+    fn issue_selected(
+        &mut self,
+        selected_index: usize,
+        requirement: &PlacementRequirement,
+        reserved_resources: Vec<ReservedResource>,
+        timing: PlacementAuthorityTiming,
+    ) -> Result<PlacementGrant, PlacementControlError> {
         let state = &mut self.nodes[selected_index];
         let resources = state
             .resources
@@ -239,8 +415,8 @@ impl PlacementAuthorityOwner {
             binding.clone(),
             resources.snapshot_ref.clone(),
             reserved_resources,
-            now_unix_seconds,
-            reservation_expires_at_unix_seconds,
+            timing.now,
+            timing.reservation_expires_at,
         )?;
         let reservation_record = registry
             .reservation(reservation.reservation_ref())
@@ -254,8 +430,8 @@ impl PlacementAuthorityOwner {
         let lease = match self.leases.issue(
             &reservation_record,
             lease_ref,
-            now_unix_seconds,
-            lease_expires_at_unix_seconds,
+            timing.now,
+            timing.lease_expires_at,
         ) {
             Ok(lease) => lease,
             Err(error) => {
@@ -270,7 +446,7 @@ impl PlacementAuthorityOwner {
             Some(&lease),
             &binding,
             lease.fence(),
-            now_unix_seconds,
+            timing.now,
         ) {
             Ok(authority) => authority,
             Err(error) => {
@@ -324,4 +500,26 @@ impl PlacementAuthorityOwner {
             .iter_mut()
             .find(|state| state.session == *binding)
     }
+}
+
+fn platform_admission_matches(
+    state: &NodePlacementState,
+    platform_class: PlatformNodeClass,
+) -> bool {
+    let Some(capabilities) = state.capabilities.as_ref() else {
+        return false;
+    };
+    let Some(stored) = state.platform_admission.as_ref() else {
+        return false;
+    };
+    if stored.profile.platform_class() != platform_class
+        || !stored
+            .decision
+            .matches(&state.session, capabilities, platform_class)
+    {
+        return false;
+    }
+
+    evaluate_platform_admission(&state.session, &stored.state, capabilities, &stored.profile)
+        .is_ok_and(|decision| decision == stored.decision)
 }

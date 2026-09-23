@@ -5,8 +5,8 @@
 
 use ptah_checkpoint::{
     import_session_vault, CheckpointBackend, CheckpointVerification, ImportedSessionVault,
-    RestoreRun, RestoreTarget, SessionVaultArchive, SessionVaultCompatibilityReport,
-    SessionVaultError,
+    Postcondition, RecoveryOutcome, RecoveryVerification, RestoreRun, RestoreTarget,
+    SessionVaultArchive, SessionVaultCompatibilityReport, SessionVaultError,
 };
 use ptah_identifiers::EntityRef;
 use ptah_placement_runtime::{
@@ -196,6 +196,38 @@ pub struct RestoredWorkspaceMove {
 
 impl RestoredWorkspaceMove {
     /// Return the imported B06 Vault that owns subsequent A13 recovery verification.
+    #[must_use]
+    pub const fn imported_vault(&self) -> &ImportedSessionVault {
+        &self.imported_vault
+    }
+}
+
+/// E04 terminal recovery-evidence state.
+///
+/// Recovered is possible only when retained A13 Recovery Verification reports the exact
+/// `RecoveryOutcome::Recovered`. Every other owner outcome remains explicit non-success evidence.
+pub struct RecoveryVerifiedWorkspaceMove {
+    /// Final E04 phase for this verification attempt.
+    pub phase: WorkspaceMovePhase,
+    /// Exact source owner evidence.
+    pub source: WorkspaceMoveEvidence,
+    /// Exact target authority retained from the restore.
+    pub target: TargetAuthorityEvidence,
+    /// Exact E03/A08 transfer proof.
+    pub transfer: VaultTransferEvidence,
+    /// Independent A13 checkpoint verification.
+    pub checkpoint_verification: CheckpointVerification,
+    /// Exact B06/A13 compatibility report used for restore.
+    pub compatibility: SessionVaultCompatibilityReport,
+    /// Exact A13 restore run being verified.
+    pub restore_run: RestoreRun,
+    /// Exact independent A13 Recovery Verification.
+    pub recovery_verification: RecoveryVerification,
+    imported_vault: ImportedSessionVault,
+}
+
+impl RecoveryVerifiedWorkspaceMove {
+    /// Return the imported B06 Vault retained with the final owner evidence.
     #[must_use]
     pub const fn imported_vault(&self) -> &ImportedSessionVault {
         &self.imported_vault
@@ -450,5 +482,43 @@ impl WorkspaceMover {
             restore_run,
             imported_vault: reverified.imported_vault,
         })
+    }
+
+    /// Obtain independent A13 Recovery Verification and map only exact owner recovery to success.
+    ///
+    /// E04 does not score or reinterpret recovery evidence. Failed, Partial, and
+    /// Inconclusive all remain non-success and retain the complete owner verification.
+    #[must_use]
+    pub fn verify_recovery(
+        restored: RestoredWorkspaceMove,
+        verifier_ref: impl Into<String>,
+        postconditions: Vec<Postcondition>,
+        unresolved_operation_refs: Vec<String>,
+        evidence_refs: Vec<String>,
+    ) -> RecoveryVerifiedWorkspaceMove {
+        let recovery_verification = restored.imported_vault.verify_recovery(
+            &restored.restore_run,
+            verifier_ref,
+            postconditions,
+            unresolved_operation_refs,
+            evidence_refs,
+        );
+        let phase = if recovery_verification.outcome == RecoveryOutcome::Recovered {
+            WorkspaceMovePhase::Recovered
+        } else {
+            WorkspaceMovePhase::Failed
+        };
+
+        RecoveryVerifiedWorkspaceMove {
+            phase,
+            source: restored.source,
+            target: restored.target,
+            transfer: restored.transfer,
+            checkpoint_verification: restored.checkpoint_verification,
+            compatibility: restored.compatibility,
+            restore_run: restored.restore_run,
+            recovery_verification,
+            imported_vault: restored.imported_vault,
+        }
     }
 }

@@ -854,6 +854,8 @@ version = "0.1.0"
 dependencies = [
  "ptah-checkpoint",
  "ptah-identifiers",
+ "ptah-node-agent",
+ "ptah-node-link",
  "ptah-placement-runtime",
  "ptah-transfer",
 ]

@@ -12,3 +12,7 @@ ptah-transfer = { path = "../ptah-transfer" }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+ptah-node-agent = { path = "../ptah-node-agent" }
+ptah-node-link = { path = "../ptah-node-link" }

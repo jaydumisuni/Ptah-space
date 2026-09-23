@@ -5,12 +5,14 @@
 
 use ptah_checkpoint::{
     import_session_vault, CheckpointBackend, CheckpointVerification, ImportedSessionVault,
-    SessionVaultArchive, SessionVaultError,
+    RestoreRun, RestoreTarget, SessionVaultArchive, SessionVaultCompatibilityReport,
+    SessionVaultError,
 };
 use ptah_identifiers::EntityRef;
 use ptah_placement_runtime::{
-    authorize_dispatch, AuthorityBinding, AuthorityError, FenceToken, Lease, PlacementMetadata,
-    Reservation,
+    authorize_dispatch, AuthorityBinding, AuthorityError, FenceToken, Lease, LeaseError,
+    LeaseRegistry, PlacementMetadata, Reservation, ReservationError, ReservationRegistry,
+    ReservationState,
 };
 use ptah_transfer::{
     E03TransferError, TransferPeerRole, TransferRouteCandidate, TransferRouteKind, TransferTicket,
@@ -123,6 +125,14 @@ pub enum WorkspaceMoveError {
     Checkpoint(SessionVaultError),
     /// E02 rejected target dispatch authority.
     Placement(AuthorityError),
+    /// E02 Reservation authority is absent or no longer current.
+    Reservation(ReservationError),
+    /// E02 Lease/Fence authority is absent or no longer current.
+    Lease(LeaseError),
+    /// Current E02 authority does not match the target session retained by E04.
+    TargetAuthorityMismatch,
+    /// Retained B06 conflicts require explicit resolution before restore.
+    RetainedConflicts(Vec<String>),
     /// E03 rejected the ticket, current peer or selected route.
     Transfer(E03TransferError),
     /// The E03 ticket is not bound to the exact E02 target Attempt/session.
@@ -156,6 +166,36 @@ pub struct ReverifiedWorkspaceMove {
 
 impl ReverifiedWorkspaceMove {
     /// Return the imported B06 Vault whose A13 state was independently re-verified.
+    #[must_use]
+    pub const fn imported_vault(&self) -> &ImportedSessionVault {
+        &self.imported_vault
+    }
+}
+
+/// E04 state after B06/A13 restore has executed under revalidated E02 authority.
+///
+/// This state is deliberately not movement success. Task 6 must obtain independent
+/// A13 Recovery Verification before E04 may ever reach `WorkspaceMovePhase::Recovered`.
+pub struct RestoredWorkspaceMove {
+    /// Current mechanical phase.
+    pub phase: WorkspaceMovePhase,
+    /// Exact source owner evidence.
+    pub source: WorkspaceMoveEvidence,
+    /// Exact current target authority revalidated immediately before restore.
+    pub target: TargetAuthorityEvidence,
+    /// Exact E03/A08 transfer proof.
+    pub transfer: VaultTransferEvidence,
+    /// Independent A13 checkpoint verification retained from target import.
+    pub checkpoint_verification: CheckpointVerification,
+    /// Exact B06/A13 target compatibility report used for this restore.
+    pub compatibility: SessionVaultCompatibilityReport,
+    /// Exact A13 restore run; existence alone is not recovery success.
+    pub restore_run: RestoreRun,
+    imported_vault: ImportedSessionVault,
+}
+
+impl RestoredWorkspaceMove {
+    /// Return the imported B06 Vault that owns subsequent A13 recovery verification.
     #[must_use]
     pub const fn imported_vault(&self) -> &ImportedSessionVault {
         &self.imported_vault
@@ -317,6 +357,98 @@ impl WorkspaceMover {
             transfer: transferred.transfer,
             checkpoint_verification,
             imported_vault,
+        })
+    }
+
+    /// Re-evaluate B06/A13 compatibility, revalidate current E02 execution authority,
+    /// then execute the owner-provided restore.
+    ///
+    /// Compatibility is evaluated first. Immediately before the restore side effect, E04
+    /// requires the exact retained Reservation to remain active and unexpired, requires the
+    /// supplied Lease projection to match the exact retained target binding/Reservation/Fence,
+    /// and delegates current-owner truth to `LeaseRegistry::validate_current`. The restore
+    /// itself remains B06/A13-owned and this transition stops at `VerifyingRecovery`.
+    ///
+    /// # Errors
+    /// Returns the exact B06/A13 compatibility/restore failure, E02 Reservation/Lease failure,
+    /// an exact-target mismatch, or explicit retained conflicts.
+    #[allow(clippy::too_many_arguments)]
+    pub fn restore_target<B: CheckpointBackend>(
+        mut reverified: ReverifiedWorkspaceMove,
+        restore_attempt_ref: impl Into<String>,
+        restore_target: RestoreTarget,
+        compatibility_evidence_refs: Vec<String>,
+        compatibility_evaluated_at_unix_ms: u64,
+        compatibility_valid_until_unix_ms: u64,
+        restore_now_unix_ms: u64,
+        reservation_registry: &ReservationRegistry,
+        current_lease: &Lease,
+        lease_registry: &LeaseRegistry,
+        authority_now_unix_seconds: u64,
+        backend: &mut B,
+    ) -> Result<RestoredWorkspaceMove, WorkspaceMoveError> {
+        let compatibility = reverified
+            .imported_vault
+            .evaluate_compatibility(
+                &restore_target,
+                compatibility_evidence_refs,
+                compatibility_evaluated_at_unix_ms,
+                compatibility_valid_until_unix_ms,
+            )
+            .map_err(WorkspaceMoveError::Checkpoint)?;
+
+        if !compatibility.retained_conflicts.is_empty() {
+            return Err(WorkspaceMoveError::RetainedConflicts(
+                compatibility.retained_conflicts.clone(),
+            ));
+        }
+
+        let reservation = reservation_registry
+            .reservation(&reverified.target.reservation_ref)
+            .ok_or(WorkspaceMoveError::Reservation(
+                ReservationError::UnknownReservation,
+            ))?;
+        if reservation.state() != ReservationState::Active
+            || reservation.expires_at_unix_seconds() <= authority_now_unix_seconds
+        {
+            return Err(WorkspaceMoveError::Reservation(ReservationError::NotActive));
+        }
+        if reservation.binding() != &reverified.target.binding {
+            return Err(WorkspaceMoveError::TargetAuthorityMismatch);
+        }
+
+        if current_lease.lease_ref() != &reverified.target.lease_ref
+            || current_lease.reservation_ref() != &reverified.target.reservation_ref
+            || current_lease.binding() != &reverified.target.binding
+            || current_lease.fence() != reverified.target.fence
+        {
+            return Err(WorkspaceMoveError::TargetAuthorityMismatch);
+        }
+
+        lease_registry
+            .validate_current(current_lease, authority_now_unix_seconds)
+            .map_err(WorkspaceMoveError::Lease)?;
+
+        let restore_run = reverified
+            .imported_vault
+            .restore_on_target(
+                restore_attempt_ref,
+                restore_target,
+                &compatibility,
+                restore_now_unix_ms,
+                backend,
+            )
+            .map_err(WorkspaceMoveError::Checkpoint)?;
+
+        Ok(RestoredWorkspaceMove {
+            phase: WorkspaceMovePhase::VerifyingRecovery,
+            source: reverified.source,
+            target: reverified.target,
+            transfer: reverified.transfer,
+            checkpoint_verification: reverified.checkpoint_verification,
+            compatibility,
+            restore_run,
+            imported_vault: reverified.imported_vault,
         })
     }
 }

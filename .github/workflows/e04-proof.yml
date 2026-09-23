@@ -1,0 +1,289 @@
+name: E04 Compatible Workspace Movement Exact Head Proof
+
+on:
+  push:
+    branches: [e04-compatible-workspace-movement]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  E03_BASE: d25679c7f039d7328fe1a785af91e82bd403b44e
+  TARGET_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  CARGO_TERM_COLOR: always
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  exact-head-e04:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact E04 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+
+      - name: Pin toolchain and exact candidate identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e04-proof"
+          mkdir -p "$PROOF"
+          rustup toolchain install 1.97.1 --profile minimal --component clippy --component rustfmt
+          rustup default 1.97.1
+          rustc -Vv | tee "$PROOF/rustc-version.txt"
+          cargo -V | tee "$PROOF/cargo-version.txt"
+          python3 --version 2>&1 | tee "$PROOF/python-version.txt"
+          rustc -V | grep -q '^rustc 1.97.1 '
+          cargo -V | grep -q '^cargo 1.97.1 '
+          python3 --version | grep -q '^Python 3.13.'
+          printf '%s\n' "$TARGET_SHA" > "$PROOF/exact-head.txt"
+          printf '%s\n' "$E03_BASE" > "$PROOF/e03-predecessor.txt"
+          cat /etc/os-release > "$PROOF/host-os-release.txt"
+          uname -a > "$PROOF/host-uname.txt"
+
+      - name: Prove accepted predecessor and exact reviewed E04 delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e04-proof"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git fetch origin main e04-compatible-workspace-movement
+          test "$(git rev-parse origin/main)" = "$E03_BASE"
+          test "$(git merge-base "$E03_BASE" HEAD)" = "$E03_BASE"
+          test -z "$(git rev-list --min-parents=2 "$E03_BASE"..HEAD)"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            test "$(git rev-parse origin/e04-compatible-workspace-movement)" = "$TARGET_SHA"
+          fi
+          git diff --name-only "$E03_BASE"...HEAD | tee "$PROOF/changed-paths.txt"
+          python3 - <<'PY'
+          import subprocess
+          base = 'd25679c7f039d7328fe1a785af91e82bd403b44e'
+          expected = {
+              '.github/workflows/e04-proof.yml',
+              'Cargo.lock',
+              'Cargo.toml',
+              'E04_COMPATIBLE_WORKSPACE_MOVEMENT.md',
+              'conformance/e04-cases.json',
+              'crates/ptah-workspace-movement/Cargo.toml',
+              'crates/ptah-workspace-movement/src/lib.rs',
+              'crates/ptah-workspace-movement/tests/placement_authority.rs',
+              'crates/ptah-workspace-movement/tests/recovery_isolation.rs',
+              'crates/ptah-workspace-movement/tests/recovery_outcome.rs',
+              'crates/ptah-workspace-movement/tests/restore_admission.rs',
+              'crates/ptah-workspace-movement/tests/source_preparation.rs',
+              'crates/ptah-workspace-movement/tests/target_reverification.rs',
+              'crates/ptah-workspace-movement/tests/transfer_composition.rs',
+              'docs/superpowers/plans/2026-09-13-e04-compatible-workspace-movement.md',
+              'docs/superpowers/specs/2026-09-13-e04-compatible-workspace-movement-design.md',
+              'tools/check-e04-conformance.py',
+              'tools/test_check_e04_conformance.py',
+          }
+          changed = set(subprocess.check_output(
+              ['git', 'diff', '--name-only', f'{base}...HEAD'], text=True
+          ).splitlines())
+          if changed != expected:
+              raise SystemExit(
+                  f'E04 delta drift: missing={sorted(expected-changed)} '
+                  f'unexpected={sorted(changed-expected)}'
+              )
+          forbidden = [path for path in changed if path.startswith(('schemas/', 'migrations/'))]
+          if forbidden:
+              raise SystemExit(f'E04 modified frozen schema/migration surface: {sorted(forbidden)}')
+          PY
+          git diff --check "$E03_BASE"...HEAD
+
+      - name: Prove immutable external Action references
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e04-proof"
+          python3 - <<'PY' | tee "$PROOF/action-pin-audit.txt"
+          import re
+          from pathlib import Path
+          pin = re.compile(r'^[0-9a-f]{40}$')
+          failures = []
+          for path in sorted(Path('.github/workflows').glob('*.yml')):
+              for number, raw in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+                  stripped = raw.strip()
+                  if not stripped.startswith(('- uses:', 'uses:')):
+                      continue
+                  value = stripped.split('uses:', 1)[1].strip().split(' #', 1)[0].strip("'\"")
+                  if value.startswith('./'):
+                      continue
+                  if '@' not in value or pin.fullmatch(value.rsplit('@', 1)[1]) is None:
+                      failures.append((str(path), number, value))
+          if failures:
+              for path, number, value in failures:
+                  print(f'{path}:{number}: {value}')
+              raise SystemExit(f'{len(failures)} non-immutable Action references remain')
+          print('ALL_EXTERNAL_ACTION_REFERENCES_IMMUTABLY_PINNED')
+          PY
+
+      - name: Prove dependency lock boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e04-proof"
+          python3 tools/check_rust_dependency_lock.py --output "$PROOF/dependency-lock.json"
+          git show "$E03_BASE:Cargo.lock" > "$RUNNER_TEMP/e03-Cargo.lock"
+          python3 - <<'PY' | tee "$PROOF/registry-delta.txt"
+          import os
+          import tomllib
+          from pathlib import Path
+          def registry_names(path):
+              data = tomllib.loads(Path(path).read_text(encoding='utf-8'))
+              return {
+                  package['name']
+                  for package in data.get('package', [])
+                  if str(package.get('source', '')).startswith('registry+')
+              }
+          base = registry_names(Path(os.environ['RUNNER_TEMP']) / 'e03-Cargo.lock')
+          current = registry_names('Cargo.lock')
+          added = sorted(current - base)
+          if added:
+              raise SystemExit(f'E04 added registry package names: {added}')
+          print('NO_NEW_REGISTRY_PACKAGE_NAMES')
+          PY
+
+      - name: Prove exact 32-case E04 corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e04-proof"
+          PYTHONPATH=tools python3 -m unittest -v tools/test_check_e04_conformance.py 2>&1 | tee "$PROOF/e04-corpus-regressions.txt"
+          python3 tools/check-e04-conformance.py --repo-root . --output "$PROOF/e04-corpus-validation.json"
+          grep -q '"case_count": 32' "$PROOF/e04-corpus-validation.json"
+          grep -q '"status": "pass"' "$PROOF/e04-corpus-validation.json"
+
+      - name: Prove E04 orchestration boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e04-proof"
+          cargo test -p ptah-workspace-movement --locked -- --nocapture 2>&1 | tee "$PROOF/e04-targeted-tests.txt"
+
+      - name: Prove inherited owner regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e04-proof"
+          {
+            cargo test -p ptah-checkpoint --locked -- --nocapture
+            cargo test -p ptah-placement-runtime --locked -- --nocapture
+            cargo test -p ptah-transfer --locked -- --nocapture
+            cargo test -p ptah-node-transfer --locked -- --nocapture
+          } 2>&1 | tee "$PROOF/owner-regressions.txt"
+
+      - name: Prove inherited E02 E03 conformance checkers
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e04-proof"
+          PYTHONPATH=tools python3 -m unittest -v \
+            tools/test_check_e02_placement_authority.py \
+            tools/test_check_e03_node_transfer.py 2>&1 | tee "$PROOF/inherited-conformance.txt"
+
+      - name: Prove formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e04-proof"
+          cargo fmt --all -- --check
+          printf 'CARGO_FMT_ALL_CHECK_OK\n' | tee "$PROOF/cargo-fmt.txt"
+
+      - name: Prove strict workspace Clippy
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e04-proof"
+          cargo clippy --workspace --all-targets --locked -- -D warnings 2>&1 | tee "$PROOF/cargo-clippy.txt"
+
+      - name: Prove full locked workspace tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e04-proof"
+          cargo test --workspace --locked -- --nocapture 2>&1 | tee "$PROOF/cargo-test.txt"
+
+      - name: Prove repository contains no textual secrets or private-key markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e04-proof"
+          PATTERN='BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}'
+          if grep -RInE --binary-files=without-match --exclude-dir=.git --exclude-dir=target "$PATTERN" . > "$PROOF/secret-scan-hits.txt"; then
+            cat "$PROOF/secret-scan-hits.txt"
+            exit 1
+          fi
+          printf 'NO_TEXTUAL_SECRET_OR_PRIVATE_KEY_MARKERS_FOUND\n' | tee "$PROOF/secret-scan.txt"
+
+      - name: Validate and bind retained exact-head E04 proof bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e04-proof"
+          for file in exact-head.txt e03-predecessor.txt changed-paths.txt action-pin-audit.txt dependency-lock.json registry-delta.txt e04-corpus-regressions.txt e04-corpus-validation.json e04-targeted-tests.txt owner-regressions.txt inherited-conformance.txt cargo-fmt.txt cargo-clippy.txt cargo-test.txt secret-scan.txt; do
+            test -s "$PROOF/$file"
+          done
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain)"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          proof = Path(os.environ['RUNNER_TEMP']) / 'e04-proof'
+          evidence_lines = []
+          for path in sorted(proof.iterdir(), key=lambda item: item.name):
+              if path.name in {'EVIDENCE_SHA256SUMS.txt', 'SHA256SUMS.txt', 'e04-proof-manifest.json'} or not path.is_file():
+                  continue
+              evidence_lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")
+          evidence_index = proof / 'EVIDENCE_SHA256SUMS.txt'
+          evidence_index.write_text('\n'.join(evidence_lines) + '\n', encoding='utf-8')
+          corpus = Path('conformance/e04-cases.json')
+          manifest = {
+              'schema': 'ptah.e04.exact_head_proof.v1',
+              'exact_head': os.environ['TARGET_SHA'],
+              'exact_tree': subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip(),
+              'accepted_predecessor': os.environ['E03_BASE'],
+              'artifact_name': f"e04-compatible-workspace-movement-{os.environ['TARGET_SHA']}",
+              'case_count': 32,
+              'corpus_sha256': hashlib.sha256(corpus.read_bytes()).hexdigest(),
+              'evidence_index_sha256': hashlib.sha256(evidence_index.read_bytes()).hexdigest(),
+              'evidence_file_count': len(evidence_lines),
+              'merge_claimed': False,
+          }
+          manifest_path = proof / 'e04-proof-manifest.json'
+          manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          all_lines = []
+          for path in sorted(proof.iterdir(), key=lambda item: item.name):
+              if path.name == 'SHA256SUMS.txt' or not path.is_file():
+                  continue
+              all_lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")
+          (proof / 'SHA256SUMS.txt').write_text('\n'.join(all_lines) + '\n', encoding='utf-8')
+          PY
+          test -s "$PROOF/EVIDENCE_SHA256SUMS.txt"
+          test -s "$PROOF/e04-proof-manifest.json"
+          test -s "$PROOF/SHA256SUMS.txt"
+          grep -q "\"exact_head\": \"$TARGET_SHA\"" "$PROOF/e04-proof-manifest.json"
+          grep -q '"merge_claimed": false' "$PROOF/e04-proof-manifest.json"
+
+      - name: Retain exact E04 proof artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: e04-compatible-workspace-movement-${{ env.TARGET_SHA }}
+          path: ${{ runner.temp }}/e04-proof
+          if-no-files-found: error
+          retention-days: 90

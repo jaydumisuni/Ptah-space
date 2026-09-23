@@ -1,0 +1,350 @@
+{
+  "schema_version": "0.1.0",
+  "record_type": "ptah.e04.compatible_workspace_movement_acceptance_corpus",
+  "accepted_predecessor": "d25679c7f039d7328fe1a785af91e82bd403b44e",
+  "design_spec": "docs/superpowers/specs/2026-09-13-e04-compatible-workspace-movement-design.md",
+  "platform_admission_added": false,
+  "automatic_discovery_added": false,
+  "automatic_relay_selection_added": false,
+  "offline_reconciliation_added": false,
+  "new_checkpoint_format_added": false,
+  "new_transfer_model_added": false,
+  "new_placement_authority_added": false,
+  "source_auto_deleted": false,
+  "multi_writer_sync_added": false,
+  "frozen_contract_change_required": false,
+  "cases": [
+    {
+      "id": "verified_source_vault_prepared",
+      "class": "positive",
+      "expected_result": "a verified B06 source Vault can enter E04 source preparation without manufacturing success",
+      "observed_result": "a verified B06 source Vault can enter E04 source preparation without manufacturing success",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/source_preparation.rs"
+      ]
+    },
+    {
+      "id": "unverified_source_checkpoint_rejected",
+      "class": "negative",
+      "expected_result": "B06 export rejects an unverified source checkpoint before E04 can receive a Vault",
+      "observed_result": "B06 export rejects an unverified source checkpoint before E04 can receive a Vault",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-checkpoint/tests/b06.rs"
+      ]
+    },
+    {
+      "id": "exact_vault_digest_preserved",
+      "class": "positive",
+      "expected_result": "the exact source Vault digest is preserved through verified E03/A08 destination evidence",
+      "observed_result": "the exact source Vault digest is preserved through verified E03/A08 destination evidence",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/transfer_composition.rs"
+      ]
+    },
+    {
+      "id": "vault_bulk_not_e01_control",
+      "class": "scope",
+      "expected_result": "Vault bulk bytes remain on E03 data-plane authority and are not carried as E01 control frames",
+      "observed_result": "Vault bulk bytes remain on E03 data-plane authority and are not carried as E01 control frames",
+      "passed": true,
+      "required_evidence": [
+        "conformance/e03/node-transfer-cases.v0.1.0.json",
+        "docs/superpowers/specs/2026-09-13-e04-compatible-workspace-movement-design.md"
+      ]
+    },
+    {
+      "id": "direct_transfer_supported",
+      "class": "positive",
+      "expected_result": "an exact direct E03 route can produce verified Vault destination evidence",
+      "observed_result": "an exact direct E03 route can produce verified Vault destination evidence",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/transfer_composition.rs"
+      ]
+    },
+    {
+      "id": "explicit_relay_supported",
+      "class": "positive",
+      "expected_result": "an explicitly authorized E03 relay route can produce the same verified Vault destination evidence",
+      "observed_result": "an explicitly authorized E03 relay route can produce the same verified Vault destination evidence",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/transfer_composition.rs"
+      ]
+    },
+    {
+      "id": "resume_verified_missing_ranges_only",
+      "class": "recovery",
+      "expected_result": "interrupted transfer resumes only through E03/A08 verified-range authority rather than E04 cursor state",
+      "observed_result": "interrupted transfer resumes only through E03/A08 verified-range authority rather than E04 cursor state",
+      "passed": true,
+      "required_evidence": [
+        "conformance/e03/node-transfer-cases.v0.1.0.json"
+      ]
+    },
+    {
+      "id": "corrupt_destination_blocks_import_restore",
+      "class": "adversarial",
+      "expected_result": "corrupt or digest-mismatched destination bytes fail closed before B06 import or restore",
+      "observed_result": "corrupt or digest-mismatched destination bytes fail closed before B06 import or restore",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/transfer_composition.rs",
+        "crates/ptah-workspace-movement/tests/target_reverification.rs"
+      ]
+    },
+    {
+      "id": "target_import_drops_restore_authorization",
+      "class": "negative",
+      "expected_result": "target B06 import does not preserve source restore authorization",
+      "observed_result": "target B06 import does not preserve source restore authorization",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-checkpoint/tests/b06.rs",
+        "crates/ptah-workspace-movement/tests/target_reverification.rs"
+      ]
+    },
+    {
+      "id": "target_checkpoint_reverification_required",
+      "class": "negative",
+      "expected_result": "target-side independent A13 checkpoint re-verification is mandatory before compatibility and restore",
+      "observed_result": "target-side independent A13 checkpoint re-verification is mandatory before compatibility and restore",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/target_reverification.rs"
+      ]
+    },
+    {
+      "id": "exact_compatible_target_restores",
+      "class": "positive",
+      "expected_result": "an exact compatible target with current E02 authority executes B06/A13 restore and stops at VerifyingRecovery",
+      "observed_result": "an exact compatible target with current E02 authority executes B06/A13 restore and stops at VerifyingRecovery",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/restore_admission.rs"
+      ]
+    },
+    {
+      "id": "missing_b06_capability_blocks_restore",
+      "class": "negative",
+      "expected_result": "a missing B06-required target capability blocks restore before side effects",
+      "observed_result": "a missing B06-required target capability blocks restore before side effects",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/restore_admission.rs"
+      ]
+    },
+    {
+      "id": "missing_a13_component_capability_blocks_restore",
+      "class": "negative",
+      "expected_result": "a missing A13 component compatibility capability blocks restore before side effects",
+      "observed_result": "a missing A13 component compatibility capability blocks restore before side effects",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/restore_admission.rs"
+      ]
+    },
+    {
+      "id": "stale_target_node_generation_blocks_progress",
+      "class": "negative",
+      "expected_result": "a stale target Node Generation cannot satisfy exact E02 movement authority",
+      "observed_result": "a stale target Node Generation cannot satisfy exact E02 movement authority",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/placement_authority.rs",
+        "crates/ptah-placement-runtime/tests/e02_authority.rs"
+      ]
+    },
+    {
+      "id": "stale_connection_epoch_blocks_progress",
+      "class": "negative",
+      "expected_result": "a stale target Connection Epoch cannot satisfy exact E02 movement authority",
+      "observed_result": "a stale target Connection Epoch cannot satisfy exact E02 movement authority",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-placement-runtime/tests/e02_authority.rs"
+      ]
+    },
+    {
+      "id": "expired_revoked_e02_lease_blocks_restore",
+      "class": "negative",
+      "expected_result": "expired or revoked E02 Lease authority is rechecked immediately before restore and blocks mutation",
+      "observed_result": "expired or revoked E02 Lease authority is rechecked immediately before restore and blocks mutation",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/restore_admission.rs"
+      ]
+    },
+    {
+      "id": "stale_fence_blocks_restore",
+      "class": "adversarial",
+      "expected_result": "a stale or superseded E02 Fence cannot authorize restore",
+      "observed_result": "a stale or superseded E02 Fence cannot authorize restore",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/restore_admission.rs",
+        "crates/ptah-placement-runtime/tests/e02_leases.rs"
+      ]
+    },
+    {
+      "id": "provider_generation_mismatch_blocks_restore",
+      "class": "negative",
+      "expected_result": "target Provider generation mismatch is incompatible before restore side effects",
+      "observed_result": "target Provider generation mismatch is incompatible before restore side effects",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/restore_admission.rs"
+      ]
+    },
+    {
+      "id": "expired_compatibility_blocks_restore",
+      "class": "negative",
+      "expected_result": "an expired B06/A13 compatibility decision cannot authorize restore",
+      "observed_result": "an expired B06/A13 compatibility decision cannot authorize restore",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/restore_admission.rs"
+      ]
+    },
+    {
+      "id": "foreign_workspace_revision_generation_blocks_restore",
+      "class": "adversarial",
+      "expected_result": "foreign or stale Workspace revision and materialization evidence cannot authorize restore",
+      "observed_result": "foreign or stale Workspace revision and materialization evidence cannot authorize restore",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/restore_admission.rs",
+        "crates/ptah-checkpoint/tests/a13.rs"
+      ]
+    },
+    {
+      "id": "retained_conflicts_visible",
+      "class": "recovery",
+      "expected_result": "retained B06 conflicts remain explicit and fail closed before unsafe restore",
+      "observed_result": "retained B06 conflicts remain explicit and fail closed before unsafe restore",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/restore_admission.rs",
+        "crates/ptah-checkpoint/tests/b06.rs"
+      ]
+    },
+    {
+      "id": "failed_restore_attempt_not_reused",
+      "class": "adversarial",
+      "expected_result": "a failed A13 restore Attempt remains fenced against reuse including across durable restart",
+      "observed_result": "a failed A13 restore Attempt remains fenced against reuse including across durable restart",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-checkpoint/tests/a13.rs",
+        "crates/ptah-workspace-movement/tests/recovery_isolation.rs"
+      ]
+    },
+    {
+      "id": "retry_fresh_attempt_retains_failure",
+      "class": "recovery",
+      "expected_result": "retry uses a distinct fresh A04 Attempt while retaining the prior non-success recovery evidence",
+      "observed_result": "retry uses a distinct fresh A04 Attempt while retaining the prior non-success recovery evidence",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/recovery_isolation.rs"
+      ]
+    },
+    {
+      "id": "recovery_partial_not_success",
+      "class": "recovery",
+      "expected_result": "A13 RecoveryOutcome Partial maps to E04 non-success",
+      "observed_result": "A13 RecoveryOutcome Partial maps to E04 non-success",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/recovery_outcome.rs"
+      ]
+    },
+    {
+      "id": "recovery_inconclusive_not_success",
+      "class": "recovery",
+      "expected_result": "A13 RecoveryOutcome Inconclusive maps to E04 non-success",
+      "observed_result": "A13 RecoveryOutcome Inconclusive maps to E04 non-success",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/recovery_outcome.rs"
+      ]
+    },
+    {
+      "id": "recovery_failed_not_success",
+      "class": "recovery",
+      "expected_result": "A13 RecoveryOutcome Failed maps to E04 non-success",
+      "observed_result": "A13 RecoveryOutcome Failed maps to E04 non-success",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/recovery_outcome.rs"
+      ]
+    },
+    {
+      "id": "recovery_recovered_with_current_evidence_success",
+      "class": "positive",
+      "expected_result": "only exact A13 RecoveryOutcome Recovered after the current owner sequence maps to E04 Recovered",
+      "observed_result": "only exact A13 RecoveryOutcome Recovered after the current owner sequence maps to E04 Recovered",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/recovery_outcome.rs",
+        "crates/ptah-workspace-movement/tests/restore_admission.rs"
+      ]
+    },
+    {
+      "id": "coordinator_restart_from_owner_evidence",
+      "class": "resilience",
+      "expected_result": "coordinator restart reconstructs terminal phase only from exact linked owner evidence and mints no authority",
+      "observed_result": "coordinator restart reconstructs terminal phase only from exact linked owner evidence and mints no authority",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/recovery_isolation.rs"
+      ]
+    },
+    {
+      "id": "concurrent_attempts_do_not_alias",
+      "class": "adversarial",
+      "expected_result": "concurrent movements are isolated by exact source Attempt session Fence ticket and A08 run evidence",
+      "observed_result": "concurrent movements are isolated by exact source Attempt session Fence ticket and A08 run evidence",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/recovery_isolation.rs"
+      ]
+    },
+    {
+      "id": "source_not_auto_deleted",
+      "class": "scope",
+      "expected_result": "successful recovery does not introduce automatic source deletion or retirement",
+      "observed_result": "successful recovery does not introduce automatic source deletion or retirement",
+      "passed": true,
+      "required_evidence": [
+        "docs/superpowers/specs/2026-09-13-e04-compatible-workspace-movement-design.md"
+      ]
+    },
+    {
+      "id": "no_e05_e06_scope",
+      "class": "scope",
+      "expected_result": "E04 introduces neither E05 platform admission nor E06 discovery relay selection offline queues or reconciliation",
+      "observed_result": "E04 introduces neither E05 platform admission nor E06 discovery relay selection offline queues or reconciliation",
+      "passed": true,
+      "required_evidence": [
+        "docs/superpowers/specs/2026-09-13-e04-compatible-workspace-movement-design.md"
+      ]
+    },
+    {
+      "id": "inherited_regressions_green",
+      "class": "integration",
+      "expected_result": "E04 retains green inherited E02 E03 B06 A13 A04 A07 A08 and full-workspace regression boundaries",
+      "observed_result": "E04 retains green inherited E02 E03 B06 A13 A04 A07 A08 and full-workspace regression boundaries",
+      "passed": true,
+      "required_evidence": [
+        "crates/ptah-workspace-movement/tests/recovery_isolation.rs",
+        "crates/ptah-checkpoint/tests/a13.rs",
+        "crates/ptah-placement-runtime/tests/e02_authority.rs",
+        "conformance/e03/node-transfer-cases.v0.1.0.json"
+      ]
+    }
+  ]
+}

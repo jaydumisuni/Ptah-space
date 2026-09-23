@@ -1,0 +1,18 @@
+[package]
+name = "ptah-workspace-movement"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+ptah-checkpoint = { path = "../ptah-checkpoint" }
+ptah-placement-runtime = { path = "../ptah-placement-runtime" }
+ptah-identifiers = { path = "../ptah-identifiers" }
+ptah-transfer = { path = "../ptah-transfer" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+ptah-node-agent = { path = "../ptah-node-agent" }
+ptah-node-link = { path = "../ptah-node-link" }

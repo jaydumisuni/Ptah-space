@@ -355,18 +355,14 @@ fn target_import_failure_cannot_manufacture_reverified_movement() {
     let transferred = WorkspaceMover::accept_transfer(movement, &ticket, &route, &report, NOW)
         .expect("exact E03/A08 transfer proof");
 
-    let malformed_vault = vec![0u8; SIZE as usize];
-    let error = WorkspaceMover::reverify_target(
-        transferred,
-        &malformed_vault,
-        &RejectingCheckpointBackend,
-    )
-    .err()
-    .expect("malformed target vault must fail closed");
+    let malformed_vault = vec![0u8; usize::try_from(SIZE).expect("fixture size fits usize")];
+    let error =
+        WorkspaceMover::reverify_target(transferred, &malformed_vault, &RejectingCheckpointBackend)
+            .err()
+            .expect("malformed target vault must fail closed");
 
     assert!(matches!(error, WorkspaceMoveError::Checkpoint(_)));
 }
-
 
 #[test]
 fn target_import_requires_exact_a08_observed_vault_size_before_b06_import() {

@@ -26,6 +26,7 @@ members = [
   "crates/ptah-android-runtime",
   "crates/ptah-browser-runtime",
   "crates/ptah-checkpoint",
+  "crates/ptah-platform-admission",
   "crates/ptah-workspace-movement",
   "crates/ptah-archive-decomposition",
   "services/ptah-node",

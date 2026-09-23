@@ -735,6 +735,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptah-platform-admission"
+version = "0.1.0"
+dependencies = [
+ "ptah-identifiers",
+ "ptah-node-agent",
+ "ptah-node-link",
+]
+
+[[package]]
 name = "ptah-provenance"
 version = "0.0.0-phase0c"
 dependencies = [

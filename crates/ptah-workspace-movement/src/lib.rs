@@ -3,7 +3,10 @@
 //! E04 owns sequencing only. Canonical checkpoint, placement, transfer and recovery truth remains
 //! with the existing Ptah owners composed by this crate.
 
-use ptah_checkpoint::SessionVaultArchive;
+use ptah_checkpoint::{
+    import_session_vault, CheckpointBackend, CheckpointVerification, ImportedSessionVault,
+    SessionVaultArchive, SessionVaultError,
+};
 use ptah_identifiers::EntityRef;
 use ptah_placement_runtime::{
     authorize_dispatch, AuthorityBinding, AuthorityError, FenceToken, Lease, PlacementMetadata,
@@ -116,6 +119,8 @@ pub struct TransferredWorkspaceMove {
 /// E04 orchestration failures preserve the owner boundary that rejected progress.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceMoveError {
+    /// Target B06 import or A13 independent re-verification failed.
+    Checkpoint(SessionVaultError),
     /// E02 rejected target dispatch authority.
     Placement(AuthorityError),
     /// E03 rejected the ticket, current peer or selected route.
@@ -132,6 +137,29 @@ pub enum WorkspaceMoveError {
     TransferDigestMismatch,
     /// A08 destination byte count differs from the E03 ticket's exact expected size.
     TransferSizeMismatch,
+}
+
+/// Target-side Vault state after B06 import and independent A13 re-verification.
+pub struct ReverifiedWorkspaceMove {
+    /// Current mechanical phase.
+    pub phase: WorkspaceMovePhase,
+    /// Exact source owner evidence.
+    pub source: WorkspaceMoveEvidence,
+    /// Exact target dispatch authority retained from E02.
+    pub target: TargetAuthorityEvidence,
+    /// Exact E03/A08 transfer proof retained from the target read-back.
+    pub transfer: VaultTransferEvidence,
+    /// Independent A13 verification result earned after target import.
+    pub checkpoint_verification: CheckpointVerification,
+    imported_vault: ImportedSessionVault,
+}
+
+impl ReverifiedWorkspaceMove {
+    /// Return the imported B06 Vault whose A13 state was independently re-verified.
+    #[must_use]
+    pub const fn imported_vault(&self) -> &ImportedSessionVault {
+        &self.imported_vault
+    }
 }
 
 /// Stateless E04 coordinator.
@@ -249,6 +277,46 @@ impl WorkspaceMover {
                 destination_sha256: verification.destination_sha256.clone(),
                 observed_size: verification.observed_size,
             },
+        })
+    }
+
+    /// Import the transferred B06 Vault and independently re-verify its A13 checkpoint.
+    ///
+    /// Import integrity alone never advances the movement. E04 advances only after the existing
+    /// B06 import boundary accepts the exact target bytes and A13 independently verifies every
+    /// retained checkpoint component through the supplied owner backend.
+    ///
+    /// # Errors
+    /// Returns the exact B06/A13 owner failure without manufacturing restore authority.
+    pub fn reverify_target<B: CheckpointBackend>(
+        transferred: TransferredWorkspaceMove,
+        vault_bytes: &[u8],
+        backend: &B,
+    ) -> Result<ReverifiedWorkspaceMove, WorkspaceMoveError> {
+        if u64::try_from(vault_bytes.len()).ok() != Some(transferred.transfer.observed_size) {
+            return Err(WorkspaceMoveError::TransferSizeMismatch);
+        }
+
+        let mut imported_vault =
+            import_session_vault(vault_bytes).map_err(WorkspaceMoveError::Checkpoint)?;
+
+        if imported_vault.archive().payload_sha256 != transferred.source.source_archive_sha256
+            || imported_vault.archive().payload_sha256 != transferred.transfer.destination_sha256
+        {
+            return Err(WorkspaceMoveError::TransferDigestMismatch);
+        }
+
+        let checkpoint_verification = imported_vault
+            .reverify_checkpoint(backend)
+            .map_err(WorkspaceMoveError::Checkpoint)?;
+
+        Ok(ReverifiedWorkspaceMove {
+            phase: WorkspaceMovePhase::CompatibilityChecked,
+            source: transferred.source,
+            target: transferred.target,
+            transfer: transferred.transfer,
+            checkpoint_verification,
+            imported_vault,
         })
     }
 }

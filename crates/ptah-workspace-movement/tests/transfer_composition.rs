@@ -1,5 +1,9 @@
 //! E04 composition of exact E03 transfer authority and A08 read-back truth.
 
+use ptah_checkpoint::{
+    CaptureRequest, CapturedComponent, CheckpointBackend, CheckpointError, ComponentRestoreRequest,
+    ReadbackVerification, RestoredComponent,
+};
 use ptah_identifiers::{ConnectionEpoch, EntityRef, NodeGeneration, NodeId};
 use ptah_placement_runtime::{AuthorityBinding, FenceToken};
 use ptah_transfer::{
@@ -311,4 +315,75 @@ fn expired_e03_ticket_cannot_be_reused_after_resume_boundary() {
             E03TransferError::ExpiredTicket
         ))
     );
+}
+
+struct RejectingCheckpointBackend;
+
+impl CheckpointBackend for RejectingCheckpointBackend {
+    fn capture(&mut self, _request: &CaptureRequest) -> Result<CapturedComponent, CheckpointError> {
+        Err(CheckpointError::CaptureFailed(
+            "unexpected capture".to_owned(),
+        ))
+    }
+
+    fn verify_readback(
+        &self,
+        _component_ref: &str,
+        _expected_sha256: &str,
+    ) -> Result<ReadbackVerification, CheckpointError> {
+        Err(CheckpointError::CaptureFailed(
+            "unexpected readback".to_owned(),
+        ))
+    }
+
+    fn restore(
+        &mut self,
+        _request: &ComponentRestoreRequest,
+    ) -> Result<RestoredComponent, CheckpointError> {
+        Err(CheckpointError::CaptureFailed(
+            "unexpected restore".to_owned(),
+        ))
+    }
+}
+
+#[test]
+fn target_import_failure_cannot_manufacture_reverified_movement() {
+    let movement = authorized();
+    let route = direct_route();
+    let ticket = ticket(&movement, vec![route.clone()]);
+    let report = verified(&ticket);
+    let transferred = WorkspaceMover::accept_transfer(movement, &ticket, &route, &report, NOW)
+        .expect("exact E03/A08 transfer proof");
+
+    let malformed_vault = vec![0u8; SIZE as usize];
+    let error = WorkspaceMover::reverify_target(
+        transferred,
+        &malformed_vault,
+        &RejectingCheckpointBackend,
+    )
+    .err()
+    .expect("malformed target vault must fail closed");
+
+    assert!(matches!(error, WorkspaceMoveError::Checkpoint(_)));
+}
+
+
+#[test]
+fn target_import_requires_exact_a08_observed_vault_size_before_b06_import() {
+    let movement = authorized();
+    let route = direct_route();
+    let ticket = ticket(&movement, vec![route.clone()]);
+    let report = verified(&ticket);
+    let transferred = WorkspaceMover::accept_transfer(movement, &ticket, &route, &report, NOW)
+        .expect("exact E03/A08 transfer proof");
+
+    let error = WorkspaceMover::reverify_target(
+        transferred,
+        b"not-a-session-vault",
+        &RejectingCheckpointBackend,
+    )
+    .err()
+    .expect("A08 size mismatch must fail before B06 import");
+
+    assert_eq!(error, WorkspaceMoveError::TransferSizeMismatch);
 }

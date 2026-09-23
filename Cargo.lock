@@ -561,6 +561,7 @@ dependencies = [
  "ptah-node-link",
  "ptah-placement-runtime",
  "ptah-platform-admission",
+ "ptah-provider-api",
  "ptah-transfer",
  "serde",
  "serde_json",

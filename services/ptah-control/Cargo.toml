@@ -16,6 +16,9 @@ ptah-transfer = { path = "../../crates/ptah-transfer", version = "=0.0.0-phase0c
 serde.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+ptah-provider-api = { path = "../../crates/ptah-provider-api", version = "=0.0.0-phase0c" }
+
 [lints]
 workspace = true
 

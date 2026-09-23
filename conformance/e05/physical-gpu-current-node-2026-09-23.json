@@ -1,0 +1,51 @@
+{
+  "accepted_predecessor": "77bbd876aaefd78fed2c0583b2b124eee428eb5f",
+  "automatic_upgrade_authorized": false,
+  "claim_boundary": "This record proves a real DRM GPU device and render node on the observed Linux host. It does not infer compute readiness from PCI identity, driver binding, render-node presence, or GPU model. No independently verified compute API or explicit workstation role evidence was present, so E05 WorkstationGpu admission remains blocked.",
+  "collector_path": "host/scripts/collect_gpu_capabilities.py",
+  "collector_record_type": "ptah.e05.gpu_capability_report",
+  "collector_report_retention": "private_local_evidence",
+  "collector_report_sha256": "030afad03167e6e61d6505c8d1f59c2b9ac8b599dff37a4e9cbbd86addec126c",
+  "compute_api_evidenced": false,
+  "e05_admission_blockers": [
+    "gpu_compute_api_not_verified",
+    "missing_explicit_workstation_role_evidence"
+  ],
+  "e05_admission_status": "blocked",
+  "gpu_admission_proven": false,
+  "gpu_device_present": true,
+  "gpu_devices": [
+    {
+      "card": "card1",
+      "device_id": "0x9bc5",
+      "driver": "i915",
+      "pci_class": "30000",
+      "pci_id": "8086:9BC5",
+      "pci_slot": "0000:00:02.0",
+      "render_nodes": [
+        "renderD128"
+      ],
+      "vendor_id": "0x8086"
+    }
+  ],
+  "observed_at": "2026-09-23T10:09:58+00:00",
+  "observed_host": {
+    "hostname": "kratos-HP-290-G4-Microtower-PC",
+    "kernel_release": "7.0.0-31-generic",
+    "machine": "x86_64",
+    "system": "Linux"
+  },
+  "record_type": "ptah.e05.physical_gpu_observation",
+  "render_node_present": true,
+  "render_nodes": [
+    "renderD128"
+  ],
+  "roadmap_authority_commit": "98dc8c4e8639cda80510bee0625db34b4fdf9384",
+  "runtime_authorized": false,
+  "schema_version": "0.1.0",
+  "self_approved": false,
+  "verified_compute_backends": [],
+  "verified_graphics_backends": [],
+  "workstation_gpu_hardware_ready": false,
+  "workstation_role_evidence_found_in_repo": false
+}

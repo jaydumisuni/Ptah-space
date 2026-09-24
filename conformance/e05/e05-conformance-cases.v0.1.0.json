@@ -1,0 +1,287 @@
+{
+  "schema": "ptah.e05.conformance.v1",
+  "accepted_predecessor": "77bbd876aaefd78fed2c0583b2b124eee428eb5f",
+  "merge_claimed": false,
+  "cases": [
+    {
+      "id": "E05-01",
+      "obligation": "exact E04 predecessor ancestry",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md"
+      ]
+    },
+    {
+      "id": "E05-02",
+      "obligation": "exact E01/A02 identity-generation-epoch binding",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-03",
+      "obligation": "current active/online/healthy Linux admission",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs",
+        "conformance/e05/physical-platform-stage-status-2026-09-23.json"
+      ]
+    },
+    {
+      "id": "E05-04",
+      "obligation": "stale Generation rejection",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-05",
+      "obligation": "stale Connection Epoch rejection",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-06",
+      "obligation": "foreign Node rejection",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-07",
+      "obligation": "non-active lifecycle rejection",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-08",
+      "obligation": "offline/stale/unknown reachability rejection",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-09",
+      "obligation": "unknown/unhealthy health rejection",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-10",
+      "obligation": "degraded health rejected by strict profile",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-11",
+      "obligation": "degraded health admitted only by explicit profile",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-12",
+      "obligation": "partial/failed capability snapshot rejection",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-13",
+      "obligation": "OS mismatch rejection for every class",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-14",
+      "obligation": "architecture mismatch rejection",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-15",
+      "obligation": "missing required capability rejection",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-16",
+      "obligation": "missing Provider Revision rejection",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-17",
+      "obligation": "exact capability snapshot reference required in Node state",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-18",
+      "obligation": "always-on Linux admission with explicit role capability",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs",
+        "conformance/e05/physical-platform-stage-status-2026-09-23.json"
+      ]
+    },
+    {
+      "id": "E05-19",
+      "obligation": "workstation/GPU admission with explicit GPU capability",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs",
+        "conformance/e05/physical-platform-stage-status-2026-09-23.json"
+      ]
+    },
+    {
+      "id": "E05-20",
+      "obligation": "Windows admission",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs",
+        "conformance/e05/physical-platform-stage-status-2026-09-23.json"
+      ]
+    },
+    {
+      "id": "E05-21",
+      "obligation": "macOS admission",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-22",
+      "obligation": "Android/Device admission with explicit Device capability",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs",
+        "conformance/e05/physical-platform-stage-status-2026-09-23.json"
+      ]
+    },
+    {
+      "id": "E05-23",
+      "obligation": "rejected admission produces evidence-bound diagnostic advisory",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-24",
+      "obligation": "advisory cannot self-approve or authorize upgrade",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "crates/ptah-platform-admission/tests/e05_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-25",
+      "obligation": "E05 admission alone cannot mint E02 authority",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "services/ptah-control/tests/e05_platform_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-26",
+      "obligation": "E05-specific placement excludes non-admitted candidates",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "services/ptah-control/tests/e05_platform_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-27",
+      "obligation": "new capability snapshot invalidates cached admission",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "services/ptah-control/tests/e05_platform_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-28",
+      "obligation": "superseding E01 session invalidates cached admission",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "services/ptah-control/tests/e05_platform_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-29",
+      "obligation": "admitted candidate still must pass unchanged E02 resource/capability checks",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "services/ptah-control/tests/e05_platform_admission.rs"
+      ]
+    },
+    {
+      "id": "E05-30",
+      "obligation": "D08 remote execution remains dependent on exact E02 authority",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "services/ptah-control/tests/e05_d08_boundary.rs"
+      ]
+    },
+    {
+      "id": "E05-31",
+      "obligation": "C10 authority is not replaced by Android/Device Node admission",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md",
+        "services/ptah-control/tests/e05_c10_boundary.rs"
+      ]
+    },
+    {
+      "id": "E05-32",
+      "obligation": "E06 scope remains absent",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md"
+      ]
+    },
+    {
+      "id": "E05-33",
+      "obligation": "no frozen schema/migration change",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md"
+      ]
+    },
+    {
+      "id": "E05-34",
+      "obligation": "inherited E01/E02/E04/D08/C10 regressions remain green",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md"
+      ]
+    },
+    {
+      "id": "E05-35",
+      "obligation": "exact-head retained proof artifact binds the final candidate SHA",
+      "evidence": [
+        "docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md"
+      ]
+    }
+  ]
+}

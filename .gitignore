@@ -8,3 +8,5 @@
 .env.*
 !/.env.example
 acceptance/*.local.*
+__pycache__/
+*.py[cod]

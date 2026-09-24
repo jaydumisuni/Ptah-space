@@ -1,0 +1,131 @@
+name: E05 Platform Nodes Exact Head Proof
+on:
+  push:
+    branches: [e05-platform-nodes]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  E04_BASE: 77bbd876aaefd78fed2c0583b2b124eee428eb5f
+  TARGET_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  PYTHONDONTWRITEBYTECODE: "1"
+jobs:
+  exact-head-e05:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact E05 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+      - name: Pin toolchain and exact identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e05-proof"; mkdir -p "$PROOF"
+          rustup toolchain install 1.97.1 --profile minimal --component clippy --component rustfmt
+          rustup default 1.97.1
+          rustc -V | grep -q '^rustc 1.97.1 '
+          python3 --version | grep -q '^Python 3.13.'
+          printf '%s\n' "$TARGET_SHA" > "$PROOF/exact-head.txt"
+          printf '%s\n' "$E04_BASE" > "$PROOF/e04-predecessor.txt"
+      - name: Prove predecessor and exact E05 path set
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e05-proof"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          git fetch origin main e05-platform-nodes
+          test "$(git merge-base "$E04_BASE" HEAD)" = "$E04_BASE"
+          if [ "$GITHUB_EVENT_NAME" = push ]; then test "$(git rev-parse origin/e05-platform-nodes)" = "$TARGET_SHA"; fi
+          git diff --name-only "$E04_BASE"...HEAD | tee "$PROOF/changed-paths.txt"
+          python3 - <<'PY'
+          import subprocess
+          base='77bbd876aaefd78fed2c0583b2b124eee428eb5f'
+          expected=set(['.gitignore', '.github/workflows/e05-proof.yml', 'Cargo.lock', 'Cargo.toml', 'conformance/e05/e05-conformance-cases.v0.1.0.json', 'conformance/e05/physical-android-current-device-2026-09-23.json', 'conformance/e05/physical-gpu-current-node-2026-09-23.json', 'conformance/e05/physical-linux-current-node-2026-09-23.json', 'conformance/e05/physical-platform-stage-status-2026-09-23.json', 'conformance/e05/physical-windows-current-node-2026-09-23.json', 'crates/ptah-platform-admission/Cargo.toml', 'crates/ptah-platform-admission/src/lib.rs', 'crates/ptah-platform-admission/tests/e05_admission.rs', 'docs/superpowers/plans/2026-09-23-e05-platform-nodes.md', 'docs/superpowers/specs/2026-09-23-e05-platform-nodes-design.md', 'host/scripts/collect_android_device_capabilities.py', 'host/scripts/collect_gpu_capabilities.py', 'host/tests/test_collect_android_device_capabilities.py', 'host/tests/test_collect_gpu_capabilities.py', 'services/ptah-control/Cargo.toml', 'services/ptah-control/src/placement.rs', 'services/ptah-control/tests/e05_c10_boundary.rs', 'services/ptah-control/tests/e05_d08_boundary.rs', 'services/ptah-control/tests/e05_platform_admission.rs', 'tools/check_e05_conformance.py', 'tools/check_e05_physical_stage.py', 'tools/test_check_e05_conformance.py', 'tools/test_check_e05_physical_stage.py'])
+          changed=set(subprocess.check_output(['git','diff','--name-only',f'{base}...HEAD'],text=True).splitlines())
+          if changed != expected: raise SystemExit(f'E05 path drift: missing={sorted(expected-changed)} unexpected={sorted(changed-expected)}')
+          if any(x.startswith(('schemas/','migrations/')) for x in changed): raise SystemExit('frozen schema/migration drift')
+          PY
+          git diff --check "$E04_BASE"...HEAD
+      - name: Prove immutable Actions and dependency lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e05-proof"
+          python3 - <<'PY' | tee "$PROOF/action-pin-audit.txt"
+          import re
+          from pathlib import Path
+          pin=re.compile(r'^[0-9a-f]{40}$'); bad=[]
+          for path in sorted(Path('.github/workflows').glob('*.yml')):
+            for n,raw in enumerate(path.read_text().splitlines(),1):
+              s=raw.strip()
+              if not s.startswith(('- uses:','uses:')): continue
+              v=s.split('uses:',1)[1].strip().split(' #',1)[0].strip("'\"")
+              if not v.startswith('./') and ('@' not in v or not pin.fullmatch(v.rsplit('@',1)[1])): bad.append((str(path),n,v))
+          if bad: raise SystemExit(f'non-immutable Action refs: {bad}')
+          print('ALL_EXTERNAL_ACTION_REFERENCES_IMMUTABLY_PINNED')
+          PY
+          python3 tools/check_rust_dependency_lock.py --output "$PROOF/dependency-lock.json"
+      - name: Prove E05 corpus and physical-stage state
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e05-proof"
+          { PYTHONPATH=tools python3 tools/test_check_e05_conformance.py; PYTHONPATH=tools python3 tools/test_check_e05_physical_stage.py; } 2>&1 | tee "$PROOF/e05-checker-regressions.txt"
+          python3 tools/check_e05_conformance.py --repo-root . --output "$PROOF/e05-conformance.json"
+          python3 tools/check_e05_physical_stage.py --repo-root . --output "$PROOF/e05-physical-stage.json"
+      - name: Prove E05 authority boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e05-proof"
+          {
+            cargo test -p ptah-platform-admission --locked
+            cargo test -p ptah-control --test e05_platform_admission --locked
+            cargo test -p ptah-control --test e05_d08_boundary --locked
+            cargo test -p ptah-control --test e05_c10_boundary --locked
+          } 2>&1 | tee "$PROOF/owner-regressions.txt"
+      - name: Prove strict workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e05-proof"
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings 2>&1 | tee "$PROOF/cargo-clippy.txt"
+          cargo test --workspace --locked 2>&1 | tee "$PROOF/cargo-test.txt"
+      - name: Secret scan and SHA-bound nonclaim proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROOF="$RUNNER_TEMP/e05-proof"
+          PATTERN='BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}'
+          if grep -RInE --binary-files=without-match --exclude-dir=.git --exclude-dir=target "$PATTERN" . > "$PROOF/secret-scan-hits.txt"; then cat "$PROOF/secret-scan-hits.txt"; exit 1; fi
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          proof=Path(os.environ['RUNNER_TEMP'])/'e05-proof'
+          corpus=Path('conformance/e05/e05-conformance-cases.v0.1.0.json')
+          manifest={'schema':'ptah.e05.exact_head_proof.v1','exact_head':os.environ['TARGET_SHA'],'exact_tree':subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip(),'accepted_predecessor':os.environ['E04_BASE'],'corpus_sha256':hashlib.sha256(corpus.read_bytes()).hexdigest(),'merge_claimed':False}
+          (proof/'e05-proof-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+          lines=[f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}' for p in sorted(proof.iterdir()) if p.is_file() and p.name!='SHA256SUMS.txt']
+          (proof/'SHA256SUMS.txt').write_text('\n'.join(lines)+'\n')
+          PY
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain)"
+          grep -q '"merge_claimed": false' "$PROOF/e05-proof-manifest.json"
+      - name: Retain exact E05 proof artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: e05-platform-nodes-${{ env.TARGET_SHA }}
+          path: ${{ runner.temp }}/e05-proof
+          if-no-files-found: error
+          retention-days: 90

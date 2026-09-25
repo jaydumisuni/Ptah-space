@@ -1,0 +1,83 @@
+name: TEMP Athena Oracle Recovery
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recover-athena:
+    runs-on: [self-hosted, Windows, athena]
+    timeout-minutes: 25
+    steps:
+      - name: Recover canonical Oracle node and relay
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='D:\projects\oracle\Oracle'
+          if(-not (Test-Path -LiteralPath (Join-Path $repo '.git'))){ throw 'ORACLE_REPO_MISSING' }
+          git -C $repo fetch origin main --no-tags
+          if($LASTEXITCODE -ne 0){ throw 'ORACLE_FETCH_FAILED' }
+          $head=(& git -C $repo rev-parse origin/main).Trim()
+          Write-Output ('ORACLE_MAIN='+$head)
+
+          $proof=Join-Path $env:LOCALAPPDATA 'OraclePhysicalRecovery\canonical'
+          if(Test-Path -LiteralPath $proof){
+            try{ git -C $repo worktree remove --force $proof 2>$null }catch{}
+            if(Test-Path -LiteralPath $proof){ Remove-Item -LiteralPath $proof -Recurse -Force }
+          }
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $proof) | Out-Null
+          git -C $repo worktree add --detach $proof origin/main
+          if($LASTEXITCODE -ne 0){ throw 'ORACLE_WORKTREE_FAILED' }
+
+          Push-Location $proof
+          try {
+            & npm.cmd ci --no-audit --no-fund
+            if($LASTEXITCODE -ne 0){ throw ('ORACLE_NPM_CI_FAILED='+$LASTEXITCODE) }
+            & node.exe -e "for (const m of ['ws','usb','serialport']) { require(m); console.log('IMPORT_OK '+m) }"
+            if($LASTEXITCODE -ne 0){ throw ('ORACLE_RUNTIME_IMPORT_FAILED='+$LASTEXITCODE) }
+
+            $stateRoot=Join-Path $env:LOCALAPPDATA 'OracleNode'
+            New-Item -ItemType Directory -Force -Path $stateRoot | Out-Null
+            $releaseEnv=Join-Path $stateRoot 'release.env'
+            $existing=@()
+            if(Test-Path -LiteralPath $releaseEnv){ $existing=@(Get-Content -LiteralPath $releaseEnv) }
+            $updates=[ordered]@{
+              ORACLE_RELEASE_CLOUDFLARE_PROJECT_ROOT=$proof
+              ORACLE_RELEASE_CLOUDFLARE_ORIGIN='https://oracle.thetechguyds.com'
+              ORACLE_DIRECT_CONTROL_ORIGIN='https://oracle-athena.thetechguyds.com'
+              ORACLE_DIRECT_CONTROL_HOST='127.0.0.1'
+              ORACLE_DIRECT_CONTROL_PORT='5061'
+            }
+            $out=@()
+            $seen=@{}
+            foreach($line in $existing){
+              $key=if($line -match '^([^=]+)='){ $Matches[1] }else{ '' }
+              if($updates.Contains($key)){ $out += ($key+'='+$updates[$key]); $seen[$key]=$true } else { $out += $line }
+            }
+            foreach($key in $updates.Keys){ if(-not $seen.ContainsKey($key)){ $out += ($key+'='+$updates[$key]) } }
+            Set-Content -LiteralPath $releaseEnv -Value $out -Encoding ASCII
+
+            $installer=Join-Path $proof 'scripts\install-oracle-node-windows.ps1'
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installer -SourceRoot $proof -LiveUrl 'https://oracle.thetechguyds.com' -NodeId 'ATHENA' -PersistenceMode Boot
+            if($LASTEXITCODE -ne 0){ throw ('ORACLE_INSTALL_FAILED='+$LASTEXITCODE) }
+
+            $tokenSource=Join-Path $repo '.oracle\agent-token.txt'
+            if(Test-Path -LiteralPath $tokenSource){
+              New-Item -ItemType Directory -Force -Path (Join-Path $proof '.oracle') | Out-Null
+              Copy-Item -LiteralPath $tokenSource -Destination (Join-Path $proof '.oracle\agent-token.txt') -Force
+              $relayInstaller=Join-Path $proof 'scripts\install-oracle-recovery-relay-windows.ps1'
+              & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $relayInstaller -SourceRoot $proof
+              if($LASTEXITCODE -ne 0){ throw ('ORACLE_RELAY_INSTALL_FAILED='+$LASTEXITCODE) }
+            } else {
+              Write-Output 'RELAY_TOKEN_SOURCE_MISSING'
+            }
+          } finally { Pop-Location }
+
+          Start-Sleep -Seconds 6
+          $health=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/health' -TimeoutSec 5
+          $ready=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/ready' -TimeoutSec 5
+          Write-Output ('HEALTH='+($health|ConvertTo-Json -Depth 8 -Compress))
+          Write-Output ('READY='+($ready|ConvertTo-Json -Depth 8 -Compress))
+          Get-ScheduledTask | Where-Object {$_.TaskName -match 'Oracle'} | Select-Object TaskName,State,@{n='Enabled';e={$_.Settings.Enabled}},@{n='RunLevel';e={$_.Principal.RunLevel}} | Format-Table -AutoSize

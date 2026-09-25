@@ -1,45 +1,33 @@
 name: TEMP Athena Oracle Recovery
-
 on:
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
   recover-athena:
     runs-on: [self-hosted, Windows, athena]
     timeout-minutes: 10
     steps:
-      - name: Start existing Oracle node in user session
+      - name: Recover existing Oracle user node
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
           $state=Join-Path $env:LOCALAPPDATA 'OracleNode'
           $wrapper=Join-Path $state 'start-oracle-node.cmd'
           if(-not (Test-Path -LiteralPath $wrapper -PathType Leaf)){ throw ('ORACLE_WRAPPER_MISSING='+$wrapper) }
-          Write-Output ('WRAPPER='+$wrapper)
-          Write-Output '--- STATUS BEFORE ---'
-          if(Test-Path -LiteralPath (Join-Path $state 'oracle-live-node-status.json')){ Get-Content -LiteralPath (Join-Path $state 'oracle-live-node-status.json') -Raw }
           Get-CimInstance Win32_Process | Where-Object {$_.Name -eq 'node.exe' -and $_.CommandLine -like '*OracleNode*oracle-live-node.mjs*'} | ForEach-Object {
             try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop } catch {}
           }
           $out=Join-Path $state 'manual-recovery.stdout.log'
           $err=Join-Path $state 'manual-recovery.stderr.log'
           Remove-Item $out,$err -Force -ErrorAction SilentlyContinue
-          $p=Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d','/c',$wrapper) -WorkingDirectory $state -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden -PassThru
+          $quoted='"'+$wrapper+'"'
+          $p=Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d','/s','/c',$quoted) -WorkingDirectory $state -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden -PassThru
           Write-Output ('START_PID='+$p.Id)
-          Start-Sleep -Seconds 10
-          $alive=$null -ne (Get-Process -Id $p.Id -ErrorAction SilentlyContinue)
-          Write-Output ('WRAPPER_ALIVE='+$alive)
-          Write-Output '--- STDOUT ---'
-          if(Test-Path $out){ Get-Content $out -Tail 120 }
-          Write-Output '--- STDERR ---'
-          if(Test-Path $err){ Get-Content $err -Tail 120 }
-          $health=$null
-          try{$health=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/health' -TimeoutSec 4}catch{Write-Output ('HEALTH_ERROR='+$_.Exception.Message)}
-          $ready=$null
-          try{$ready=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/ready' -TimeoutSec 4}catch{Write-Output ('READY_ERROR='+$_.Exception.Message)}
+          Start-Sleep -Seconds 8
+          if(Test-Path $err){$stderr=(Get-Content $err -Raw); if($stderr){Write-Output ('STDERR='+$stderr)}}
+          $health=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/health' -TimeoutSec 5
+          $ready=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/ready' -TimeoutSec 5
           Write-Output ('HEALTH='+($health|ConvertTo-Json -Depth 8 -Compress))
           Write-Output ('READY='+($ready|ConvertTo-Json -Depth 8 -Compress))
-          if($null -eq $health -or $null -eq $ready){ throw 'ORACLE_NODE_NOT_READY_AFTER_MANUAL_START' }
+          Get-CimInstance Win32_Process | Where-Object {$_.Name -eq 'node.exe' -and $_.CommandLine -like '*OracleNode*oracle-live-node.mjs*'} | Select-Object ProcessId,CreationDate,CommandLine | ConvertTo-Json -Compress

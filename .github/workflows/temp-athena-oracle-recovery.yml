@@ -2,26 +2,23 @@ name: TEMP Athena Oracle Recovery
 on: { workflow_dispatch: {} }
 permissions: { contents: read }
 jobs:
-  recover-user-persistence:
+  inspect:
     runs-on: [self-hosted, Windows, athena]
     timeout-minutes: 5
     steps:
       - shell: powershell
         run: |
-          $ErrorActionPreference='Stop'
+          $ErrorActionPreference='Continue'
           $state=Join-Path $env:LOCALAPPDATA 'OracleNode'
-          $wrapper=Join-Path $state 'start-oracle-node.cmd'
-          if(-not (Test-Path -LiteralPath $wrapper -PathType Leaf)){throw 'ORACLE_WRAPPER_MISSING'}
-          $name='Oracle User Recovery Node'
-          $user=[Security.Principal.WindowsIdentity]::GetCurrent().Name
-          $action=New-ScheduledTaskAction -Execute 'cmd.exe' -Argument ('/d /c "'+$wrapper+'"')
-          $trigger=New-ScheduledTaskTrigger -AtLogOn -User $user
-          $settings=New-ScheduledTaskSettingsSet -RestartCount 20 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -MultipleInstances IgnoreNew
-          $principal=New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
-          Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
-          Enable-ScheduledTask -TaskName $name | Out-Null
-          Start-ScheduledTask -TaskName $name
-          Start-Sleep -Seconds 8
-          $health=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/health' -TimeoutSec 5
-          $task=Get-ScheduledTask -TaskName $name
-          [pscustomobject]@{task=$name;state=[string]$task.State;enabled=[bool]$task.Settings.Enabled;health=$health}|ConvertTo-Json -Depth 8 -Compress
+          Write-Output '--- USER RECOVERY TASK ---'
+          $t=Get-ScheduledTask -TaskName 'Oracle User Recovery Node' -ErrorAction SilentlyContinue
+          $i=Get-ScheduledTaskInfo -TaskName 'Oracle User Recovery Node' -ErrorAction SilentlyContinue
+          if($t){[pscustomobject]@{state=[string]$t.State;enabled=[bool]$t.Settings.Enabled;lastTaskResult=if($i){[int64]$i.LastTaskResult}else{$null};restartCount=$t.Settings.RestartCount;restartInterval=[string]$t.Settings.RestartInterval}|ConvertTo-Json -Compress}
+          Write-Output '--- PROCESS ---'
+          Get-CimInstance Win32_Process | Where-Object {$_.Name -eq 'node.exe' -and $_.CommandLine -like '*OracleNode*oracle-live-node.mjs*'} | Select-Object ProcessId,ParentProcessId,CreationDate,CommandLine | ConvertTo-Json -Compress
+          Write-Output '--- HEALTH ---'
+          try{Invoke-RestMethod -Uri 'http://127.0.0.1:5059/health' -TimeoutSec 3 | ConvertTo-Json -Depth 8 -Compress}catch{Write-Output ('HEALTH_ERROR='+$_.Exception.Message)}
+          Write-Output '--- STATUS ---'
+          $status=Join-Path $state 'oracle-live-node-status.json';if(Test-Path $status){Get-Content $status -Raw}
+          Write-Output '--- RECOVERY STDERR ---'
+          $err=Join-Path $state 'manual-recovery.stderr.log';if(Test-Path $err){Get-Content $err -Tail 100}

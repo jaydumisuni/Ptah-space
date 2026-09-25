@@ -2,26 +2,16 @@ name: TEMP Athena Oracle Recovery
 on: { workflow_dispatch: {} }
 permissions: { contents: read }
 jobs:
-  inspect-tasks:
+  inspect-helper:
     runs-on: [self-hosted, Windows, athena]
     timeout-minutes: 5
     steps:
       - shell: powershell
         run: |
           $ErrorActionPreference='Continue'
-          foreach($name in @('Oracle Always-On Node','Oracle Node Watchdog','Oracle Live Node (Session Fallback)','Oracle Node Watchdog (Session Fallback)','Oracle Node Restart Helper','Oracle Recovery Relay')){
-            Write-Output ('--- '+$name+' ---')
-            $t=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
-            if(-not $t){Write-Output 'MISSING';continue}
-            $i=Get-ScheduledTaskInfo -TaskName $name -ErrorAction SilentlyContinue
-            [pscustomobject]@{
-              TaskName=$name
-              State=[string]$t.State
-              Enabled=[bool]$t.Settings.Enabled
-              RunLevel=[string]$t.Principal.RunLevel
-              LogonType=[string]$t.Principal.LogonType
-              UserId=[string]$t.Principal.UserId
-              LastTaskResult=if($i){[int64]$i.LastTaskResult}else{$null}
-              Action=@($t.Actions|ForEach-Object{[pscustomobject]@{Execute=$_.Execute;Arguments=$_.Arguments;WorkingDirectory=$_.WorkingDirectory}})
-            }|ConvertTo-Json -Depth 5 -Compress
-          }
+          Write-Output ('IDENTITY='+[Security.Principal.WindowsIdentity]::GetCurrent().Name)
+          $principal=New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+          Write-Output ('IS_ADMIN='+$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
+          $p=Join-Path $env:LOCALAPPDATA 'OracleNode\restart-oracle-node.ps1'
+          Write-Output '--- HELPER ---'
+          if(Test-Path $p){Get-Content $p -Raw}else{Write-Output 'MISSING'}

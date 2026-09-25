@@ -1,35 +1,27 @@
 name: TEMP Athena Oracle Recovery
-on:
-  workflow_dispatch:
-permissions:
-  contents: read
+on: { workflow_dispatch: {} }
+permissions: { contents: read }
 jobs:
-  inspect-athena:
+  inspect-tasks:
     runs-on: [self-hosted, Windows, athena]
     timeout-minutes: 5
     steps:
-      - name: Inspect Athena Oracle after runner cleanup
-        shell: powershell
+      - shell: powershell
         run: |
           $ErrorActionPreference='Continue'
-          $state=Join-Path $env:LOCALAPPDATA 'OracleNode'
-          $status=Join-Path $state 'oracle-live-node-status.json'
-          Write-Output '--- STATUS FILE ---'
-          if(Test-Path $status){ Get-Content $status -Raw }
-          Write-Output '--- HEALTH ---'
-          try{Invoke-RestMethod -Uri 'http://127.0.0.1:5059/health' -TimeoutSec 4 | ConvertTo-Json -Depth 8 -Compress}catch{Write-Output ('HEALTH_ERROR='+$_.Exception.Message)}
-          Write-Output '--- PROCESSES ---'
-          $procs=@(Get-CimInstance Win32_Process | Where-Object {$_.Name -eq 'node.exe' -and $_.CommandLine -like '*OracleNode*oracle-live-node.mjs*'})
-          $procs | Select-Object ProcessId,ParentProcessId,CreationDate,CommandLine | ConvertTo-Json -Compress
-          Write-Output '--- TCP ---'
-          foreach($p in $procs){
-            Get-NetTCPConnection -OwningProcess $p.ProcessId -State Established -ErrorAction SilentlyContinue |
-              Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess | ConvertTo-Json -Compress
+          foreach($name in @('Oracle Always-On Node','Oracle Node Watchdog','Oracle Live Node (Session Fallback)','Oracle Node Watchdog (Session Fallback)','Oracle Node Restart Helper','Oracle Recovery Relay')){
+            Write-Output ('--- '+$name+' ---')
+            $t=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            if(-not $t){Write-Output 'MISSING';continue}
+            $i=Get-ScheduledTaskInfo -TaskName $name -ErrorAction SilentlyContinue
+            [pscustomobject]@{
+              TaskName=$name
+              State=[string]$t.State
+              Enabled=[bool]$t.Settings.Enabled
+              RunLevel=[string]$t.Principal.RunLevel
+              LogonType=[string]$t.Principal.LogonType
+              UserId=[string]$t.Principal.UserId
+              LastTaskResult=if($i){[int64]$i.LastTaskResult}else{$null}
+              Action=@($t.Actions|ForEach-Object{[pscustomobject]@{Execute=$_.Execute;Arguments=$_.Arguments;WorkingDirectory=$_.WorkingDirectory}})
+            }|ConvertTo-Json -Depth 5 -Compress
           }
-          Write-Output '--- DNS ---'
-          Resolve-DnsName oracle.thetechguyds.com -ErrorAction SilentlyContinue | Where-Object {$_.Type -in 'A','AAAA'} | Select-Object Name,Type,IPAddress | ConvertTo-Json -Compress
-          Write-Output '--- RELEASE ENV SAFE ---'
-          $envFile=Join-Path $state 'release.env'
-          if(Test-Path $envFile){Get-Content $envFile | Where-Object {$_ -notmatch '(?i)(token|secret|key|password|credential)'} }
-          Write-Output '--- ORACLE TASKS ---'
-          Get-ScheduledTask | Where-Object {$_.TaskName -match '^Oracle'} | Select-Object TaskName,State,@{n='Enabled';e={$_.Settings.Enabled}},@{n='RunLevel';e={$_.Principal.RunLevel}},@{n='LogonType';e={$_.Principal.LogonType}} | ConvertTo-Json -Compress

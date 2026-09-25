@@ -15,14 +15,16 @@ jobs:
           $state=Join-Path $env:LOCALAPPDATA 'OracleNode'
           $wrapper=Join-Path $state 'start-oracle-node.cmd'
           if(-not (Test-Path -LiteralPath $wrapper -PathType Leaf)){ throw ('ORACLE_WRAPPER_MISSING='+$wrapper) }
+          Write-Output '--- WRAPPER ---'
+          Get-Content -LiteralPath $wrapper | ForEach-Object { if($_ -match '(?i)TOKEN'){ $_ -replace '=.*','=[REDACTED]' } else { $_ } }
           Get-CimInstance Win32_Process | Where-Object {$_.Name -eq 'node.exe' -and $_.CommandLine -like '*OracleNode*oracle-live-node.mjs*'} | ForEach-Object {
             try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop } catch {}
           }
+          $env:RUNNER_TRACKING_ID=''
           $out=Join-Path $state 'manual-recovery.stdout.log'
           $err=Join-Path $state 'manual-recovery.stderr.log'
           Remove-Item $out,$err -Force -ErrorAction SilentlyContinue
-          $quoted='"'+$wrapper+'"'
-          $p=Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d','/s','/c',$quoted) -WorkingDirectory $state -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden -PassThru
+          $p=Start-Process -FilePath $wrapper -WorkingDirectory $state -RedirectStandardOutput $out -RedirectStandardError $err -WindowStyle Hidden -PassThru
           Write-Output ('START_PID='+$p.Id)
           Start-Sleep -Seconds 8
           if(Test-Path $err){$stderr=(Get-Content $err -Raw); if($stderr){Write-Output ('STDERR='+$stderr)}}

@@ -1,4 +1,5 @@
-name: TEMP KRATOS Oracle Patrol Recovery
+# activate: locate local Android partition tools 2026-08-30
+name: Temporary locate Android partition tools on KRATOS
 
 on:
   push:
@@ -10,114 +11,27 @@ permissions:
   contents: read
 
 jobs:
-  recover:
+  locate:
     runs-on: [self-hosted, kratos, ptah]
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
-      - name: Diagnose and recover Oracle desktop node
+      - name: Locate existing dynamic-partition utilities without installing anything
         shell: bash
         run: |
           set -euo pipefail
-          HOME_DIR=/home/kratos
-          WORK_DIR="$HOME_DIR/.oracle-work"
-          LAUNCHER="$HOME_DIR/.local/opt/oracle/oracle-appimage-launcher"
-          APPIMAGE="$HOME_DIR/.local/opt/oracle/Oracle.AppImage"
-
-          echo '=== CURRENT ORACLE PROCESSES ==='
-          pgrep -af 'oracle|Oracle' || true
-
-          echo '=== PREVIOUS RELAUNCH LOG ==='
-          tail -120 "$WORK_DIR/oracle-desktop-relaunch.log" 2>/dev/null || true
-
-          echo '=== LAUNCHER / DESKTOP ENTRY ==='
-          /bin/sh -n "$LAUNCHER"
-          grep -nE 'ORACLE_DEFAULT_CWD|cd "\$ORACLE_DEFAULT_CWD"' "$LAUNCHER" || true
-          grep -nE '^(Exec|Path)=' "$HOME_DIR/.local/share/applications/com.thetechguy.oracle.desktop" || true
-
-          echo '=== USER SESSION ENVIRONMENT ==='
-          systemctl --user show-environment | grep -E '^(DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR)=' || true
-
-          # Stop any surviving Oracle desktop main process, but not unrelated helpers.
-          mapfile -t mains < <(python3 - <<'PY'
-          from pathlib import Path
-          import os
-          for p in Path('/proc').iterdir():
-              if not p.name.isdigit():
-                  continue
-              try:
-                  exe=os.readlink(p/'exe')
-                  cmd=(p/'cmdline').read_bytes().replace(b'\0',b' ').decode(errors='replace').strip()
-              except Exception:
-                  continue
-              if '/oracle' in exe and '--no-sandbox' in cmd and '--type=' not in cmd:
-                  print(p.name)
-          PY
-          )
-          for pid in "${mains[@]:-}"; do
-            [ -n "$pid" ] || continue
-            kill -TERM "$pid" 2>/dev/null || true
-          done
-          sleep 2
-
-          # Inherit the logged-in graphical user environment from systemd --user.
-          while IFS='=' read -r key value; do
-            case "$key" in
-              DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR)
-                export "$key=$value"
-                ;;
-            esac
-          done < <(systemctl --user show-environment)
-
-          mkdir -p "$WORK_DIR"
-          cd "$WORK_DIR"
-
-          UNIT="oracle-desktop-patrol-recovery"
-          systemctl --user stop "$UNIT.service" 2>/dev/null || true
-          systemctl --user reset-failed "$UNIT.service" 2>/dev/null || true
-
-          args=(
-            systemd-run --user
-            --unit="$UNIT"
-            --property=WorkingDirectory="$WORK_DIR"
-            --property=Restart=on-failure
-            --property=RestartSec=2
-          )
-          for key in DISPLAY WAYLAND_DISPLAY XAUTHORITY DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR; do
-            value="${!key:-}"
-            if [ -n "$value" ]; then
-              args+=(--setenv="$key=$value")
-            fi
-          done
-          args+=("$LAUNCHER" "$APPIMAGE" --no-sandbox)
-          "${args[@]}"
-
-          sleep 8
-
-          echo '=== RECOVERY UNIT ==='
-          systemctl --user status "$UNIT.service" --no-pager || true
-          echo '=== RECOVERED ORACLE PROCESSES ==='
-          pgrep -af 'oracle|Oracle' || true
-          echo '=== RECOVERED MAIN CWD ==='
+          echo '=== EXACT BINARY NAMES ==='
+          find /home/kratos /opt /usr/local /tmp -xdev -type f \( -name lpunpack -o -name lpdump -o -name simg2img -o -name img2simg -o -name 'lpunpack*' \) -print 2>/dev/null | sort -u | head -n 300 || true
+          echo '=== SCRIPT / MODULE REFERENCES ==='
+          grep -RIlE '(LP_METADATA_HEADER_MAGIC|liblp|lpunpack|dynamic partitions|super partition)' \
+            /home/kratos/TTG-Device-X-Ray /home/kratos/ttg-device-xray /home/kratos/projects /home/kratos/oracle-roadmap-work \
+            2>/dev/null | head -n 300 || true
+          echo '=== PYTHON MODULES ==='
           python3 - <<'PY'
-          from pathlib import Path
-          import os, json
-          rows=[]
-          for p in Path('/proc').iterdir():
-              if not p.name.isdigit():
-                  continue
-              try:
-                  exe=os.readlink(p/'exe')
-                  cmd=(p/'cmdline').read_bytes().replace(b'\0',b' ').decode(errors='replace').strip()
-                  cwd=os.readlink(p/'cwd')
-              except Exception:
-                  continue
-              if '/oracle' in exe and '--no-sandbox' in cmd and '--type=' not in cmd:
-                  rows.append({'pid':int(p.name),'cwd':cwd,'exe':exe,'cmd':cmd})
-          print(json.dumps(rows, indent=2))
-          if not rows:
-              raise SystemExit('ORACLE_DESKTOP_MAIN_NOT_RUNNING')
-          if any(row['cwd'] != '/home/kratos/.oracle-work' for row in rows):
-              raise SystemExit('ORACLE_DESKTOP_CWD_WRONG')
+          import pkgutil
+          names=sorted(m.name for m in pkgutil.iter_modules())
+          for n in names:
+              low=n.lower()
+              if any(k in low for k in ('android','sparse','super','lp')):
+                  print(n)
           PY
-
-          echo 'ORACLE_DESKTOP_PATROL_RECOVERY=PASS'
+          echo 'LOCAL_PARTITION_TOOL_SEARCH=PASS'

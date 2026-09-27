@@ -1,0 +1,62 @@
+name: TEMP ATHENA Oracle public-ingress discriminator
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/temp-athena-oracle-ingress-discriminator.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe-athena:
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Recover ATHENA network evidence
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $out='ATHENA_ORACLE_INGRESS_DISCRIMINATOR_20260928.txt'
+          $lines = New-Object System.Collections.Generic.List[string]
+          $lines.Add('ATHENA_ORACLE_INGRESS_DISCRIMINATOR_V1')
+          $lines.Add(('HOST=' + $env:COMPUTERNAME))
+          $lines.Add(('NOW=' + (Get-Date).ToUniversalTime().ToString('o')))
+          $lines.Add('')
+          $lines.Add('== adapters ==')
+          Get-NetIPConfiguration | ForEach-Object {
+            $lines.Add(($_ | Select-Object InterfaceAlias,InterfaceDescription,@{N='IPv4';E={$_.IPv4Address.IPAddress -join ','}},@{N='IPv6';E={$_.IPv6Address.IPAddress -join ','}},@{N='Gateway4';E={$_.IPv4DefaultGateway.NextHop -join ','}},@{N='Gateway6';E={$_.IPv6DefaultGateway.NextHop -join ','}} | Format-List | Out-String).Trim())
+          }
+          $lines.Add('')
+          $lines.Add('== public egress ==')
+          try { $lines.Add((Invoke-RestMethod -UseBasicParsing -Uri 'https://api.ipify.org' -TimeoutSec 10)) } catch { $lines.Add('IPIFY_ERROR='+$_.Exception.Message) }
+          $lines.Add('')
+          $lines.Add('== route ==')
+          $lines.Add((Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Select-Object InterfaceAlias,NextHop,RouteMetric,State | Format-Table -AutoSize | Out-String).Trim())
+          $lines.Add('')
+          $lines.Add('== candidate public listeners ==')
+          $lines.Add((Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in 80,443,8787,8788 } | Select-Object LocalAddress,LocalPort,OwningProcess | Format-Table -AutoSize | Out-String).Trim())
+          Set-Content -LiteralPath $out -Value $lines -Encoding UTF8
+          Get-Content -LiteralPath $out
+
+      - name: Publish ATHENA evidence
+        shell: powershell
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ATHENA_ORACLE_INGRESS_DISCRIMINATOR_20260928.txt
+          git commit -m "ptah: record ATHENA Oracle ingress discriminator"
+          if ($LASTEXITCODE -ne 0) { exit 0 }
+          for($i=1;$i -le 5;$i++){
+            git push origin HEAD:main
+            if($LASTEXITCODE -eq 0){ exit 0 }
+            git fetch origin main
+            git rebase origin/main
+          }
+          exit 1

@@ -1,24 +1,45 @@
-name: TEMP Athena Oracle Recovery
-on: { workflow_dispatch: {} }
-permissions: { contents: read }
+name: TEMP ATHENA Oracle recovery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/temp-athena-oracle-recovery.yml"
+
+permissions:
+  contents: read
+
 jobs:
   inspect:
-    runs-on: [self-hosted, Windows, athena]
-    timeout-minutes: 5
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 8
     steps:
-      - shell: powershell
+      - name: Inspect ATHENA recovery authority
+        shell: powershell
         run: |
-          $ErrorActionPreference='Continue'
-          $state=Join-Path $env:LOCALAPPDATA 'OracleNode'
-          Write-Output '--- USER RECOVERY TASK ---'
-          $t=Get-ScheduledTask -TaskName 'Oracle User Recovery Node' -ErrorAction SilentlyContinue
-          $i=Get-ScheduledTaskInfo -TaskName 'Oracle User Recovery Node' -ErrorAction SilentlyContinue
-          if($t){[pscustomobject]@{state=[string]$t.State;enabled=[bool]$t.Settings.Enabled;lastTaskResult=if($i){[int64]$i.LastTaskResult}else{$null};restartCount=$t.Settings.RestartCount;restartInterval=[string]$t.Settings.RestartInterval}|ConvertTo-Json -Compress}
-          Write-Output '--- PROCESS ---'
-          Get-CimInstance Win32_Process | Where-Object {$_.Name -eq 'node.exe' -and $_.CommandLine -like '*OracleNode*oracle-live-node.mjs*'} | Select-Object ProcessId,ParentProcessId,CreationDate,CommandLine | ConvertTo-Json -Compress
-          Write-Output '--- HEALTH ---'
-          try{Invoke-RestMethod -Uri 'http://127.0.0.1:5059/health' -TimeoutSec 3 | ConvertTo-Json -Depth 8 -Compress}catch{Write-Output ('HEALTH_ERROR='+$_.Exception.Message)}
-          Write-Output '--- STATUS ---'
-          $status=Join-Path $state 'oracle-live-node-status.json';if(Test-Path $status){Get-Content $status -Raw}
-          Write-Output '--- RECOVERY STDERR ---'
-          $err=Join-Path $state 'manual-recovery.stderr.log';if(Test-Path $err){Get-Content $err -Tail 100}
+          $ErrorActionPreference='Stop'
+          $project=''
+          $account=''
+          $owner=$false
+          try { $project=(gcloud config get-value project 2>$null).Trim() } catch {}
+          try { $account=(gcloud config get-value account 2>$null).Trim() } catch {}
+          if($account){
+            try {
+              $policy=(gcloud projects get-iam-policy hunter-thetechguy --format=json 2>$null | ConvertFrom-Json)
+              $owner=[bool](@($policy.bindings | Where-Object { $_.role -eq 'roles/owner' -and $_.members -contains ('user:'+$account) }).Count)
+            } catch {}
+          }
+          $oracle=Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'oracle-live-node\.mjs|oracle-guardian|oracle-node-watchdog' } | Select-Object ProcessId,ParentProcessId,Name,CommandLine
+          $tasks=Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -match 'Oracle' } | Select-Object TaskName,State,TaskPath
+          $cdp=$false
+          try { $null=Invoke-RestMethod -Uri 'http://127.0.0.1:9243/json/version' -TimeoutSec 5; $cdp=$true } catch {}
+          [ordered]@{
+            host=$env:COMPUTERNAME
+            user=[Environment]::UserName
+            project=$project
+            googleAccountConfigured=[bool]$account
+            googleProjectOwner=$owner
+            braveCdp9243=$cdp
+            oracleProcesses=@($oracle)
+            oracleTasks=@($tasks)
+          } | ConvertTo-Json -Depth 8

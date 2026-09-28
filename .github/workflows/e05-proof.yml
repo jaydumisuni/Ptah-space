@@ -81,8 +81,8 @@ jobs:
           set -euo pipefail
           PROOF="$RUNNER_TEMP/e05-proof"
           { PYTHONPATH=tools python3 tools/test_check_e05_conformance.py; PYTHONPATH=tools python3 tools/test_check_e05_physical_stage.py; } 2>&1 | tee "$PROOF/e05-checker-regressions.txt"
-          python3 tools/check_e05_conformance.py --repo-root . --output "$PROOF/e05-conformance.json"
-          python3 tools/check_e05_physical_stage.py --repo-root . --output "$PROOF/e05-physical-stage.json"
+          python3 tools/check_e05_conformance.py conformance/e05/e05-conformance-cases.v0.1.0.json | tee "$PROOF/e05-conformance.txt"
+          python3 tools/check_e05_physical_stage.py conformance/e05/physical-platform-stage-status-2026-09-23.json | tee "$PROOF/e05-physical-stage.txt"
       - name: Prove E05 authority boundaries
         shell: bash
         run: |

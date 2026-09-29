@@ -1,0 +1,155 @@
+name: TEMP Oracle 0.7.2 ATHENA exact-head build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/temp-oracle-072-athena-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 90
+    env:
+      ORACLE_COMMIT: "4e44bf950897ad3dccc6eb8fa3afcbe183173015"
+      BUILDER_COMMIT: "3ffcc6a5453a2bce5841479eb6178921215d2e5b"
+      PYTHONUTF8: "1"
+
+    steps:
+      - name: Prove ATHENA and GitHub authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "HOST=$env:COMPUTERNAME"
+          if ($env:COMPUTERNAME -ne 'ATHENA') { throw "WRONG_HOST $env:COMPUTERNAME" }
+          gh auth status --hostname github.com
+
+      - name: Create isolated exact-head workspaces
+        id: prep
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP ("oracle-072-" + $env:GITHUB_RUN_ID)
+          $oracle = Join-Path $root 'oracle'
+          $builder = Join-Path $root 'builder'
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+          gh repo clone jaydumisuni/Oracle- $oracle -- --no-tags
+          gh repo clone jaydumisuni/thetechguy-software-builder $builder -- --no-tags
+
+          git -c safe.directory="$($oracle.Replace('\','/'))" -C $oracle checkout --detach $env:ORACLE_COMMIT
+          git -c safe.directory="$($builder.Replace('\','/'))" -C $builder checkout --detach $env:BUILDER_COMMIT
+
+          $oracleHead = (git -c safe.directory="$($oracle.Replace('\','/'))" -C $oracle rev-parse HEAD).Trim()
+          $builderHead = (git -c safe.directory="$($builder.Replace('\','/'))" -C $builder rev-parse HEAD).Trim()
+          if ($oracleHead -ne $env:ORACLE_COMMIT) { throw "ORACLE_HEAD_MISMATCH $oracleHead" }
+          if ($builderHead -ne $env:BUILDER_COMMIT) { throw "BUILDER_HEAD_MISMATCH $builderHead" }
+          if (@(git -c safe.directory="$($oracle.Replace('\','/'))" -C $oracle status --porcelain).Count -ne 0) { throw 'ORACLE_WORKTREE_DIRTY' }
+          if (@(git -c safe.directory="$($builder.Replace('\','/'))" -C $builder status --porcelain).Count -ne 0) { throw 'BUILDER_WORKTREE_DIRTY' }
+
+          $contract = Get-Content (Join-Path $oracle 'techguy-build.json') -Raw | ConvertFrom-Json
+          if ($contract.appVersion -ne '0.7.2') { throw "VERSION_MISMATCH $($contract.appVersion)" }
+
+          "root=$root" >> $env:GITHUB_OUTPUT
+          "oracle=$oracle" >> $env:GITHUB_OUTPUT
+          "builder=$builder" >> $env:GITHUB_OUTPUT
+          Write-Host "ORACLE_HEAD=$oracleHead"
+          Write-Host "BUILDER_HEAD=$builderHead"
+          Write-Host "VERSION=$($contract.appVersion)"
+
+      - name: Resolve Builder-owned Python
+        id: python
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidates = @(
+            'D:\projects\THETECHGUY Software Builder\env\python\.venv\Scripts\python.exe',
+            'D:\projects\THETECHGUY Software Builder\.venv\Scripts\python.exe',
+            (Get-Command python.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1)
+          ) | Where-Object { $_ -and (Test-Path $_) }
+          $python = $candidates | Select-Object -First 1
+          if (-not $python) { throw 'BUILDER_PYTHON_NOT_FOUND' }
+          & $python --version
+          "python=$python" >> $env:GITHUB_OUTPUT
+
+      - name: Prove exact Windows target selection
+        shell: pwsh
+        working-directory: ${{ steps.prep.outputs.builder }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = '${{ steps.python.outputs.python }}'
+          $oracle = '${{ steps.prep.outputs.oracle }}'
+          $targets = & $python -m thetechguy_builder.portable_cli targets $oracle --json | ConvertFrom-Json
+          if ($targets.identity.appVersion -ne '0.7.2') { throw 'TARGET_VERSION_MISMATCH' }
+          $target = $targets.targets | Where-Object { $_.targetId -eq 'windows-installer' -and $_.rootKind -eq 'electron' } | Select-Object -First 1
+          if (-not $target) { throw 'WINDOWS_ELECTRON_TARGET_MISSING' }
+          if ($target.executionHost -ne 'windows') { throw 'WINDOWS_TARGET_HOST_INVALID' }
+          if (-not $target.locallyRunnable) { throw 'WINDOWS_TARGET_NOT_LOCAL_ON_ATHENA' }
+          $target | ConvertTo-Json -Depth 10 | Write-Host
+          "ROOT_ID=$($target.rootId)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build Oracle 0.7.2 Windows installer with canonical Builder
+        shell: pwsh
+        working-directory: ${{ steps.prep.outputs.builder }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = '${{ steps.python.outputs.python }}'
+          $oracle = '${{ steps.prep.outputs.oracle }}'
+          & $python -m thetechguy_builder.portable_cli build $oracle --target windows-installer --root-id $env:ROOT_ID --install-dependencies --json
+          if ($LASTEXITCODE -ne 0) { throw "BUILDER_FAILED $LASTEXITCODE" }
+
+      - name: Freeze Windows artifact evidence
+        id: evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $oracle = '${{ steps.prep.outputs.oracle }}'
+          $reportPath = Join-Path $oracle 'build_config\thetechguy.target-adapter-report.json'
+          if (-not (Test-Path $reportPath)) { throw 'TARGET_REPORT_MISSING' }
+          $report = Get-Content $reportPath -Raw | ConvertFrom-Json
+          $artifact = [string]$report.artifact
+          if (-not $artifact -or -not (Test-Path $artifact)) { throw "WINDOWS_ARTIFACT_MISSING $artifact" }
+          $item = Get-Item -LiteralPath $artifact
+          if ($item.Extension -ne '.exe') { throw "WINDOWS_ARTIFACT_NOT_EXE $artifact" }
+          $sha = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
+
+          $auditPath = Join-Path $oracle 'build_config\oracle.desktop-package-audit.json'
+          if (-not (Test-Path $auditPath)) {
+            node (Join-Path $oracle 'scripts\audit-oracle-desktop-package.mjs') --root $oracle
+          }
+
+          $outDir = Join-Path '${{ steps.prep.outputs.root }}' 'release-output'
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          $artifactOut = Join-Path $outDir 'Oracle-0.7.2-Windows-x64.exe'
+          Copy-Item -LiteralPath $artifact -Destination $artifactOut -Force
+          Copy-Item -LiteralPath $reportPath -Destination (Join-Path $outDir 'thetechguy.target-adapter-report.json') -Force
+          if (Test-Path $auditPath) { Copy-Item -LiteralPath $auditPath -Destination (Join-Path $outDir 'oracle.desktop-package-audit.json') -Force }
+
+          $summary = [ordered]@{
+            schemaVersion = 'oracle.release-072.windows-build-proof.v1'
+            host = $env:COMPUTERNAME
+            oracleCommit = $env:ORACLE_COMMIT
+            builderCommit = $env:BUILDER_COMMIT
+            version = '0.7.2'
+            target = 'windows-installer'
+            artifactName = 'Oracle-0.7.2-Windows-x64.exe'
+            bytes = $item.Length
+            sha256 = $sha
+            sourceArtifact = $artifact
+            exactHead = $true
+          }
+          $summaryPath = Join-Path $outDir 'windows-build-proof.json'
+          $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryPath -Encoding utf8
+          Get-Content $summaryPath
+
+      - name: Upload exact-head Windows release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-0.7.2-windows-exact-head
+          path: ${{ steps.prep.outputs.root }}\release-output\*
+          if-no-files-found: error
+          retention-days: 14

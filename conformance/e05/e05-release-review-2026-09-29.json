@@ -1,0 +1,15 @@
+{
+  "schema": "ptah.e05.release-review.v1",
+  "candidate_head": "aa2c8b5efef87787354e41075f3d35efc573b960",
+  "accepted_predecessor": "77bbd876aaefd78fed2c0583b2b124eee428eb5f",
+  "roadmap_authority": "98dc8c4e8639cda80510bee0625db34b4fdf9384",
+  "review_scope": "Task 10 pre-promotion exact-delta and nonclaim review",
+  "exact_delta_diff_check": "PASS",
+  "conformance": "35/35 PASS",
+  "conformance_regressions": "PASS",
+  "physical_stage_regressions": "PASS",
+  "merge_claimed": false,
+  "promotion_authorized": false,
+  "physical_stage_boundary": "Physical platform evidence remains separately fail-closed where current owner authority or independently verified capability evidence is absent.",
+  "disposition": "RELEASE_REVIEW_COMPLETE_PROMOTION_NOT_PERFORMED"
+}

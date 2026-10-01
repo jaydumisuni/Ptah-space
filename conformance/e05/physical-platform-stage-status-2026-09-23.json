@@ -1,0 +1,57 @@
+{
+  "accepted_predecessor": "77bbd876aaefd78fed2c0583b2b124eee428eb5f",
+  "claim_boundary": "This status records only physical evidence presently recovered on 2026-09-23. Missing stages or missing Ptah E01/A02 authority remain blockers. No unavailable platform is simulated and no physical observation is promoted into E05 admission.",
+  "complete_physical_e05_proof": false,
+  "merge_readiness_from_physical_proof": false,
+  "observed_date": "2026-09-23",
+  "record_type": "ptah.e05.physical_platform_stage_status",
+  "roadmap_authority_commit": "98dc8c4e8639cda80510bee0625db34b4fdf9384",
+  "runtime_authorized": false,
+  "schema_version": "0.1.0",
+  "stages": {
+    "always_on_linux": {
+      "admission_proven": false,
+      "blockers": [
+        "missing_explicit_always_on_role_evidence",
+        "mini_pc_form_factor_not_evidenced"
+      ],
+      "evidence_ref": "conformance/e05/physical-linux-current-node-2026-09-23.json",
+      "physical_platform_observed": true
+    },
+    "android_device": {
+      "admission_proven": false,
+      "blockers": [
+        "missing_current_ptah_e01_session_binding_for_android_platform_node",
+        "missing_current_ptah_a02_android_node_state_and_capability_evidence"
+      ],
+      "evidence_ref": "conformance/e05/physical-android-current-device-2026-09-23.json",
+      "physical_android_device_observed": true
+    },
+    "macos": {
+      "admission_proven": false,
+      "blockers": [
+        "no_current_macos_host_evidence"
+      ],
+      "physical_platform_observed": false
+    },
+    "windows": {
+      "admission_proven": false,
+      "blockers": [
+        "missing_current_ptah_e01_session_binding",
+        "missing_current_ptah_a02_state_and_capability_evidence"
+      ],
+      "evidence_ref": "conformance/e05/physical-windows-current-node-2026-09-23.json",
+      "oracle_node": "ATHENA",
+      "physical_platform_observed": true
+    },
+    "workstation_gpu": {
+      "admission_proven": false,
+      "blockers": [
+        "gpu_compute_api_not_verified",
+        "missing_explicit_workstation_role_evidence"
+      ],
+      "evidence_ref": "conformance/e05/physical-gpu-current-node-2026-09-23.json",
+      "physical_gpu_observed": true
+    }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "accepted_predecessor": "77bbd876aaefd78fed2c0583b2b124eee428eb5f",
+  "automatic_upgrade_authorized": false,
+  "claim_boundary": "This record proves a real currently reachable Windows host on ATHENA and preserves exact observed platform/registry facts. Oracle machine reachability is not Ptah Node authority. Without a current Ptah E01 SessionBinding and exact A02 state/capability evidence, E05 Windows admission is not claimed.",
+  "e05_admission_blockers": [
+    "missing_current_ptah_e01_session_binding",
+    "missing_current_ptah_a02_state_and_capability_evidence"
+  ],
+  "e05_admission_status": "blocked",
+  "observed_at": "2026-09-23T10:19:25+00:00",
+  "observed_platform": {
+    "getwindowsversion": [
+      10,
+      0,
+      26200,
+      2,
+      ""
+    ],
+    "machine": "AMD64",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "processor_architecture": "AMD64",
+    "registry": {
+      "CurrentBuildNumber": "26200",
+      "DisplayVersion": "25H2",
+      "EditionID": "Core",
+      "InstallationType": "Client",
+      "ProductName": "Windows 10 Home",
+      "UBR": 9457
+    },
+    "system": "Windows"
+  },
+  "oracle_node": "ATHENA",
+  "probe_evidence_sha256": "1c4a13e4a530f1109a4a8cf652d9b94c0040d1b0fc85ecf4d9cc4a88ff892db3",
+  "probe_method": "Oracle Live terminal.exec using user-local Python within the configured C:\\Users\\ATHENA 2.0 terminal root",
+  "probe_python": "3.10.11",
+  "record_type": "ptah.e05.physical_windows_observation",
+  "registry_label_interpretation": "preserved verbatim; no normalized Windows marketing-version claim is made because ProductName/DisplayVersion/build metadata are not interpreted beyond the observed values",
+  "roadmap_authority_commit": "98dc8c4e8639cda80510bee0625db34b4fdf9384",
+  "runtime_authorized": false,
+  "schema_version": "0.1.0",
+  "self_approved": false,
+  "windows_admission_proven": false,
+  "windows_platform_facts_observed": true
+}

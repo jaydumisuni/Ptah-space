@@ -1,0 +1,13 @@
+[package]
+name = "ptah-platform-admission"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+ptah-identifiers = { path = "../ptah-identifiers" }
+ptah-node-agent = { path = "../ptah-node-agent" }
+ptah-node-link = { path = "../ptah-node-link" }
+
+[lints]
+workspace = true

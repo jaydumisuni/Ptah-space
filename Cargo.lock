@@ -555,11 +555,15 @@ version = "0.0.0-phase0c"
 name = "ptah-control"
 version = "0.0.0-phase0c"
 dependencies = [
+ "ptah-android-runtime",
  "ptah-application-runtime",
+ "ptah-device-runtime",
  "ptah-identifiers",
  "ptah-node-agent",
  "ptah-node-link",
  "ptah-placement-runtime",
+ "ptah-platform-admission",
+ "ptah-provider-api",
  "ptah-transfer",
  "serde",
  "serde_json",
@@ -732,6 +736,15 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.17",
+]
+
+[[package]]
+name = "ptah-platform-admission"
+version = "0.1.0"
+dependencies = [
+ "ptah-identifiers",
+ "ptah-node-agent",
+ "ptah-node-link",
 ]
 
 [[package]]

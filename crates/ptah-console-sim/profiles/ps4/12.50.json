@@ -1,0 +1,13 @@
+{
+  "firmware": "12.50",
+  "engine": "poops",
+  "ttg_status": "candidate",
+  "execution": "qualification",
+  "evidence_warning": "donor table notes unverified kernel-RVA assumption; THETECHGUY hardware proof pending",
+  "patch_path": "profiles/12.50/kernel-patch.bin",
+  "payload_path": "profiles/12.50/payload.bin",
+  "patch_sha256": "5baaf0bb2663064db1eb1bfd976bc3aa5087ab7f0963648cb6fcb216adce714d",
+  "payload_sha256": "c6329401d1810e16c84e6474ac30977dbdc951987c10cdb559370de7d59db0b0",
+  "payload_size": 290016,
+  "source_authority": "PS-jailbreak ps4/candidates/multifirmware-responsive-dom-20260929/profiles.json"
+}

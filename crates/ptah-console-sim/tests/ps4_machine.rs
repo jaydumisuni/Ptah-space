@@ -1,8 +1,7 @@
 //! Acceptance tests for the Ptah PS4 simulated-console startup contract.
 
 use ptah_console_sim::{
-    CONSOLE_FAMILY, ConsoleSimError, FirmwareStatus, Ps4Console, Ps4Engine,
-    Ps4FirmwareRegistry,
+    CONSOLE_FAMILY, ConsoleSimError, FirmwareStatus, Ps4Console, Ps4Engine, Ps4FirmwareRegistry,
 };
 use ptah_device_runtime::DeviceKind;
 
@@ -66,7 +65,10 @@ fn same_console_changes_firmware_without_changing_device_identity() {
         .expect("boot 12.50");
 
     assert_eq!(second.device_ref.entity_id, device_id);
-    assert_ne!(\n        second.profile_revision_ref.entity_id,\n        first_profile_revision\n    );
+    assert_ne!(
+        second.profile_revision_ref.entity_id,
+        first_profile_revision
+    );
     assert_eq!(
         second
             .profile_revision_ref

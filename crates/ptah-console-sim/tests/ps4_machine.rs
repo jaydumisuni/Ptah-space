@@ -1,7 +1,7 @@
 //! Acceptance tests for the Ptah PS4 simulated-console startup contract.
 
 use ptah_console_sim::{
-    ConsoleSimError, FirmwareStatus, Ps4Engine, Ps4FirmwareRegistry, CONSOLE_FAMILY,
+    CONSOLE_FAMILY, ConsoleSimError, FirmwareStatus, Ps4Engine, Ps4FirmwareRegistry,
 };
 use ptah_device_runtime::DeviceKind;
 
@@ -26,10 +26,29 @@ fn proved_1200_boots_as_ptah_virtual_machine() {
     assert_eq!(machine.firmware, "12.00");
     assert_eq!(machine.profile.ttg_status, FirmwareStatus::Proved);
     assert_eq!(machine.profile.engine, Some(Ps4Engine::Lapse));
-    assert_eq!(machine.profile.boot_material().expect("boot material").payload_size, 286_336);
-    assert!(machine.profile_identity.profile_key.starts_with("ps4-fw-12.00-"));
+    assert_eq!(
+        machine
+            .profile
+            .boot_material()
+            .expect("boot material")
+            .payload_size,
+        286_336
+    );
+    assert!(
+        machine
+            .profile_identity
+            .profile_key
+            .starts_with("ps4-fw-12.00-")
+    );
     assert_eq!(machine.profile_identity.profile_digest.len(), 64);
-    assert_eq!(machine.profile_revision_ref.record_revision.map(|value| value.value()), Some(1));
+    assert_eq!(
+        machine
+            .profile_revision_ref
+            .record_revision
+            .expect("profile record revision")
+            .value(),
+        1
+    );
 }
 
 #[test]

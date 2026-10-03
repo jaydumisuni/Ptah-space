@@ -548,6 +548,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ptah-console-sim"
+version = "0.0.0-phase0c"
+dependencies = [
+ "ptah-device-runtime",
+ "ptah-identifiers",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "ptah-contracts"
 version = "0.0.0-phase0c"
 

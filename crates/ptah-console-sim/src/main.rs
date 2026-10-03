@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 //! CLI entrypoint for the Ptah PS4 simulated-console firmware selector.
 
-use ptah_console_sim::{ConsoleSimError, Ps4FirmwareRegistry};
+use ptah_console_sim::Ps4FirmwareRegistry;
 use serde::Serialize;
 use std::env;
 use std::process::ExitCode;
@@ -26,7 +26,7 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), String> {
-    let registry = Ps4FirmwareRegistry::embedded().map_err(render_error)?;
+    let registry = Ps4FirmwareRegistry::embedded().map_err(|error| error.to_string())?;
     let args = env::args().skip(1).collect::<Vec<_>>();
 
     if args.iter().any(|arg| arg == "--list") {
@@ -46,14 +46,15 @@ fn run() -> Result<(), String> {
                 profile_digest: &identity.profile_digest,
             });
         }
-        let rendered =
-            serde_json::to_string_pretty(&entries).map_err(|error| error.to_string())?;
+        let rendered = serde_json::to_string_pretty(&entries).map_err(|error| error.to_string())?;
         println!("{rendered}");
         return Ok(());
     }
 
     let firmware = parse_firmware(&args)?;
-    let machine = registry.boot(&firmware).map_err(render_error)?;
+    let machine = registry
+        .boot(&firmware)
+        .map_err(|error| error.to_string())?;
     let rendered = serde_json::to_string_pretty(&machine).map_err(|error| error.to_string())?;
     println!("{rendered}");
     Ok(())
@@ -61,18 +62,12 @@ fn run() -> Result<(), String> {
 
 fn parse_firmware(args: &[String]) -> Result<String, String> {
     let Some(index) = args.iter().position(|arg| arg == "--firmware") else {
-        return Err(
-            "usage: ptah-ps4-sim --firmware <version> | ptah-ps4-sim --list".to_owned(),
-        );
+        return Err("usage: ptah-ps4-sim --firmware <version> | ptah-ps4-sim --list".to_owned());
     };
     args.get(index + 1)
         .filter(|value| !value.trim().is_empty())
         .cloned()
         .ok_or_else(|| "--firmware requires a version".to_owned())
-}
-
-fn render_error(error: ConsoleSimError) -> String {
-    error.to_string()
 }
 
 const fn status_text(status: ptah_console_sim::FirmwareStatus) -> &'static str {

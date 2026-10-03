@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 //! Ptah-backed simulated console substrate.
 //!
-//! The first implementation models a PlayStation 4 as a Ptah
+//! The first implementation models a `PlayStation 4` as a Ptah
 //! `DeviceKind::VirtualMachine`. Firmware is selected only at startup and is
 //! bound to one immutable embedded firmware-profile record. This crate does not
 //! emulate Sony CPU instructions and does not execute a physical exploit; it
@@ -208,13 +208,7 @@ impl Ps4FirmwareRegistry {
                 profile_key: format!("ps4-fw-{firmware}-{prefix}", prefix = &digest[..16]),
                 profile_digest: digest,
             };
-            profiles.insert(
-                firmware.to_owned(),
-                EmbeddedProfile {
-                    profile,
-                    identity,
-                },
-            );
+            profiles.insert(firmware.to_owned(), EmbeddedProfile { profile, identity });
         }
         Ok(Self { profiles })
     }
@@ -298,14 +292,8 @@ fn validate_profile(key: &str, profile: &Ps4FirmwareProfile) -> Result<(), Conso
     if profile.engine.is_none() {
         return Err(invalid_profile(key, "engine is required"));
     }
-    if profile
-        .patch_path
-        .as_deref()
-        .is_none_or(str::is_empty)
-        || profile
-            .payload_path
-            .as_deref()
-            .is_none_or(str::is_empty)
+    if profile.patch_path.as_deref().is_none_or(str::is_empty)
+        || profile.payload_path.as_deref().is_none_or(str::is_empty)
     {
         return Err(invalid_profile(key, "patch and payload paths are required"));
     }

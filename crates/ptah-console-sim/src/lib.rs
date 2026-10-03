@@ -197,13 +197,12 @@ impl Ps4Console {
     ) -> Result<(), ConsoleSimError> {
         let embedded = registry.admitted(firmware)?;
 
-        if let Some(installed) = &self.installed {
-            if installed.profile.firmware == firmware
-                && installed.profile_identity == embedded.identity
-            {
-                self.state = Ps4MachineState::PoweredOff;
-                return Ok(());
-            }
+        if let Some(installed) = &self.installed
+            && installed.profile.firmware == firmware
+            && installed.profile_identity == embedded.identity
+        {
+            self.state = Ps4MachineState::PoweredOff;
+            return Ok(());
         }
 
         let next_revision = self

@@ -96,7 +96,7 @@ fn load_console(path: &Path) -> Result<Ps4Console, String> {
 }
 
 fn save_console(path: &Path, console: &Ps4Console) -> Result<(), String> {
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = path\n        .parent()\n        .filter(|parent| !parent.as_os_str().is_empty())\n    {
         fs::create_dir_all(parent).map_err(|error| {
             format!(
                 "failed to create PS4 console-state directory {}: {error}",

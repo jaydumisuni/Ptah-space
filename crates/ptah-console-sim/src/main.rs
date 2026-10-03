@@ -48,15 +48,16 @@ fn run() -> Result<(), String> {
                 profile_digest: &identity.profile_digest,
             });
         }
-        let rendered =
-            serde_json::to_string_pretty(&entries).map_err(|error| error.to_string())?;
+        let rendered = serde_json::to_string_pretty(&entries).map_err(|error| error.to_string())?;
         println!("{rendered}");
         return Ok(());
     }
 
     let firmware = parse_value(&args, "--firmware")?.ok_or_else(|| usage().to_owned())?;
-    let state_path = parse_value(&args, "--state")?
-        .map_or_else(|| PathBuf::from(".ptah-ps4-console-state.json"), PathBuf::from);
+    let state_path = parse_value(&args, "--state")?.map_or_else(
+        || PathBuf::from(".ptah-ps4-console-state.json"),
+        PathBuf::from,
+    );
 
     let mut console = load_console(&state_path)?;
     let machine = console
@@ -89,14 +90,21 @@ fn load_console(path: &Path) -> Result<Ps4Console, String> {
     if !path.exists() {
         return Ps4Console::new().map_err(|error| error.to_string());
     }
-    let raw = fs::read_to_string(path)
-        .map_err(|error| format!("failed to read PS4 console state {}: {error}", path.display()))?;
+    let raw = fs::read_to_string(path).map_err(|error| {
+        format!(
+            "failed to read PS4 console state {}: {error}",
+            path.display()
+        )
+    })?;
     serde_json::from_str(&raw)
         .map_err(|error| format!("invalid PS4 console state {}: {error}", path.display()))
 }
 
 fn save_console(path: &Path, console: &Ps4Console) -> Result<(), String> {
-    if let Some(parent) = path\n        .parent()\n        .filter(|parent| !parent.as_os_str().is_empty())\n    {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         fs::create_dir_all(parent).map_err(|error| {
             format!(
                 "failed to create PS4 console-state directory {}: {error}",
@@ -106,10 +114,18 @@ fn save_console(path: &Path, console: &Ps4Console) -> Result<(), String> {
     }
     let rendered = serde_json::to_string_pretty(console).map_err(|error| error.to_string())?;
     let tmp = path.with_extension("tmp");
-    fs::write(&tmp, rendered + "\n")
-        .map_err(|error| format!("failed to write PS4 console state {}: {error}", tmp.display()))?;
-    fs::rename(&tmp, path)
-        .map_err(|error| format!("failed to commit PS4 console state {}: {error}", path.display()))
+    fs::write(&tmp, rendered + "\n").map_err(|error| {
+        format!(
+            "failed to write PS4 console state {}: {error}",
+            tmp.display()
+        )
+    })?;
+    fs::rename(&tmp, path).map_err(|error| {
+        format!(
+            "failed to commit PS4 console state {}: {error}",
+            path.display()
+        )
+    })
 }
 
 const fn status_text(status: ptah_console_sim::FirmwareStatus) -> &'static str {

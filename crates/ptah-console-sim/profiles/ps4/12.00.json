@@ -1,0 +1,12 @@
+{
+  "firmware": "12.00",
+  "engine": "lapse",
+  "ttg_status": "proved",
+  "execution": "proved",
+  "patch_path": "profiles/12.00/kernel-patch.bin",
+  "payload_path": "profiles/12.00/payload-sleeper-v6.bin",
+  "patch_sha256": "87f1d40aea8fbf3adee7b8b5599d90c9d868436c15a498f2dce6bf5d96ae4d27",
+  "payload_sha256": "d011f8a3a5a588e3a34ea7d8dfa6a5429630f9b971f32a7691154ff8fe109843",
+  "payload_size": 286336,
+  "source_authority": "PS-jailbreak ps4/candidates/multifirmware-responsive-dom-20260929/profiles.json + converged 12.00 qualification"
+}

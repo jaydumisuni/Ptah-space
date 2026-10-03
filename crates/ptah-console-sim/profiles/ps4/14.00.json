@@ -1,0 +1,13 @@
+{
+  "firmware": "14.00",
+  "engine": null,
+  "ttg_status": "detected_blocked",
+  "execution": "blocked",
+  "patch_path": null,
+  "payload_path": null,
+  "patch_sha256": null,
+  "payload_sha256": null,
+  "payload_size": null,
+  "evidence_warning": "detected but blocked: no approved engine/profile authority",
+  "source_authority": "PS-jailbreak ps4/candidates/multifirmware-responsive-dom-20260929/profiles.json"
+}

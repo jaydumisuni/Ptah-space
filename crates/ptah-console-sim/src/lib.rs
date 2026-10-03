@@ -69,6 +69,40 @@ pub struct Ps4FirmwareProfile {
     pub source_authority: String,
 }
 
+/// Exact executable material selected by one non-blocked firmware profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Ps4BootMaterial {
+    /// Selected exploit engine.
+    pub engine: Ps4Engine,
+    /// Kernel-patch path from the product registry.
+    pub patch_path: String,
+    /// Payload path from the product registry.
+    pub payload_path: String,
+    /// Expected kernel-patch SHA-256.
+    pub patch_sha256: String,
+    /// Expected payload SHA-256.
+    pub payload_sha256: String,
+    /// Expected payload byte length.
+    pub payload_size: u64,
+}
+
+impl Ps4FirmwareProfile {
+    /// Return executable boot material for an admitted profile.
+    ///
+    /// Blocked firmware has no executable boot material.
+    #[must_use]
+    pub fn boot_material(&self) -> Option<Ps4BootMaterial> {
+        Some(Ps4BootMaterial {
+            engine: self.engine?,
+            patch_path: self.patch_path.clone()?,
+            payload_path: self.payload_path.clone()?,
+            patch_sha256: self.patch_sha256.clone()?,
+            payload_sha256: self.payload_sha256.clone()?,
+            payload_size: self.payload_size?,
+        })
+    }
+}
+
 /// Stable firmware-profile identity independent of Ptah session UUIDs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProfileIdentity {

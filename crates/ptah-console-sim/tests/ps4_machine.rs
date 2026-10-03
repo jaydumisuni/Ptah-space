@@ -1,7 +1,8 @@
 //! Acceptance tests for the Ptah PS4 simulated-console startup contract.
 
 use ptah_console_sim::{
-    CONSOLE_FAMILY, ConsoleSimError, FirmwareStatus, Ps4Engine, Ps4FirmwareRegistry,
+    CONSOLE_FAMILY, ConsoleSimError, FirmwareStatus, Ps4Console, Ps4Engine,
+    Ps4FirmwareRegistry,
 };
 use ptah_device_runtime::DeviceKind;
 
@@ -17,9 +18,12 @@ fn registry_exposes_only_recovered_firmware_profiles() {
 }
 
 #[test]
-fn proved_1200_boots_as_ptah_virtual_machine() {
+fn one_console_boots_1200_as_ptah_virtual_machine() {
     let registry = Ps4FirmwareRegistry::embedded().expect("embedded registry");
-    let machine = registry.boot("12.00").expect("boot 12.00");
+    let mut console = Ps4Console::new().expect("console");
+    let machine = console
+        .select_and_boot(&registry, "12.00")
+        .expect("boot 12.00");
 
     assert_eq!(machine.console_family, CONSOLE_FAMILY);
     assert_eq!(machine.device_kind, DeviceKind::VirtualMachine);
@@ -34,13 +38,7 @@ fn proved_1200_boots_as_ptah_virtual_machine() {
             .payload_size,
         286_336
     );
-    assert!(
-        machine
-            .profile_identity
-            .profile_key
-            .starts_with("ps4-fw-12.00-")
-    );
-    assert_eq!(machine.profile_identity.profile_digest.len(), 64);
+    assert_eq!(machine.device_ref.entity_id, console.device_ref.entity_id);
     assert_eq!(
         machine
             .profile_revision_ref
@@ -49,45 +47,107 @@ fn proved_1200_boots_as_ptah_virtual_machine() {
             .value(),
         1
     );
+    assert_eq!(machine.boot_generation, 1);
 }
 
 #[test]
-fn candidate_1250_selects_poops_without_promoting_it() {
+fn same_console_changes_firmware_without_changing_device_identity() {
     let registry = Ps4FirmwareRegistry::embedded().expect("embedded registry");
-    let machine = registry.boot("12.50").expect("boot 12.50");
+    let mut console = Ps4Console::new().expect("console");
 
-    assert_eq!(machine.profile.ttg_status, FirmwareStatus::Candidate);
-    assert_eq!(machine.profile.engine, Some(Ps4Engine::Poops));
+    let first = console
+        .select_and_boot(&registry, "12.00")
+        .expect("boot 12.00");
+    let device_id = first.device_ref.entity_id;
+    let first_profile_revision = first.profile_revision_ref.entity_id;
+
+    let second = console
+        .select_and_boot(&registry, "12.50")
+        .expect("boot 12.50");
+
+    assert_eq!(second.device_ref.entity_id, device_id);
+    assert_ne!(second.profile_revision_ref.entity_id, first_profile_revision);
+    assert_eq!(
+        second
+            .profile_revision_ref
+            .record_revision
+            .expect("profile record revision")
+            .value(),
+        2
+    );
+    assert_eq!(second.boot_generation, 2);
+    assert_eq!(second.firmware, "12.50");
+    assert_eq!(second.profile.engine, Some(Ps4Engine::Poops));
+    assert_eq!(second.profile.ttg_status, FirmwareStatus::Candidate);
 }
 
 #[test]
-fn blocked_1400_fails_closed() {
+fn reboot_same_firmware_keeps_profile_revision_and_console_identity() {
     let registry = Ps4FirmwareRegistry::embedded().expect("embedded registry");
+    let mut console = Ps4Console::new().expect("console");
+
+    let first = console
+        .select_and_boot(&registry, "12.00")
+        .expect("first boot");
+    let second = console
+        .select_and_boot(&registry, "12.00")
+        .expect("second boot");
+
+    assert_eq!(second.device_ref.entity_id, first.device_ref.entity_id);
+    assert_eq!(
+        second.profile_revision_ref.entity_id,
+        first.profile_revision_ref.entity_id
+    );
+    assert_eq!(second.profile_identity, first.profile_identity);
+    assert_eq!(second.boot_generation, 2);
+}
+
+#[test]
+fn blocked_firmware_does_not_mutate_existing_console() {
+    let registry = Ps4FirmwareRegistry::embedded().expect("embedded registry");
+    let mut console = Ps4Console::new().expect("console");
+    let first = console
+        .select_and_boot(&registry, "12.00")
+        .expect("boot 12.00");
+    let snapshot = console.clone();
+
     assert!(matches!(
-        registry.boot("14.00"),
+        console.install_firmware(&registry, "14.00"),
         Err(ConsoleSimError::BlockedFirmware(version)) if version == "14.00"
     ));
+    assert_eq!(console, snapshot);
+    assert_eq!(console.device_ref.entity_id, first.device_ref.entity_id);
 }
 
 #[test]
 fn unknown_firmware_is_not_nearest_version_fallback() {
     let registry = Ps4FirmwareRegistry::embedded().expect("embedded registry");
+    let mut console = Ps4Console::new().expect("console");
+
     assert!(matches!(
-        registry.boot("12.01"),
+        console.install_firmware(&registry, "12.01"),
         Err(ConsoleSimError::UnsupportedFirmware(version)) if version == "12.01"
     ));
+    assert!(console.installed.is_none());
 }
 
 #[test]
-fn repeated_boots_keep_profile_identity_but_get_new_ptah_entities() {
+fn console_state_round_trip_preserves_identity_and_installed_firmware() {
     let registry = Ps4FirmwareRegistry::embedded().expect("embedded registry");
-    let first = registry.boot("12.00").expect("first boot");
-    let second = registry.boot("12.00").expect("second boot");
+    let mut console = Ps4Console::new().expect("console");
+    console
+        .select_and_boot(&registry, "12.00")
+        .expect("boot 12.00");
 
-    assert_eq!(first.profile_identity, second.profile_identity);
-    assert_ne!(first.device_ref.entity_id, second.device_ref.entity_id);
-    assert_ne!(
-        first.profile_revision_ref.entity_id,
-        second.profile_revision_ref.entity_id
-    );
+    let encoded = serde_json::to_string(&console).expect("serialize console");
+    let mut restored: Ps4Console = serde_json::from_str(&encoded).expect("restore console");
+    let device_id = restored.device_ref.entity_id;
+
+    let next = restored
+        .select_and_boot(&registry, "12.50")
+        .expect("change firmware");
+
+    assert_eq!(next.device_ref.entity_id, device_id);
+    assert_eq!(next.firmware, "12.50");
+    assert_eq!(next.boot_generation, 2);
 }

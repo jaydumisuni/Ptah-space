@@ -66,7 +66,7 @@ fn same_console_changes_firmware_without_changing_device_identity() {
         .expect("boot 12.50");
 
     assert_eq!(second.device_ref.entity_id, device_id);
-    assert_ne!(second.profile_revision_ref.entity_id, first_profile_revision);
+    assert_ne!(\n        second.profile_revision_ref.entity_id,\n        first_profile_revision\n    );
     assert_eq!(
         second
             .profile_revision_ref

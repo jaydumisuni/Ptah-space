@@ -1,3 +1,5 @@
+//! Acceptance tests for the Ptah PS4 simulated-console startup contract.
+
 use ptah_console_sim::{
     ConsoleSimError, FirmwareStatus, Ps4Engine, Ps4FirmwareRegistry, CONSOLE_FAMILY,
 };

@@ -1,5 +1,5 @@
 name: TEMP ATHENA Oracle recovery
-# retrigger: 2026-09-28T07:15Z
+# retrigger: 2026-10-03T13:01Z KRATOS-internet-recovery
 
 on:
   push:

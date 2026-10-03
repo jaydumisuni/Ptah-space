@@ -1,0 +1,12 @@
+{
+  "firmware": "13.00",
+  "engine": "poops",
+  "ttg_status": "candidate",
+  "execution": "qualification",
+  "patch_path": "profiles/13.00/kernel-patch.bin",
+  "payload_path": "profiles/13.00/payload.bin",
+  "patch_sha256": "be70930d96c40b8d7ba03a57e2ea5c834b606fb74ed118756b4dea7fffaa1d57",
+  "payload_sha256": "c6329401d1810e16c84e6474ac30977dbdc951987c10cdb559370de7d59db0b0",
+  "payload_size": 290016,
+  "source_authority": "PS-jailbreak ps4/candidates/multifirmware-responsive-dom-20260929/profiles.json"
+}

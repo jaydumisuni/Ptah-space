@@ -1,0 +1,12 @@
+{
+  "firmware": "11.50",
+  "engine": "lapse",
+  "ttg_status": "candidate",
+  "execution": "qualification",
+  "patch_path": "profiles/11.50/kernel-patch.bin",
+  "payload_path": "profiles/11.50/payload.bin",
+  "patch_sha256": "d4e3a514e462b973842e634eba6c90136dbfd864a208f8c39c229055e5f2e1f9",
+  "payload_sha256": "c6329401d1810e16c84e6474ac30977dbdc951987c10cdb559370de7d59db0b0",
+  "payload_size": 290016,
+  "source_authority": "PS-jailbreak ps4/candidates/multifirmware-responsive-dom-20260929/profiles.json"
+}

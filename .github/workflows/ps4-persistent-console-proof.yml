@@ -1,0 +1,83 @@
+name: PS4 persistent console proof
+
+on:
+  push:
+    branches:
+      - "feature/ps4-simulated-console-20261003"
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/ptah-console-sim/**"
+      - ".github/workflows/ps4-persistent-console-proof.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ps4-console:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.97.1
+
+      - name: Strict crate proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test -p ptah-console-sim --locked -- --nocapture
+          cargo clippy -p ptah-console-sim --all-targets --locked -- -D warnings
+
+      - name: Prove one console across firmware changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/ps4-console.json"
+          cargo run -q -p ptah-console-sim --bin ptah-ps4-sim --             --state "$state" --firmware 12.00 > "$RUNNER_TEMP/boot-1200-a.json"
+          cargo run -q -p ptah-console-sim --bin ptah-ps4-sim --             --state "$state" --firmware 12.50 > "$RUNNER_TEMP/boot-1250.json"
+          cargo run -q -p ptah-console-sim --bin ptah-ps4-sim --             --state "$state" --firmware 12.00 > "$RUNNER_TEMP/boot-1200-b.json"
+
+          python3 - <<'PY'
+          import json, os, pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          a=json.loads((root/"boot-1200-a.json").read_text())
+          b=json.loads((root/"boot-1250.json").read_text())
+          c=json.loads((root/"boot-1200-b.json").read_text())
+
+          ids=[x["device_ref"]["entity_id"] for x in (a,b,c)]
+          assert len(set(ids)) == 1, ids
+          assert [a["firmware"],b["firmware"],c["firmware"]] == ["12.00","12.50","12.00"]
+          assert [a["profile_revision_ref"]["record_revision"],
+                  b["profile_revision_ref"]["record_revision"],
+                  c["profile_revision_ref"]["record_revision"]] == [1,2,3]
+          assert [a["boot_generation"],b["boot_generation"],c["boot_generation"]] == [1,2,3]
+          assert [a["profile"]["engine"],b["profile"]["engine"],c["profile"]["engine"]] == ["lapse","poops","lapse"]
+          print("ONE_CONSOLE_IDENTITY=PASS")
+          print("FIRMWARE_SEQUENCE=12.00->12.50->12.00")
+          print("PROFILE_REVISIONS=1->2->3")
+          print("BOOT_GENERATIONS=1->2->3")
+          PY
+
+      - name: Prove blocked firmware cannot mutate console
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/ps4-console.json"
+          cp "$state" "$RUNNER_TEMP/before-blocked.json"
+          if cargo run -q -p ptah-console-sim --bin ptah-ps4-sim --               --state "$state" --firmware 14.00; then
+            echo "14.00 unexpectedly booted" >&2
+            exit 1
+          fi
+          cmp "$RUNNER_TEMP/before-blocked.json" "$state"
+          echo "BLOCKED_FIRMWARE_MUTATION=0"

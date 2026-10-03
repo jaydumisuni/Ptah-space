@@ -2,8 +2,9 @@
 //! Ptah-backed simulated console substrate.
 //!
 //! The first implementation models a `PlayStation 4` as a Ptah
-//! `DeviceKind::VirtualMachine`. Firmware is selected only at startup and is
-//! bound to one immutable embedded firmware-profile record. This crate does not
+//! `DeviceKind::VirtualMachine`. One canonical Ptah Device represents the
+//! console across firmware changes and reboots. Firmware is installed as an exact
+//! Device Profile Revision on that same Device. This crate does not
 //! emulate Sony CPU instructions and does not execute a physical exploit; it
 //! supplies the machine/profile boundary that TTG-Simulation can drive.
 
@@ -16,8 +17,6 @@ use thiserror::Error;
 
 /// Stable simulated-console family implemented by this crate.
 pub const CONSOLE_FAMILY: &str = "playstation4";
-/// Record revision applied to the selected Ptah Device Profile Revision.
-pub const PROFILE_RECORD_REVISION: u64 = 1;
 
 /// Supported PS4 exploit-engine family recorded by a firmware profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,7 +103,7 @@ impl Ps4FirmwareProfile {
 }
 
 /// Stable firmware-profile identity independent of Ptah session UUIDs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProfileIdentity {
     /// Stable profile key.
     pub profile_key: String,
@@ -112,35 +111,159 @@ pub struct ProfileIdentity {
     pub profile_digest: String,
 }
 
-/// Booted simulated PS4 machine.
+/// Firmware currently installed on the canonical simulated PS4 Device.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstalledFirmware {
+    /// Canonical Ptah Device Profile Revision applied to this console.
+    pub profile_revision_ref: EntityRef,
+    /// Stable identity of the installed firmware profile.
+    pub profile_identity: ProfileIdentity,
+    /// Full installed firmware profile.
+    pub profile: Ps4FirmwareProfile,
+}
+
+/// Persistent state of one simulated physical PS4 console.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ps4Console {
+    /// Canonical Ptah Device identity. Firmware changes never replace it.
+    pub device_ref: EntityRef,
+    /// Currently installed firmware/profile revision.
+    pub installed: Option<InstalledFirmware>,
+    /// Number of successful boots of this same console.
+    pub boot_generation: u64,
+    /// Current power/runtime state.
+    pub state: Ps4MachineState,
+}
+
+/// Booted snapshot emitted for TTG-Simulation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Ps4Machine {
-    /// Canonical Ptah Device identity for this simulated boot session.
+    /// Canonical Ptah Device identity for the physical-console twin.
     pub device_ref: EntityRef,
-    /// Canonical Ptah Device Profile Revision identity for this boot session.
+    /// Canonical Ptah Device Profile Revision currently installed.
     pub profile_revision_ref: EntityRef,
     /// Ptah Device kind; always `virtual_machine`.
     pub device_kind: DeviceKind,
     /// Stable console family.
     pub console_family: &'static str,
-    /// Exact firmware selected before boot.
+    /// Exact installed firmware at this boot.
     pub firmware: String,
-    /// Stable identity of the selected firmware profile.
+    /// Stable identity of the installed firmware profile.
     pub profile_identity: ProfileIdentity,
-    /// Full selected firmware profile.
+    /// Full installed firmware profile.
     pub profile: Ps4FirmwareProfile,
-    /// Boot generation. A new startup creates generation 1.
+    /// Boot generation of the same canonical console.
     pub boot_generation: u64,
     /// Machine state after successful startup.
     pub state: Ps4MachineState,
 }
 
 /// Lifecycle state exposed by the simulated PS4 machine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Ps4MachineState {
-    /// Profile is selected and machine boot completed.
+    /// Console exists but is not currently booted.
+    PoweredOff,
+    /// Installed firmware boot completed.
     Booted,
+}
+
+impl Ps4Console {
+    /// Create one canonical simulated PS4 Device with no firmware installed.
+    ///
+    /// # Errors
+    /// Fails if Ptah canonical Device identity construction fails.
+    pub fn new() -> Result<Self, ConsoleSimError> {
+        Ok(Self {
+            device_ref: EntityRef::new("device.device")?,
+            installed: None,
+            boot_generation: 0,
+            state: Ps4MachineState::PoweredOff,
+        })
+    }
+
+    /// Install/change firmware on this same canonical console.
+    ///
+    /// Selecting the already-installed exact profile is idempotent and keeps the
+    /// same Device Profile Revision. Changing firmware creates the next profile
+    /// revision while preserving `device_ref`.
+    ///
+    /// # Errors
+    /// Fails closed for unknown/blocked firmware or identifier errors.
+    pub fn install_firmware(
+        &mut self,
+        registry: &Ps4FirmwareRegistry,
+        firmware: &str,
+    ) -> Result<(), ConsoleSimError> {
+        let embedded = registry.admitted(firmware)?;
+
+        if let Some(installed) = &self.installed {
+            if installed.profile.firmware == firmware
+                && installed.profile_identity == embedded.identity
+            {
+                self.state = Ps4MachineState::PoweredOff;
+                return Ok(());
+            }
+        }
+
+        let next_revision = self
+            .installed
+            .as_ref()
+            .and_then(|installed| installed.profile_revision_ref.record_revision)
+            .map_or(1, |revision| revision.value() + 1);
+
+        let mut profile_revision_ref = EntityRef::new("device.profile_revision")?;
+        profile_revision_ref.record_revision = Some(RecordRevision::new(next_revision)?);
+
+        self.installed = Some(InstalledFirmware {
+            profile_revision_ref,
+            profile_identity: embedded.identity.clone(),
+            profile: embedded.profile.clone(),
+        });
+        self.state = Ps4MachineState::PoweredOff;
+        Ok(())
+    }
+
+    /// Boot the currently installed firmware on this same console.
+    ///
+    /// # Errors
+    /// Fails when no firmware has been installed.
+    pub fn boot(&mut self) -> Result<Ps4Machine, ConsoleSimError> {
+        let installed = self
+            .installed
+            .clone()
+            .ok_or(ConsoleSimError::NoFirmwareInstalled)?;
+        self.boot_generation = self
+            .boot_generation
+            .checked_add(1)
+            .ok_or(ConsoleSimError::BootGenerationOverflow)?;
+        self.state = Ps4MachineState::Booted;
+
+        Ok(Ps4Machine {
+            device_ref: self.device_ref.clone(),
+            profile_revision_ref: installed.profile_revision_ref,
+            device_kind: DeviceKind::VirtualMachine,
+            console_family: CONSOLE_FAMILY,
+            firmware: installed.profile.firmware.clone(),
+            profile_identity: installed.profile_identity,
+            profile: installed.profile,
+            boot_generation: self.boot_generation,
+            state: self.state,
+        })
+    }
+
+    /// Change/select firmware and boot this same console.
+    ///
+    /// # Errors
+    /// Propagates firmware-selection or boot failures.
+    pub fn select_and_boot(
+        &mut self,
+        registry: &Ps4FirmwareRegistry,
+        firmware: &str,
+    ) -> Result<Ps4Machine, ConsoleSimError> {
+        self.install_firmware(registry, firmware)?;
+        self.boot()
+    }
 }
 
 /// Machine/profile construction failures.
@@ -163,6 +286,12 @@ pub enum ConsoleSimError {
     /// Requested firmware exists but is explicitly blocked.
     #[error("PS4 firmware profile is detected but blocked: {0}")]
     BlockedFirmware(String),
+    /// Boot requested before any firmware was installed.
+    #[error("PS4 console has no installed firmware")]
+    NoFirmwareInstalled,
+    /// Boot generation counter overflowed.
+    #[error("PS4 console boot-generation counter overflowed")]
+    BootGenerationOverflow,
 }
 
 /// Immutable embedded PS4 firmware registry.
@@ -231,12 +360,7 @@ impl Ps4FirmwareRegistry {
         self.profiles.get(firmware).map(|entry| &entry.identity)
     }
 
-    /// Boot one simulated PS4 from a firmware selected before startup.
-    ///
-    /// # Errors
-    /// Fails closed for unknown or blocked firmware profiles or invalid Ptah
-    /// identifier construction.
-    pub fn boot(&self, firmware: &str) -> Result<Ps4Machine, ConsoleSimError> {
+    fn admitted(&self, firmware: &str) -> Result<&EmbeddedProfile, ConsoleSimError> {
         let embedded = self
             .profiles
             .get(firmware)
@@ -246,22 +370,7 @@ impl Ps4FirmwareRegistry {
         {
             return Err(ConsoleSimError::BlockedFirmware(firmware.to_owned()));
         }
-
-        let device_ref = EntityRef::new("device.device")?;
-        let mut profile_revision_ref = EntityRef::new("device.profile_revision")?;
-        profile_revision_ref.record_revision = Some(RecordRevision::new(PROFILE_RECORD_REVISION)?);
-
-        Ok(Ps4Machine {
-            device_ref,
-            profile_revision_ref,
-            device_kind: DeviceKind::VirtualMachine,
-            console_family: CONSOLE_FAMILY,
-            firmware: firmware.to_owned(),
-            profile_identity: embedded.identity.clone(),
-            profile: embedded.profile.clone(),
-            boot_generation: 1,
-            state: Ps4MachineState::Booted,
-        })
+        Ok(embedded)
     }
 }
 

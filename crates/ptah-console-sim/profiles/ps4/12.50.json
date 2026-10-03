@@ -3,11 +3,13 @@
   "engine": "poops",
   "ttg_status": "candidate",
   "execution": "qualification",
-  "evidence_warning": "donor table notes unverified kernel-RVA assumption; THETECHGUY hardware proof pending",
-  "patch_path": "profiles/12.50/kernel-patch.bin",
-  "payload_path": "profiles/12.50/payload.bin",
+  "engine_path": "ps4/runtime/backend/rawgame4/chain_poops.js",
+  "engine_sha256": "c41d147644d97656ba2f6c85ba1b61f3c8315e16c2367772035d56d2336babdd",
+  "patch_path": "ps4/runtime/backend/rawgame4/patches/1250.bin",
+  "payload_path": "ps4/runtime/backend/rawgame4/payload.bin",
   "patch_sha256": "5baaf0bb2663064db1eb1bfd976bc3aa5087ab7f0963648cb6fcb216adce714d",
   "payload_sha256": "c6329401d1810e16c84e6474ac30977dbdc951987c10cdb559370de7d59db0b0",
   "payload_size": 290016,
-  "source_authority": "PS-jailbreak ps4/candidates/multifirmware-responsive-dom-20260929/profiles.json"
+  "evidence_warning": "WebKit profile derived; kernel-RVA table remains independently unverified though corroborated; local TTG hardware proof pending",
+  "source_authority": "PS-jailbreak ps4/runtime/authority.json + rawgame4 offsets"
 }

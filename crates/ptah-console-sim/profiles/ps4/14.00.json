@@ -3,11 +3,13 @@
   "engine": null,
   "ttg_status": "detected_blocked",
   "execution": "blocked",
+  "engine_path": null,
+  "engine_sha256": null,
   "patch_path": null,
   "payload_path": null,
   "patch_sha256": null,
   "payload_sha256": null,
   "payload_size": null,
-  "evidence_warning": "detected but blocked: no approved engine/profile authority",
-  "source_authority": "PS-jailbreak ps4/candidates/multifirmware-responsive-dom-20260929/profiles.json"
+  "evidence_warning": "detected but blocked: no approved runtime route",
+  "source_authority": "PS-jailbreak ps4/runtime/authority.json"
 }

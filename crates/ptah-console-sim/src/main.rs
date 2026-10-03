@@ -140,5 +140,6 @@ const fn engine_text(engine: ptah_console_sim::Ps4Engine) -> &'static str {
     match engine {
         ptah_console_sim::Ps4Engine::Lapse => "lapse",
         ptah_console_sim::Ps4Engine::Poops => "poops",
+        ptah_console_sim::Ps4Engine::Raw13g663 => "raw13g-663",
     }
 }

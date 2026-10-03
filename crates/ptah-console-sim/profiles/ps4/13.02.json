@@ -1,0 +1,15 @@
+{
+  "firmware": "13.02",
+  "engine": "raw13g-663",
+  "ttg_status": "candidate",
+  "execution": "qualification",
+  "engine_path": "ps4/runtime/backend/raw13g/jb.js",
+  "engine_sha256": "8fc2ce270c690ed73c88161705cd38f46c8f05c4944d736743dfc1d80f1bc48b",
+  "patch_path": "ps4/runtime/backend/raw13g/patches/1302.bin",
+  "payload_path": "ps4/runtime/backend/raw13g/payload2.bin",
+  "patch_sha256": "235a051f5a066daa546253de6eb61c1223a2682cb34edd916fc4565bb2c02fc6",
+  "payload_sha256": "df3f27c1b35bc7c40e3a08caab948930914dc7d0301a73b68945cf6ffe40ea12",
+  "payload_size": 293120,
+  "evidence_warning": "raw13g donor reports JB+KPATCH hardware PASS=51; local TTG hardware proof pending",
+  "source_authority": "PS-jailbreak raw13g runtime authority"
+}

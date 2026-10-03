@@ -26,6 +26,9 @@ pub enum Ps4Engine {
     Lapse,
     /// Poops engine family.
     Poops,
+    /// Isolated raw13g 663 engine family used by later 13.x firmware.
+    #[serde(rename = "raw13g-663")]
+    Raw13g663,
 }
 
 /// Qualification state carried by one firmware profile.
@@ -51,6 +54,10 @@ pub struct Ps4FirmwareProfile {
     pub ttg_status: FirmwareStatus,
     /// Execution policy text retained from the source registry.
     pub execution: String,
+    /// Exact exploit-engine source path in the PS-jailbreak authority.
+    pub engine_path: Option<String>,
+    /// Expected SHA-256 for the exploit-engine source.
+    pub engine_sha256: Option<String>,
     /// Firmware-specific kernel-patch path.
     pub patch_path: Option<String>,
     /// Firmware-specific payload path.
@@ -73,6 +80,10 @@ pub struct Ps4FirmwareProfile {
 pub struct Ps4BootMaterial {
     /// Selected exploit engine.
     pub engine: Ps4Engine,
+    /// Exact exploit-engine source path.
+    pub engine_path: String,
+    /// Expected exploit-engine SHA-256.
+    pub engine_sha256: String,
     /// Kernel-patch path from the product registry.
     pub patch_path: String,
     /// Payload path from the product registry.
@@ -93,6 +104,8 @@ impl Ps4FirmwareProfile {
     pub fn boot_material(&self) -> Option<Ps4BootMaterial> {
         Some(Ps4BootMaterial {
             engine: self.engine?,
+            engine_path: self.engine_path.clone()?,
+            engine_sha256: self.engine_sha256.clone()?,
             patch_path: self.patch_path.clone()?,
             payload_path: self.payload_path.clone()?,
             patch_sha256: self.patch_sha256.clone()?,
@@ -305,7 +318,7 @@ struct EmbeddedProfile {
     identity: ProfileIdentity,
 }
 
-const EMBEDDED_PROFILES: [(&str, &str); 8] = [
+const EMBEDDED_PROFILES: [(&str, &str); 12] = [
     ("11.00", include_str!("../profiles/ps4/11.00.json")),
     ("11.50", include_str!("../profiles/ps4/11.50.json")),
     ("12.00", include_str!("../profiles/ps4/12.00.json")),
@@ -313,6 +326,10 @@ const EMBEDDED_PROFILES: [(&str, &str); 8] = [
     ("12.50", include_str!("../profiles/ps4/12.50.json")),
     ("12.52", include_str!("../profiles/ps4/12.52.json")),
     ("13.00", include_str!("../profiles/ps4/13.00.json")),
+    ("13.02", include_str!("../profiles/ps4/13.02.json")),
+    ("13.04", include_str!("../profiles/ps4/13.04.json")),
+    ("13.50", include_str!("../profiles/ps4/13.50.json")),
+    ("13.52", include_str!("../profiles/ps4/13.52.json")),
     ("14.00", include_str!("../profiles/ps4/14.00.json")),
 ];
 
@@ -383,6 +400,8 @@ fn validate_profile(key: &str, profile: &Ps4FirmwareProfile) -> Result<(), Conso
 
     if profile.ttg_status == FirmwareStatus::DetectedBlocked || profile.execution == "blocked" {
         if profile.engine.is_some()
+            || profile.engine_path.is_some()
+            || profile.engine_sha256.is_some()
             || profile.patch_path.is_some()
             || profile.payload_path.is_some()
             || profile.patch_sha256.is_some()

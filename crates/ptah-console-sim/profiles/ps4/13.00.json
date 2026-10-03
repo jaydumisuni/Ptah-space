@@ -3,10 +3,13 @@
   "engine": "poops",
   "ttg_status": "candidate",
   "execution": "qualification",
-  "patch_path": "profiles/13.00/kernel-patch.bin",
-  "payload_path": "profiles/13.00/payload.bin",
+  "engine_path": "ps4/runtime/backend/rawgame4/chain_poops.js",
+  "engine_sha256": "c41d147644d97656ba2f6c85ba1b61f3c8315e16c2367772035d56d2336babdd",
+  "patch_path": "ps4/runtime/backend/rawgame4/patches/1300.bin",
+  "payload_path": "ps4/runtime/backend/rawgame4/payload.bin",
   "patch_sha256": "be70930d96c40b8d7ba03a57e2ea5c834b606fb74ed118756b4dea7fffaa1d57",
   "payload_sha256": "c6329401d1810e16c84e6474ac30977dbdc951987c10cdb559370de7d59db0b0",
   "payload_size": 290016,
-  "source_authority": "PS-jailbreak ps4/candidates/multifirmware-responsive-dom-20260929/profiles.json"
+  "evidence_warning": "rawgame4 donor embedded hardware-proven state; local TTG hardware proof pending",
+  "source_authority": "PS-jailbreak ps4/runtime/authority.json + rawgame4 offsets"
 }

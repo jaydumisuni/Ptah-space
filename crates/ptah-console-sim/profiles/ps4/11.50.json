@@ -3,10 +3,13 @@
   "engine": "lapse",
   "ttg_status": "candidate",
   "execution": "qualification",
-  "patch_path": "profiles/11.50/kernel-patch.bin",
-  "payload_path": "profiles/11.50/payload.bin",
+  "engine_path": "ps4/runtime/backend/rawgame4/chain_lapse.js",
+  "engine_sha256": "fd0cc044e03be88d1c89089a7d8dbb2d2c9ea2f3a485f0ab9089bb36d92d1a34",
+  "patch_path": "ps4/runtime/backend/rawgame4/patches/1150.bin",
+  "payload_path": "ps4/runtime/backend/rawgame4/payload.bin",
   "patch_sha256": "d4e3a514e462b973842e634eba6c90136dbfd864a208f8c39c229055e5f2e1f9",
   "payload_sha256": "c6329401d1810e16c84e6474ac30977dbdc951987c10cdb559370de7d59db0b0",
   "payload_size": 290016,
-  "source_authority": "PS-jailbreak ps4/candidates/multifirmware-responsive-dom-20260929/profiles.json"
+  "evidence_warning": "rawgame4 donor embedded state proven; kernel-RVA dump caveat retained; local TTG physical proof pending",
+  "source_authority": "PS-jailbreak ps4/runtime/authority.json + scripts/ps4_runtime_builder.py"
 }

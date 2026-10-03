@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+//! CLI entrypoint for the Ptah PS4 simulated-console firmware selector.
 
 use ptah_console_sim::{ConsoleSimError, Ps4FirmwareRegistry};
 use serde::Serialize;

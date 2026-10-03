@@ -1,0 +1,13 @@
+{
+  "firmware": "12.02",
+  "engine": "lapse",
+  "ttg_status": "candidate",
+  "execution": "qualification",
+  "evidence_warning": "donor table aliases 12.00; THETECHGUY hardware proof pending",
+  "patch_path": "profiles/12.02/kernel-patch.bin",
+  "payload_path": "profiles/12.02/payload.bin",
+  "patch_sha256": "87f1d40aea8fbf3adee7b8b5599d90c9d868436c15a498f2dce6bf5d96ae4d27",
+  "payload_sha256": "c6329401d1810e16c84e6474ac30977dbdc951987c10cdb559370de7d59db0b0",
+  "payload_size": 290016,
+  "source_authority": "PS-jailbreak ps4/candidates/multifirmware-responsive-dom-20260929/profiles.json"
+}

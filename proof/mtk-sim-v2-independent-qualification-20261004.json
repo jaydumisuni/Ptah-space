@@ -1,0 +1,48 @@
+{
+  "schema": "ptah.independent-mtk-simulation-qualification.v1",
+  "status": "pass",
+  "scope": "C05/C08 independent evidence qualification",
+  "candidate_id": "sleeper-channel-separated-mtk",
+  "candidate_generation": "sha256:221a6ac39fc9a8d5d0548a4bd887b4f2713232b81977e0aa3997a7a7d3c1d4f5",
+  "hostile_worlds": {
+    "passed": 19,
+    "total": 19
+  },
+  "second_use": {
+    "passed": true,
+    "successful_uses": 2,
+    "distinct_contexts": 2,
+    "distinct_evidence_generations": 2
+  },
+  "ptah_contracts_checked": [
+    "C05 MediaTek read-only evidence boundary",
+    "C08 canonical Device identity and connection-epoch boundary",
+    "C08 mutation boundary"
+  ],
+  "physical_evidence_admitted": [
+    "MT6768 AP-META read-only reference",
+    "MT6789 AP-META read-only D4 reference"
+  ],
+  "simulation_mutation_claims_admitted_as_physical": false,
+  "production_authority_granted": false,
+  "physical_mutation_authority_granted": false,
+  "qualification_meaning": "candidate structure/evidence passes independent Ptah boundary checks; physical mutation remains unqualified",
+  "inputs": {
+    "result": {
+      "path": "/home/kratos/projects/TTG-Simulation/.tmp/mtk-full-device-20261004/artifacts/proofs/mtk-full-device-channel-authority-20261004-v2.result.json",
+      "sha256": "sha256:08a54c95fe047455e93495233858a5309e5673075bca6d5c684d9973a612aac6"
+    },
+    "projection": {
+      "path": "/home/kratos/projects/TTG-Simulation/.tmp/mtk-full-device-20261004/artifacts/ptah/mtk-mt6768-reference-device.json",
+      "sha256": "sha256:193047a1e89762e1b521b99a27576b3d365bfc0db02ff6643eec8ab8539c8974"
+    },
+    "second_use": {
+      "path": "/home/kratos/projects/TTG-Simulation/.tmp/mtk-full-device-20261004/artifacts/proofs/mtk-second-use-status-20261004-v2.json",
+      "sha256": "sha256:25b2b6ccb704964007dbf3199bd364da9fee4864b0eb23237e7c301a579b300f"
+    },
+    "reuse_evidence": {
+      "path": "/home/kratos/projects/TTG-Simulation/.tmp/mtk-full-device-20261004/artifacts/evidence/mtk-mt6789-d4-existing-meta-20260721.json",
+      "sha256": "sha256:d973ace2526fbffb50c0e1efc3da310dde6a733299420ce34b265149d6c47ab1"
+    }
+  }
+}

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+import json
+from pathlib import Path
 
 from mtk_device_model import (
     Backend,
@@ -261,6 +263,19 @@ class MtkDeviceSimulationTests(unittest.TestCase):
         dev.enter_fastboot(observed_fastboot=True)
         self.assertEqual(dev.mode, Mode.FASTBOOT)
         self.assertFalse(dev.promotion_ready(Capability.ENTER_FASTBOOT))
+
+
+    def test_18_donor_evidence_matrix_matches_runtime_qualification(self) -> None:
+        dev = mt6768_fixture()
+        matrix_path = Path(__file__).with_name("donor_evidence.json")
+        matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+        expected = matrix["capabilities"]
+        self.assertEqual(set(expected), {cap.value for cap in Capability})
+        for cap in Capability:
+            record = dev.capability_records[cap]
+            row = expected[cap.value]
+            self.assertEqual(record.qualification.value, row["qualification"], cap.value)
+            self.assertEqual(record.backend.value, row["backend"], cap.value)
 
 
 if __name__ == "__main__":

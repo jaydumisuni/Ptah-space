@@ -42,16 +42,18 @@
     ]
   },
   "simulation_proof": {
-    "head": "4aeb1af9a4e27c864ff8f7500407a499e331da1d",
-    "workflow_run": 37307552915,
-    "tests_passed": 17,
+    "head": "ba3d039b6e0d177e7fc7f3ed9fd2a1b792666220",
+    "workflow_run": 37308105704,
+    "tests_passed": 18,
     "tests_failed": 0,
     "conclusion": "success",
+    "evidence_matrix": "simulations/mediatek/donor_evidence.json",
     "transition_gates": [
       "preloader_to_meta_requires_pid2007",
       "adb_to_meta_requires_pid2007",
       "meta_to_android_requires_observed_android",
-      "android_to_fastboot_requires_observed_fastboot"
+      "android_to_fastboot_requires_observed_fastboot",
+      "runtime_qualification_must_match_donor_evidence_matrix"
     ]
   }
 }

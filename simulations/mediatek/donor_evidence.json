@@ -1,0 +1,186 @@
+{
+  "schema": "ptah.ttg.mtk-donor-evidence.v1",
+  "updated": "2026-10-05",
+  "sleeper_authority_commit": "f91a26ac9bac9233d86189736cf49d116cc09129",
+  "capabilities": {
+    "boot_meta_from_preloader": {
+      "qualification": "physical_proven",
+      "backend": "mtk_functions_bootmode",
+      "donor": "Sleeper/MTK_Functions",
+      "mode": [
+        "preloader"
+      ],
+      "proof": [
+        "preloader 0E8D:2000/2001",
+        "independent re-enumeration 0E8D:2007"
+      ]
+    },
+    "meta_inventory": {
+      "qualification": "physical_proven",
+      "backend": "metacore",
+      "donor": "AndroidUtility.v200",
+      "mode": [
+        "meta"
+      ],
+      "proof": [
+        "TargetVerInfo",
+        "ChipID",
+        "dynamic phone-derived APDB",
+        "PRODUCT_INFO"
+      ]
+    },
+    "imei_read": {
+      "qualification": "physical_proven",
+      "backend": "metacore",
+      "donor": "AndroidUtility.v200",
+      "mode": [
+        "meta"
+      ],
+      "proof": [
+        "APDB-qualified PRODUCT_INFO IMEI array",
+        "Luhn validation"
+      ]
+    },
+    "serial_psn_read": {
+      "qualification": "blocked",
+      "backend": "metacore",
+      "donor": "AndroidUtility.v200",
+      "mode": [
+        "meta"
+      ],
+      "blocker": "ADBSeriaNo is known as a nested array field; exact raw location/equivalent array-aware reader is not independently proved"
+    },
+    "exit_meta": {
+      "qualification": "blocked",
+      "backend": "unknown",
+      "donor": null,
+      "mode": [
+        "meta"
+      ],
+      "blocker": "UI action exists but exact worker/API plus observed Android re-enumeration proof is not recovered"
+    },
+    "enter_da_from_preloader": {
+      "qualification": "donor_mapped",
+      "backend": "mtkclient_da",
+      "donor": "Phoenix",
+      "mode": [
+        "preloader"
+      ],
+      "proof": [
+        "Partition Manager routes to Preloader/DA mtkclient-class backend"
+      ]
+    },
+    "partition_list": {
+      "qualification": "donor_mapped",
+      "backend": "mtkclient_da",
+      "donor": "Phoenix",
+      "mode": [
+        "download_agent"
+      ],
+      "proof": [
+        "Partition Manager backend mapping"
+      ]
+    },
+    "partition_read": {
+      "qualification": "donor_mapped",
+      "backend": "mtkclient_da",
+      "donor": "Phoenix",
+      "mode": [
+        "download_agent"
+      ],
+      "proof": [
+        "Partition Manager backend mapping"
+      ],
+      "blocker": "physical Sleeper read receipt still required"
+    },
+    "partition_write": {
+      "qualification": "donor_mapped",
+      "backend": "mtkclient_da",
+      "donor": "Phoenix",
+      "mode": [
+        "download_agent"
+      ],
+      "proof": [
+        "Partition Manager backend mapping"
+      ],
+      "blocker": "must prove backup hash, write, post-readback, rollback on hardware"
+    },
+    "partition_erase": {
+      "qualification": "donor_mapped",
+      "backend": "mtkclient_da",
+      "donor": "Phoenix",
+      "mode": [
+        "download_agent"
+      ],
+      "proof": [
+        "Partition Manager backend mapping"
+      ],
+      "blocker": "must prove backup hash, erase, post-readback, rollback on hardware"
+    },
+    "factory_reset": {
+      "qualification": "blocked",
+      "backend": "unknown",
+      "donor": null,
+      "mode": [
+        "meta",
+        "download_agent"
+      ],
+      "blocker": "button labels recovered but no exact donor worker/API/protocol frozen"
+    },
+    "frp_erase": {
+      "qualification": "blocked",
+      "backend": "unknown",
+      "donor": null,
+      "mode": [
+        "meta",
+        "download_agent"
+      ],
+      "blocker": "button labels/generic methods are not backend proof"
+    },
+    "imei_write": {
+      "qualification": "blocked",
+      "backend": "unknown",
+      "donor": null,
+      "mode": [
+        "meta"
+      ],
+      "blocker": "read authority does not grant NVRAM mutation authority"
+    },
+    "adb_reboot_to_meta": {
+      "qualification": "blocked",
+      "backend": "unknown",
+      "donor": null,
+      "mode": [
+        "android_adb"
+      ],
+      "blocker": "simulation requires observed PID2007; exact physical command/backend still not frozen"
+    },
+    "enter_fastboot": {
+      "qualification": "blocked",
+      "backend": "unknown",
+      "donor": null,
+      "mode": [
+        "android_adb"
+      ],
+      "blocker": "must map exact transition backend and observe Fastboot interface"
+    },
+    "bootloader_unlock": {
+      "qualification": "blocked",
+      "backend": "unknown",
+      "donor": "FenixToolPro/Phoenix pending mapping",
+      "mode": [
+        "fastboot"
+      ],
+      "blocker": "button label alone is not backend proof; deliberately last phase"
+    },
+    "bootloader_relock": {
+      "qualification": "blocked",
+      "backend": "unknown",
+      "donor": "FenixToolPro/Phoenix pending mapping",
+      "mode": [
+        "fastboot"
+      ],
+      "blocker": "unlock backend must be mapped and rollback-qualified first"
+    }
+  }
+}

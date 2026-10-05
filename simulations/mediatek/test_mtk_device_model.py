@@ -152,7 +152,15 @@ class MtkDeviceSimulationTests(unittest.TestCase):
             donor="candidate-only",
             evidence=["simulation-semantics-only"],
         )
-        dev.mode = Mode.FASTBOOT
+        dev.mode = Mode.ANDROID_ADB
+        dev.install_candidate(
+            Capability.ENTER_FASTBOOT,
+            backend=Backend.ADB,
+            required_modes=[Mode.ANDROID_ADB],
+            donor="candidate-only",
+            evidence=["simulation-semantics-only"],
+        )
+        dev.enter_fastboot(observed_fastboot=True)
         unlock = dev.bootloader_unlock()
         self.assertTrue(unlock.post_readback_verified)
         self.assertFalse(dev.bootloader_locked)
@@ -183,6 +191,7 @@ class MtkDeviceSimulationTests(unittest.TestCase):
             Capability.BOOTLOADER_UNLOCK,
             Capability.BOOTLOADER_RELOCK,
             Capability.ADB_REBOOT_TO_META,
+            Capability.ENTER_FASTBOOT,
         ):
             self.assertEqual(
                 dev.capability_records[capability].qualification,
@@ -203,6 +212,55 @@ class MtkDeviceSimulationTests(unittest.TestCase):
                 Qualification.DONOR_MAPPED,
             )
             self.assertFalse(dev.promotion_ready(capability))
+
+
+    def test_15_adb_reboot_to_meta_requires_pid2007_observation(self) -> None:
+        dev = mt6768_fixture()
+        dev.mode = Mode.ANDROID_ADB
+        dev.install_candidate(
+            Capability.ADB_REBOOT_TO_META,
+            backend=Backend.ADB,
+            required_modes=[Mode.ANDROID_ADB],
+            donor="candidate-only",
+            evidence=["simulation-semantics-only"],
+        )
+        with self.assertRaisesRegex(SimulationError, "PID 2007"):
+            dev.adb_reboot_to_meta(observed_pid="2000")
+        dev.adb_reboot_to_meta(observed_pid="2007")
+        self.assertEqual(dev.mode, Mode.META)
+        self.assertEqual(dev.usb_pid, "2007")
+        self.assertFalse(dev.promotion_ready(Capability.ADB_REBOOT_TO_META))
+
+    def test_16_exit_meta_requires_observed_android_interface(self) -> None:
+        dev = mt6768_fixture()
+        dev.install_candidate(
+            Capability.EXIT_META,
+            backend=Backend.METACORE,
+            required_modes=[Mode.META],
+            donor="candidate-only",
+            evidence=["simulation-semantics-only"],
+        )
+        with self.assertRaisesRegex(SimulationError, "observed Android"):
+            dev.exit_meta(observed_android=False)
+        dev.exit_meta(observed_android=True)
+        self.assertEqual(dev.mode, Mode.ANDROID_ADB)
+        self.assertFalse(dev.promotion_ready(Capability.EXIT_META))
+
+    def test_17_fastboot_transition_requires_observed_interface(self) -> None:
+        dev = mt6768_fixture()
+        dev.mode = Mode.ANDROID_ADB
+        dev.install_candidate(
+            Capability.ENTER_FASTBOOT,
+            backend=Backend.ADB,
+            required_modes=[Mode.ANDROID_ADB],
+            donor="candidate-only",
+            evidence=["simulation-semantics-only"],
+        )
+        with self.assertRaisesRegex(SimulationError, "observed Fastboot"):
+            dev.enter_fastboot(observed_fastboot=False)
+        dev.enter_fastboot(observed_fastboot=True)
+        self.assertEqual(dev.mode, Mode.FASTBOOT)
+        self.assertFalse(dev.promotion_ready(Capability.ENTER_FASTBOOT))
 
 
 if __name__ == "__main__":

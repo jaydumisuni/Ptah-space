@@ -1,0 +1,34 @@
+name: MTK Device Simulation Proof
+
+on:
+  push:
+    branches:
+      - "feature/mtk-device-simulation-*"
+    paths:
+      - "simulations/mediatek/**"
+      - ".github/workflows/mtk-device-simulation-proof.yml"
+  pull_request:
+    paths:
+      - "simulations/mediatek/**"
+      - ".github/workflows/mtk-device-simulation-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  simulation-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile simulation sources
+        run: |
+          python -m py_compile             simulations/mediatek/mtk_device_model.py             simulations/mediatek/test_mtk_device_model.py
+      - name: Run MTK simulation acceptance
+        run: |
+          python -m unittest discover             -s simulations/mediatek             -p 'test_*.py'             -v

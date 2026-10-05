@@ -26,6 +26,7 @@ class Backend(str, Enum):
     METACORE = "metacore"
     MTK_BOOTMODE = "mtk_functions_bootmode"
     MTKCLIENT_DA = "mtkclient_da"
+    ADB = "adb"
     FASTBOOT = "fastboot"
     UNKNOWN = "unknown"
 
@@ -54,6 +55,7 @@ class Capability(str, Enum):
     BOOTLOADER_UNLOCK = "bootloader_unlock"
     BOOTLOADER_RELOCK = "bootloader_relock"
     ADB_REBOOT_TO_META = "adb_reboot_to_meta"
+    ENTER_FASTBOOT = "enter_fastboot"
 
 
 MUTATING_CAPABILITIES = frozenset(
@@ -186,10 +188,24 @@ class MtkSimDevice:
         self.mode = Mode.META
         self.usb_pid = "2007"
 
+    def adb_reboot_to_meta(self, *, observed_pid: str) -> None:
+        self._require(Capability.ADB_REBOOT_TO_META)
+        if observed_pid.lower() != "2007":
+            raise SimulationError("ADB reboot request without observed PID 2007 is not META proof")
+        self.mode = Mode.META
+        self.usb_pid = "2007"
+
     def enter_da_from_preloader(self) -> None:
         self._require(Capability.ENTER_DA_FROM_PRELOADER)
         self.mode = Mode.DA
         self.usb_pid = "da"
+
+    def enter_fastboot(self, *, observed_fastboot: bool) -> None:
+        self._require(Capability.ENTER_FASTBOOT)
+        if not observed_fastboot:
+            raise SimulationError("fastboot request without observed Fastboot interface is not proof")
+        self.mode = Mode.FASTBOOT
+        self.usb_pid = None
 
     def meta_inventory(self) -> dict[str, object]:
         self._require(Capability.META_INVENTORY)
@@ -205,8 +221,10 @@ class MtkSimDevice:
         self._require(Capability.SERIAL_PSN_READ)
         return self.serial
 
-    def exit_meta(self) -> None:
+    def exit_meta(self, *, observed_android: bool = False) -> None:
         self._require(Capability.EXIT_META)
+        if not observed_android:
+            raise SimulationError("META exit acknowledgement without observed Android/ADB is not proof")
         self.mode = Mode.ANDROID_ADB
         self.usb_pid = None
 
@@ -531,6 +549,13 @@ def default_capability_records() -> dict[Capability, CapabilityRecord]:
         ),
         Capability.ADB_REBOOT_TO_META: rec(
             Capability.ADB_REBOOT_TO_META,
+            Backend.UNKNOWN,
+            [Mode.ANDROID_ADB],
+            Qualification.BLOCKED,
+            None,
+        ),
+        Capability.ENTER_FASTBOOT: rec(
+            Capability.ENTER_FASTBOOT,
             Backend.UNKNOWN,
             [Mode.ANDROID_ADB],
             Qualification.BLOCKED,

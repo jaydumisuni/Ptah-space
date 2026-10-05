@@ -74,7 +74,7 @@ impl QueuedIntent {
             ("origin.node_id", origin.node_id.as_str()),
             ("action", action.as_str()),
         ] {
-            if value.is_empty() {
+            if value.trim().is_empty() {
                 return Err(IntentValidationError::Empty(name));
             }
             if value.chars().any(char::is_control) {

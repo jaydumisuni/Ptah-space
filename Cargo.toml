@@ -24,6 +24,7 @@ members = [
   "crates/ptah-provider-api",
   "crates/ptah-device-runtime",
   "crates/ptah-console-sim",
+  "crates/ptah-router-sim",
   "crates/ptah-android-runtime",
   "crates/ptah-browser-runtime",
   "crates/ptah-checkpoint",

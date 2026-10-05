@@ -1,0 +1,45 @@
+{
+  "profile_id": "zlt-x100-pro-r106",
+  "router_family": "zlt_x100_pro",
+  "model": "ZLT X100 PRO",
+  "platform": "UNISOC UDX710",
+  "stock_firmware": "7.0.4 / TZ7.823.806 / X100PRO-ZM0478",
+  "usb": {
+    "download_vid": "1782",
+    "download_pid": "4d00",
+    "normal_vid": "1782",
+    "normal_pid": "4056"
+  },
+  "loader": {
+    "helper_addr": "0x00003f28",
+    "helper_sha256": "9a1f680624de3cf2de825021b01aba402079e327587cd87df0adc4052dfbf0fc",
+    "fdl1_addr": "0x28007000",
+    "fdl1_sha256": "8091af3c806c23c0781f3170333efb37e4e9587e12481ed74d50d7d2b5358671",
+    "stock_fdl1_sha256": "16801c7dbaec5e9db6accfd0d6f140f5bbe87deee21a83202bd7746f3d5cc307",
+    "fdl2_addr": "0x9efffe00",
+    "fdl2_sha256": "ab4dbf4f27aa6908f4a337f00fa9a226f1eefcb3e99c8b1b741f85b66e41389c",
+    "fdl2_bytes": 1310720
+  },
+  "vendor_wire": {
+    "connect_before_fdl2": true,
+    "change_baud": 115200,
+    "change_baud_payload_hex": "00c20100",
+    "change_baud_byte_order": "little_endian",
+    "keep_charge_after_change_baud": false,
+    "fdl2_exec_payload_hex": "9efffe00",
+    "fdl2_exec_payload_byte_order": "big_endian",
+    "fdl2_exec_ack_required": false,
+    "fdl2_exec_settle_ms": 2000,
+    "same_process_same_usb_handle": true
+  },
+  "gen1": {
+    "strategy": "hybrid-stock-kernel-ttg-userspace",
+    "preserve_stock_boot_chain": true,
+    "preserve_stock_kernel_and_radio_firmware": true,
+    "runtime_target": "aarch64",
+    "runtime_service": "ttg-routerd",
+    "physical_device_writes_allowed": false
+  },
+  "source_authority": "Router-OS + Sleeper physical evidence through 2026-10-05",
+  "status": "candidate"
+}

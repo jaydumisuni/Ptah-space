@@ -1,0 +1,43 @@
+{
+  "schema": "ptah.ttg.mtk-simulation-progress.v1",
+  "updated": "2026-10-05",
+  "sleeper_authority_commit": "f91a26ac9bac9233d86189736cf49d116cc09129",
+  "ptah_branch": "feature/mtk-device-simulation-20261005",
+  "physical_proven": [
+    "boot_meta_from_preloader",
+    "meta_inventory",
+    "imei_read"
+  ],
+  "donor_mapped_candidate": [
+    "enter_da_from_preloader",
+    "partition_list",
+    "partition_read",
+    "partition_write",
+    "partition_erase"
+  ],
+  "blocked_pending_mapping_or_proof": [
+    "serial_psn_read",
+    "exit_meta",
+    "factory_reset",
+    "frp_erase",
+    "imei_write",
+    "bootloader_unlock",
+    "bootloader_relock",
+    "adb_reboot_to_meta"
+  ],
+  "next": "serial_psn_read",
+  "donors": {
+    "AndroidUtility.v200": [
+      "metacore",
+      "dynamic_apdb",
+      "product_info"
+    ],
+    "Phoenix": [
+      "partition_manager",
+      "mtkclient_preloader_da"
+    ],
+    "FenixToolPro": [
+      "pending_exact_backend_mapping"
+    ]
+  }
+}

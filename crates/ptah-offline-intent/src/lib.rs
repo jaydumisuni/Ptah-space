@@ -52,6 +52,9 @@ pub struct QueuedIntent {
 }
 
 impl QueuedIntent {
+    // E06 keeps each canonical identity explicit at construction so authority-bound fields
+    // cannot be silently omitted or inherited from ambient state.
+    #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         intent_id: String,
         workspace_id: String,

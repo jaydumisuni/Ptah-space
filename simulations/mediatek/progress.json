@@ -23,7 +23,8 @@
     "imei_write",
     "bootloader_unlock",
     "bootloader_relock",
-    "adb_reboot_to_meta"
+    "adb_reboot_to_meta",
+    "enter_fastboot"
   ],
   "next": "serial_psn_read",
   "donors": {
@@ -38,6 +39,19 @@
     ],
     "FenixToolPro": [
       "pending_exact_backend_mapping"
+    ]
+  },
+  "simulation_proof": {
+    "head": "4aeb1af9a4e27c864ff8f7500407a499e331da1d",
+    "workflow_run": 37307552915,
+    "tests_passed": 17,
+    "tests_failed": 0,
+    "conclusion": "success",
+    "transition_gates": [
+      "preloader_to_meta_requires_pid2007",
+      "adb_to_meta_requires_pid2007",
+      "meta_to_android_requires_observed_android",
+      "android_to_fastboot_requires_observed_fastboot"
     ]
   }
 }

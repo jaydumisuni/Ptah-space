@@ -46,6 +46,18 @@ fn identity_and_action_validation_fail_closed() {
         Err(IntentValidationError::Empty("intent_id"))
     ));
 
+    let spaced = QueuedIntent::try_new(
+        " intent-1".into(),
+        "workspace-1".into(),
+        "activity-1".into(),
+        "operation-1".into(),
+        "attempt-1".into(),
+        LocalSequence { node_id: "node-1".into(), value: 1 },
+        "prepare".into(),
+        format!("sha256:{}", "a".repeat(64)),
+    );
+    assert!(matches!(spaced, Err(IntentValidationError::NonCanonicalWhitespace("intent_id"))));
+
     let control = queued("prepare\nexecute", 1, format!("sha256:{}", "a".repeat(64)));
     assert!(matches!(
         control,

@@ -4,6 +4,7 @@ use std::fmt;
 pub enum IntentValidationError {
     Empty(&'static str),
     ControlCharacter(&'static str),
+    NonCanonicalWhitespace(&'static str),
     InvalidDigest,
     ZeroSequence,
 }
@@ -13,6 +14,7 @@ impl fmt::Display for IntentValidationError {
         match self {
             Self::Empty(field) => write!(f, "{field} must not be empty"),
             Self::ControlCharacter(field) => write!(f, "{field} contains a control character"),
+            Self::NonCanonicalWhitespace(field) => write!(f, "{field} has leading or trailing whitespace"),
             Self::InvalidDigest => write!(
                 f,
                 "canonical_input_digest must be sha256:<64 lowercase hex>"
@@ -79,6 +81,9 @@ impl QueuedIntent {
             }
             if value.chars().any(char::is_control) {
                 return Err(IntentValidationError::ControlCharacter(name));
+            }
+            if value != value.trim() {
+                return Err(IntentValidationError::NonCanonicalWhitespace(name));
             }
         }
         if origin.value == 0 {

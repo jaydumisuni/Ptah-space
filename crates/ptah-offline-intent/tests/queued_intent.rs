@@ -52,16 +52,44 @@ fn identity_and_action_validation_fail_closed() {
         "activity-1".into(),
         "operation-1".into(),
         "attempt-1".into(),
-        LocalSequence { node_id: "node-1".into(), value: 1 },
+        LocalSequence {
+            node_id: "node-1".into(),
+            value: 1,
+        },
         "prepare".into(),
         format!("sha256:{}", "a".repeat(64)),
     );
-    assert!(matches!(spaced, Err(IntentValidationError::NonCanonicalWhitespace("intent_id"))));
+    assert!(matches!(
+        spaced,
+        Err(IntentValidationError::NonCanonicalWhitespace("intent_id"))
+    ));
 
     let control = queued("prepare\nexecute", 1, format!("sha256:{}", "a".repeat(64)));
     assert!(matches!(
         control,
         Err(IntentValidationError::ControlCharacter("action"))
+    ));
+}
+
+#[test]
+fn authority_bound_identity_length_fails_closed() {
+    let oversized = "i".repeat(129);
+    let result = QueuedIntent::try_new(
+        oversized,
+        "workspace-1".into(),
+        "activity-1".into(),
+        "operation-1".into(),
+        "attempt-1".into(),
+        LocalSequence {
+            node_id: "node-1".into(),
+            value: 1,
+        },
+        "prepare".into(),
+        format!("sha256:{}", "a".repeat(64)),
+    );
+    assert!(matches!(
+        result,
+        Err(IntentValidationError::TooLong("intent_id"))
     ));
 }
 

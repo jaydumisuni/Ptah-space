@@ -5,6 +5,7 @@ pub enum IntentValidationError {
     Empty(&'static str),
     ControlCharacter(&'static str),
     NonCanonicalWhitespace(&'static str),
+    TooLong(&'static str),
     InvalidDigest,
     ZeroSequence,
 }
@@ -14,7 +15,10 @@ impl fmt::Display for IntentValidationError {
         match self {
             Self::Empty(field) => write!(f, "{field} must not be empty"),
             Self::ControlCharacter(field) => write!(f, "{field} contains a control character"),
-            Self::NonCanonicalWhitespace(field) => write!(f, "{field} has leading or trailing whitespace"),
+            Self::NonCanonicalWhitespace(field) => {
+                write!(f, "{field} has leading or trailing whitespace")
+            }
+            Self::TooLong(field) => write!(f, "{field} exceeds 128 bytes"),
             Self::InvalidDigest => write!(
                 f,
                 "canonical_input_digest must be sha256:<64 lowercase hex>"
@@ -84,6 +88,9 @@ impl QueuedIntent {
             }
             if value != value.trim() {
                 return Err(IntentValidationError::NonCanonicalWhitespace(name));
+            }
+            if value.len() > 128 {
+                return Err(IntentValidationError::TooLong(name));
             }
         }
         if origin.value == 0 {

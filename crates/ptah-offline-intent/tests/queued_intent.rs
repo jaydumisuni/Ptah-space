@@ -117,6 +117,48 @@ fn every_authority_bound_identity_length_fails_closed() {
 }
 
 #[test]
+fn every_authority_bound_identity_rejects_control_characters() {
+    let cases = [
+        ("intent_id", 0usize),
+        ("workspace_id", 1),
+        ("activity_id", 2),
+        ("operation_id", 3),
+        ("attempt_id", 4),
+        ("origin.node_id", 5),
+        ("action", 6),
+    ];
+    for (expected_field, field_index) in cases {
+        let mut fields = [
+            "intent-1".to_owned(),
+            "workspace-1".to_owned(),
+            "activity-1".to_owned(),
+            "operation-1".to_owned(),
+            "attempt-1".to_owned(),
+            "node-1".to_owned(),
+            "prepare".to_owned(),
+        ];
+        fields[field_index].push('\n');
+        let result = QueuedIntent::try_new(
+            fields[0].clone(),
+            fields[1].clone(),
+            fields[2].clone(),
+            fields[3].clone(),
+            fields[4].clone(),
+            LocalSequence {
+                node_id: fields[5].clone(),
+                value: 1,
+            },
+            fields[6].clone(),
+            format!("sha256:{}", "a".repeat(64)),
+        );
+        assert!(matches!(
+            result,
+            Err(IntentValidationError::ControlCharacter(field)) if field == expected_field
+        ));
+    }
+}
+
+#[test]
 fn origin_sequence_must_be_non_zero() {
     let result = queued("prepare", 0, format!("sha256:{}", "a".repeat(64)));
     assert!(matches!(result, Err(IntentValidationError::ZeroSequence)));

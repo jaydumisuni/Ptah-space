@@ -72,25 +72,48 @@ fn identity_and_action_validation_fail_closed() {
 }
 
 #[test]
-fn authority_bound_identity_length_fails_closed() {
+fn every_authority_bound_identity_length_fails_closed() {
     let oversized = "i".repeat(129);
-    let result = QueuedIntent::try_new(
-        oversized,
-        "workspace-1".into(),
-        "activity-1".into(),
-        "operation-1".into(),
-        "attempt-1".into(),
-        LocalSequence {
-            node_id: "node-1".into(),
-            value: 1,
-        },
-        "prepare".into(),
-        format!("sha256:{}", "a".repeat(64)),
-    );
-    assert!(matches!(
-        result,
-        Err(IntentValidationError::TooLong("intent_id"))
-    ));
+    let cases = [
+        ("intent_id", 0usize),
+        ("workspace_id", 1),
+        ("activity_id", 2),
+        ("operation_id", 3),
+        ("attempt_id", 4),
+        ("origin.node_id", 5),
+        ("action", 6),
+    ];
+
+    for (expected_field, field_index) in cases {
+        let mut fields = [
+            "intent-1".to_owned(),
+            "workspace-1".to_owned(),
+            "activity-1".to_owned(),
+            "operation-1".to_owned(),
+            "attempt-1".to_owned(),
+            "node-1".to_owned(),
+            "prepare".to_owned(),
+        ];
+        fields[field_index] = oversized.clone();
+
+        let result = QueuedIntent::try_new(
+            fields[0].clone(),
+            fields[1].clone(),
+            fields[2].clone(),
+            fields[3].clone(),
+            fields[4].clone(),
+            LocalSequence {
+                node_id: fields[5].clone(),
+                value: 1,
+            },
+            fields[6].clone(),
+            format!("sha256:{}", "a".repeat(64)),
+        );
+        assert!(matches!(
+            result,
+            Err(IntentValidationError::TooLong(field)) if field == expected_field
+        ));
+    }
 }
 
 #[test]

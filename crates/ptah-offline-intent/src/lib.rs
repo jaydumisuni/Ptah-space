@@ -8,6 +8,7 @@ pub enum IntentValidationError {
     TooLong(&'static str),
     InvalidDigest,
     ZeroSequence,
+    SequenceExhausted,
 }
 
 impl fmt::Display for IntentValidationError {
@@ -24,6 +25,7 @@ impl fmt::Display for IntentValidationError {
                 "canonical_input_digest must be sha256:<64 lowercase hex>"
             ),
             Self::ZeroSequence => write!(f, "origin sequence must be non-zero"),
+            Self::SequenceExhausted => write!(f, "origin sequence exhausted"),
         }
     }
 }
@@ -42,6 +44,41 @@ pub enum LocalIntentState {
 pub struct LocalSequence {
     pub node_id: String,
     pub value: u64,
+}
+
+fn validate_identity_field(name: &'static str, value: &str) -> Result<(), IntentValidationError> {
+    if value.trim().is_empty() {
+        return Err(IntentValidationError::Empty(name));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(IntentValidationError::ControlCharacter(name));
+    }
+    if value != value.trim() {
+        return Err(IntentValidationError::NonCanonicalWhitespace(name));
+    }
+    if value.len() > 128 {
+        return Err(IntentValidationError::TooLong(name));
+    }
+    Ok(())
+}
+
+impl LocalSequence {
+    // E06-01: a deterministic successor, not a durable allocator or an authority grant.
+    // E06-02 must persist and atomically advance the cursor before exposing a new intent.
+    pub fn checked_next(&self) -> Result<Self, IntentValidationError> {
+        validate_identity_field("origin.node_id", &self.node_id)?;
+        if self.value == 0 {
+            return Err(IntentValidationError::ZeroSequence);
+        }
+        let value = self
+            .value
+            .checked_add(1)
+            .ok_or(IntentValidationError::SequenceExhausted)?;
+        Ok(Self {
+            node_id: self.node_id.clone(),
+            value,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,18 +117,7 @@ impl QueuedIntent {
             ("origin.node_id", origin.node_id.as_str()),
             ("action", action.as_str()),
         ] {
-            if value.trim().is_empty() {
-                return Err(IntentValidationError::Empty(name));
-            }
-            if value.chars().any(char::is_control) {
-                return Err(IntentValidationError::ControlCharacter(name));
-            }
-            if value != value.trim() {
-                return Err(IntentValidationError::NonCanonicalWhitespace(name));
-            }
-            if value.len() > 128 {
-                return Err(IntentValidationError::TooLong(name));
-            }
+            validate_identity_field(name, value)?;
         }
         if origin.value == 0 {
             return Err(IntentValidationError::ZeroSequence);

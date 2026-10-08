@@ -180,3 +180,41 @@ fn canonical_digest_accepts_lowercase_and_rejects_malformed_or_uppercase() {
         Err(IntentValidationError::InvalidDigest)
     ));
 }
+
+#[test]
+fn local_sequence_successor_is_monotonic_and_node_bound() {
+    let first = LocalSequence {
+        node_id: "node-1".into(),
+        value: 1,
+    };
+    let second = first.checked_next().unwrap();
+    assert_eq!(second.node_id, "node-1");
+    assert_eq!(second.value, 2);
+    assert_eq!(first.value, 1);
+    assert_eq!(second.checked_next().unwrap().value, 3);
+}
+
+#[test]
+fn local_sequence_successor_fails_closed_on_invalid_cursor_or_exhaustion() {
+    for (node_id, value, expected) in [
+        ("node-1", 0, IntentValidationError::ZeroSequence),
+        ("node-1", u64::MAX, IntentValidationError::SequenceExhausted),
+        (
+            " node-1",
+            1,
+            IntentValidationError::NonCanonicalWhitespace("origin.node_id"),
+        ),
+        (
+            "node\n1",
+            1,
+            IntentValidationError::ControlCharacter("origin.node_id"),
+        ),
+        ("", 1, IntentValidationError::Empty("origin.node_id")),
+    ] {
+        let cursor = LocalSequence {
+            node_id: node_id.into(),
+            value,
+        };
+        assert_eq!(cursor.checked_next(), Err(expected));
+    }
+}

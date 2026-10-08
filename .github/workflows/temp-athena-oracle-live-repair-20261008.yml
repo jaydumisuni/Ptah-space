@@ -1,0 +1,79 @@
+name: TEMP ATHENA Oracle Live repair 20261008
+
+on:
+  push:
+    branches:
+      - recovery/athena-oracle-live-20261008
+    paths:
+      - ".github/workflows/temp-athena-oracle-live-repair-20261008.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 8
+    steps:
+      - name: Restore D projects root and restart standalone Oracle node
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $relay=Join-Path $env:LOCALAPPDATA 'OracleRelay\repo'
+          $state=Join-Path $env:LOCALAPPDATA 'OracleNode'
+          $runtime=Join-Path $state 'runtime\scripts\oracle-workstation-rpc.mjs'
+          $wrapper=Join-Path $state 'start-oracle-node.cmd'
+
+          foreach($p in @($relay,$runtime,$wrapper,'D:\projects')){
+            if(-not (Test-Path -LiteralPath $p)){ throw "MISSING:$p" }
+          }
+
+          & git -c core.longpaths=true -C $relay fetch origin main
+          if($LASTEXITCODE -ne 0){ throw 'ORACLE_FETCH_FAILED' }
+          $main=(& git -c core.longpaths=true -C $relay rev-parse origin/main).Trim()
+          & git -c core.longpaths=true -C $relay checkout --detach $main
+          if($LASTEXITCODE -ne 0){ throw 'ORACLE_CHECKOUT_FAILED' }
+
+          $source=Join-Path $relay 'scripts\oracle-workstation-rpc.mjs'
+          Copy-Item -LiteralPath $source -Destination $runtime -Force
+
+          $lines=@(Get-Content -LiteralPath $wrapper)
+          $rootLine=@($lines | Where-Object { $_ -match '^set "ORACLE_WORKSTATION_ROOTS=' })
+          if($rootLine.Count -ne 1){ throw "ROOT_LINE_COUNT:$($rootLine.Count)" }
+          $existing=($rootLine[0] -replace '^set "ORACLE_WORKSTATION_ROOTS=','' -replace '"$','')
+          $roots=@('D:\projects',$env:USERPROFILE) + @($existing -split ';')
+          $roots=@($roots | Where-Object { $_ } | ForEach-Object { [IO.Path]::GetFullPath($_) } | Select-Object -Unique)
+          $replacement='set "ORACLE_WORKSTATION_ROOTS='+($roots -join ';')+'"'
+          $newLines=@($lines | ForEach-Object { if($_ -match '^set "ORACLE_WORKSTATION_ROOTS='){ $replacement } else { $_ } })
+          [IO.File]::WriteAllLines($wrapper,$newLines,[Text.Encoding]::ASCII)
+
+          $selected=$null
+          foreach($name in @('Oracle Always-On Node','Oracle Live Node (Session Fallback)')){
+            $task=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            if($task){
+              try { Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null } catch {}
+              try { Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue } catch {}
+              Start-ScheduledTask -TaskName $name -ErrorAction Stop
+              $selected=$name
+              break
+            }
+          }
+          if(-not $selected){ throw 'NO_ORACLE_NODE_TASK' }
+
+          $ready=$null
+          for($i=0;$i -lt 30;$i++){
+            try {
+              $ready=Invoke-RestMethod -Uri 'http://127.0.0.1:5059/ready' -TimeoutSec 2
+              if($ready.ok -and $ready.connected){ break }
+            } catch {}
+            Start-Sleep -Seconds 1
+          }
+          if(-not $ready -or -not $ready.connected){ throw 'ORACLE_READY_FAILED' }
+
+          [ordered]@{
+            ok=$true
+            oracleMain=$main
+            task=$selected
+            roots=$roots
+            ready=$ready
+          } | ConvertTo-Json -Depth 8

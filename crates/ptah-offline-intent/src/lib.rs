@@ -9,6 +9,7 @@ pub enum IntentValidationError {
     InvalidDigest,
     ZeroSequence,
     SequenceExhausted,
+    InvalidCheckpoint,
 }
 
 impl fmt::Display for IntentValidationError {
@@ -26,6 +27,9 @@ impl fmt::Display for IntentValidationError {
             ),
             Self::ZeroSequence => write!(f, "origin sequence must be non-zero"),
             Self::SequenceExhausted => write!(f, "origin sequence exhausted"),
+            Self::InvalidCheckpoint => {
+                write!(f, "invalid or noncanonical local sequence checkpoint")
+            }
         }
     }
 }
@@ -76,6 +80,51 @@ impl LocalSequence {
             .ok_or(IntentValidationError::SequenceExhausted)?;
         Ok(Self {
             node_id: self.node_id.clone(),
+            value,
+        })
+    }
+}
+
+// E06-02 preparation: strict recovery codec only. This does not write, lock,
+// fsync, allocate, or grant authority. A future durable allocator must commit
+// the new cursor atomically before exposing an intent.
+impl LocalSequence {
+    pub fn checkpoint_bytes(&self) -> Result<Vec<u8>, IntentValidationError> {
+        validate_identity_field("origin.node_id", &self.node_id)?;
+        if self.value == 0 {
+            return Err(IntentValidationError::ZeroSequence);
+        }
+        Ok(format!("ptah.local-sequence.v1\n{}\n{}\n", self.node_id, self.value).into_bytes())
+    }
+
+    pub fn from_checkpoint_bytes(bytes: &[u8]) -> Result<Self, IntentValidationError> {
+        let text =
+            std::str::from_utf8(bytes).map_err(|_| IntentValidationError::InvalidCheckpoint)?;
+        let mut fields = text.split('\n');
+        if fields.next() != Some("ptah.local-sequence.v1") {
+            return Err(IntentValidationError::InvalidCheckpoint);
+        }
+        let node_id = fields
+            .next()
+            .ok_or(IntentValidationError::InvalidCheckpoint)?;
+        let raw_value = fields
+            .next()
+            .ok_or(IntentValidationError::InvalidCheckpoint)?;
+        if fields.next() != Some("") || fields.next().is_some() {
+            return Err(IntentValidationError::InvalidCheckpoint);
+        }
+        validate_identity_field("origin.node_id", node_id)?;
+        let value: u64 = raw_value
+            .parse()
+            .map_err(|_| IntentValidationError::InvalidCheckpoint)?;
+        if value.to_string() != raw_value {
+            return Err(IntentValidationError::InvalidCheckpoint);
+        }
+        if value == 0 {
+            return Err(IntentValidationError::ZeroSequence);
+        }
+        Ok(Self {
+            node_id: node_id.to_owned(),
             value,
         })
     }

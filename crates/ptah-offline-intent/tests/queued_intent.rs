@@ -218,3 +218,45 @@ fn local_sequence_successor_fails_closed_on_invalid_cursor_or_exhaustion() {
         assert_eq!(cursor.checked_next(), Err(expected));
     }
 }
+
+#[test]
+fn checkpoint_codec_roundtrips_without_granting_authority() {
+    let cursor = LocalSequence {
+        node_id: "node-1".into(),
+        value: u64::MAX - 1,
+    };
+    let bytes = cursor.checkpoint_bytes().unwrap();
+    assert_eq!(
+        LocalSequence::from_checkpoint_bytes(&bytes),
+        Ok(cursor.clone())
+    );
+    assert_eq!(
+        LocalSequence::from_checkpoint_bytes(&bytes)
+            .unwrap()
+            .checked_next()
+            .unwrap()
+            .value,
+        u64::MAX
+    );
+}
+
+#[test]
+fn checkpoint_recovery_rejects_noncanonical_or_corrupt_bytes() {
+    for bytes in [
+        b"ptah.local-sequence.v1\nnode-1\n01\n".as_slice(),
+        b"ptah.local-sequence.v1\nnode-1\n0\n",
+        b"ptah.local-sequence.v1\nnode-1\n+1\n",
+        b"ptah.local-sequence.v1\nnode-1\n1",
+        b"ptah.local-sequence.v1\nnode-1\n1\nextra\n",
+        b"ptah.local-sequence.v0\nnode-1\n1\n",
+        b"ptah.local-sequence.v1\nnode-1\n18446744073709551616\n",
+        b"ptah.local-sequence.v1\n node-1\n1\n",
+        b"ptah.local-sequence.v1\nnode-1\n1\n\n",
+        b"\xff",
+    ] {
+        assert!(
+            LocalSequence::from_checkpoint_bytes(bytes).is_err(),
+            "{bytes:?}"
+        );
+    }
+}

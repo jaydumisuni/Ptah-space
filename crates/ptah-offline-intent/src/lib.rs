@@ -98,6 +98,11 @@ impl LocalSequence {
     }
 
     pub fn from_checkpoint_bytes(bytes: &[u8]) -> Result<Self, IntentValidationError> {
+        // Bound untrusted recovery input before UTF-8 decoding or allocating fields.
+        // Header + 128-byte node ID + separators + 20-digit u64 = 173 bytes.
+        if bytes.len() > 173 {
+            return Err(IntentValidationError::InvalidCheckpoint);
+        }
         let text =
             std::str::from_utf8(bytes).map_err(|_| IntentValidationError::InvalidCheckpoint)?;
         let mut fields = text.split('\n');

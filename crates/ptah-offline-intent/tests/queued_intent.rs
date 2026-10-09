@@ -241,6 +241,22 @@ fn checkpoint_codec_roundtrips_without_granting_authority() {
 }
 
 #[test]
+fn checkpoint_recovery_rejects_oversized_untrusted_input() {
+    let mut oversized = b"ptah.local-sequence.v1\n".to_vec();
+    oversized.extend_from_slice(&[b'n'; 129]);
+    oversized.extend_from_slice(b"\n1\n");
+    assert_eq!(
+        LocalSequence::from_checkpoint_bytes(&oversized),
+        Err(IntentValidationError::TooLong("origin.node_id"))
+    );
+    oversized.extend_from_slice(&[b'n'; 20]);
+    assert_eq!(
+        LocalSequence::from_checkpoint_bytes(&oversized),
+        Err(IntentValidationError::InvalidCheckpoint)
+    );
+}
+
+#[test]
 fn checkpoint_recovery_rejects_noncanonical_or_corrupt_bytes() {
     for bytes in [
         b"ptah.local-sequence.v1\nnode-1\n01\n".as_slice(),

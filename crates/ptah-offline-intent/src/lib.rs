@@ -111,6 +111,14 @@ impl LocalSequence {
         Ok(())
     }
 
+    // E06-02 preparation: untrusted bytes must be decoded and checked against
+    // the trusted cursor together. This is not durable allocation or a grant.
+    pub fn recover_checked_checkpoint(&self, bytes: &[u8]) -> Result<Self, IntentValidationError> {
+        let recovered = Self::from_checkpoint_bytes(bytes)?;
+        self.validate_recovered_cursor(&recovered)?;
+        Ok(recovered)
+    }
+
     pub fn checkpoint_bytes(&self) -> Result<Vec<u8>, IntentValidationError> {
         validate_identity_field("origin.node_id", &self.node_id)?;
         if self.value == 0 {

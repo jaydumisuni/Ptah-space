@@ -325,3 +325,34 @@ fn recovered_checkpoint_comparison_is_node_bound_and_monotonic() {
         Err(IntentValidationError::ZeroSequence)
     );
 }
+
+#[test]
+fn checked_checkpoint_recovery_rejects_foreign_or_rolled_back_bytes() {
+    let trusted = LocalSequence {
+        node_id: "node-1".into(),
+        value: 7,
+    };
+    let cursor = |node_id: &str, value| LocalSequence {
+        node_id: node_id.into(),
+        value,
+    };
+    for value in [7, 8] {
+        let candidate = cursor("node-1", value);
+        assert_eq!(
+            trusted.recover_checked_checkpoint(&candidate.checkpoint_bytes().unwrap()),
+            Ok(candidate)
+        );
+    }
+    assert_eq!(
+        trusted.recover_checked_checkpoint(&cursor("node-1", 6).checkpoint_bytes().unwrap()),
+        Err(IntentValidationError::CheckpointRollback)
+    );
+    assert_eq!(
+        trusted.recover_checked_checkpoint(&cursor("node-2", 8).checkpoint_bytes().unwrap()),
+        Err(IntentValidationError::CheckpointNodeMismatch)
+    );
+    assert_eq!(
+        trusted.recover_checked_checkpoint(b"ptah.local-sequence.v1\nnode-1\n08\n"),
+        Err(IntentValidationError::InvalidCheckpoint)
+    );
+}

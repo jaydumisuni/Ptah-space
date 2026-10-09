@@ -10,6 +10,8 @@ pub enum IntentValidationError {
     ZeroSequence,
     SequenceExhausted,
     InvalidCheckpoint,
+    CheckpointNodeMismatch,
+    CheckpointRollback,
 }
 
 impl fmt::Display for IntentValidationError {
@@ -29,6 +31,12 @@ impl fmt::Display for IntentValidationError {
             Self::SequenceExhausted => write!(f, "origin sequence exhausted"),
             Self::InvalidCheckpoint => {
                 write!(f, "invalid or noncanonical local sequence checkpoint")
+            }
+            Self::CheckpointNodeMismatch => {
+                write!(f, "recovered checkpoint belongs to another node")
+            }
+            Self::CheckpointRollback => {
+                write!(f, "recovered checkpoint would roll back local sequence")
             }
         }
     }
@@ -89,6 +97,20 @@ impl LocalSequence {
 // fsync, allocate, or grant authority. A future durable allocator must commit
 // the new cursor atomically before exposing an intent.
 impl LocalSequence {
+    // E06-02 preparation: compare recovered cursor to last trusted cursor.
+    // Equality is an idempotent replay, not a new allocation or authority grant.
+    pub fn validate_recovered_cursor(&self, recovered: &Self) -> Result<(), IntentValidationError> {
+        self.checkpoint_bytes()?;
+        recovered.checkpoint_bytes()?;
+        if self.node_id != recovered.node_id {
+            return Err(IntentValidationError::CheckpointNodeMismatch);
+        }
+        if recovered.value < self.value {
+            return Err(IntentValidationError::CheckpointRollback);
+        }
+        Ok(())
+    }
+
     pub fn checkpoint_bytes(&self) -> Result<Vec<u8>, IntentValidationError> {
         validate_identity_field("origin.node_id", &self.node_id)?;
         if self.value == 0 {

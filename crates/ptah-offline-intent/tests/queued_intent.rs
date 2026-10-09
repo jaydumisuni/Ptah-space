@@ -276,3 +276,52 @@ fn checkpoint_recovery_rejects_noncanonical_or_corrupt_bytes() {
         );
     }
 }
+
+#[test]
+fn recovered_checkpoint_comparison_is_node_bound_and_monotonic() {
+    let trusted = LocalSequence {
+        node_id: "node-1".into(),
+        value: 7,
+    };
+    let equal = trusted.clone();
+    let advanced = LocalSequence {
+        node_id: "node-1".into(),
+        value: 9,
+    };
+    let rollback = LocalSequence {
+        node_id: "node-1".into(),
+        value: 6,
+    };
+    let foreign = LocalSequence {
+        node_id: "node-2".into(),
+        value: 9,
+    };
+    assert_eq!(trusted.validate_recovered_cursor(&equal), Ok(()));
+    assert_eq!(trusted.validate_recovered_cursor(&advanced), Ok(()));
+    assert_eq!(
+        trusted.validate_recovered_cursor(&rollback),
+        Err(IntentValidationError::CheckpointRollback)
+    );
+    assert_eq!(
+        trusted.validate_recovered_cursor(&foreign),
+        Err(IntentValidationError::CheckpointNodeMismatch)
+    );
+    let invalid = LocalSequence {
+        node_id: " node-1".into(),
+        value: 9,
+    };
+    assert_eq!(
+        trusted.validate_recovered_cursor(&invalid),
+        Err(IntentValidationError::NonCanonicalWhitespace(
+            "origin.node_id"
+        ))
+    );
+    let zero = LocalSequence {
+        node_id: "node-1".into(),
+        value: 0,
+    };
+    assert_eq!(
+        trusted.validate_recovered_cursor(&zero),
+        Err(IntentValidationError::ZeroSequence)
+    );
+}

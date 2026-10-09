@@ -356,3 +356,40 @@ fn checked_checkpoint_recovery_rejects_foreign_or_rolled_back_bytes() {
         Err(IntentValidationError::InvalidCheckpoint)
     );
 }
+
+#[test]
+fn prepared_successor_from_checkpoint_requires_trusted_recovery() {
+    let trusted = LocalSequence {
+        node_id: "node-1".into(),
+        value: 7,
+    };
+    let cursor = |node_id: &str, value| LocalSequence {
+        node_id: node_id.into(),
+        value,
+    };
+    for (recovered, expected) in [(7, 8), (9, 10)] {
+        assert_eq!(
+            trusted.prepare_next_after_checkpoint(
+                &cursor("node-1", recovered).checkpoint_bytes().unwrap()
+            ),
+            Ok(cursor("node-1", expected))
+        );
+    }
+    assert_eq!(
+        trusted.prepare_next_after_checkpoint(&cursor("node-1", 6).checkpoint_bytes().unwrap()),
+        Err(IntentValidationError::CheckpointRollback)
+    );
+    assert_eq!(
+        trusted.prepare_next_after_checkpoint(&cursor("node-2", 9).checkpoint_bytes().unwrap()),
+        Err(IntentValidationError::CheckpointNodeMismatch)
+    );
+    assert_eq!(
+        trusted.prepare_next_after_checkpoint(b"ptah.local-sequence.v1\nnode-1\n09\n"),
+        Err(IntentValidationError::InvalidCheckpoint)
+    );
+    assert_eq!(
+        trusted
+            .prepare_next_after_checkpoint(&cursor("node-1", u64::MAX).checkpoint_bytes().unwrap()),
+        Err(IntentValidationError::SequenceExhausted)
+    );
+}

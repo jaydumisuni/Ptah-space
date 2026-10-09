@@ -119,6 +119,16 @@ impl LocalSequence {
         Ok(recovered)
     }
 
+    // E06-02 preparation: produce only a tentative successor after verifying
+    // untrusted recovery bytes against the trusted cursor. A durable store must
+    // atomically commit this value before an intent can reference it.
+    pub fn prepare_next_after_checkpoint(
+        &self,
+        bytes: &[u8],
+    ) -> Result<Self, IntentValidationError> {
+        self.recover_checked_checkpoint(bytes)?.checked_next()
+    }
+
     pub fn checkpoint_bytes(&self) -> Result<Vec<u8>, IntentValidationError> {
         validate_identity_field("origin.node_id", &self.node_id)?;
         if self.value == 0 {

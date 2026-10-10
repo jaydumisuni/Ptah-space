@@ -1,4 +1,4 @@
-use ptah_offline_intent::{IntentValidationError, LocalSequence, QueuedIntent};
+use ptah_offline_intent::{IntentValidationError, LocalSequence, QueuedIntent, ReplayDisposition};
 
 fn queued(
     action: &str,
@@ -391,5 +391,36 @@ fn prepared_successor_from_checkpoint_requires_trusted_recovery() {
         trusted
             .prepare_next_after_checkpoint(&cursor("node-1", u64::MAX).checkpoint_bytes().unwrap()),
         Err(IntentValidationError::SequenceExhausted)
+    );
+}
+
+#[test]
+fn replay_preflight_is_idempotent_but_never_grants_authority() {
+    let original = queued("prepare", 7, format!("sha256:{}", "a".repeat(64))).unwrap();
+    assert_eq!(
+        original.classify_replay(&original),
+        Ok(ReplayDisposition::Idempotent)
+    );
+    let mut conflicting = original.clone();
+    conflicting.action = "execute".into();
+    assert_eq!(
+        original.classify_replay(&conflicting),
+        Err(IntentValidationError::ConflictingReplay)
+    );
+    let mut reused = original.clone();
+    reused.intent_id = "intent-2".into();
+    assert_eq!(
+        original.classify_replay(&reused),
+        Err(IntentValidationError::ReusedOriginSequence)
+    );
+    reused.origin.value = 8;
+    assert_eq!(
+        original.classify_replay(&reused),
+        Ok(ReplayDisposition::Distinct)
+    );
+    reused.revalidate_required = false;
+    assert_eq!(
+        original.classify_replay(&reused),
+        Err(IntentValidationError::InvalidReplayState)
     );
 }

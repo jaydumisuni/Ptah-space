@@ -12,6 +12,9 @@ pub enum IntentValidationError {
     InvalidCheckpoint,
     CheckpointNodeMismatch,
     CheckpointRollback,
+    ConflictingReplay,
+    ReusedOriginSequence,
+    InvalidReplayState,
 }
 
 impl fmt::Display for IntentValidationError {
@@ -38,6 +41,11 @@ impl fmt::Display for IntentValidationError {
             Self::CheckpointRollback => {
                 write!(f, "recovered checkpoint would roll back local sequence")
             }
+            Self::ConflictingReplay => write!(f, "intent identity replays different content"),
+            Self::ReusedOriginSequence => {
+                write!(f, "origin sequence is already bound to another intent")
+            }
+            Self::InvalidReplayState => write!(f, "replay cannot waive revalidation"),
         }
     }
 }
@@ -50,6 +58,12 @@ pub enum LocalIntentState {
     RejectedStale,
     ReadyToApply,
     Applied,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplayDisposition {
+    Distinct,
+    Idempotent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -189,6 +203,28 @@ pub struct QueuedIntent {
 }
 
 impl QueuedIntent {
+    // E06-02 pure idempotency preflight; no storage, allocation, or authority grant.
+    // The durable store must apply this under its atomic append lock.
+    pub fn classify_replay(
+        &self,
+        candidate: &Self,
+    ) -> Result<ReplayDisposition, IntentValidationError> {
+        if !self.revalidate_required || !candidate.revalidate_required {
+            return Err(IntentValidationError::InvalidReplayState);
+        }
+        if self.intent_id == candidate.intent_id {
+            return if self == candidate {
+                Ok(ReplayDisposition::Idempotent)
+            } else {
+                Err(IntentValidationError::ConflictingReplay)
+            };
+        }
+        if self.origin == candidate.origin {
+            return Err(IntentValidationError::ReusedOriginSequence);
+        }
+        Ok(ReplayDisposition::Distinct)
+    }
+
     // E06 keeps each canonical identity explicit at construction so authority-bound fields
     // cannot be silently omitted or inherited from ambient state.
     #[allow(clippy::too_many_arguments)]

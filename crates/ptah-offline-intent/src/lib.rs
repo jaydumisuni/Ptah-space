@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IntentValidationError {
@@ -231,8 +231,24 @@ impl QueuedIntent {
         history: impl IntoIterator<Item = &'a Self>,
     ) -> Result<ReplayDisposition, IntentValidationError> {
         self.validate_replay_envelope()?;
+        // A candidate must not be admitted over a corrupt existing journal,
+        // even when its own identity is unrelated to the conflicting records.
+        // Index by both identity and origin to keep this preflight linear.
+        let mut seen_ids: HashMap<&str, &Self> = HashMap::new();
+        let mut seen_origins: HashMap<(&str, u64), &Self> = HashMap::new();
         let mut replayed = false;
         for stored in history {
+            stored.validate_replay_envelope()?;
+            if let Some(prior) = seen_ids.get(stored.intent_id.as_str()) {
+                prior.classify_replay(stored)?;
+            }
+            if let Some(prior) =
+                seen_origins.get(&(stored.origin.node_id.as_str(), stored.origin.value))
+            {
+                prior.classify_replay(stored)?;
+            }
+            seen_ids.insert(&stored.intent_id, stored);
+            seen_origins.insert((&stored.origin.node_id, stored.origin.value), stored);
             match stored.classify_replay(self)? {
                 ReplayDisposition::Idempotent => replayed = true,
                 ReplayDisposition::Distinct => {}

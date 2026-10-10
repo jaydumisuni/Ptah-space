@@ -497,3 +497,32 @@ fn full_history_preflight_revalidates_each_stored_envelope() {
         Err(IntentValidationError::InvalidReplayState)
     );
 }
+
+#[test]
+fn full_history_preflight_rejects_corruption_unrelated_to_candidate() {
+    let candidate = queued("prepare", 7, format!("sha256:{}", "a".repeat(64))).unwrap();
+    let mut first = candidate.clone();
+    first.intent_id = "intent-2".into();
+    first.origin.value = 8;
+
+    let mut conflicting = first.clone();
+    conflicting.action = "execute".into();
+    assert_eq!(
+        candidate.classify_against_history([&first, &conflicting]),
+        Err(IntentValidationError::ConflictingReplay)
+    );
+
+    let mut reused_origin = first.clone();
+    reused_origin.intent_id = "intent-3".into();
+    assert_eq!(
+        candidate.classify_against_history([&first, &reused_origin]),
+        Err(IntentValidationError::ReusedOriginSequence)
+    );
+
+    // Exact duplicate journal entries are idempotent, not authority grants.
+    assert_eq!(
+        candidate.classify_against_history([&first, &first]),
+        Ok(ReplayDisposition::Distinct)
+    );
+    assert!(candidate.revalidate_required);
+}

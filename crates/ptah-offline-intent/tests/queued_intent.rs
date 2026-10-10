@@ -424,3 +424,28 @@ fn replay_preflight_is_idempotent_but_never_grants_authority() {
         Err(IntentValidationError::InvalidReplayState)
     );
 }
+
+#[test]
+fn replay_preflight_revalidates_mutable_envelopes_before_identity_comparison() {
+    let original = queued("prepare", 7, format!("sha256:{}", "a".repeat(64))).unwrap();
+    let mut invalid_candidate = original.clone();
+    invalid_candidate.workspace_id = " ".into();
+    assert_eq!(
+        original.classify_replay(&invalid_candidate),
+        Err(IntentValidationError::Empty("workspace_id"))
+    );
+
+    invalid_candidate.workspace_id = original.workspace_id.clone();
+    invalid_candidate.canonical_input_digest = format!("sha256:{}", "A".repeat(64));
+    assert_eq!(
+        original.classify_replay(&invalid_candidate),
+        Err(IntentValidationError::InvalidDigest)
+    );
+
+    let mut invalid_stored = original.clone();
+    invalid_stored.origin.value = 0;
+    assert_eq!(
+        invalid_stored.classify_replay(&original),
+        Err(IntentValidationError::ZeroSequence)
+    );
+}

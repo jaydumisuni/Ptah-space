@@ -203,15 +203,33 @@ pub struct QueuedIntent {
 }
 
 impl QueuedIntent {
+    // Public fields can be mutated after construction. Validate both envelopes
+    // again before comparing identities; this is not a durable append or grant.
+    fn validate_replay_envelope(&self) -> Result<(), IntentValidationError> {
+        if !self.revalidate_required {
+            return Err(IntentValidationError::InvalidReplayState);
+        }
+        Self::try_new(
+            self.intent_id.clone(),
+            self.workspace_id.clone(),
+            self.activity_id.clone(),
+            self.operation_id.clone(),
+            self.attempt_id.clone(),
+            self.origin.clone(),
+            self.action.clone(),
+            self.canonical_input_digest.clone(),
+        )?;
+        Ok(())
+    }
+
     // E06-02 pure idempotency preflight; no storage, allocation, or authority grant.
     // The durable store must apply this under its atomic append lock.
     pub fn classify_replay(
         &self,
         candidate: &Self,
     ) -> Result<ReplayDisposition, IntentValidationError> {
-        if !self.revalidate_required || !candidate.revalidate_required {
-            return Err(IntentValidationError::InvalidReplayState);
-        }
+        self.validate_replay_envelope()?;
+        candidate.validate_replay_envelope()?;
         if self.intent_id == candidate.intent_id {
             return if self == candidate {
                 Ok(ReplayDisposition::Idempotent)

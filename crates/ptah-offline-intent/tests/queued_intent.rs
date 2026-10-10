@@ -449,3 +449,51 @@ fn replay_preflight_revalidates_mutable_envelopes_before_identity_comparison() {
         Err(IntentValidationError::ZeroSequence)
     );
 }
+
+#[test]
+fn full_history_preflight_rejects_late_conflict_after_idempotent_match() {
+    let candidate = queued("prepare", 7, format!("sha256:{}", "a".repeat(64))).unwrap();
+    let mut later_conflict = candidate.clone();
+    later_conflict.action = "execute".into();
+    assert_eq!(
+        candidate.classify_against_history([&candidate, &later_conflict]),
+        Err(IntentValidationError::ConflictingReplay)
+    );
+
+    let mut sequence_alias = candidate.clone();
+    sequence_alias.intent_id = "intent-2".into();
+    assert_eq!(
+        candidate.classify_against_history([&candidate, &sequence_alias]),
+        Err(IntentValidationError::ReusedOriginSequence)
+    );
+}
+
+#[test]
+fn full_history_preflight_preserves_distinct_and_idempotent_without_authority() {
+    let candidate = queued("prepare", 7, format!("sha256:{}", "a".repeat(64))).unwrap();
+    let mut other = candidate.clone();
+    other.intent_id = "intent-2".into();
+    other.origin.value = 8;
+    assert_eq!(
+        candidate.classify_against_history([&other]),
+        Ok(ReplayDisposition::Distinct)
+    );
+    assert_eq!(
+        candidate.classify_against_history([&other, &candidate]),
+        Ok(ReplayDisposition::Idempotent)
+    );
+    assert!(candidate.revalidate_required);
+}
+
+#[test]
+fn full_history_preflight_revalidates_each_stored_envelope() {
+    let candidate = queued("prepare", 7, format!("sha256:{}", "a".repeat(64))).unwrap();
+    let mut malformed = candidate.clone();
+    malformed.intent_id = "intent-2".into();
+    malformed.origin.value = 8;
+    malformed.revalidate_required = false;
+    assert_eq!(
+        candidate.classify_against_history([&malformed]),
+        Err(IntentValidationError::InvalidReplayState)
+    );
+}

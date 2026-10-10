@@ -222,6 +222,29 @@ impl QueuedIntent {
         Ok(())
     }
 
+    // E06-02 preparation: inspect the entire append history before accepting a
+    // candidate. An earlier idempotent match must not conceal a later conflict.
+    // This is pure preflight; the durable store must hold its append lock and
+    // atomically persist the cursor and envelope before acknowledging either.
+    pub fn classify_against_history<'a>(
+        &self,
+        history: impl IntoIterator<Item = &'a Self>,
+    ) -> Result<ReplayDisposition, IntentValidationError> {
+        self.validate_replay_envelope()?;
+        let mut replayed = false;
+        for stored in history {
+            match stored.classify_replay(self)? {
+                ReplayDisposition::Idempotent => replayed = true,
+                ReplayDisposition::Distinct => {}
+            }
+        }
+        Ok(if replayed {
+            ReplayDisposition::Idempotent
+        } else {
+            ReplayDisposition::Distinct
+        })
+    }
+
     // E06-02 pure idempotency preflight; no storage, allocation, or authority grant.
     // The durable store must apply this under its atomic append lock.
     pub fn classify_replay(

@@ -540,3 +540,61 @@ fn full_history_preflight_rejects_unrelated_corruption_after_idempotent_replay()
         Err(IntentValidationError::ReusedOriginSequence)
     );
 }
+
+#[test]
+fn prepared_origin_preflight_requires_exact_recovered_successor() {
+    let trusted = LocalSequence {
+        node_id: "node-1".into(),
+        value: 7,
+    };
+    let recovered = LocalSequence {
+        node_id: "node-1".into(),
+        value: 9,
+    };
+    let checkpoint = recovered.checkpoint_bytes().unwrap();
+    let digest = format!("sha256:{}", "a".repeat(64));
+    let accepted = queued("prepare", 10, digest.clone()).unwrap();
+    assert_eq!(
+        accepted.preflight_origin_after_checkpoint(&trusted, &checkpoint),
+        Ok(())
+    );
+
+    for wrong_sequence in [8, 9, 11] {
+        let candidate = queued("prepare", wrong_sequence, digest.clone()).unwrap();
+        assert_eq!(
+            candidate.preflight_origin_after_checkpoint(&trusted, &checkpoint),
+            Err(IntentValidationError::UnexpectedOriginSequence)
+        );
+    }
+
+    let mut foreign = accepted.clone();
+    foreign.origin.node_id = "node-2".into();
+    assert_eq!(
+        foreign.preflight_origin_after_checkpoint(&trusted, &checkpoint),
+        Err(IntentValidationError::CheckpointNodeMismatch)
+    );
+
+    let mut waived = accepted.clone();
+    waived.revalidate_required = false;
+    assert_eq!(
+        waived.preflight_origin_after_checkpoint(&trusted, &checkpoint),
+        Err(IntentValidationError::InvalidReplayState)
+    );
+
+    let stale = LocalSequence {
+        node_id: "node-1".into(),
+        value: 6,
+    };
+    assert_eq!(
+        accepted.preflight_origin_after_checkpoint(&trusted, &stale.checkpoint_bytes().unwrap()),
+        Err(IntentValidationError::CheckpointRollback)
+    );
+    let other = LocalSequence {
+        node_id: "node-2".into(),
+        value: 9,
+    };
+    assert_eq!(
+        accepted.preflight_origin_after_checkpoint(&trusted, &other.checkpoint_bytes().unwrap()),
+        Err(IntentValidationError::CheckpointNodeMismatch)
+    );
+}

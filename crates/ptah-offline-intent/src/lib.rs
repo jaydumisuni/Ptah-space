@@ -14,6 +14,7 @@ pub enum IntentValidationError {
     CheckpointRollback,
     ConflictingReplay,
     ReusedOriginSequence,
+    UnexpectedOriginSequence,
     InvalidReplayState,
 }
 
@@ -44,6 +45,12 @@ impl fmt::Display for IntentValidationError {
             Self::ConflictingReplay => write!(f, "intent identity replays different content"),
             Self::ReusedOriginSequence => {
                 write!(f, "origin sequence is already bound to another intent")
+            }
+            Self::UnexpectedOriginSequence => {
+                write!(
+                    f,
+                    "queued intent origin is not the prepared local successor"
+                )
             }
             Self::InvalidReplayState => write!(f, "replay cannot waive revalidation"),
         }
@@ -219,6 +226,25 @@ impl QueuedIntent {
             self.action.clone(),
             self.canonical_input_digest.clone(),
         )?;
+        Ok(())
+    }
+
+    // E06-02 pre-append guard: bind the mutable intent to the exact successor
+    // of a recovered checkpoint and trusted cursor. This does not persist the
+    // cursor or envelope, lock the journal, or grant execution authority.
+    pub fn preflight_origin_after_checkpoint(
+        &self,
+        trusted_cursor: &LocalSequence,
+        checkpoint_bytes: &[u8],
+    ) -> Result<(), IntentValidationError> {
+        self.validate_replay_envelope()?;
+        let expected = trusted_cursor.prepare_next_after_checkpoint(checkpoint_bytes)?;
+        if self.origin.node_id != expected.node_id {
+            return Err(IntentValidationError::CheckpointNodeMismatch);
+        }
+        if self.origin.value != expected.value {
+            return Err(IntentValidationError::UnexpectedOriginSequence);
+        }
         Ok(())
     }
 

@@ -526,3 +526,17 @@ fn full_history_preflight_rejects_corruption_unrelated_to_candidate() {
     );
     assert!(candidate.revalidate_required);
 }
+
+#[test]
+fn full_history_preflight_rejects_unrelated_corruption_after_idempotent_replay() {
+    let candidate = queued("prepare", 7, format!("sha256:{}", "a".repeat(64))).unwrap();
+    let mut other = candidate.clone();
+    other.intent_id = "intent-2".into();
+    other.origin.value = 8;
+    let mut conflicting = other.clone();
+    conflicting.intent_id = "intent-3".into();
+    assert_eq!(
+        candidate.classify_against_history([&candidate, &other, &conflicting]),
+        Err(IntentValidationError::ReusedOriginSequence)
+    );
+}

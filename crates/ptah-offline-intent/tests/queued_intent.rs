@@ -479,7 +479,7 @@ fn full_history_preflight_preserves_distinct_and_idempotent_without_authority() 
         Ok(ReplayDisposition::Distinct)
     );
     assert_eq!(
-        candidate.classify_against_history([&other, &candidate]),
+        candidate.classify_against_history([&candidate, &other]),
         Ok(ReplayDisposition::Idempotent)
     );
     assert!(candidate.revalidate_required);
@@ -619,5 +619,26 @@ fn ordered_journal_rejects_reordered_origin_sequence_for_same_node() {
     assert_eq!(
         QueuedIntent::validate_append_order([&first, &foreign]),
         Ok(())
+    );
+}
+
+#[test]
+fn full_history_preflight_rejects_out_of_order_journal_even_when_replay_is_distinct() {
+    let candidate = queued("prepare", 7, format!("sha256:{}", "a".repeat(64))).unwrap();
+    let mut newer = candidate.clone();
+    newer.intent_id = "intent-2".into();
+    newer.origin.value = 9;
+    let mut older = candidate.clone();
+    older.intent_id = "intent-3".into();
+    older.origin.value = 8;
+    assert_eq!(
+        candidate.classify_against_history([&newer, &older]),
+        Err(IntentValidationError::OutOfOrderOriginSequence)
+    );
+    let mut other_node = older.clone();
+    other_node.origin.node_id = "node-2".into();
+    assert_eq!(
+        candidate.classify_against_history([&newer, &other_node]),
+        Ok(ReplayDisposition::Distinct)
     );
 }

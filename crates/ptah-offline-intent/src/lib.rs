@@ -267,6 +267,10 @@ impl QueuedIntent {
         let mut seen_ids: HashMap<&str, &Self> = HashMap::new();
         let mut seen_origins: HashMap<(&str, u64), &Self> = HashMap::new();
         let mut replayed = false;
+        // Replay classification must not accept an append journal whose
+        // per-node sequence regresses, even if every identity is distinct.
+        let history: Vec<_> = history.into_iter().collect();
+        Self::validate_append_order(history.iter().copied())?;
         for stored in history {
             stored.validate_replay_envelope()?;
             if let Some(prior) = seen_ids.get(stored.intent_id.as_str()) {
@@ -291,8 +295,8 @@ impl QueuedIntent {
         })
     }
 
-    // E06-02 ordered journal recovery guard. Unlike unordered replay comparison,
-    // an append journal must never move a node's local sequence backwards.
+    // E06-02 ordered journal recovery guard. Replay preflight and recovery
+    // both reject an append journal that moves a node's sequence backwards.
     // This is pure validation; the durable reader must separately validate
     // replay conflicts and must not infer authorization from journal ordering.
     pub fn validate_append_order<'a>(

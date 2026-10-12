@@ -295,6 +295,33 @@ impl QueuedIntent {
         })
     }
 
+    // E06-02 pure pre-append composition. An exact idempotent replay is not
+    // a new allocation; distinct intents must be the recovered successor and
+    // extend the validated journal order. The durable writer must still hold
+    // its lock and atomically persist cursor plus envelope before acknowledging.
+    pub fn preflight_append_after_checkpoint<'a>(
+        &self,
+        trusted_cursor: &LocalSequence,
+        checkpoint_bytes: &[u8],
+        history: impl IntoIterator<Item = &'a Self>,
+    ) -> Result<ReplayDisposition, IntentValidationError> {
+        self.validate_replay_envelope()?;
+        let recovered = trusted_cursor.recover_checked_checkpoint(checkpoint_bytes)?;
+        if self.origin.node_id != recovered.node_id {
+            return Err(IntentValidationError::CheckpointNodeMismatch);
+        }
+        let history: Vec<_> = history.into_iter().collect();
+        let replay = self.classify_against_history(history.iter().copied())?;
+        if replay == ReplayDisposition::Idempotent {
+            return Ok(replay);
+        }
+        if self.origin.value != recovered.checked_next()?.value {
+            return Err(IntentValidationError::UnexpectedOriginSequence);
+        }
+        Self::validate_append_order(history.into_iter().chain(std::iter::once(self)))?;
+        Ok(replay)
+    }
+
     // E06-02 ordered journal recovery guard. Replay preflight and recovery
     // both reject an append journal that moves a node's sequence backwards.
     // This is pure validation; the durable reader must separately validate

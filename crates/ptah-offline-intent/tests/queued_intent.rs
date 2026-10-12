@@ -642,3 +642,59 @@ fn full_history_preflight_rejects_out_of_order_journal_even_when_replay_is_disti
         Ok(ReplayDisposition::Distinct)
     );
 }
+
+#[test]
+fn append_preflight_requires_successor_and_preserves_idempotent_replay() {
+    let digest = format!("sha256:{}", "a".repeat(64));
+    let trusted = LocalSequence {
+        node_id: "node-1".into(),
+        value: 7,
+    };
+    let recovered = LocalSequence {
+        node_id: "node-1".into(),
+        value: 9,
+    };
+    let checkpoint = recovered.checkpoint_bytes().unwrap();
+    let mut earlier = queued("prepare", 8, digest.clone()).unwrap();
+    earlier.intent_id = "intent-8".into();
+    let mut latest = queued("prepare", 9, digest.clone()).unwrap();
+    latest.intent_id = "intent-9".into();
+    let next = queued("prepare", 10, digest.clone()).unwrap();
+    assert_eq!(
+        next.preflight_append_after_checkpoint(&trusted, &checkpoint, [&earlier, &latest]),
+        Ok(ReplayDisposition::Distinct)
+    );
+    assert_eq!(
+        earlier.preflight_append_after_checkpoint(&trusted, &checkpoint, [&earlier, &latest]),
+        Ok(ReplayDisposition::Idempotent)
+    );
+    let stale = queued("prepare", 8, digest.clone()).unwrap();
+    assert_eq!(
+        stale.preflight_append_after_checkpoint(&trusted, &checkpoint, [&earlier, &latest]),
+        Err(IntentValidationError::ReusedOriginSequence)
+    );
+    let mut skipped = next.clone();
+    skipped.origin.value = 11;
+    assert_eq!(
+        skipped.preflight_append_after_checkpoint(&trusted, &checkpoint, [&earlier, &latest]),
+        Err(IntentValidationError::UnexpectedOriginSequence)
+    );
+    let mut foreign = next.clone();
+    foreign.origin.node_id = "node-2".into();
+    assert_eq!(
+        foreign.preflight_append_after_checkpoint(&trusted, &checkpoint, [&earlier, &latest]),
+        Err(IntentValidationError::CheckpointNodeMismatch)
+    );
+    assert_eq!(
+        next.preflight_append_after_checkpoint(
+            &trusted,
+            &earlier.origin.checkpoint_bytes().unwrap(),
+            [&earlier, &latest]
+        ),
+        Err(IntentValidationError::UnexpectedOriginSequence)
+    );
+    assert_eq!(
+        next.preflight_append_after_checkpoint(&trusted, &checkpoint, [&latest, &earlier]),
+        Err(IntentValidationError::OutOfOrderOriginSequence)
+    );
+}

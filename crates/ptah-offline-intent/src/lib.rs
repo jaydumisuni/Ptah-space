@@ -267,12 +267,17 @@ impl QueuedIntent {
         let mut seen_ids: HashMap<&str, &Self> = HashMap::new();
         let mut seen_origins: HashMap<(&str, u64), &Self> = HashMap::new();
         let mut replayed = false;
-        // Replay classification must not accept an append journal whose
-        // per-node sequence regresses, even if every identity is distinct.
-        let history: Vec<_> = history.into_iter().collect();
-        Self::validate_append_order(history.iter().copied())?;
+        // Validate append order while streaming history rather than
+        // materializing an unbounded second copy of the journal.
+        let mut last_sequence_by_node: HashMap<&str, u64> = HashMap::new();
         for stored in history {
             stored.validate_replay_envelope()?;
+            if let Some(previous) = last_sequence_by_node.get(stored.origin.node_id.as_str()) {
+                if stored.origin.value < *previous {
+                    return Err(IntentValidationError::OutOfOrderOriginSequence);
+                }
+            }
+            last_sequence_by_node.insert(stored.origin.node_id.as_str(), stored.origin.value);
             if let Some(prior) = seen_ids.get(stored.intent_id.as_str()) {
                 prior.classify_replay(stored)?;
             }

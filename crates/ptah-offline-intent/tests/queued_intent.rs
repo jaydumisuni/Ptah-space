@@ -698,3 +698,19 @@ fn append_preflight_requires_successor_and_preserves_idempotent_replay() {
         Err(IntentValidationError::OutOfOrderOriginSequence)
     );
 }
+
+#[test]
+fn full_history_preflight_stops_at_first_invalid_record_without_draining_iterator() {
+    let digest = format!("sha256:{}", "a".repeat(64));
+    let candidate = queued("prepare", 9, digest.clone()).unwrap();
+    let mut invalid = queued("prepare", 8, digest).unwrap();
+    invalid.revalidate_required = false;
+    let history =
+        std::iter::once(&invalid).chain(std::iter::from_fn(|| -> Option<&QueuedIntent> {
+            panic!("preflight drained history after invalid record")
+        }));
+    assert_eq!(
+        candidate.classify_against_history(history),
+        Err(IntentValidationError::InvalidReplayState)
+    );
+}

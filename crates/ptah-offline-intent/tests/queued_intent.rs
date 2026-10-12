@@ -598,3 +598,26 @@ fn prepared_origin_preflight_requires_exact_recovered_successor() {
         Err(IntentValidationError::CheckpointNodeMismatch)
     );
 }
+
+#[test]
+fn ordered_journal_rejects_reordered_origin_sequence_for_same_node() {
+    let candidate = queued("prepare", 7, format!("sha256:{}", "a".repeat(64))).unwrap();
+    let mut first = candidate.clone();
+    first.intent_id = "intent-2".into();
+    first.origin.value = 9;
+    let mut older = candidate.clone();
+    older.intent_id = "intent-3".into();
+    older.origin.value = 8;
+    assert_eq!(
+        QueuedIntent::validate_append_order([&first, &older]),
+        Err(IntentValidationError::OutOfOrderOriginSequence)
+    );
+
+    let mut foreign = older.clone();
+    foreign.intent_id = "intent-4".into();
+    foreign.origin.node_id = "node-2".into();
+    assert_eq!(
+        QueuedIntent::validate_append_order([&first, &foreign]),
+        Ok(())
+    );
+}

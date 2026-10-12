@@ -14,6 +14,7 @@ pub enum IntentValidationError {
     CheckpointRollback,
     ConflictingReplay,
     ReusedOriginSequence,
+    OutOfOrderOriginSequence,
     UnexpectedOriginSequence,
     InvalidReplayState,
 }
@@ -45,6 +46,9 @@ impl fmt::Display for IntentValidationError {
             Self::ConflictingReplay => write!(f, "intent identity replays different content"),
             Self::ReusedOriginSequence => {
                 write!(f, "origin sequence is already bound to another intent")
+            }
+            Self::OutOfOrderOriginSequence => {
+                write!(f, "journal origin sequence regressed within one node")
             }
             Self::UnexpectedOriginSequence => {
                 write!(
@@ -285,6 +289,26 @@ impl QueuedIntent {
         } else {
             ReplayDisposition::Distinct
         })
+    }
+
+    // E06-02 ordered journal recovery guard. Unlike unordered replay comparison,
+    // an append journal must never move a node's local sequence backwards.
+    // This is pure validation; the durable reader must separately validate
+    // replay conflicts and must not infer authorization from journal ordering.
+    pub fn validate_append_order<'a>(
+        history: impl IntoIterator<Item = &'a Self>,
+    ) -> Result<(), IntentValidationError> {
+        let mut last_sequence_by_node: HashMap<&str, u64> = HashMap::new();
+        for stored in history {
+            stored.validate_replay_envelope()?;
+            if let Some(previous) = last_sequence_by_node.get(stored.origin.node_id.as_str()) {
+                if stored.origin.value < *previous {
+                    return Err(IntentValidationError::OutOfOrderOriginSequence);
+                }
+            }
+            last_sequence_by_node.insert(stored.origin.node_id.as_str(), stored.origin.value);
+        }
+        Ok(())
     }
 
     // E06-02 pure idempotency preflight; no storage, allocation, or authority grant.

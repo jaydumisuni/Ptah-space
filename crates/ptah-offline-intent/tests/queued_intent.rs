@@ -691,11 +691,25 @@ fn append_preflight_requires_successor_and_preserves_idempotent_replay() {
             &earlier.origin.checkpoint_bytes().unwrap(),
             [&earlier, &latest]
         ),
-        Err(IntentValidationError::UnexpectedOriginSequence)
+        Err(IntentValidationError::CheckpointJournalMismatch)
     );
     assert_eq!(
         next.preflight_append_after_checkpoint(&trusted, &checkpoint, [&latest, &earlier]),
         Err(IntentValidationError::OutOfOrderOriginSequence)
+    );
+}
+
+#[test]
+fn append_preflight_rejects_journal_ahead_of_recovered_cursor_even_on_exact_replay() {
+    let trusted = LocalSequence {
+        node_id: "node-1".into(),
+        value: 7,
+    };
+    let checkpoint = trusted.checkpoint_bytes().unwrap();
+    let stored = queued("prepare", 8, format!("sha256:{}", "a".repeat(64))).unwrap();
+    assert_eq!(
+        stored.preflight_append_after_checkpoint(&trusted, &checkpoint, [&stored]),
+        Err(IntentValidationError::CheckpointJournalMismatch)
     );
 }
 

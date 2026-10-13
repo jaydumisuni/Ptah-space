@@ -12,6 +12,7 @@ pub enum IntentValidationError {
     InvalidCheckpoint,
     CheckpointNodeMismatch,
     CheckpointRollback,
+    CheckpointJournalMismatch,
     ConflictingReplay,
     ReusedOriginSequence,
     OutOfOrderOriginSequence,
@@ -42,6 +43,9 @@ impl fmt::Display for IntentValidationError {
             }
             Self::CheckpointRollback => {
                 write!(f, "recovered checkpoint would roll back local sequence")
+            }
+            Self::CheckpointJournalMismatch => {
+                write!(f, "append journal exceeds recovered local checkpoint")
             }
             Self::ConflictingReplay => write!(f, "intent identity replays different content"),
             Self::ReusedOriginSequence => {
@@ -321,6 +325,11 @@ impl QueuedIntent {
                 last_same_node_sequence = Some(stored.origin.value);
             }
         }))?;
+        // A journal ahead of its recovered cursor is inconsistent even when
+        // the candidate exactly replays a stored entry. Replay is not authority.
+        if last_same_node_sequence.is_some_and(|last| last > recovered.value) {
+            return Err(IntentValidationError::CheckpointJournalMismatch);
+        }
         if replay == ReplayDisposition::Idempotent {
             return Ok(replay);
         }

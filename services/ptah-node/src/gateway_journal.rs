@@ -55,6 +55,26 @@ pub struct RetainedAttempt {
     /// SHA-256 of actual untruncated A05 stdout.
     pub stdout_digest: Option<String>,
 }
+
+/// An unresolved durable dispatch requiring owner-mediated effect reconciliation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecoveryCandidate {
+    /// Original dispatch identity.
+    pub dispatch: String,
+    /// Original A04 Attempt identity.
+    pub attempt: String,
+    /// Exact request digest.
+    pub digest: String,
+    /// Original Node identity.
+    pub node: String,
+    /// Original Node Generation.
+    pub generation: u64,
+    /// Original connection epoch.
+    pub epoch: u64,
+    /// Last persisted control-issued fence for this attempt.
+    pub fence: u64,
+}
+
 /// Persistent Node-side attempt ownership and evidence store.
 pub struct GatewayJournal {
     db: Connection,
@@ -211,6 +231,39 @@ impl GatewayJournal {
             )
             .optional()
             .map_err(Into::into)
+    }
+
+    /// Enumerate crash-interrupted attempts for explicit owner reconciliation.
+    /// This is read-only and never promotes an attempt to completed or runnable.
+    ///
+    /// # Errors
+    ///
+    /// Propagates database errors and rejects an invalid stored fence.
+    pub fn unresolved(&self) -> Result<Vec<RecoveryCandidate>, JournalError> {
+        let mut statement = self.db.prepare(
+            "SELECT dispatch,attempt,digest,node,generation,epoch,fence
+             FROM ptah_gateway_attempts
+             WHERE phase='needs_reconciliation'
+             ORDER BY attempt, fence, dispatch",
+        )?;
+        let mut rows = statement.query([])?;
+        let mut candidates = Vec::new();
+        while let Some(row) = rows.next()? {
+            let generation: i64 = row.get(4)?;
+            let epoch: i64 = row.get(5)?;
+            let fence: i64 = row.get(6)?;
+            candidates.push(RecoveryCandidate {
+                dispatch: row.get(0)?,
+                attempt: row.get(1)?,
+                digest: row.get(2)?,
+                node: row.get(3)?,
+                generation: u64::try_from(generation)
+                    .map_err(|_| JournalError::Invalid("stored generation"))?,
+                epoch: u64::try_from(epoch).map_err(|_| JournalError::Invalid("stored epoch"))?,
+                fence: u64::try_from(fence).map_err(|_| JournalError::Invalid("stored fence"))?,
+            });
+        }
+        Ok(candidates)
     }
 
     /// Observe a real A05 exit and complete only this exact in-flight attempt.

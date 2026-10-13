@@ -96,3 +96,27 @@ unimplemented gates. Do not route Supervisor to this binary as an executor.
 The option parsing and enrollment/missing-secret tests pass 2/2; focused
 strict Clippy and offline compile pass. No running Ptah service or
 Supervisor configuration was changed.
+
+
+## Follow-on: E01 disconnect fencing and recovery inventory
+
+A Node's E01 session may be ended only if it remains the exact current
+canonical binding. A late close from a superseded connection cannot revoke a
+newer generation/epoch. Ending a current session also discards its cached
+Ptah Control placement state, preventing disconnected Nodes from appearing
+eligible on stale A02/E05 observations.
+
+The Node-side durable journal now provides a read-only
+\`unresolved()\` inventory containing dispatch and attempt identity,
+request digest, Node identity, generation, epoch and control-issued fence.
+A restarted in-flight entry remains \`needs_reconciliation\`. Merely reading
+this inventory cannot execute, complete or reauthorize an attempt.
+
+Tests: E01 session control (5/5), gateway journal/Node guard (6/6);
+focused strict Clippy and formatting PASS on KRATOS.
+
+**Still incomplete:** enrollment currently acknowledges then closes an E01
+connection. A continuously retained authenticated transport loop is not
+deployed. The retained-session transport is intentionally not part of this verified change set; it requires a separately reviewed deployment and lifetime contract. Persistent authenticated dispatch and
+independent reconciliation of unknown external process outcomes still
+require separate qualification.

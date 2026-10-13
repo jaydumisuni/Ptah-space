@@ -613,6 +613,11 @@ fn gateway_journal_preserves_pre_effect_state_and_never_replays_on_restart() {
                 .phase,
             "needs_reconciliation"
         );
+        let queue = recovered.unresolved().expect("recovery inventory");
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].digest, digest);
+        assert_eq!(queue[0].fence, frames.request.fence);
+
         assert_eq!(
             recovered
                 .stage(&fixture.node, &guard, &frames.request, now(), &digest)

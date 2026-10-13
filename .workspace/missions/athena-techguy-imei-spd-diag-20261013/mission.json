@@ -1,0 +1,32 @@
+{
+  "mission_id": "athena-techguy-imei-spd-diag-20261013",
+  "owner": "THETECHGUY",
+  "machine": "ATHENA",
+  "execution_lane": "ptah-self-hosted",
+  "runner_labels": ["self-hosted", "athena", "windows", "x64", "physical", "ptah"],
+  "scope": {
+    "techguy_imei": "D:\\projects\\TechGuy-IMEI",
+    "sleeper": "D:\\projects\\Sleeper-agent",
+    "donor_fetcher": "D:\\projects\\Donor Fetcher",
+    "ptah_workspace": "D:\\projects\\Ptah-space"
+  },
+  "frontier": [
+    "Read Info baseline is frozen and must not regress.",
+    "Device selector is authoritative; Bluetooth COM ports are excluded.",
+    "Selected A6611L is ADB serial 157503761E002929.",
+    "MTK META device may remain connected and must not be touched by SPD actions.",
+    "Recover exact normal-ADB -> fresh 1782:4D00 outer transition.",
+    "Phoenix 0x95FE is only valid after 1782:4D00 already exists.",
+    "sys.usb.config=diag,adb is not canonical unless physically reproved.",
+    "FDL2 partition backend remains staged with PARTITION_BACKEND_QUALIFIED=false.",
+    "Utilities partition READ/WRITE/WIPE must remain disabled until FDL2 is physically qualified."
+  ],
+  "phase": "read-only-recovery",
+  "mutation_policy": "none",
+  "success_criteria": [
+    "Recover exact last-known-good powered-on A6611L entry sequence from local code, logs, patches, history and receipts.",
+    "Identify one canonical active route; list competing/failed routes that must be retired.",
+    "Produce a receipt with exact files/functions/commands and evidence paths.",
+    "Do not reboot, power off, change USB composition, write NV, erase partitions, or modify project files."
+  ]
+}

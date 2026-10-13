@@ -1,0 +1,303 @@
+name: Ptah ATHENA TechGuy IMEI SPD-DIAG recovery
+
+on:
+  push:
+    branches:
+      - "mission/athena-techguy-imei-spd-diag-20261013"
+    paths:
+      - ".github/workflows/ptah-athena-techguy-imei-spd-diag-recovery.yml"
+      - ".workspace/missions/athena-techguy-imei-spd-diag-20261013/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recover-authority:
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 12
+    env:
+      TECHGUY_ROOT: 'D:\projects\TechGuy-IMEI'
+      SLEEPER_ROOT: 'D:\projects\Sleeper-agent'
+      DONOR_ROOT: 'D:\projects\Donor Fetcher'
+      PTAH_LOCAL_ROOT: 'D:\projects\Ptah-space'
+      ADB_EXE: 'C:\Program Files\platform-tools\adb.exe'
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Execute Ptah read-only recovery mission on ATHENA
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $report = Join-Path $env:RUNNER_TEMP 'ptah-athena-techguy-imei-spd-diag-readonly.txt'
+          $json = Join-Path $env:RUNNER_TEMP 'ptah-athena-techguy-imei-spd-diag-readonly.json'
+          $lines = New-Object System.Collections.Generic.List[string]
+
+          function Add-Line([string]$value = '') {
+            $lines.Add($value)
+          }
+
+          function Add-Section([string]$title) {
+            Add-Line ''
+            Add-Line ('==== ' + $title + ' ====')
+          }
+
+          function Add-Command([string]$title, [scriptblock]$command) {
+            Add-Section $title
+            try {
+              $out = & $command 2>&1 | Out-String
+              Add-Line $out.TrimEnd()
+            } catch {
+              Add-Line ('ERROR: ' + $_.Exception.Message)
+            }
+          }
+
+          function Git-Read([string]$repo, [string[]]$args) {
+            if (-not (Test-Path -LiteralPath $repo)) {
+              return 'MISSING_REPO'
+            }
+            $all = @('-c', ('safe.directory=' + $repo), '-C', $repo) + $args
+            return (& git @all 2>&1 | Out-String).TrimEnd()
+          }
+
+          function Read-Context([string]$path, [string[]]$patterns, [int]$before = 5, [int]$after = 18) {
+            if (-not (Test-Path -LiteralPath $path)) {
+              return 'MISSING_FILE: ' + $path
+            }
+            $result = New-Object System.Collections.Generic.List[string]
+            foreach ($pattern in $patterns) {
+              $result.Add(('--- PATTERN: ' + $pattern + ' ---'))
+              try {
+                $hits = Select-String -LiteralPath $path -Pattern $pattern -CaseSensitive:$false -Context $before,$after
+                if (-not $hits) {
+                  $result.Add('NO_MATCH')
+                  continue
+                }
+                foreach ($hit in $hits | Select-Object -First 20) {
+                  $result.Add(('LINE ' + $hit.LineNumber))
+                  foreach ($line in $hit.Context.PreContext) { $result.Add($line) }
+                  $result.Add($hit.Line)
+                  foreach ($line in $hit.Context.PostContext) { $result.Add($line) }
+                  $result.Add('')
+                }
+              } catch {
+                $result.Add(('ERROR: ' + $_.Exception.Message))
+              }
+            }
+            return ($result -join [Environment]::NewLine)
+          }
+
+          Add-Line 'PTAH_ATHENA_TECHGUY_IMEI_SPD_DIAG_RECOVERY_V1'
+          Add-Line ('HOST=' + $env:COMPUTERNAME)
+          Add-Line ('USER=' + [Environment]::UserName)
+          Add-Line ('RUNNER_NAME=' + $env:RUNNER_NAME)
+          Add-Line ('RUNNER_OS=' + $env:RUNNER_OS)
+          Add-Line ('NOW_UTC=' + (Get-Date).ToUniversalTime().ToString('o'))
+          Add-Line ('MISSION_BRANCH=' + $env:GITHUB_REF_NAME)
+          Add-Line ('MISSION_SHA=' + $env:GITHUB_SHA)
+          Add-Line 'MUTATION_POLICY=none'
+
+          Add-Command 'PTAH LOCAL HANDOFF' {
+            $handoff = Join-Path $env:PTAH_LOCAL_ROOT '.workspace\handoffs\from-oracle\PTAH_TERMINAL_HANDOFF.md'
+            if (Test-Path -LiteralPath $handoff) {
+              Get-Content -LiteralPath $handoff -TotalCount 500
+            } else {
+              'HANDOFF_NOT_FOUND=' + $handoff
+            }
+          }
+
+          foreach ($repo in @($env:TECHGUY_ROOT, $env:SLEEPER_ROOT, $env:DONOR_ROOT)) {
+            Add-Section ('REPOSITORY ' + $repo)
+            Add-Line (Git-Read $repo @('status','--short','--branch'))
+            Add-Line '--- HEAD ---'
+            Add-Line (Git-Read $repo @('rev-parse','HEAD'))
+            Add-Line '--- RECENT COMMITS ---'
+            Add-Line (Git-Read $repo @('log','-12','--date=iso','--pretty=format:%H|%ad|%s'))
+          }
+
+          Add-Command 'CANONICAL ADB VERSION' {
+            if (Test-Path -LiteralPath $env:ADB_EXE) {
+              & $env:ADB_EXE version
+            } else {
+              'ADB_MISSING=' + $env:ADB_EXE
+            }
+          }
+
+          Add-Command 'ADB DEVICES' {
+            if (Test-Path -LiteralPath $env:ADB_EXE) {
+              & $env:ADB_EXE devices -l
+            }
+          }
+
+          Add-Command 'USB / COM TOPOLOGY' {
+            Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.InstanceId -match 'VID_1782|VID_18D1|VID_0E8D|BTHENUM' -or
+                $_.FriendlyName -match 'SPRD|UNISOC|MediaTek|META|Bluetooth|ADB'
+              } |
+              Select-Object Status,Class,FriendlyName,InstanceId |
+              Format-Table -Wrap -AutoSize
+          }
+
+          Add-Section 'TECHGUY SELECTOR / BRIDGE'
+          Add-Line (Read-Context (Join-Path $env:TECHGUY_ROOT 'gui\main_window.py') @(
+            '_bind_selected_target',
+            '_selected_device_context',
+            '_on_boot_service_mode_click',
+            '_start_deep_service_mode'
+          ))
+          Add-Line (Read-Context (Join-Path $env:TECHGUY_ROOT 'core\sleeper_bridge.py') @(
+            'def boot_service_mode',
+            'def enter_authorized_service_transport',
+            'canonical_adb_path',
+            'request_diag_mode'
+          ))
+          Add-Line (Read-Context (Join-Path $env:TECHGUY_ROOT 'core\toolchain.py') @(
+            'CANONICAL_ADB',
+            'REQUIRED_ADB_PROTOCOL_VERSION',
+            'canonical_adb_path'
+          ))
+
+          Add-Section 'SLEEPER ACTIVE DIAG ROUTES'
+          Add-Line (Read-Context (Join-Path $env:SLEEPER_ROOT 'src\techguy_netunlock\sleeper\windows_entry_runtime.py') @(
+            'service.unisoc-diag',
+            '_run_unisoc_adb_factory_diag',
+            '_run_unisoc_reboot_diag',
+            '_run_a6611l_android_poweroff_to_factory_diag',
+            '_run_a6611l_fdl_to_factory_diag'
+          ) 7 35)
+          Add-Line (Read-Context (Join-Path $env:SLEEPER_ROOT 'src\techguy_netunlock\sleeper\adb_transport.py') @(
+            'def _argv',
+            'def request_diag_mode',
+            'def request_reboot',
+            'sys.usb.config',
+            'diag,adb'
+          ) 5 24)
+
+          Add-Section 'SLEEPER QUALIFIED DONOR KNOWLEDGE'
+          Add-Line (Read-Context (Join-Path $env:SLEEPER_ROOT 'src\techguy_netunlock\sleeper\knowledge\entry_donors.json') @(
+            'itel.a6611l.android-adb-factory-diag',
+            '1782:4D00',
+            'diag,adb',
+            'vser',
+            '0x95FE'
+          ) 5 28)
+
+          Add-Section 'FDL2 QUALIFICATION GATE'
+          Add-Line (Read-Context (Join-Path $env:SLEEPER_ROOT 'src\techguy_netunlock\sleeper\unisoc_fdl2_partitions.py') @(
+            'PARTITION_BACKEND_QUALIFIED',
+            'list_unisoc_fdl2_partitions',
+            'read_unisoc_fdl2_partition',
+            'write_unisoc_fdl2_partition',
+            'erase_unisoc_fdl2_partition'
+          ) 3 18)
+
+          Add-Section 'LOCAL RECOVERY PATCHES'
+          $recovery = Join-Path $env:DONOR_ROOT 'evidence\recovery'
+          if (Test-Path -LiteralPath $recovery) {
+            Get-ChildItem -LiteralPath $recovery -File |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 20 FullName,Length,LastWriteTime |
+              ForEach-Object { Add-Line (($_ | Format-List | Out-String).Trim()) }
+            foreach ($file in Get-ChildItem -LiteralPath $recovery -File | Sort-Object LastWriteTime -Descending | Select-Object -First 8) {
+              Add-Line ('--- RECOVERY FILE: ' + $file.FullName + ' ---')
+              try {
+                $hits = Select-String -LiteralPath $file.FullName -Pattern 'COM52|factory-DIAG|service.unisoc-diag|request_diag_mode|0x95FE|1782:4D00|diag,adb|vser' -CaseSensitive:$false -Context 4,12
+                foreach ($hit in $hits | Select-Object -First 40) {
+                  foreach ($line in $hit.Context.PreContext) { Add-Line $line }
+                  Add-Line $hit.Line
+                  foreach ($line in $hit.Context.PostContext) { Add-Line $line }
+                  Add-Line ''
+                }
+              } catch {
+                Add-Line ('RECOVERY_SCAN_ERROR=' + $_.Exception.Message)
+              }
+            }
+          } else {
+            Add-Line ('RECOVERY_DIR_MISSING=' + $recovery)
+          }
+
+          Add-Section 'TECHGUY SESSION LOG EVIDENCE'
+          $logRoot = Join-Path $env:TECHGUY_ROOT 'logs'
+          if (Test-Path -LiteralPath $logRoot) {
+            foreach ($file in Get-ChildItem -LiteralPath $logRoot -File | Sort-Object LastWriteTime -Descending | Select-Object -First 30) {
+              try {
+                $hits = Select-String -LiteralPath $file.FullName -Pattern 'COM52|factory-DIAG|Read Info DIAG|SPD direct-DIAG|157503761E002929|Switch phone to DIAG|Booting Sleeper SPD DIAG' -CaseSensitive:$false -Context 4,10
+                if ($hits) {
+                  Add-Line ('--- LOG: ' + $file.FullName + ' ---')
+                  foreach ($hit in $hits | Select-Object -First 40) {
+                    foreach ($line in $hit.Context.PreContext) { Add-Line $line }
+                    Add-Line $hit.Line
+                    foreach ($line in $hit.Context.PostContext) { Add-Line $line }
+                    Add-Line ''
+                  }
+                }
+              } catch {}
+            }
+          }
+
+          Add-Section 'DONOR EVIDENCE'
+          $donorEvidence = Join-Path $env:DONOR_ROOT 'evidence'
+          if (Test-Path -LiteralPath $donorEvidence) {
+            $candidateFiles = @(
+              (Join-Path $donorEvidence 'tsm-pro\a6611l-diag-entry-map.json'),
+              (Join-Path $donorEvidence 'tsm-pro\unisoc-command-map.json'),
+              (Join-Path $donorEvidence 'tsm-pro\unisoc-serial-contract.json'),
+              (Join-Path $donorEvidence 'tsm-pro\unisoc-backend-map.json')
+            )
+            foreach ($file in $candidateFiles) {
+              if (Test-Path -LiteralPath $file) {
+                Add-Line ('--- ' + $file + ' ---')
+                Add-Line ((Get-Content -LiteralPath $file -Raw).Trim())
+              }
+            }
+          }
+
+          Add-Section 'GIT STRING HISTORY'
+          foreach ($entry in @(
+            @($env:TECHGUY_ROOT,'sys.usb.config'),
+            @($env:TECHGUY_ROOT,'diag,adb'),
+            @($env:SLEEPER_ROOT,'android-adb-factory-diag'),
+            @($env:SLEEPER_ROOT,'service.unisoc-diag'),
+            @($env:SLEEPER_ROOT,'0x95FE'),
+            @($env:SLEEPER_ROOT,'vser')
+          )) {
+            $repo = $entry[0]
+            $needle = $entry[1]
+            Add-Line ('--- ' + $repo + ' :: ' + $needle + ' ---')
+            Add-Line (Git-Read $repo @('log','--all','--oneline','-S',$needle,'--','src','core','tests','docs'))
+          }
+
+          $lines | Set-Content -LiteralPath $report -Encoding UTF8
+
+          $summary = [ordered]@{
+            record_type = 'ptah.techguy_imei.spd_diag.readonly_recovery'
+            host = $env:COMPUTERNAME
+            runner_name = $env:RUNNER_NAME
+            runner_os = $env:RUNNER_OS
+            mission_branch = $env:GITHUB_REF_NAME
+            mission_sha = $env:GITHUB_SHA
+            mutation_policy = 'none'
+            techguy_root_present = (Test-Path -LiteralPath $env:TECHGUY_ROOT)
+            sleeper_root_present = (Test-Path -LiteralPath $env:SLEEPER_ROOT)
+            donor_root_present = (Test-Path -LiteralPath $env:DONOR_ROOT)
+            ptah_local_root_present = (Test-Path -LiteralPath $env:PTAH_LOCAL_ROOT)
+            report = $report
+          }
+          $summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $json -Encoding UTF8
+
+          Get-Content -LiteralPath $json
+          Write-Host '--- RECEIPT TAIL ---'
+          Get-Content -LiteralPath $report -Tail 180
+
+      - name: Upload Ptah recovery receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0
+        with:
+          name: ptah-athena-techguy-imei-spd-diag-readonly-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/ptah-athena-techguy-imei-spd-diag-readonly.txt
+            ${{ runner.temp }}/ptah-athena-techguy-imei-spd-diag-readonly.json
+          if-no-files-found: error
+          retention-days: 14

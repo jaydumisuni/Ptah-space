@@ -44,5 +44,9 @@ jobs:
         run: cargo test --locked -p ptah-control --test gateway_mtls_enrollment
       - name: Strict Clippy
         run: cargo clippy --locked -p ptah-node --test supervisor_gateway_boundary -- -D warnings
+      - name: Enrollment-only executable validation
+        run: cargo test --locked -p ptah-control --bin ptah-enrollment-gateway
+      - name: Enrollment-only executable Clippy
+        run: cargo clippy --locked -p ptah-control --bin ptah-enrollment-gateway -- -D warnings
       - name: Strict TLS enrollment Clippy
         run: cargo clippy --locked -p ptah-control --test gateway_mtls_enrollment -- -D warnings

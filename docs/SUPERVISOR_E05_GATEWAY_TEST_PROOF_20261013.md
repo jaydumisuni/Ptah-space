@@ -61,3 +61,38 @@ Subsequent to the E05 single-shot proof, the Ptah-owned gateway branch adds:
 Evidence: 6/6 Ptah Node boundary tests PASS, 2/2 authenticated E01 TLS tests PASS, 1/1 real opt-in Simulation PASS, formatting and focused strict Clippy PASS on KRATOS.
 
 **Not installed or admitted:** there is still no deployed production enrollment config/certificate chain, no continuously running Ptah gateway daemon with authenticated E01 and E02 ownership, and no independent crash outcome reconciliation against actual external processes. These must be resolved before automatic Supervisor dispatch, multi-node E07 or E06 release. Existing Supervisor timers and project routes remain untouched.
+
+
+## Optional E01 enrollment-only service candidate
+
+The binary `ptah-enrollment-gateway` has been added to the Ptah Control
+package. It is **not installed, enabled or deployed**. It exposes a real
+TLS-1.3 client-certificate authentication boundary, but no dispatch routes,
+no admission-to-execution privilege promotion, and no provisioned Node authority.
+
+It requires deployment-owned PEM files, an explicit approved canonical
+enrollment projection, and a loopback endpoint:
+
+    ptah-enrollment-gateway \
+      --listen 127.0.0.1:8785 \
+      --server-cert /secure/ptah/server-cert.pem \
+      --server-key /secure/ptah/server-key.pem \
+      --client-ca /secure/ptah/client-ca.pem \
+      --enrollments /secure/ptah/approved-enrollments.json
+
+No certificate, private key or approved fingerprint was created during
+this work. The enrollment file must be a deployment-controlled export of
+already approved `core.node_enrollment` records; supplying a file does
+not confer owner approval. The binary rejects absent/unapproved, duplicate
+or malformed enrollments and requires restrictive permissions for sensitive
+inputs. It does not bind externally by default.
+
+**Important:** this E01-only listener acknowledges a mutually authenticated
+Hello then closes that connection. An enduring Node-link service, live A02
+observations, dispatch-side session lifetime, authenticated E02 control
+ownership and a durable production reconciliation worker remain separate
+unimplemented gates. Do not route Supervisor to this binary as an executor.
+
+The option parsing and enrollment/missing-secret tests pass 2/2; focused
+strict Clippy and offline compile pass. No running Ptah service or
+Supervisor configuration was changed.

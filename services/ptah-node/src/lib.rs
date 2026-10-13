@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 //! E01 secure Node client plus E02 dispatch and E03 transfer authority guards.
 
+/// Durable Node-side dispatch, receipts, and conservative recovery.
+pub mod gateway_journal;
 /// E03 Node-local transfer-ticket authority guard.
 pub mod transfer;
 

@@ -1,0 +1,282 @@
+//! Durable, fail-closed Ptah Node dispatch journal.
+//! Never allocates E01/E02/E05 authority and never automatically replays
+//! an attempt whose process outcome might already have happened.
+use crate::{NodeDispatchError, NodeDispatchGuard};
+use native_process::NativeProcessProvider;
+use ptah_identifiers::EntityId;
+use ptah_node_agent::NodeAgent;
+use ptah_node_link::DispatchRequestFrame;
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use sha2::{Digest, Sha256};
+use std::{path::Path, time::Duration};
+
+#[derive(Debug)]
+/// Gateway persistence failures, separate from Ptah authority decisions.
+pub enum JournalError {
+    /// Storage transaction failed.
+    Storage(rusqlite::Error),
+    /// Node-side E02 authority failed.
+    Authority(NodeDispatchError),
+    /// Malformed or incomplete attempt evidence.
+    Invalid(&'static str),
+    /// Attempt currentness or idempotency mismatch.
+    Conflict(&'static str),
+}
+impl From<rusqlite::Error> for JournalError {
+    fn from(value: rusqlite::Error) -> Self {
+        Self::Storage(value)
+    }
+}
+impl From<NodeDispatchError> for JournalError {
+    fn from(value: NodeDispatchError) -> Self {
+        Self::Authority(value)
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Idempotent result of atomically committing a pre-effect marker.
+pub enum StageResult {
+    /// First attempt now durably fenced before its effect.
+    StagedNew,
+    /// Already staged or completed; must never spawn a duplicate.
+    AlreadyRegistered,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// Read-only attempt evidence preserved across process restarts.
+pub struct RetainedAttempt {
+    /// Exact Cookpit request digest.
+    pub digest: String,
+    /// In-flight, completed or awaiting reconciliation.
+    pub phase: String,
+    /// Highest control-issued fence recorded for this dispatch.
+    pub fence: u64,
+    /// Independently observed A05 process exit code, if available.
+    pub exit_code: Option<i32>,
+    /// SHA-256 of actual untruncated A05 stdout.
+    pub stdout_digest: Option<String>,
+}
+/// Persistent Node-side attempt ownership and evidence store.
+pub struct GatewayJournal {
+    db: Connection,
+}
+
+fn identity<T: serde::Serialize>(value: &T) -> Result<String, JournalError> {
+    serde_json::to_string(value).map_err(|_| JournalError::Invalid("identity serialization"))
+}
+fn valid_digest(d: &str) -> bool {
+    d.len() == 71
+        && d.starts_with("sha256:")
+        && d[7..]
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+}
+impl GatewayJournal {
+    /// Open durable WAL storage and conservatively reconcile abandoned attempts.
+    ///
+    /// # Errors
+    ///
+    /// Rejects unreadable databases and symbolic links, and propagates database errors.
+    pub fn open(path: &Path) -> Result<Self, JournalError> {
+        if path
+            .symlink_metadata()
+            .is_ok_and(|m| m.file_type().is_symlink())
+        {
+            return Err(JournalError::Invalid("database symlink"));
+        }
+        let db = Connection::open(path)?;
+        db.busy_timeout(Duration::from_secs(3))?;
+        db.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=FULL;
+             PRAGMA foreign_keys=ON;
+             CREATE TABLE IF NOT EXISTS ptah_gateway_attempts (
+               dispatch TEXT PRIMARY KEY,
+               attempt TEXT NOT NULL,
+               digest TEXT NOT NULL,
+               node TEXT NOT NULL,
+               generation INTEGER NOT NULL,
+               epoch INTEGER NOT NULL,
+               fence INTEGER NOT NULL CHECK(fence > 0),
+               phase TEXT NOT NULL CHECK(phase IN ('in_flight','needs_reconciliation','completed')),
+               exit_code INTEGER,
+               stdout_digest TEXT,
+               UNIQUE(attempt, fence)
+             ) WITHOUT ROWID;",
+        )?;
+        db.execute(
+            "UPDATE ptah_gateway_attempts SET phase='needs_reconciliation'
+             WHERE phase='in_flight'",
+            [],
+        )?;
+        Ok(Self { db })
+    }
+
+    /// The caller must present an actual current E02 Node-side guard.
+    /// A previously staged request is idempotent, never executable again.
+    ///
+    /// # Errors
+    ///
+    /// Rejects stale session/lease authority, invalid digests, conflicts and storage failures.
+    pub fn stage(
+        &mut self,
+        agent: &NodeAgent,
+        guard: &NodeDispatchGuard,
+        frame: &DispatchRequestFrame,
+        now: u64,
+        digest: &str,
+    ) -> Result<StageResult, JournalError> {
+        if !valid_digest(digest) {
+            return Err(JournalError::Invalid("request digest"));
+        }
+        guard.invoke_if_authorized(agent, frame, now, || ())?;
+        let id = identity(&frame.dispatch_ref)?;
+        let attempt = identity(&frame.attempt_ref)?;
+        let node = identity(&frame.node_id)?;
+        let generation = i64::try_from(frame.node_generation.value())
+            .map_err(|_| JournalError::Invalid("generation overflow"))?;
+        let epoch = i64::try_from(frame.connection_epoch.value())
+            .map_err(|_| JournalError::Invalid("epoch overflow"))?;
+        let fence =
+            i64::try_from(frame.fence).map_err(|_| JournalError::Invalid("fence overflow"))?;
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let prior: Option<(String, String, String, i64, i64, i64)> = tx
+            .query_row(
+                "SELECT attempt,digest,node,generation,epoch,fence
+             FROM ptah_gateway_attempts WHERE dispatch=?1",
+                params![id],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                    ))
+                },
+            )
+            .optional()?;
+        if let Some(found) = prior {
+            if found != (attempt, digest.to_owned(), node, generation, epoch, fence) {
+                return Err(JournalError::Conflict("dispatch identity changed"));
+            }
+            tx.commit()?;
+            return Ok(StageResult::AlreadyRegistered);
+        }
+        let max_fence: Option<i64> = tx.query_row(
+            "SELECT MAX(fence) FROM ptah_gateway_attempts WHERE attempt=?1",
+            params![attempt],
+            |r| r.get(0),
+        )?;
+        if max_fence.is_some_and(|max| fence <= max) {
+            return Err(JournalError::Conflict("non-increasing durable fence"));
+        }
+        tx.execute(
+            "INSERT INTO ptah_gateway_attempts
+             (dispatch,attempt,digest,node,generation,epoch,fence,phase)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,'in_flight')",
+            params![id, attempt, digest, node, generation, epoch, fence],
+        )?;
+        tx.commit()?;
+        Ok(StageResult::StagedNew)
+    }
+
+    /// Read back one immutable dispatch identity.
+    ///
+    /// # Errors
+    ///
+    /// Propagates identity serialization and database errors.
+    pub fn get(
+        &self,
+        frame: &DispatchRequestFrame,
+    ) -> Result<Option<RetainedAttempt>, JournalError> {
+        let id = identity(&frame.dispatch_ref)?;
+        self.db
+            .query_row(
+                "SELECT digest,phase,fence,exit_code,stdout_digest
+             FROM ptah_gateway_attempts WHERE dispatch=?1",
+                params![id],
+                |r| {
+                    let fence: i64 = r.get(2)?;
+                    Ok(RetainedAttempt {
+                        digest: r.get(0)?,
+                        phase: r.get(1)?,
+                        fence: u64::try_from(fence).unwrap_or(0),
+                        exit_code: r.get(3)?,
+                        stdout_digest: r.get(4)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// Observe a real A05 exit and complete only this exact in-flight attempt.
+    /// Incomplete, truncated or ambiguous output cannot create success evidence.
+    ///
+    /// # Errors
+    ///
+    /// Rejects missing or mismatched A05 evidence, replay, truncation and storage failures.
+    pub fn complete_from_process(
+        &mut self,
+        agent: &NodeAgent,
+        frame: &DispatchRequestFrame,
+        request_digest: &str,
+        provider: &NativeProcessProvider,
+        process_id: EntityId,
+    ) -> Result<String, JournalError> {
+        let snapshot = provider
+            .snapshot(process_id)
+            .map_err(|_| JournalError::Invalid("A05 snapshot unavailable"))?;
+        if snapshot.record.node_generation != agent.generation().value() {
+            return Err(JournalError::Conflict("A05 node generation mismatch"));
+        }
+        let exit = snapshot
+            .record
+            .exit
+            .as_ref()
+            .ok_or(JournalError::Invalid("no observed A05 exit"))?;
+        let stdout = snapshot
+            .stdout
+            .as_ref()
+            .ok_or(JournalError::Invalid("no A05 stdout readback"))?;
+        if stdout.truncated_bytes != 0 {
+            return Err(JournalError::Invalid("truncated A05 output"));
+        }
+        let digest = format!("sha256:{:x}", Sha256::digest(&stdout.bytes));
+        let id = identity(&frame.dispatch_ref)?;
+        let node = identity(&frame.node_id)?;
+        let generation = i64::try_from(frame.node_generation.value())
+            .map_err(|_| JournalError::Invalid("generation overflow"))?;
+        let epoch = i64::try_from(frame.connection_epoch.value())
+            .map_err(|_| JournalError::Invalid("epoch overflow"))?;
+        let fence =
+            i64::try_from(frame.fence).map_err(|_| JournalError::Invalid("fence overflow"))?;
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let updated = tx.execute(
+            "UPDATE ptah_gateway_attempts
+             SET phase='completed',exit_code=?1,stdout_digest=?2
+             WHERE dispatch=?3 AND digest=?4 AND node=?5 AND generation=?6
+             AND epoch=?7 AND fence=?8 AND phase='in_flight'",
+            params![
+                exit.exit_code,
+                &digest,
+                id,
+                request_digest,
+                node,
+                generation,
+                epoch,
+                fence
+            ],
+        )?;
+        if updated != 1 {
+            return Err(JournalError::Conflict("attempt not in flight"));
+        }
+        tx.commit()?;
+        Ok(digest)
+    }
+}

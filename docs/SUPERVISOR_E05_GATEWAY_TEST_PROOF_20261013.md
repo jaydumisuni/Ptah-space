@@ -47,3 +47,17 @@ durable production lease/attempt ledger. E06 and E07 are not released.
 To run the explicitly opt-in test on KRATOS, set both
 `TTG_PTAH_SIM_REPO` and `TTG_PTAH_SHADOW_REQUEST` to the registered
 Simulation checkout and exact Cookpit preflight request path respectively.
+
+## Gateway operationalization candidate — 2026-10-13
+
+Subsequent to the E05 single-shot proof, the Ptah-owned gateway branch adds:
+
+- **Actual TLS 1.3 mutual authentication:** `ptah_control::gateway_enrollment::admit_authenticated_node` takes the real client-certificate SHA-256 fingerprint from the accepted TLS stream. It passes only this transport-attested fingerprint to the existing canonical E01 `PlacementAuthorityOwner::accept_hello`. It rejects a valid-CA peer whose fingerprint is not approved. Tested with repository-only test certificates; **no production credentials were provisioned**.
+- **Durable Node dispatch ownership:** `ptah_node::gateway_journal::GatewayJournal` stores the exact dispatch/attempt identity, request digest, Node Generation, Connection Epoch and control-issued Fence in a SQLite `WAL` with `synchronous=FULL`, within an immediate transaction. Staging requires an existing current `NodeDispatchGuard`; the journal never creates E02 authority. Exact duplicates do not spawn again and identity/fence conflicts fail closed.
+- **Durable actual A05 completion:** after independent process exit, the journal commits A05 exit code and digest of complete stdout. Missing exit, wrong Node Generation, truncated stdout or mismatched persisted attempt cannot produce a receipt.
+- **Recovery:** on opening after crash/restart, in-flight attempts become `needs_reconciliation`. They cannot be replayed or marked completed by the ordinary completion method; current owner/Node authority and outcome evidence must be re-established through a separate reconciliation implementation.
+- **Real consumer:** the opt-in Cookpit request-bound TTG-Simulation run now uses the durable journal before and after real Ptah A05 execution, then reads the committed attempt after reopening. The original Simulation stdout digest remains `sha256:96e23bb5817fe74df633e5f18423b0f0ce636fb64a7b14de77408b9e39cbc0bb`.
+
+Evidence: 6/6 Ptah Node boundary tests PASS, 2/2 authenticated E01 TLS tests PASS, 1/1 real opt-in Simulation PASS, formatting and focused strict Clippy PASS on KRATOS.
+
+**Not installed or admitted:** there is still no deployed production enrollment config/certificate chain, no continuously running Ptah gateway daemon with authenticated E01 and E02 ownership, and no independent crash outcome reconciliation against actual external processes. These must be resolved before automatic Supervisor dispatch, multi-node E07 or E06 release. Existing Supervisor timers and project routes remain untouched.

@@ -567,6 +567,7 @@ dependencies = [
  "ptah-transfer",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -654,6 +655,8 @@ dependencies = [
  "ptah-platform-admission",
  "ptah-provider-api",
  "ptah-transfer",
+ "rusqlite",
+ "serde",
  "serde_json",
  "sha2",
  "tokio",

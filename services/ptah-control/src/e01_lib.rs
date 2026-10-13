@@ -12,3 +12,6 @@ pub mod node_link;
 pub mod placement;
 /// E03 short-lived Node-to-Node transfer-ticket authority owner.
 pub mod transfer;
+
+/// Production E01 mutual-TLS Node authentication and canonical enrollment.
+pub mod gateway_enrollment;

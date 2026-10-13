@@ -443,6 +443,17 @@ fn ptah_gateway_executes_real_ttg_simulation_as_candidate_only() {
     guard
         .accept_lease(&fixture.node, &frames.lease, now())
         .expect("lease");
+    // Commit the attempt ownership before the provider can execute.
+    let journal_path = temporary_gateway_database();
+    let mut journal = ptah_node::gateway_journal::GatewayJournal::open(&journal_path)
+        .expect("durable attempt journal");
+    let durable_stage = journal
+        .stage(&fixture.node, &guard, &frames.request, now(), &digest)
+        .expect("E02-approved durable stage");
+    assert_eq!(
+        durable_stage,
+        ptah_node::gateway_journal::StageResult::StagedNew
+    );
     let provider = provider(&fixture.node);
     let expected = provider
         .attempt_context(1, entity("runtime.facility"))
@@ -489,8 +500,25 @@ fn ptah_gateway_executes_real_ttg_simulation_as_candidate_only() {
         output["candidate_inference"]["winner"]["authority_violations"],
         0
     );
-    let digest = Sha256::digest(&stdout.bytes);
-    let digest_text = format!("{digest:x}");
+    let stdout_hash = Sha256::digest(&stdout.bytes);
+    let durable_readback = journal
+        .complete_from_process(&fixture.node, &frames.request, &digest, &provider, id)
+        .expect("persist actual A05 receipt");
+    assert_eq!(durable_readback, format!("sha256:{stdout_hash:x}"));
+    drop(journal);
+    let recovered = ptah_node::gateway_journal::GatewayJournal::open(&journal_path)
+        .expect("durable readback after restart");
+    assert_eq!(
+        recovered
+            .get(&frames.request)
+            .expect("readback")
+            .expect("attempt")
+            .phase,
+        "completed"
+    );
+    drop(recovered);
+    cleanup_gateway_database(&journal_path);
+    let digest_text = format!("{stdout_hash:x}");
     eprintln!("PTAH_SIMULATION_ACTUAL_A05_SHA256={digest_text}");
     eprintln!("PTAH_SIMULATION_PROOF_STATUS=TEST_FIXTURE_AUTHORITY_ONLY");
 }
@@ -527,4 +555,142 @@ fn shadow_digest_rejects_tampered_payload() {
     assert_eq!(verify_shadow_digest(&payload), Ok(original));
     payload["authority_granted"] = true.into();
     assert!(verify_shadow_digest(&payload).is_err());
+}
+
+#[cfg(unix)]
+fn temporary_gateway_database() -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "ptah-gateway-test-{}.sqlite3",
+        ptah_identifiers::EntityId::new_v7()
+    ))
+}
+#[cfg(unix)]
+fn cleanup_gateway_database(path: &std::path::Path) {
+    let _ = std::fs::remove_file(path);
+    for suffix in ["-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+    }
+}
+#[cfg(unix)]
+#[test]
+fn gateway_journal_preserves_pre_effect_state_and_never_replays_on_restart() {
+    use ptah_node::gateway_journal::{GatewayJournal, StageResult};
+    let path = temporary_gateway_database();
+    let mut fixture = Fixture::new();
+    let frames = fixture.issue();
+    let mut guard = NodeDispatchGuard::for_agent(&fixture.node);
+    guard
+        .accept_reservation(&fixture.node, &frames.reservation, now())
+        .expect("reservation");
+    guard
+        .accept_lease(&fixture.node, &frames.lease, now())
+        .expect("lease");
+    let digest = format!("sha256:{}", "a".repeat(64));
+    {
+        let mut journal = GatewayJournal::open(&path).expect("durable journal");
+        assert_eq!(
+            journal
+                .stage(&fixture.node, &guard, &frames.request, now(), &digest)
+                .expect("stage"),
+            StageResult::StagedNew
+        );
+        assert_eq!(
+            journal
+                .get(&frames.request)
+                .expect("readback")
+                .expect("attempt")
+                .phase,
+            "in_flight"
+        );
+    }
+    {
+        let mut recovered = GatewayJournal::open(&path).expect("reopen after crash");
+        assert_eq!(
+            recovered
+                .get(&frames.request)
+                .expect("readback")
+                .expect("attempt")
+                .phase,
+            "needs_reconciliation"
+        );
+        assert_eq!(
+            recovered
+                .stage(&fixture.node, &guard, &frames.request, now(), &digest)
+                .expect("retry"),
+            StageResult::AlreadyRegistered
+        );
+        assert!(
+            recovered
+                .stage(
+                    &fixture.node,
+                    &guard,
+                    &frames.request,
+                    now(),
+                    &format!("sha256:{}", "b".repeat(64))
+                )
+                .is_err()
+        );
+    }
+    cleanup_gateway_database(&path);
+}
+#[cfg(unix)]
+#[test]
+fn gateway_journal_retains_actual_a05_completion_and_rejects_second_completion() {
+    use ptah_node::gateway_journal::{GatewayJournal, StageResult};
+    use sha2::Digest as _;
+    let path = temporary_gateway_database();
+    let mut fixture = Fixture::new();
+    let frames = fixture.issue();
+    let mut guard = NodeDispatchGuard::for_agent(&fixture.node);
+    guard
+        .accept_reservation(&fixture.node, &frames.reservation, now())
+        .expect("reservation");
+    guard
+        .accept_lease(&fixture.node, &frames.lease, now())
+        .expect("lease");
+    let digest = format!("sha256:{}", "c".repeat(64));
+    let mut journal = GatewayJournal::open(&path).expect("journal");
+    assert_eq!(
+        journal
+            .stage(&fixture.node, &guard, &frames.request, now(), &digest)
+            .expect("stage"),
+        StageResult::StagedNew
+    );
+    let provider = provider(&fixture.node);
+    let expected = provider
+        .attempt_context(1, entity("runtime.facility"))
+        .expect("context");
+    let id = spawn_native_process_if_authorized(
+        &guard,
+        &fixture.node,
+        &frames.request,
+        now(),
+        &provider,
+        &expected,
+        process_spec("/bin/true"),
+    )
+    .expect("actual A05 spawn");
+    provider
+        .wait_for_exit(id, Duration::from_secs(3))
+        .expect("observed exit");
+    let observed = journal
+        .complete_from_process(&fixture.node, &frames.request, &digest, &provider, id)
+        .expect("receipt");
+    assert_eq!(observed, format!("sha256:{:x}", sha2::Sha256::digest(b"")));
+    assert!(
+        journal
+            .complete_from_process(&fixture.node, &frames.request, &digest, &provider, id)
+            .is_err()
+    );
+    drop(journal);
+    let reopened = GatewayJournal::open(&path).expect("reopen");
+    let record = reopened
+        .get(&frames.request)
+        .expect("read")
+        .expect("durable result");
+    assert_eq!(record.phase, "completed");
+    assert_eq!(record.exit_code, Some(0));
+    assert_eq!(record.stdout_digest.as_deref(), Some(observed.as_str()));
+    drop(reopened);
+    cleanup_gateway_database(&path);
 }

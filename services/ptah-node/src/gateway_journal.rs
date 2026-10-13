@@ -229,13 +229,17 @@ impl GatewayJournal {
             tx.commit()?;
             return Ok(StageResult::AlreadyRegistered);
         }
-        let max_fence: Option<i64> = tx.query_row(
-            "SELECT MAX(fence) FROM ptah_gateway_attempts WHERE attempt=?1",
+        // An A04 Attempt is single-effect. Raising a Fence after a crash does
+        // not prove the previous external effect was absent. An owner must
+        // reconcile it and issue a NEW Attempt identity before dispatching
+        // any replacement work. Even a completed Attempt is not a replay token.
+        let previous_attempts: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM ptah_gateway_attempts WHERE attempt=?1",
             params![attempt],
-            |r| r.get(0),
+            |row| row.get(0),
         )?;
-        if max_fence.is_some_and(|max| fence <= max) {
-            return Err(JournalError::Conflict("non-increasing durable fence"));
+        if previous_attempts != 0 {
+            return Err(JournalError::Conflict("attempt identity already used"));
         }
         tx.execute(
             "INSERT INTO ptah_gateway_attempts

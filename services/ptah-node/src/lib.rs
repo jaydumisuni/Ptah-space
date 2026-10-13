@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 //! E01 secure Node client plus E02 dispatch and E03 transfer authority guards.
 
+/// Authenticated E02 control-wire ingress with Node-side fencing.
+pub mod gateway_e02_wire;
 /// Durable Node-side dispatch, receipts, and conservative recovery.
 pub mod gateway_journal;
 /// E03 Node-local transfer-ticket authority guard.
@@ -11,8 +13,9 @@ use ptah_activity_runtime::AttemptContext;
 use ptah_identifiers::{ConnectionEpoch, EntityId, EntityRef, NodeGeneration, NodeId};
 use ptah_node_agent::NodeAgent;
 use ptah_node_link::{
-    DispatchLeaseFrame, DispatchRequestFrame, DispatchReservationFrame, HelloAck, LinkError,
-    LinkMessage, NodeHello, ProtocolVersion, TlsClientConfig, connect_tls, read_frame, write_frame,
+    AuthenticatedClientStream, DispatchLeaseFrame, DispatchRequestFrame, DispatchReservationFrame,
+    HelloAck, LinkError, LinkMessage, NodeHello, ProtocolVersion, TlsClientConfig, connect_tls,
+    read_frame, write_frame,
 };
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
@@ -386,6 +389,20 @@ pub async fn run_node_link_client(
     agent: &NodeAgent,
     config: &NodeLinkClientConfig,
 ) -> Result<HelloAck, LinkError> {
+    let (ack, _connection) = connect_node_link(agent, config).await?;
+    Ok(ack)
+}
+
+/// Preserve the authenticated E01 Control TLS link after the exact `HelloAck`.
+/// This grants no E02 authority; each subsequent frame must pass the Node guard.
+///
+/// # Errors
+///
+/// Rejects invalid TLS server identity, protocol, generation, epoch or `HelloAck`.
+pub async fn connect_node_link(
+    agent: &NodeAgent,
+    config: &NodeLinkClientConfig,
+) -> Result<(HelloAck, AuthenticatedClientStream), LinkError> {
     let tcp = TcpStream::connect(config.endpoint).await?;
     let mut tls = connect_tls(tcp, &config.server_name, &config.tls).await?;
     let hello = config.hello(agent);
@@ -429,5 +446,5 @@ pub async fn run_node_link_client(
             requested: ack.connection_epoch.value(),
         });
     }
-    Ok(ack)
+    Ok((ack, tls))
 }

@@ -790,3 +790,191 @@ fn journaled_e02_spawn_is_idempotent_and_durably_completed() {
     drop(journal);
     cleanup_gateway_database(&path);
 }
+
+const E02_CA: &[u8] = include_bytes!("../../../crates/ptah-node-link/tests/fixtures/ca.cert.der");
+const E02_SERVER: &[u8] =
+    include_bytes!("../../../crates/ptah-node-link/tests/fixtures/server.cert.der");
+const E02_SERVER_KEY: &[u8] =
+    include_bytes!("../../../crates/ptah-node-link/tests/fixtures/server.key.der");
+const E02_CLIENT: &[u8] =
+    include_bytes!("../../../crates/ptah-node-link/tests/fixtures/client.cert.der");
+const E02_CLIENT_KEY: &[u8] =
+    include_bytes!("../../../crates/ptah-node-link/tests/fixtures/client.key.der");
+
+#[cfg(unix)]
+#[allow(clippy::too_many_lines)]
+async fn tls_e02_authority_exchange(mode: u8) -> Result<(), String> {
+    use ptah_node::gateway_e02_wire::receive_one;
+    use ptah_node::{NodeLinkClientConfig, connect_node_link};
+    use ptah_node_link::{
+        HelloAck, LinkMessage, TlsClientConfig, TlsIdentity, TlsServerConfig, TlsTrustRoots,
+        accept_tls, read_frame, write_frame,
+    };
+    use tokio::net::TcpListener;
+    let mut fixture = Fixture::new();
+    let frames = fixture.issue();
+    let expected = frames.request.clone();
+    let roots = || TlsTrustRoots::from_der(vec![E02_CA.to_vec()]).unwrap();
+    let server_config = TlsServerConfig::new(
+        TlsIdentity::from_der(vec![E02_SERVER.to_vec()], E02_SERVER_KEY.to_vec()).unwrap(),
+        roots(),
+    )
+    .unwrap();
+    let client_config = TlsClientConfig::new(
+        TlsIdentity::from_der(vec![E02_CLIENT.to_vec()], E02_CLIENT_KEY.to_vec()).unwrap(),
+        roots(),
+    )
+    .unwrap();
+    let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = server.local_addr().unwrap();
+    let service = tokio::spawn(async move {
+        let (socket, _) = server.accept().await.unwrap();
+        let mut tls = accept_tls(socket, &server_config).await.unwrap();
+        let LinkMessage::Hello(hello) = read_frame(tls.stream_mut()).await.unwrap() else {
+            panic!("Node must first send Hello")
+        };
+        assert_eq!(hello.node_id, frames.request.node_id);
+        let ack = LinkMessage::HelloAck(HelloAck {
+            selected_version: ProtocolVersion { major: 1, minor: 0 },
+            node_id: hello.node_id,
+            node_generation: hello.node_generation,
+            connection_epoch: hello.connection_epoch,
+        });
+        write_frame(tls.stream_mut(), &ack).await.unwrap();
+        let first = LinkMessage::DispatchReservation(Box::new(frames.reservation));
+        let mut second = LinkMessage::DispatchLease(Box::new(frames.lease));
+        let third = LinkMessage::DispatchRequest(Box::new(frames.request));
+        if mode == 2
+            && let LinkMessage::DispatchLease(ref mut item) = second
+        {
+            item.expires_at_unix_seconds = now().saturating_sub(1);
+        }
+        let ordered = if mode == 1 {
+            vec![second, first, third]
+        } else {
+            vec![first, second, third]
+        };
+        for msg in ordered {
+            if write_frame(tls.stream_mut(), &msg).await.is_err() {
+                break;
+            }
+        }
+    });
+    let config = NodeLinkClientConfig::new(
+        endpoint,
+        "localhost".into(),
+        client_config,
+        entity("core.node_enrollment"),
+        "e02-tls-fixture".into(),
+        ProtocolVersion { major: 1, minor: 0 },
+    );
+    let (_, mut stream) = connect_node_link(&fixture.node, &config)
+        .await
+        .map_err(|err| format!("{err:?}"))?;
+    let got = receive_one(&fixture.node, &mut stream).await;
+    service.await.expect("TLS control fixture join");
+    if mode != 0 {
+        assert!(
+            got.is_err(),
+            "untrusted/order-invalid E02 authority must fail"
+        );
+        return Ok(());
+    }
+    let (guard, frame) = got.map_err(|err| format!("{err:?}"))?;
+    assert_eq!(frame, expected);
+    let path = temporary_gateway_database();
+    let digest = format!("sha256:{}", "7".repeat(64));
+    let mut journal = ptah_node::gateway_journal::GatewayJournal::open(&path).unwrap();
+    let provider = provider(&fixture.node);
+    let expected_context = provider
+        .attempt_context(1, entity("runtime.facility"))
+        .unwrap();
+    let process = journal
+        .spawn_once(
+            &fixture.node,
+            &guard,
+            &frame,
+            now(),
+            &digest,
+            &provider,
+            &expected_context,
+            process_spec("/bin/true"),
+        )
+        .map_err(|err| format!("{err:?}"))?;
+    assert!(
+        provider
+            .wait_for_exit(process, Duration::from_secs(5))
+            .unwrap()
+            .success
+    );
+    journal
+        .complete_from_process(&fixture.node, &frame, &digest, &provider, process)
+        .unwrap();
+    drop(journal);
+    let reopened = ptah_node::gateway_journal::GatewayJournal::open(&path).unwrap();
+    assert_eq!(reopened.get(&frame).unwrap().unwrap().phase, "completed");
+    drop(reopened);
+    cleanup_gateway_database(&path);
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn authenticated_tls_e02_authority_executes_only_with_local_provider() {
+    tls_e02_authority_exchange(0).await.expect("TLS dispatch");
+}
+#[cfg(unix)]
+#[tokio::test]
+async fn tls_e02_out_of_order_lease_is_denied() {
+    tls_e02_authority_exchange(1)
+        .await
+        .expect("deny wrong order");
+}
+#[cfg(unix)]
+#[tokio::test]
+async fn tls_e02_expired_lease_is_denied() {
+    tls_e02_authority_exchange(2)
+        .await
+        .expect("deny expired lease");
+}
+
+#[cfg(unix)]
+#[test]
+fn fence_increment_never_replays_unresolved_attempt_after_restart() {
+    use ptah_node::gateway_journal::GatewayJournal;
+    let path = temporary_gateway_database();
+    let mut fixture = Fixture::new();
+    let frames = fixture.issue();
+    let mut guard = NodeDispatchGuard::for_agent(&fixture.node);
+    guard
+        .accept_reservation(&fixture.node, &frames.reservation, now())
+        .unwrap();
+    guard
+        .accept_lease(&fixture.node, &frames.lease, now())
+        .unwrap();
+    let digest = format!("sha256:{}", "f".repeat(64));
+    let mut first = GatewayJournal::open(&path).unwrap();
+    first
+        .stage(&fixture.node, &guard, &frames.request, now(), &digest)
+        .unwrap();
+    drop(first);
+    let mut again = GatewayJournal::open(&path).unwrap();
+    assert_eq!(again.unresolved().unwrap().len(), 1);
+    let mut elevated = frames.lease.clone();
+    elevated.lease_ref = entity("isolation.lease");
+    elevated.fence += 1;
+    guard.accept_lease(&fixture.node, &elevated, now()).unwrap();
+    let mut next = frames.request.clone();
+    next.dispatch_ref = entity("runtime.dispatch");
+    next.lease_ref = elevated.lease_ref.clone();
+    next.fence = elevated.fence;
+    assert!(
+        again
+            .stage(&fixture.node, &guard, &next, now(), &digest)
+            .is_err(),
+        "a fresh fence must not replay an unresolved external effect"
+    );
+    assert_eq!(again.unresolved().unwrap().len(), 1);
+    drop(again);
+    cleanup_gateway_database(&path);
+}

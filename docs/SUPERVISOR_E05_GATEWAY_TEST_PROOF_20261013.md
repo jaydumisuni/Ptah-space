@@ -187,3 +187,32 @@ Focused tests demonstrate a real provider launch, duplicate launch
 rejection, persisted completion receipt and restart readback. This is a
 building block for a persistent Node dispatcher, not authorization to
 enable remote execution, mark E06 complete or initiate E07.
+
+## Authenticated E02 wire ingress and unresolved-attempt fencing — 2026-10-14
+
+The Ptah Node now has a narrow E02 TLS receiver. It preserves the
+authenticated E01 Control-side TLS stream after an exact HelloAck, then
+accepts precisely a **Reservation → Lease → DispatchRequest** sequence
+within bounded per-frame timeouts. Each frame is checked by the existing
+NodeDispatchGuard for Node, generation, connection epoch, expiry, attempt,
+reservation, lease and monotonic fence. The receiver returns an
+authorized request but **never executes an arbitrary wire-selected program**:
+the A05 provider and ProcessSpec remain Node-local choices, and
+GatewayJournal::spawn_once remains the durable pre-effect boundary.
+
+The genuine TLS transport tests use repo-only credential and authority
+fixtures. A positive E02 wire sequence reached the actual A05
+`/bin/true` provider with persisted, restart-readable completion.
+Out-of-order and expired lease sequences fail closed. The positive fixture
+does not constitute production Control enrollment, live A02/E05 discovery,
+a persistent remote dispatcher or qualified Supervisor activation.
+
+The journal additionally blocks any *new* dispatch reusing an existing
+A04 Attempt identity, regardless of an increased fence. A different
+dispatch/fence after an unresolved crash cannot justify replay.
+A replacement requires an independently reconciled external effect
+and a **new attempt identity** before any execution.
+
+KRATOS: 12/12 normal Node gateway tests PASS, focused strict Clippy
+PASS, cargo formatting PASS. No production dispatch listener
+was deployed and no Supervisor registry/timer routes changed.

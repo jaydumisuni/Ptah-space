@@ -25,3 +25,25 @@ Next for actual Supervisor dispatch: current production E01 peer enrollment, per
 
 - Run focused hermetic suite: `cargo test -p ptah-node --test supervisor_gateway_boundary --offline`.
 - Run explicit host consumer: `TTG_PTAH_SIM_REPO=/home/kratos/projects/TTG-Simulation cargo test -p ptah-node --test supervisor_gateway_boundary ptah_gateway_executes_real_ttg_simulation_as_candidate_only --offline -- --ignored --nocapture`.
+
+## Cookpit → Ptah request-bound execution (same-day continuation)
+
+Cookpit PR #69's `ttg.cookpit.ptah-shadow-preflight.v1` generated a deterministic
+request at `~/.local/state/ttg-cookpit/ptah-shadow/request-20261013.json`.
+
+- Canonical request digest: `sha256:3e5ade34bceff0d641c3980b9118b8d86b4ed0f7ff9c899aedeb15992b7f1a97`
+- Exact E06 candidate observed by Cookpit and Ptah: `826f6726856083d39560166de8a9857f667314f4`
+- Exact Simulation consumer commit: `77c18429c79a557f331db778db8cb5bce76b44a8`
+- Ptah-native consumer: **PASS** after digest, shadow mode,
+  authority=false, local Ptah and Simulation head checks and E02/Node/A05.
+- Candidate-only Simulation stdout: `sha256:96e23bb5817fe74df633e5f18423b0f0ce636fb64a7b14de77408b9e39cbc0bb`.
+- Separate negative hermetic test rejects altered request payload with unchanged digest.
+
+This is a real cross-project consumer proof with TEST-FIXTURE E01/A02 context.
+The SHA-256 request digest provides content integrity, **not authentication**.
+There is still no persistent authenticated production Ptah dispatch service or
+durable production lease/attempt ledger. E06 and E07 are not released.
+
+To run the explicitly opt-in test on KRATOS, set both
+`TTG_PTAH_SIM_REPO` and `TTG_PTAH_SHADOW_REQUEST` to the registered
+Simulation checkout and exact Cookpit preflight request path respectively.

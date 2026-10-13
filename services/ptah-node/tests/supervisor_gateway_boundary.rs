@@ -375,6 +375,7 @@ fn stale_or_expired_lease_cannot_execute_a05() {
 // It cannot be used to claim production enrollment or an installed gateway.
 #[cfg(unix)]
 #[test]
+#[allow(clippy::too_many_lines)]
 #[ignore = "requires explicit TTG_PTAH_SIM_REPO and local TTG-Simulation fixture"]
 fn ptah_gateway_executes_real_ttg_simulation_as_candidate_only() {
     use sha2::{Digest, Sha256};
@@ -391,6 +392,48 @@ fn ptah_gateway_executes_real_ttg_simulation_as_candidate_only() {
         runner.is_file() && request.is_file(),
         "frozen local consumer missing"
     );
+
+    let req_path = std::env::var("TTG_PTAH_SHADOW_REQUEST").expect("shadow request path required");
+    let shadow: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&req_path).expect("shadow request file"))
+            .expect("shadow JSON");
+    let digest = verify_shadow_digest(&shadow).expect("exact shadow request");
+    assert_eq!(shadow["schema"], "ttg.cookpit.ptah-shadow-preflight.v1");
+    assert_eq!(shadow["mode"], "SHADOW_PREPARE_ONLY");
+    assert_eq!(shadow["project_id"], "ptah");
+    assert_eq!(shadow["ptah_execution_status"], "NOT_DISPATCHED");
+    assert_eq!(shadow["authority_granted"], false);
+    assert_eq!(shadow["promotion_authorized"], false);
+    assert_eq!(shadow["requested_effect"], "TTG_SIMULATION_CANDIDATE_ONLY");
+    assert_eq!(
+        shadow["simulation_repo"].as_str().unwrap(),
+        repo.to_string_lossy()
+    );
+    let sim_head = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&repo)
+        .output()
+        .expect("source Git check");
+    assert!(sim_head.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&sim_head.stdout).trim(),
+        shadow["simulation_head"].as_str().unwrap()
+    );
+    let ptah_root = shadow["ptah_repo"]
+        .as_str()
+        .expect("Ptah construction repo");
+    let ptah_head = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(ptah_root)
+        .output()
+        .expect("Ptah Git check");
+    assert!(ptah_head.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&ptah_head.stdout).trim(),
+        shadow["ptah_head"].as_str().unwrap()
+    );
+    assert_eq!(shadow["ptah_remote_head"], shadow["ptah_head"]);
+    eprintln!("PTAH_SUPERVISOR_SHADOW_REQUEST_DIGEST={digest}");
     let mut fixture = Fixture::new();
     let frames = fixture.issue();
     let mut guard = NodeDispatchGuard::for_agent(&fixture.node);
@@ -450,4 +493,38 @@ fn ptah_gateway_executes_real_ttg_simulation_as_candidate_only() {
     let digest_text = format!("{digest:x}");
     eprintln!("PTAH_SIMULATION_ACTUAL_A05_SHA256={digest_text}");
     eprintln!("PTAH_SIMULATION_PROOF_STATUS=TEST_FIXTURE_AUTHORITY_ONLY");
+}
+
+fn verify_shadow_digest(value: &serde_json::Value) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let mut canonical = value.clone();
+    let map = canonical
+        .as_object_mut()
+        .ok_or("request must be JSON object")?;
+    let claimed = map
+        .remove("request_digest")
+        .and_then(|v| v.as_str().map(ToOwned::to_owned))
+        .ok_or("missing shadow digest")?;
+    let actual = format!(
+        "sha256:{:x}",
+        Sha256::digest(serde_json::to_vec(&canonical).map_err(|e| e.to_string())?)
+    );
+    if claimed != actual {
+        return Err(String::from("shadow digest mismatch"));
+    }
+    Ok(actual)
+}
+
+#[test]
+fn shadow_digest_rejects_tampered_payload() {
+    use sha2::{Digest, Sha256};
+    let mut payload = serde_json::json!({"mode":"SHADOW_PREPARE_ONLY","authority_granted":false});
+    let original = format!(
+        "sha256:{:x}",
+        Sha256::digest(serde_json::to_vec(&payload).unwrap())
+    );
+    payload["request_digest"] = original.clone().into();
+    assert_eq!(verify_shadow_digest(&payload), Ok(original));
+    payload["authority_granted"] = true.into();
+    assert!(verify_shadow_digest(&payload).is_err());
 }

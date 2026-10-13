@@ -15,6 +15,9 @@ ptah-transfer = { path = "../../crates/ptah-transfer", version = "=0.0.0-phase0c
 tokio.workspace = true
 
 [dev-dependencies]
+ptah-control = { path = "../ptah-control", version = "=0.0.0-phase0c" }
+ptah-placement-runtime = { path = "../../crates/ptah-placement-runtime", version = "=0.0.0-phase0c" }
+ptah-platform-admission = { path = "../../crates/ptah-platform-admission", version = "=0.1.0" }
 ptah-node-transfer = { path = "../../crates/ptah-node-transfer", version = "=0.0.0-phase0c" }
 ptah-provider-api = { path = "../../crates/ptah-provider-api", version = "=0.0.0-phase0c" }
 sha2.workspace = true

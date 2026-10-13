@@ -315,15 +315,21 @@ impl QueuedIntent {
         if self.origin.node_id != recovered.node_id {
             return Err(IntentValidationError::CheckpointNodeMismatch);
         }
-        let history: Vec<_> = history.into_iter().collect();
-        let replay = self.classify_against_history(history.iter().copied())?;
+        let mut last_same_node_sequence = None;
+        let replay = self.classify_against_history(history.into_iter().inspect(|stored| {
+            if stored.origin.node_id == self.origin.node_id {
+                last_same_node_sequence = Some(stored.origin.value);
+            }
+        }))?;
         if replay == ReplayDisposition::Idempotent {
             return Ok(replay);
         }
         if self.origin.value != recovered.checked_next()?.value {
             return Err(IntentValidationError::UnexpectedOriginSequence);
         }
-        Self::validate_append_order(history.into_iter().chain(std::iter::once(self)))?;
+        if last_same_node_sequence.is_some_and(|last| self.origin.value < last) {
+            return Err(IntentValidationError::OutOfOrderOriginSequence);
+        }
         Ok(replay)
     }
 

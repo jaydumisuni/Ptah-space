@@ -700,6 +700,27 @@ fn append_preflight_requires_successor_and_preserves_idempotent_replay() {
 }
 
 #[test]
+fn append_preflight_rejects_invalid_first_record_without_draining_history() {
+    let digest = format!("sha256:{}", "a".repeat(64));
+    let trusted = LocalSequence {
+        node_id: "node-1".into(),
+        value: 7,
+    };
+    let checkpoint = trusted.checkpoint_bytes().unwrap();
+    let candidate = queued("prepare", 8, digest.clone()).unwrap();
+    let mut invalid = queued("prepare", 7, digest).unwrap();
+    invalid.revalidate_required = false;
+    let history =
+        std::iter::once(&invalid).chain(std::iter::from_fn(|| -> Option<&QueuedIntent> {
+            panic!("append preflight drained history after invalid record")
+        }));
+    assert_eq!(
+        candidate.preflight_append_after_checkpoint(&trusted, &checkpoint, history),
+        Err(IntentValidationError::InvalidReplayState)
+    );
+}
+
+#[test]
 fn full_history_preflight_stops_at_first_invalid_record_without_draining_iterator() {
     let digest = format!("sha256:{}", "a".repeat(64));
     let candidate = queued("prepare", 9, digest.clone()).unwrap();

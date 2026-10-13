@@ -1,8 +1,12 @@
 //! Durable, fail-closed Ptah Node dispatch journal.
 //! Never allocates E01/E02/E05 authority and never automatically replays
 //! an attempt whose process outcome might already have happened.
-use crate::{NodeDispatchError, NodeDispatchGuard};
-use native_process::NativeProcessProvider;
+use crate::{
+    NodeDispatchError, NodeDispatchGuard, NodeProviderDispatchError,
+    spawn_native_process_if_authorized,
+};
+use native_process::{NativeProcessProvider, ProcessSpec};
+use ptah_activity_runtime::AttemptContext;
 use ptah_identifiers::EntityId;
 use ptah_node_agent::NodeAgent;
 use ptah_node_link::DispatchRequestFrame;
@@ -22,6 +26,8 @@ pub enum JournalError {
     Storage(rusqlite::Error),
     /// Node-side E02 authority failed.
     Authority(NodeDispatchError),
+    /// A05 provider dispatch was rejected after an irrevocable durable stage.
+    Dispatch(NodeProviderDispatchError),
     /// Malformed or incomplete attempt evidence.
     Invalid(&'static str),
     /// Attempt currentness or idempotency mismatch.
@@ -239,6 +245,33 @@ impl GatewayJournal {
         )?;
         tx.commit()?;
         Ok(StageResult::StagedNew)
+    }
+
+    /// Durably stage the exact E02-approved dispatch before any A05 side effect.
+    /// A repeated dispatch identity is never spawned again, regardless of phase.
+    ///
+    /// # Errors
+    ///
+    /// Rejects missing/expired E02 authority, invalid request digest, a duplicate
+    /// or conflicting durable attempt, stale Provider context or failed spawn.
+    // Preserve the full explicit E02/A05 authority signature at this boundary.
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn_once(
+        &mut self,
+        agent: &NodeAgent,
+        guard: &NodeDispatchGuard,
+        frame: &DispatchRequestFrame,
+        now: u64,
+        digest: &str,
+        provider: &NativeProcessProvider,
+        expected: &AttemptContext,
+        spec: ProcessSpec,
+    ) -> Result<EntityId, JournalError> {
+        if self.stage(agent, guard, frame, now, digest)? != StageResult::StagedNew {
+            return Err(JournalError::Conflict("attempt already registered"));
+        }
+        spawn_native_process_if_authorized(guard, agent, frame, now, provider, expected, spec)
+            .map_err(JournalError::Dispatch)
     }
 
     /// Read back one immutable dispatch identity.

@@ -161,3 +161,29 @@ and enrollment/liveness-only. It does not consume live A02 resource evidence,
 admit E05 platforms, mint or forward E02 Reservations/Leases/Fences,
 dispatch A05 workloads, or reconcile unknown external process outcomes.
 Production certificate enrollment and revocation remain deployment-controlled.
+
+
+## E02 journal-gated launch and E06 head refresh — 2026-10-14
+
+The Ptah Node now exposes \`GatewayJournal::spawn_once\`, a narrow A05
+execution entrypoint that **first durably stages** an exact current E02
+dispatch/attempt/Node/epoch/fence/request-digest binding. Only a newly staged
+attempt can reach the existing \`spawn_native_process_if_authorized\`.
+Already-registered attempts fail closed even if their durable phase is
+completed or needs reconciliation. On any later Provider error, the staged
+attempt remains conservatively unresolved, not silently retried.
+
+After publishing the clean E06 documentation commit \`b062e208...\`, the
+Cookpit shadow preflight was refreshed at that exact published E06 head
+and Simulation commit \`77c18429...\`. The new shadow request digest is
+\`sha256:713e6e4cd7ef2d55b78aba7e811418ad0506b98a51e08bfa9c59bc558c5c84b3\`.
+The real KRATOS TTG-Simulation consumer passed through the new Ptah
+journal-gated \`spawn_once\` API, with stdout digest
+\`sha256:96e23bb5817fe74df633e5f18423b0f0ce636fb64a7b14de77408b9e39cbc0bb\`.
+The opt-in consumer remains explicitly **TEST-FIXTURE E01/A02**; no
+production control-to-Node authenticated dispatch service was installed.
+
+Focused tests demonstrate a real provider launch, duplicate launch
+rejection, persisted completion receipt and restart readback. This is a
+building block for a persistent Node dispatcher, not authorization to
+enable remote execution, mark E06 complete or initiate E07.

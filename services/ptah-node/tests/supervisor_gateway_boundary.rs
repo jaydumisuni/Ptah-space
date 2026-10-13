@@ -447,41 +447,36 @@ fn ptah_gateway_executes_real_ttg_simulation_as_candidate_only() {
     let journal_path = temporary_gateway_database();
     let mut journal = ptah_node::gateway_journal::GatewayJournal::open(&journal_path)
         .expect("durable attempt journal");
-    let durable_stage = journal
-        .stage(&fixture.node, &guard, &frames.request, now(), &digest)
-        .expect("E02-approved durable stage");
-    assert_eq!(
-        durable_stage,
-        ptah_node::gateway_journal::StageResult::StagedNew
-    );
     let provider = provider(&fixture.node);
     let expected = provider
         .attempt_context(1, entity("runtime.facility"))
         .expect("provider");
     let mut env = BTreeMap::new();
     env.insert(String::from("TTG_SIM_ROOT"), root.clone());
-    let id = spawn_native_process_if_authorized(
-        &guard,
-        &fixture.node,
-        &frames.request,
-        now(),
-        &provider,
-        &expected,
-        ProcessSpec {
-            program: runner.to_string_lossy().into_owned(),
-            args: vec![
-                String::from("simulate"),
-                request.to_string_lossy().into_owned(),
-            ],
-            env,
-            clear_env: false,
-            cwd: Some(root),
-            mode: ProcessMode::Pipes,
-            max_stream_bytes: 100_000,
-            disconnect_policy: DisconnectPolicy::Retain,
-        },
-    )
-    .expect("Ptah-issued authority reaches Simulation process");
+    let id = journal
+        .spawn_once(
+            &fixture.node,
+            &guard,
+            &frames.request,
+            now(),
+            &digest,
+            &provider,
+            &expected,
+            ProcessSpec {
+                program: runner.to_string_lossy().into_owned(),
+                args: vec![
+                    String::from("simulate"),
+                    request.to_string_lossy().into_owned(),
+                ],
+                env,
+                clear_env: false,
+                cwd: Some(root),
+                mode: ProcessMode::Pipes,
+                max_stream_bytes: 100_000,
+                disconnect_policy: DisconnectPolicy::Retain,
+            },
+        )
+        .expect("Ptah-issued authority reaches Simulation process");
     let exit = provider
         .wait_for_exit(id, Duration::from_secs(30))
         .expect("consumer exit");
@@ -716,4 +711,82 @@ fn gateway_journal_single_writer_ownership_is_exclusive() {
     drop(reopened);
     cleanup_gateway_database(&path);
     let _ = std::fs::remove_file(format!("{}.lock", path.display()));
+}
+
+#[cfg(unix)]
+#[test]
+fn journaled_e02_spawn_is_idempotent_and_durably_completed() {
+    use ptah_node::gateway_journal::GatewayJournal;
+    let path = temporary_gateway_database();
+    let mut fixture = Fixture::new();
+    let frames = fixture.issue();
+    let mut guard = NodeDispatchGuard::for_agent(&fixture.node);
+    guard
+        .accept_reservation(&fixture.node, &frames.reservation, now())
+        .expect("reservation");
+    guard
+        .accept_lease(&fixture.node, &frames.lease, now())
+        .expect("lease");
+    let provider = provider(&fixture.node);
+    let expected = provider
+        .attempt_context(1, entity("runtime.facility"))
+        .expect("context");
+    let digest = format!("sha256:{}", "d".repeat(64));
+    let mut journal = GatewayJournal::open(&path).expect("owner journal");
+    let id = journal
+        .spawn_once(
+            &fixture.node,
+            &guard,
+            &frames.request,
+            now(),
+            &digest,
+            &provider,
+            &expected,
+            process_spec("/bin/true"),
+        )
+        .expect("durable E02-authorized launch");
+    assert_eq!(
+        journal
+            .get(&frames.request)
+            .expect("lookup")
+            .expect("durably staged")
+            .phase,
+        "in_flight"
+    );
+    assert!(
+        journal
+            .spawn_once(
+                &fixture.node,
+                &guard,
+                &frames.request,
+                now(),
+                &digest,
+                &provider,
+                &expected,
+                process_spec("/bin/true"),
+            )
+            .is_err(),
+        "duplicate must not relaunch"
+    );
+    assert!(
+        provider
+            .wait_for_exit(id, Duration::from_secs(5))
+            .expect("real exit")
+            .success
+    );
+    journal
+        .complete_from_process(&fixture.node, &frames.request, &digest, &provider, id)
+        .expect("actual receipt");
+    drop(journal);
+    let journal = GatewayJournal::open(&path).expect("reopen after completion");
+    assert_eq!(
+        journal
+            .get(&frames.request)
+            .expect("lookup")
+            .expect("receipt")
+            .phase,
+        "completed"
+    );
+    drop(journal);
+    cleanup_gateway_database(&path);
 }

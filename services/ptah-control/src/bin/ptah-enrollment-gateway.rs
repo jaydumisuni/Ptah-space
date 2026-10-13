@@ -4,7 +4,7 @@
 //! approved enrollment projections. Cannot start without them.
 #![forbid(unsafe_code)]
 
-use ptah_control::gateway_enrollment::admit_authenticated_node;
+use ptah_control::gateway_session::handle;
 use ptah_control::node_link::NodeLinkControl;
 use ptah_control::placement::PlacementAuthorityOwner;
 use ptah_identifiers::{EntityRef, NodeId};
@@ -13,15 +13,19 @@ use ptah_node_link::{
     TlsIdentity, TlsServerConfig, TlsTrustRoots,
 };
 use serde::Deserialize;
+use std::sync::Arc;
 use std::{
     collections::HashSet,
     env, fs,
     net::SocketAddr,
     path::PathBuf,
     str::FromStr,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::net::TcpListener;
+use tokio::{
+    net::TcpListener,
+    sync::{Mutex, Semaphore},
+};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -149,10 +153,9 @@ async fn serve(config: Config) -> Result<(), String> {
         TlsTrustRoots::from_pem(&ca).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
-    let mut owner = PlacementAuthorityOwner::new(NodeLinkControl::new(
-        ProtocolVersion { major: 1, minor: 0 },
-        approved,
-    ));
+    let owner = Arc::new(Mutex::new(PlacementAuthorityOwner::new(
+        NodeLinkControl::new(ProtocolVersion { major: 1, minor: 0 }, approved),
+    )));
     let listener = TcpListener::bind(config.listen)
         .await
         .map_err(|e| e.to_string())?;
@@ -160,15 +163,34 @@ async fn serve(config: Config) -> Result<(), String> {
         "ptah-enrollment-gateway: mutual-TLS E01 admission-only endpoint on {}",
         config.listen
     );
+    let slots = Arc::new(Semaphore::new(16));
     loop {
         let (socket, _peer) = listener.accept().await.map_err(|e| e.to_string())?;
+        let Ok(permit) = slots.clone().try_acquire_owned() else {
+            // Fail closed under overload. Never queue unbounded sockets.
+            drop(socket);
+            continue;
+        };
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| e.to_string())?
             .as_secs();
-        if let Err(error) = admit_authenticated_node(socket, &tls, &mut owner, now).await {
-            eprintln!("ptah-enrollment-gateway: admission rejected: {error}");
-        }
+        let shared_owner = owner.clone();
+        let tls_config = tls.clone();
+        tokio::spawn(async move {
+            let _permit = permit;
+            if let Err(error) = handle(
+                socket,
+                &tls_config,
+                &shared_owner,
+                now,
+                Duration::from_secs(30),
+            )
+            .await
+            {
+                eprintln!("ptah-enrollment-gateway: E01 connection rejected/closed: {error}");
+            }
+        });
     }
 }
 #[tokio::main]

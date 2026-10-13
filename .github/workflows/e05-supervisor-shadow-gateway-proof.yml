@@ -52,5 +52,9 @@ jobs:
         run: cargo test --locked -p ptah-control --test e01_node_link
       - name: Strict E01 session Clippy
         run: cargo clippy --locked -p ptah-control --test e01_node_link -- -D warnings
+      - name: Retained E01 TLS heartbeat and disconnect proof
+        run: cargo test --locked -p ptah-control --test gateway_retained_session
+      - name: Strict retained-session Clippy
+        run: cargo clippy --locked -p ptah-control --test gateway_retained_session -- -D warnings
       - name: Strict TLS enrollment Clippy
         run: cargo clippy --locked -p ptah-control --test gateway_mtls_enrollment -- -D warnings

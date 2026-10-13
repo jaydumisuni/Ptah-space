@@ -15,3 +15,6 @@ pub mod transfer;
 
 /// Production E01 mutual-TLS Node authentication and canonical enrollment.
 pub mod gateway_enrollment;
+
+/// Persistent authenticated E01 sessions; no dispatch authority.
+pub mod gateway_session;

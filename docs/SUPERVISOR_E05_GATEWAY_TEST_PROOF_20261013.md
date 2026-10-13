@@ -135,3 +135,29 @@ This is a **single-KRATOS process-ownership guarantee**, not a distributed
 lease. The journal must live in a deployment-owned, non-attacker-writable
 state directory. It cannot substitute for E02 cross-machine lease authority
 or independent external-effect reconciliation.
+
+## Retained authenticated enrollment milestone — 2026-10-14
+
+The optional loopback E01 enrollment executable now retains mutually
+authenticated TLS 1.3 Node sessions after Hello and HelloAck. An explicit
+16-connection semaphore rejects overload without unbounded queued tasks.
+The session accepts only bounded, strictly increasing heartbeat sequences
+and a graceful Close. All other wire messages (including execution-changing
+dispatch frames) are denied. Missing heartbeats close the connection after
+30 seconds. Session disconnect invalidation is exact-current only, so a
+late prior connection cannot revoke a newer E01 generation or epoch.
+
+The owner lock is **not held during unauthenticated network handshake**.
+This prevents a slow connection from monopolizing the owner while other
+enrollments complete. Accepted TLS peer certificate identity, approved
+E01 projection, epoch and generation remain the authority sources.
+
+Verified locally: 4/4 retained TLS transport tests PASS, 5/5 existing E01
+control tests PASS, 2/2 real TLS enrollment tests PASS, 2/2 executable tests
+PASS, focused strict Clippy PASS, formatting PASS.
+
+**Still separate:** the optional executable remains uninstalled, loopback-only,
+and enrollment/liveness-only. It does not consume live A02 resource evidence,
+admit E05 platforms, mint or forward E02 Reservations/Leases/Fences,
+dispatch A05 workloads, or reconcile unknown external process outcomes.
+Production certificate enrollment and revocation remain deployment-controlled.

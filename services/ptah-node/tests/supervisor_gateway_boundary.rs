@@ -699,3 +699,21 @@ fn gateway_journal_retains_actual_a05_completion_and_rejects_second_completion()
     drop(reopened);
     cleanup_gateway_database(&path);
 }
+
+#[cfg(unix)]
+#[test]
+fn gateway_journal_single_writer_ownership_is_exclusive() {
+    use ptah_node::gateway_journal::GatewayJournal;
+    let path = temporary_gateway_database();
+    let first = GatewayJournal::open(&path).expect("first owner");
+    assert!(
+        GatewayJournal::open(&path).is_err(),
+        "second owner must fail closed"
+    );
+    drop(first);
+    let reopened = GatewayJournal::open(&path).expect("lock released on close");
+    assert!(reopened.unresolved().expect("inventory").is_empty());
+    drop(reopened);
+    cleanup_gateway_database(&path);
+    let _ = std::fs::remove_file(format!("{}.lock", path.display()));
+}

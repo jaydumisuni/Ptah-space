@@ -120,3 +120,18 @@ connection. A continuously retained authenticated transport loop is not
 deployed. The retained-session transport is intentionally not part of this verified change set; it requires a separately reviewed deployment and lifetime contract. Persistent authenticated dispatch and
 independent reconciliation of unknown external process outcomes still
 require separate qualification.
+
+
+### Node journal single-writer safeguard
+
+The durable gateway attempt journal now holds an OS file lock for the full
+lifetime of its SQLite connection. An overlapping gateway instance is denied
+before it can classify the live owner's in-flight attempts as abandoned.
+The database connection is dropped before the lock is released. Verified by
+a duplicate-open rejection and subsequent successful restart with ownership
+transferred; ordinary tests 7/7 PASS and strict Clippy PASS.
+
+This is a **single-KRATOS process-ownership guarantee**, not a distributed
+lease. The journal must live in a deployment-owned, non-attacker-writable
+state directory. It cannot substitute for E02 cross-machine lease authority
+or independent external-effect reconciliation.

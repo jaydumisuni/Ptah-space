@@ -8,7 +8,12 @@ use ptah_node_agent::NodeAgent;
 use ptah_node_link::DispatchRequestFrame;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
-use std::{path::Path, time::Duration};
+use std::{
+    ffi::OsString,
+    fs::{File, OpenOptions},
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 #[derive(Debug)]
 /// Gateway persistence failures, separate from Ptah authority decisions.
@@ -78,6 +83,14 @@ pub struct RecoveryCandidate {
 /// Persistent Node-side attempt ownership and evidence store.
 pub struct GatewayJournal {
     db: Connection,
+    _owner_lock: JournalFileLock,
+}
+
+struct JournalFileLock(File);
+impl Drop for JournalFileLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
 }
 
 fn identity<T: serde::Serialize>(value: &T) -> Result<String, JournalError> {
@@ -103,6 +116,28 @@ impl GatewayJournal {
         {
             return Err(JournalError::Invalid("database symlink"));
         }
+        // Single writer across processes: the exclusive OS lock survives
+        // every SQLite transaction until this GatewayJournal is dropped.
+        // A second process must not convert the first process's in-flight
+        // work into a false abandoned/reconciliation candidate.
+        let mut lock_name: OsString = path.as_os_str().to_owned();
+        lock_name.push(".lock");
+        let lock_path = PathBuf::from(lock_name);
+        if lock_path
+            .symlink_metadata()
+            .is_ok_and(|m| m.file_type().is_symlink())
+        {
+            return Err(JournalError::Invalid("lockfile symlink"));
+        }
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .map_err(|_| JournalError::Invalid("lock unavailable"))?;
+        lock.try_lock()
+            .map_err(|_| JournalError::Conflict("journal already owned"))?;
         let db = Connection::open(path)?;
         db.busy_timeout(Duration::from_secs(3))?;
         db.execute_batch(
@@ -128,7 +163,10 @@ impl GatewayJournal {
              WHERE phase='in_flight'",
             [],
         )?;
-        Ok(Self { db })
+        Ok(Self {
+            db,
+            _owner_lock: JournalFileLock(lock),
+        })
     }
 
     /// The caller must present an actual current E02 Node-side guard.

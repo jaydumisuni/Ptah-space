@@ -714,6 +714,37 @@ fn append_preflight_rejects_journal_ahead_of_recovered_cursor_even_on_exact_repl
 }
 
 #[test]
+fn append_preflight_rejects_journal_behind_recovered_cursor() {
+    let digest = format!("sha256:{}", "a".repeat(64));
+    let trusted = LocalSequence {
+        node_id: "node-1".into(),
+        value: 7,
+    };
+    let recovered = LocalSequence {
+        node_id: "node-1".into(),
+        value: 9,
+    };
+    let checkpoint = recovered.checkpoint_bytes().unwrap();
+    let mut stored = queued("prepare", 8, digest.clone()).unwrap();
+    stored.intent_id = "intent-8".into();
+    let mut successor = queued("prepare", 10, digest).unwrap();
+    successor.intent_id = "intent-10".into();
+
+    assert_eq!(
+        successor.preflight_append_after_checkpoint(&trusted, &checkpoint, [&stored]),
+        Err(IntentValidationError::CheckpointJournalMismatch)
+    );
+    assert_eq!(
+        successor.preflight_append_after_checkpoint(
+            &trusted,
+            &checkpoint,
+            std::iter::empty::<&QueuedIntent>()
+        ),
+        Err(IntentValidationError::CheckpointJournalMismatch)
+    );
+}
+
+#[test]
 fn append_preflight_rejects_invalid_first_record_without_draining_history() {
     let digest = format!("sha256:{}", "a".repeat(64));
     let trusted = LocalSequence {

@@ -16,6 +16,16 @@ Master roadmap control, current ecosystem progress, internal decisions, and reco
 
 > Ptah is the world where work happens, not the intelligence that decides what work should happen.
 
+## Optional read-only Internet Search Provider candidate
+
+The [TTG Internet Search adapter](adapters/internet-search/README.md) adds a
+read-only, pinned-wheel **search/read/doctor** execution path through the existing
+A05 Native Process Provider. It does not replace A11 Browser Provider or B07/D03
+workspace knowledge search. Search provider discovery is non-authoritative and
+subject to free-source limits; ZMW 0, no paid overflow. This adapter does not
+self-enroll or self-authorize for production. See
+[the exact qualification record](docs/TTG_INTERNET_SEARCH_PROVIDER_2026-10-15.md).
+
 ## Licence
 
 Repository-owned public Ptah source is licensed under the Apache License, Version 2.0. See `LICENSE`, `NOTICE`, `CONTRIBUTING.md`, `SECURITY.md`, `REUSE.toml`, and `legal/apache-2.0-boundary.json`.

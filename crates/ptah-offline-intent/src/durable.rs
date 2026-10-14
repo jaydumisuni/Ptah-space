@@ -61,6 +61,10 @@ fn row_intent(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueuedIntent> {
     let fields: Vec<String> = (2..=8)
         .map(|i| row.get(i))
         .collect::<rusqlite::Result<_>>()?;
+    // Never reconstruct a trusted revalidation flag from an unchecked stored row.
+    if row.get::<_, i64>(9)? != 1 {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
     let value = decode_sequence(&sequence).map_err(|_| rusqlite::Error::InvalidQuery)?;
     QueuedIntent::try_new(
         fields[0].clone(),
@@ -178,7 +182,7 @@ impl DurableIntentJournal {
     pub fn history(&self) -> Result<Vec<QueuedIntent>, DurableIntentError> {
         let mut stmt = self.db.prepare(
             "SELECT node,sequence,intent_id,workspace_id,activity_id,operation_id,
-             attempt_id,action,digest FROM queued_intents ORDER BY node,sequence",
+             attempt_id,action,digest,revalidate FROM queued_intents ORDER BY node,sequence",
         )?;
         let rows = stmt.query_map([], row_intent)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -242,7 +246,7 @@ impl DurableIntentJournal {
         if let Some(existing) = tx
             .query_row(
                 "SELECT node,sequence,intent_id,workspace_id,activity_id,operation_id,
-             attempt_id,action,digest FROM queued_intents WHERE intent_id=?1",
+             attempt_id,action,digest,revalidate FROM queued_intents WHERE intent_id=?1",
                 params![draft.intent_id],
                 row_intent,
             )
@@ -354,7 +358,7 @@ impl DurableIntentJournal {
             }
             let stored = tx.query_row(
                 "SELECT node,sequence,intent_id,workspace_id,activity_id,operation_id,
-                 attempt_id,action,digest FROM queued_intents WHERE intent_id=?1",
+                 attempt_id,action,digest,revalidate FROM queued_intents WHERE intent_id=?1",
                 params![intent.intent_id],
                 row_intent,
             )?;

@@ -346,3 +346,21 @@ fn forged_degraded_projection_cannot_grant_authority() {
         assert!(projected.revalidate_required);
     }
 }
+
+#[test]
+fn forged_persisted_revalidation_bit_is_rejected() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    journal.append(&intent("n1", 1, "one")).unwrap();
+    drop(journal);
+    let sql = Connection::open(&path).unwrap();
+    sql.execute_batch(
+        "PRAGMA ignore_check_constraints=ON;
+         UPDATE queued_intents SET revalidate=0 WHERE intent_id='one';
+         PRAGMA ignore_check_constraints=OFF;",
+    )
+    .unwrap();
+    drop(sql);
+    assert!(DurableIntentJournal::open(&path).is_err());
+    clean(&path);
+}

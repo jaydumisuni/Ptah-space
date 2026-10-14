@@ -53,3 +53,7 @@ The UI/API must distinguish `offline_local`, `queued_not_authorized`, `revalidat
 E06 is complete only when deterministic conformance proves useful offline work while all authority-bearing effects fail closed until current owner authority is re-established. Crash/restart preserves queue identity and ordering; duplicate replay is idempotent; stale authority is never silently refreshed or widened.
 
 This design grants no runtime authority by itself.
+
+## E06-02 owner-selected sequence decision (2026-10-14)
+
+Owner selected atomic per-origin sequence+intent commit, per-Node contiguous journal validation, and independently verified exceptional recovery. See `2026-10-14-e06-02-owner-selected-atomic-contiguous-recovery.md`. Absent interior sequences are recovery faults; automated skips and tombstones are not admissible without a separately reviewed immutable no-effect proof. This selects a design, not a runtime/release claim.

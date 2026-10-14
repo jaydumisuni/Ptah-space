@@ -780,3 +780,49 @@ fn full_history_preflight_stops_at_first_invalid_record_without_draining_iterato
         Err(IntentValidationError::InvalidReplayState)
     );
 }
+
+#[test]
+fn selected_contract_rejects_interleaved_interior_gap_even_when_tail_matches_checkpoint() {
+    let mk = |key: &str, node: &str, seq: u64| {
+        QueuedIntent::try_new(
+            key.into(),
+            "workspace-1".into(),
+            "activity-1".into(),
+            format!("operation-{key}"),
+            format!("attempt-{key}"),
+            LocalSequence {
+                node_id: node.into(),
+                value: seq,
+            },
+            "prepare".into(),
+            format!("sha256:{}", "a".repeat(64)),
+        )
+        .unwrap()
+    };
+    let history = [
+        mk("one", "node-1", 7),
+        mk("foreign", "node-2", 3),
+        mk("three", "node-1", 9),
+    ];
+    assert!(matches!(
+        QueuedIntent::validate_append_order(history.iter()),
+        Err(IntentValidationError::MissingOriginSequence)
+    ));
+    let candidate = mk("four", "node-1", 10);
+    assert!(matches!(
+        candidate.classify_against_history(history.iter()),
+        Err(IntentValidationError::MissingOriginSequence)
+    ));
+    let trusted = LocalSequence {
+        node_id: "node-1".into(),
+        value: 9,
+    };
+    assert!(matches!(
+        candidate.preflight_append_after_checkpoint(
+            &trusted,
+            &trusted.checkpoint_bytes().unwrap(),
+            history.iter()
+        ),
+        Err(IntentValidationError::MissingOriginSequence)
+    ));
+}

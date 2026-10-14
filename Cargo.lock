@@ -712,6 +712,9 @@ dependencies = [
 [[package]]
 name = "ptah-offline-intent"
 version = "0.1.0"
+dependencies = [
+ "rusqlite",
+]
 
 [[package]]
 name = "ptah-package-plugin"

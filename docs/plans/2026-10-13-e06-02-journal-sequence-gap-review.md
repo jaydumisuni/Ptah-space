@@ -68,3 +68,7 @@ silently changed based on this preparatory corpus.
 runtime authorization remain separate gates. This addition neither accepts
 ADR-0033 nor authorizes E06 runtime execution, replay, placement, transfer,
 promotion, or release.
+
+## Owner decision addendum — 2026-10-14
+
+The owner selected **contiguous per-Node journal sequencing with atomic sequence+envelope commit**, plus independently verified exceptional repair. The prior two-choice review and its case corpus remain preserved as historical preparatory evidence. The selected default from `e06-02-sequence-gap-cases.json` is `contiguous_contract`; `explicit_gap_contract` is not selected. Full decision and authority limits: `2026-10-14-e06-02-owner-selected-atomic-contiguous-recovery.md`. The existing runtime validator has not been modified by this design decision.

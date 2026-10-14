@@ -16,6 +16,7 @@ pub enum IntentValidationError {
     ConflictingReplay,
     ReusedOriginSequence,
     OutOfOrderOriginSequence,
+    MissingOriginSequence,
     UnexpectedOriginSequence,
     InvalidReplayState,
 }
@@ -56,6 +57,9 @@ impl fmt::Display for IntentValidationError {
             }
             Self::OutOfOrderOriginSequence => {
                 write!(f, "journal origin sequence regressed within one node")
+            }
+            Self::MissingOriginSequence => {
+                write!(f, "missing interior journal origin sequence")
             }
             Self::UnexpectedOriginSequence => {
                 write!(
@@ -283,6 +287,9 @@ impl QueuedIntent {
                 if stored.origin.value < *previous {
                     return Err(IntentValidationError::OutOfOrderOriginSequence);
                 }
+                if stored.origin.value > *previous && stored.origin.value - *previous != 1 {
+                    return Err(IntentValidationError::MissingOriginSequence);
+                }
             }
             last_sequence_by_node.insert(stored.origin.node_id.as_str(), stored.origin.value);
             if let Some(prior) = seen_ids.get(stored.intent_id.as_str()) {
@@ -363,6 +370,9 @@ impl QueuedIntent {
             if let Some(previous) = last_sequence_by_node.get(stored.origin.node_id.as_str()) {
                 if stored.origin.value < *previous {
                     return Err(IntentValidationError::OutOfOrderOriginSequence);
+                }
+                if stored.origin.value > *previous && stored.origin.value - *previous != 1 {
+                    return Err(IntentValidationError::MissingOriginSequence);
                 }
             }
             last_sequence_by_node.insert(stored.origin.node_id.as_str(), stored.origin.value);
@@ -538,3 +548,6 @@ mod tests {
         ));
     }
 }
+
+/// Durable per-Node queued-intent journal; no execution authority.
+pub mod durable;

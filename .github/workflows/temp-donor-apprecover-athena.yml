@@ -1,4 +1,4 @@
-name: TEMP Donor Qt recovered analysis review ATHENA
+name: TEMP Donor App Recover exact join evidence ATHENA
 on:
   push:
     branches: [diagnostics/donor-apprecover-athena-20261015]
@@ -10,25 +10,24 @@ jobs:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
     timeout-minutes: 5
     steps:
-      - name: Read completed AndroidUtility extraction analysis
+      - name: Inspect exact control and backend corroboration
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
-          $root='D:\projects\Donor Fetcher\.workspace\athena-harvest\run-20261014-040129\app-recover-qt-full-20261014'
-          Write-Output '=== RECOVERY REVIEW ==='
-          Get-Content -LiteralPath (Join-Path $root 'analysis\RECOVERY_REVIEW.md') -TotalCount 100
-          foreach($file in @('analysis\native-qt-recovery-review.json','analysis\qt-control-backend-join.json','08_rebuild_workspace\app_blueprint.json')){
-            Write-Output ('=== FILE '+$file+' ===')
-            $j=Get-Content -LiteralPath (Join-Path $root $file) -Raw|ConvertFrom-Json
-            $j.PSObject.Properties | ForEach-Object{
-              $val=$_.Value
-              $type=if($val -is [array]){'array('+@($val).Count+')'}elseif($val -is [pscustomobject]){'object('+@($val.PSObject.Properties).Count+')'}else{$val.GetType().Name}
-              Write-Output ($_.Name+'='+$type)
-            }
-            if($file -match 'recovery-review'){ $j|Select-Object * -ExcludeProperty raw_strings,ui_labels,urls | ConvertTo-Json -Depth 4 | Select-Object -First 140 }
-          }
-          Write-Output '=== EXPORTED ACTIONS ==='
-          Get-Content -LiteralPath (Join-Path $root '14_native_exports\action_candidates.txt') -TotalCount 38
-          Write-Output '=== RESOURCE AND QT SOURCE CLAIMS ==='
-          Get-Content -LiteralPath (Join-Path $root '12_rebuild_artifacts\qt_project_files\QT_RECOVERY_NOTES.txt')
-          Get-Content -LiteralPath (Join-Path $root '01_extracted_payload\DIRECT_EXE_NO_PAYLOAD.txt')
+          if($env:COMPUTERNAME -ne 'ATHENA'){throw 'WRONG_HOST'}
+          $root='D:\projects\Donor Fetcher\.workspace\athena-harvest\run-20261014-040129\app-recover-qt-full-20261014\analysis'
+          $join=Get-Content (Join-Path $root 'qt-control-backend-join.json') -Raw | ConvertFrom-Json
+          $review=Get-Content (Join-Path $root 'native-qt-recovery-review.json') -Raw | ConvertFrom-Json
+          [pscustomobject]@{
+            schema=$join.schema; sourceControlRecords=$join.source_control_records
+            controlsWithStaticUIXref=$join.controls_with_static_ui_xref
+            controlsWithBackendRouteRecord=$join.controls_with_backend_route_record
+            controlsWithBoth=$join.controls_with_both; statusCounts=$join.status_counts
+            totalRecords=@($join.records).Count; unmatchedBackendKeys=@($join.unmatched_backend_action_keys).Count
+            sourcePeSha=$review.recovery_input.sha256
+            inputMatch=$review.recovery_input.matches_existing_donor_manifest
+          } | ConvertTo-Json -Depth 4 -Compress
+          Write-Output '=== JOIN RECORD KEYS AND FIRST 3 EXAMPLES ==='
+          @($join.records | Select-Object -First 3) | ConvertTo-Json -Depth 5
+          Write-Output '=== ACTION CANDIDATE FAMILIES ==='
+          Get-Content -LiteralPath 'D:\projects\Donor Fetcher\.workspace\athena-harvest\run-20261014-040129\app-recover-qt-full-20261014\14_native_exports\action_candidates.txt' -TotalCount 20

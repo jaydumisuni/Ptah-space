@@ -79,6 +79,8 @@ jobs:
           if (-not (Test-Path .\target\debug\ptah-node.exe)) { throw "No native Node executable" }
           & .\target\debug\ptah-node.exe
           if ($LASTEXITCODE -ne 2) { throw "Unprovisioned Node did not fail closed with code 2" }
+          # GitHub pwsh shell propagates LASTEXITCODE even for expected refusals.
+          $global:LASTEXITCODE = 0
       - name: Assert unprovisioned E01 gateway refuses activation
         shell: pwsh
         run: |
@@ -86,6 +88,8 @@ jobs:
           if (-not (Test-Path .\target\debug\ptah-enrollment-gateway.exe)) { throw "No native gateway executable" }
           & .\target\debug\ptah-enrollment-gateway.exe
           if ($LASTEXITCODE -ne 2) { throw "Unprovisioned gateway did not fail closed with code 2" }
+          # GitHub pwsh shell propagates LASTEXITCODE even for expected refusals.
+          $global:LASTEXITCODE = 0
       - name: Upload compile-only native candidate (non-deployable)
         uses: actions/upload-artifact@v4
         with:

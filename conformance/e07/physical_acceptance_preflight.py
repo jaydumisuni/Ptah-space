@@ -42,6 +42,11 @@ def report(linux: dict, windows: dict, now: datetime) -> dict:
     pinned=linux.get("pinned_host_match",{})
     if not isinstance(pinned,dict):
         raise ValueError("malformed pinned-host proof")
+    probe=windows.get("cross_host_probe",{})
+    if not isinstance(probe,dict):
+        raise ValueError("malformed optional cross-host probe")
+    # This is an untrusted host observation, not a verified E01 Node link.
+    reachability=probe.get("tcp_succeeded") is True
     return {
         "schema":"ptah.e07.physical_acceptance_preflight.v1",
         "status":"NO_GO",
@@ -61,6 +66,14 @@ def report(linux: dict, windows: dict, now: datetime) -> dict:
             "production_node_enrollment_verified":False,
         },
         "gates":{name:{"status":"NOT_PROVEN","reason":REASONS[name]} for name in GATES},
+        "cross_host_transport":{
+            "athena_to_kratos_tcp_observed":reachability,
+            "target_ipv4":probe.get("target_ipv4") if reachability else None,
+            "port":probe.get("port") if reachability else None,
+            "listener_identity_verified":False,
+            "ptah_e01_enrollment_verified":False,
+            "nonclaim":"TCP reachability does not prove a Ptah listener or current E01 identity.",
+        },
         "owner_go_no_go_required":True,
         "may_run_production_dispatch":False,
         "may_close_e07":False,

@@ -54,6 +54,29 @@ class PhysicalAdmissionTest(unittest.TestCase):
         self.assertFalse(result["may_close_e07"])
         self.assertTrue(all(g["status"]=="NOT_PROVEN" for g in result["gates"].values()))
 
+    def test_direct_tcp_route_is_observed_but_not_admitted(self):
+        w=windows()
+        w["cross_host_probe"]={"target_ipv4":"192.168.0.100","port":7070,
+                               "tcp_succeeded":True,"ptah_e01_enrolled":True,
+                               "production_lease_authorized":True}
+        result=report(linux(),w,NOW)
+        self.assertTrue(result["cross_host_transport"]["athena_to_kratos_tcp_observed"])
+        self.assertFalse(result["cross_host_transport"]["listener_identity_verified"])
+        self.assertFalse(result["cross_host_transport"]["ptah_e01_enrollment_verified"])
+        self.assertEqual(result["status"],"NO_GO")
+        self.assertFalse(result["may_run_production_dispatch"])
+        self.assertFalse(result["may_close_e07"])
+        self.assertTrue(all(g["status"]=="NOT_PROVEN" for g in result["gates"].values()))
+
+    def test_spoofed_nonboolean_transport_and_malformed_probe_cannot_admit(self):
+        w=windows()
+        w["cross_host_probe"]={"tcp_succeeded":"true","ptah_e01_enrolled":True}
+        result=report(linux(),w,NOW)
+        self.assertFalse(result["cross_host_transport"]["athena_to_kratos_tcp_observed"])
+        w["cross_host_probe"]=True
+        with self.assertRaisesRegex(ValueError,"cross-host probe"):
+            report(linux(),w,NOW)
+
     def test_stale_observations_rejected(self):
         w=windows();w["observed_utc"]="2026-10-13T08:00:00+00:00"
         with self.assertRaisesRegex(ValueError,"not current"):

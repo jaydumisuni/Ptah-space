@@ -175,3 +175,17 @@ prevents the current Windows candidate from claiming production enrollment
 merely by accepting a path. A Windows regression checks that public nonsecret
 fixture reading still works and sensitive fixture loading fails. No private
 keys or approved production enrollments are issued by the build workflow.
+
+
+## Recheck — 15 October 2026: actual LAN route and Windows artifact boundary
+
+- **ATHENA native Oracle command execution:** direct `cmd.exe` succeeded and reported Windows build `10.0.26200.9711`.
+- **KRATOS physical interface:** `192.168.0.100/24` on `wlx00e04c8188ff`; **ATHENA Wi-Fi:** `192.168.0.102/24`. This removes the previously observed different-subnet obstacle for these interfaces.
+- **ATHENA → KRATOS TCP:** native Windows `Test-NetConnection` to `192.168.0.100:7070` returned `TcpTestSucceeded=true`, while KRATOS reported a listener bound to that port. **The listener's process identity and Ptah mTLS identity were not established.** This does not grant E01, E02 or E05.
+- **Windows CI:** exact-head E07 physical-admission run `38585928701` succeeded (Linux fail-closed admission tests and Windows executable build/library tests, TLS test, and expected unprovisioned refusal), producing a short-lived nondeployable archive.
+- **ATHENA artifact transfer:** the downloaded archive was SHA-256 verified as `af0c443cfe37ee387bfe916585445e1220de47386e16f4b43b442f5ee301e6b5` and its two native binaries were briefly listed in an isolated qualification directory. In a later separate read, that directory was absent; therefore **no persistent local binary installation, startup qualification or resident Ptah service is claimed**. The subsequent attempt to obtain a new ATHENA observation returned `NO_QUALIFIED_NODE`, so an older timestamp was not substituted.
+- **Fresh KRATOS host collector:** `2026-10-14T22:18:22+00:00` recorded all required capability probes passing, but `proof_eligible=false` because Ubuntu `26.04.1 LTS` / kernel `7.0.0-34-generic` still differs from the frozen E05 host pin.
+
+The E07 preflight now carries the observed TCP route separately as `cross_host_transport` and explicitly hardcodes `listener_identity_verified=false` and `ptah_e01_enrollment_verified=false`; even forged `ptah_e01_enrolled` or `production_lease_authorized` claims cannot promote any gate. Seven hostile preflight tests pass.
+
+**E07 decision remains NO_GO.** The next physical proof needs a persistent, deployment-approved ATHENA Ptah Node executable, a separately verified authorized certificate/Node enrollment and actual Ptah Control listener identity, and independent crash/restart evidence. No credentials, firewall rules, services or Supervisor routing were changed in this checkpoint.

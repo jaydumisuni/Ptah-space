@@ -1,4 +1,4 @@
-name: TEMP Donor App Recover resume inspection ATHENA
+name: TEMP Donor App Recover extracted tree inspection ATHENA
 on:
   push:
     branches: [diagnostics/donor-apprecover-athena-20261015]
@@ -10,25 +10,21 @@ jobs:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
     timeout-minutes: 6
     steps:
-      - name: Inspect prior extraction result receipts without changes
+      - name: Inspect completed Qt recovery artifact inventory
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
           if($env:COMPUTERNAME -ne 'ATHENA'){throw 'WRONG_HOST'}
-          $r='D:\projects\Donor Fetcher\.workspace\athena-harvest\run-20261014-040129'
-          foreach($file in @('run_app_recover_full_readonly.py','run_app_recover_native_qt_readonly.py','app-recover-full-20261014.stdout.log','app-recover-qt-full-20261014.stdout.log')){
-            $p=Join-Path $r $file
-            Write-Output ('===== '+$file+' =====')
-            if(Test-Path $p){Get-Content -LiteralPath $p -TotalCount 140 | ForEach-Object {$_ -replace '(?i)(token|password|secret|api.?key)[=: ]+[^ ,;]+','$1=[REDACTED]'}}else{Write-Output 'MISSING'}
-          }
-          $f=Join-Path $r 'athena-harvest-evidence-freeze.json'
-          if(Test-Path $f){
-            $j=Get-Content $f -Raw|ConvertFrom-Json
-            $d=$j.androidutility_current
-            [pscustomobject]@{FrozenDonorPath=$d.path;Size=$d.size;SHA256=$d.sha256;StillExists=(Test-Path -LiteralPath $d.path)}|ConvertTo-Json -Compress
-          }
-          foreach($base in @("$env:USERPROFILE\Desktop\recovered_apps",'D:\projects\app-recover\.workspace')){
-            if(Test-Path $base){
-              Get-ChildItem -LiteralPath $base -Directory | Where-Object {$_.Name -match 'android|utility|v200'}|Select-Object FullName,LastWriteTime|Format-Table -AutoSize
-            }
+          $root='D:\projects\Donor Fetcher\.workspace\athena-harvest\run-20261014-040129\app-recover-qt-full-20261014'
+          if(-not (Test-Path $root)){throw 'APP_RECOVER_FINISHED_ROOT_MISSING'}
+          Write-Output '=== TOP-LEVEL OUTPUT ==='
+          Get-ChildItem -LiteralPath $root | Select-Object Name,Length,LastWriteTime | Format-Table -AutoSize
+          Write-Output '=== DERIVED REPORT FILES, NO ORIGINAL BINARIES ==='
+          Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction Stop |
+            Where-Object {$_.Extension -in @('.json','.md','.txt','.csv','.ui','.qrc','.qml','.py') -and $_.Length -lt 4000000} |
+            Select-Object -First 150 @{N='Relative';E={$_.FullName.Substring($root.Length+1)}},Length | Format-Table -Wrap -AutoSize
+          Write-Output '=== REPORT SAMPLES ==='
+          foreach($name in @('00_detection\detection_report.json','00_detection\detection.txt','05_dependencies\imports.txt','06_rebuild_prep\rebuild_notes.txt','07_builder_recovery\what_can_be_recovered.txt','07_builder_recovery\builder_recovery_plan.md','08_recovery_methods\recovery_methods.json','02_strings\strings_summary.txt')){
+            $p=Join-Path $root $name
+            if(Test-Path $p){Write-Output ('FILE='+ $name);Get-Content -LiteralPath $p -TotalCount 22 | ForEach-Object {$_ -replace 'https?://\S+','[URL_REMOVED]' -replace '(?i)(password|api.?key|token|secret)[=:]\S+','$1=[REDACTED]'}}
           }

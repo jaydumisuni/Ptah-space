@@ -42,3 +42,34 @@ The physical input JSON and machine-specific full collector remain in private, i
 - This branch is a stacked conformance/evidence proof on Ptah's existing E07 gateway candidate PR #112; do not merge it before that candidate is admitted.
 - E06-02 journal sequence-gap freeze and E07 owner go/no-go remain additional programme gates; neither is claimed closed.
 - Creative Studio remains a specialist caller of Ptah, not a substitute controller or a second scheduler.
+
+
+## New real Creative Studio E02/A05 consumption test — 2026-10-14
+
+`services/ptah-node/tests/supervisor_gateway_boundary.rs` now includes the explicitly opted-in
+`e02_fixture_grant_dispatches_real_creative_studio_and_preserves_node_receipt` physical test.
+
+With `TTG_PTAH_CREATIVE_REPO` explicitly pointing to the Creative Studio checkout, it uses the
+existing Ptah **test Fixture** to issue Control-owned E02 Reservation/Lease/Fence; the Node validates
+the grant, durably stages the exact Attempt, launches Creative Studio's existing Python headless
+worker as an actual Ptah A05 process and independently verifies the resulting editable project,
+PNG and portable ZIP. It stores the observed stdout hash and reopens the Node journal to verify
+completed status and that the same Attempt cannot be dispatched again.
+
+On KRATOS the opt-in test **1/1 PASS**. The existing Node gateway suite **14/14 active PASS**,
+E01 TLS **2/2 PASS**, independent witness **3/3 PASS**. No Hunter is needed.
+
+Run explicitly on a qualified Linux development host:
+
+```bash
+TTG_PTAH_CREATIVE_REPO=/home/kratos/projects/TTG-Creative-Studio \
+TTG_PTAH_CREATIVE_PYTHON=/usr/bin/python3 \
+cargo test --offline --locked -p ptah-node --test supervisor_gateway_boundary \
+ e02_fixture_grant_dispatches_real_creative_studio -- --ignored --nocapture
+```
+
+This advances **fixture-authority Control E02 → Node A05 → real specialist → durable Node receipt**
+but is **NOT** deployed E01 mTLS, production E05 host admission, E07 production scheduling,
+external signed witness service or physical hard-crash proof. The test is ignored in generic CI
+because it requires an explicitly opted-in physical Creative Studio checkout; this prevents
+misrepresenting CI fixtures as production enrollment.

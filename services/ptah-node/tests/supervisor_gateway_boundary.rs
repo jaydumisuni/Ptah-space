@@ -739,6 +739,121 @@ fn cleanup_gateway_database(path: &std::path::Path) {
         let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
     }
 }
+
+#[cfg(unix)]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn e07_sigkill_after_durable_node_stage_requires_reconciliation() {
+    use ptah_node::gateway_journal::{GatewayJournal, StageResult};
+    use ptah_node_link::{DispatchLeaseFrame, DispatchRequestFrame, DispatchReservationFrame};
+    let folder = std::env::temp_dir().join(format!(
+        "ptah-e07-sigkill-{}",
+        ptah_identifiers::EntityId::new_v7()
+    ));
+    if let Ok(path) = std::env::var("PTAH_E07_SIGKILL_CHILD") {
+        let path = std::path::PathBuf::from(path);
+        let mut fixture = Fixture::new();
+        let frames = fixture.issue();
+        let mut guard = NodeDispatchGuard::for_agent(&fixture.node);
+        guard
+            .accept_reservation(&fixture.node, &frames.reservation, now())
+            .unwrap();
+        guard
+            .accept_lease(&fixture.node, &frames.lease, now())
+            .unwrap();
+        let digest = format!("sha256:{}", "c".repeat(64));
+        let journal_path = path.join("attempt.sqlite3");
+        let mut journal = GatewayJournal::open(&journal_path).unwrap();
+        assert_eq!(
+            journal
+                .stage(&fixture.node, &guard, &frames.request, now(), &digest)
+                .unwrap(),
+            StageResult::StagedNew
+        );
+        let frames_bytes = serde_json::to_vec(&(
+            fixture.node,
+            frames.reservation,
+            frames.lease,
+            frames.request,
+        ))
+        .unwrap();
+        std::fs::write(path.join("authority-fixture.json"), frames_bytes).unwrap();
+        std::fs::write(path.join("committed.marker"), b"staged_after_sqlite_commit").unwrap();
+        std::fs::File::open(path.join("committed.marker"))
+            .unwrap()
+            .sync_all()
+            .unwrap();
+        std::thread::sleep(Duration::from_secs(30));
+        panic!("the test parent must terminate the child before its normal exit");
+    }
+    std::fs::create_dir_all(&folder).unwrap();
+    let executable = std::env::current_exe().unwrap();
+    let mut child = std::process::Command::new(executable)
+        .arg("--exact")
+        .arg("e07_sigkill_after_durable_node_stage_requires_reconciliation")
+        .arg("--nocapture")
+        .env("PTAH_E07_SIGKILL_CHILD", &folder)
+        .spawn()
+        .expect("bounded gateway test child");
+    let marker = folder.join("committed.marker");
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while !marker.is_file() && std::time::Instant::now() < deadline {
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "gateway child died before recording the durable stage"
+        );
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    assert!(marker.is_file(), "Node stage marker missing");
+    child.kill().expect("SIGKILL the exact test child");
+    let status = child.wait().expect("reap only the test child");
+    assert!(
+        !status.success(),
+        "SIGKILL must not be mistaken for success"
+    );
+
+    let record = std::fs::read(folder.join("authority-fixture.json")).unwrap();
+    let (node, reservation, lease, request): (
+        NodeAgent,
+        DispatchReservationFrame,
+        DispatchLeaseFrame,
+        DispatchRequestFrame,
+    ) = serde_json::from_slice(&record).unwrap();
+    let mut guard = NodeDispatchGuard::for_agent(&node);
+    guard
+        .accept_reservation(&node, &reservation, now())
+        .unwrap();
+    guard.accept_lease(&node, &lease, now()).unwrap();
+    let digest = format!("sha256:{}", "c".repeat(64));
+    let database = folder.join("attempt.sqlite3");
+    let mut recovered = GatewayJournal::open(&database).expect("reopen after OS SIGKILL");
+    let attempt = recovered
+        .get(&request)
+        .unwrap()
+        .expect("retained exact dispatch");
+    assert_eq!(attempt.phase, "needs_reconciliation");
+    assert!(
+        attempt.exit_code.is_none(),
+        "no invented process completion"
+    );
+    assert!(attempt.stdout_digest.is_none(), "no invented stdout");
+    assert_eq!(attempt.digest, digest);
+    assert_eq!(recovered.unresolved().unwrap().len(), 1);
+    assert_eq!(
+        recovered
+            .stage(&node, &guard, &request, now(), &digest)
+            .unwrap(),
+        StageResult::AlreadyRegistered
+    );
+    // A new external side effect cannot be inferred from the old durable record.
+    assert_eq!(recovered.unresolved().unwrap().len(), 1);
+    drop(recovered);
+    cleanup_gateway_database(&database);
+    let _ = std::fs::remove_file(format!("{}.lock", database.display()));
+    let _ = std::fs::remove_dir_all(folder);
+    eprintln!("PTAH_E07_SIGKILL_RECONCILIATION=PASS; PRODUCTION_HARD_REBOOT=NOT_PROVEN");
+}
+
 #[cfg(unix)]
 #[test]
 fn gateway_journal_preserves_pre_effect_state_and_never_replays_on_restart() {

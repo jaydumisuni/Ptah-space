@@ -1,0 +1,42 @@
+name: E07 SIGKILL Node Journal Reconciliation
+
+on:
+  push:
+    branches:
+      - qualification/e07-crash-reconciliation-20261014
+    paths:
+      - services/ptah-node/tests/supervisor_gateway_boundary.rs
+      - docs/plans/2026-10-14-e07-sigkill-reconciliation.md
+      - .github/workflows/e07-sigkill-reconciliation.yml
+  pull_request:
+    branches:
+      - qualification/e07-physical-admission-20261014
+    paths:
+      - services/ptah-node/tests/supervisor_gateway_boundary.rs
+      - docs/plans/2026-10-14-e07-sigkill-reconciliation.md
+      - .github/workflows/e07-sigkill-reconciliation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sigkill-attempt-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.98.1'
+          components: rustfmt, clippy
+      - name: Test formatting
+        run: rustfmt --edition 2024 --check services/ptah-node/tests/supervisor_gateway_boundary.rs
+      - name: Run actual child-process SIGKILL and journal reconciliation
+        run: cargo test --locked -p ptah-node --test supervisor_gateway_boundary e07_sigkill_after_durable_node_stage_requires_reconciliation -- --exact --nocapture
+      - name: Strict full gateway Clippy
+        run: cargo clippy --locked -p ptah-node --test supervisor_gateway_boundary -- -D warnings
+      - name: All active gateway unit/integration tests
+        run: cargo test --locked -p ptah-node --test supervisor_gateway_boundary

@@ -38,7 +38,7 @@ jobs:
           if (Test-Path $root) { Remove-Item -Recurse -Force $root }
           New-Item -ItemType Directory -Force -Path $root | Out-Null
 
-          gh repo clone jaydumisuni/Oracle- $oracle -- --no-tags
+          gh repo clone jaydumisuni/Oracle- $oracle -- --no-tags --config core.longpaths=true
           gh repo clone jaydumisuni/thetechguy-software-builder $builder -- --no-tags
 
           git -c safe.directory="$($oracle.Replace('\','/'))" -C $oracle checkout --detach $env:ORACLE_COMMIT

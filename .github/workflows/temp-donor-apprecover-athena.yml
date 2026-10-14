@@ -1,4 +1,4 @@
-name: TEMP Donor App Recover exact join evidence ATHENA
+name: TEMP AndroidUtility App Recover completion
 on:
   push:
     branches: [diagnostics/donor-apprecover-athena-20261015]
@@ -6,28 +6,115 @@ on:
 permissions:
   contents: read
 jobs:
-  inspect:
+  handoff:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
-      - name: Inspect exact control and backend corroboration
+      - name: Seal static recovery handoff without executing donor
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
           if($env:COMPUTERNAME -ne 'ATHENA'){throw 'WRONG_HOST'}
-          $root='D:\projects\Donor Fetcher\.workspace\athena-harvest\run-20261014-040129\app-recover-qt-full-20261014\analysis'
-          $join=Get-Content (Join-Path $root 'qt-control-backend-join.json') -Raw | ConvertFrom-Json
-          $review=Get-Content (Join-Path $root 'native-qt-recovery-review.json') -Raw | ConvertFrom-Json
-          [pscustomobject]@{
-            schema=$join.schema; sourceControlRecords=$join.source_control_records
-            controlsWithStaticUIXref=$join.controls_with_static_ui_xref
-            controlsWithBackendRouteRecord=$join.controls_with_backend_route_record
-            controlsWithBoth=$join.controls_with_both; statusCounts=$join.status_counts
-            totalRecords=@($join.records).Count; unmatchedBackendKeys=@($join.unmatched_backend_action_keys).Count
-            sourcePeSha=$review.recovery_input.sha256
-            inputMatch=$review.recovery_input.matches_existing_donor_manifest
-          } | ConvertTo-Json -Depth 4 -Compress
-          Write-Output '=== JOIN RECORD KEYS AND FIRST 3 EXAMPLES ==='
-          @($join.records | Select-Object -First 3) | ConvertTo-Json -Depth 5
-          Write-Output '=== ACTION CANDIDATE FAMILIES ==='
-          Get-Content -LiteralPath 'D:\projects\Donor Fetcher\.workspace\athena-harvest\run-20261014-040129\app-recover-qt-full-20261014\14_native_exports\action_candidates.txt' -TotalCount 20
+          $code=@'
+          from pathlib import Path
+          import json,hashlib,datetime
+          base=Path(r"D:\projects\Donor Fetcher\.workspace\athena-harvest\run-20261014-040129")
+          root=base/"app-recover-qt-full-20261014"
+          analysis=root/"analysis"
+          reviewfile=analysis/"native-qt-recovery-review.json"
+          joinfile=analysis/"qt-control-backend-join.json"
+          assert reviewfile.is_file() and joinfile.is_file()
+          review=json.loads(reviewfile.read_text(encoding="utf-8-sig"))
+          joined=json.loads(joinfile.read_text(encoding="utf-8-sig"))
+          source_sha="fa59be07e4f2cb266fc5dd8e4a132bf95452cbc477949d53ea916191a546bc6f"
+          assert review["recovery_input"]["sha256"]==source_sha
+          assert review["recovery_input"]["matches_existing_donor_manifest"] is True
+          assert joined["native_pe_sha256"]==source_sha
+          assert len(joined["records"])==joined["source_control_records"]==60
+          assert joined["controls_with_static_ui_xref"]==60
+          assert joined["controls_with_backend_route_record"]==joined["controls_with_both"]==17
+          assert all(r.get("live_ui_activation_proved_by_this_extraction") is False and r.get("device_execution_proved_by_this_extraction") is False for r in joined["records"])
+          records=[{
+             "qt_object":r["object_name"],"capability_id":r["capability_id"],
+             "donor_map_status":r["donor_map_status"],
+             "ui_string_offset":r.get("qt_object_string_file_offset"),
+             "ui_xref_present":r["ui_xref_found"],
+             "backend_route_record_present":r["backend_route_identified"],
+             "provider_action":r.get("provider_action"),
+             "live_activation_proved":False,"device_backend_qualified":False,"write_enabled":False,
+          } for r in joined["records"]]
+          receipt={
+            "schema":"ttg.donor.androidutility-v200.apprecover-completion.v1",
+            "generated_utc":datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "host":"ATHENA",
+            "native_pe_sha256":source_sha,
+            "wrapper_sha256":review["current_launcher"]["sha256"],
+            "recovered_file_count":review["recovered"]["file_count"],
+            "recovered_total_bytes":review["recovered"]["total_bytes"],
+            "native_exports":review["recovered"]["exports"],
+            "heuristic_action_export_candidates":review["recovered"]["candidate_exports"],
+            "controls":60,"qt_ui_string_xrefs":60,
+            "backend_route_records":17,"backend_route_gaps":43,
+            "verified_live_controls":0,"device_operations_executed":0,
+            "static_review_sha256":hashlib.sha256(reviewfile.read_bytes()).hexdigest(),
+            "static_join_sha256":hashlib.sha256(joinfile.read_bytes()).hexdigest(),
+            "records":records,
+            "boundary":"Static Qt binary evidence only; not original C++ source, proven Qt events, or qualified device services.",
+          }
+          p=analysis/"donor-recovery-completion-20261015.json"
+          m=analysis/"DONOR_RECOVERY_COMPLETION_20261015.md"
+          prose=[
+            "# Donor Fetcher - AndroidUtility v200 App Recover completion",
+            "",
+            "Static extraction completed earlier and remains preserved. This is a separate evidence derivative.",
+            "",
+            "- Native Qt image SHA-256: "+source_sha,
+            "- Wrapper SHA-256: "+receipt["wrapper_sha256"]+" (distinct image)",
+            "- Recovered artifacts: "+str(receipt["recovered_file_count"])+" files, "+str(receipt["recovered_total_bytes"])+" bytes",
+            "- Native exports: 203; heuristic export candidates: 13",
+            "- Donor control records: 60; matching Qt UI references: 60; backend route records: 17; unresolved backend routes: 43",
+            "- Proven live activation: 0; device operations performed: 0",
+            "",
+            "## Recovered functionality clues",
+            "",
+            "- Read Info labels in ADB, Fastboot, MTP/Download, BootROM, EDL, and DIAG.",
+            "- Partition table, partition read, backup, partition write and flash labels.",
+            "- Mode transition labels for META, BootROM, EDL, DIAG and Fastboot.",
+            "- FRP, factory reset and bootloader labels.",
+            "",
+            "## Authority and limitations",
+            "",
+            "Recovered strings and Qt object references are static clues, not executable permission or physical device proof.",
+            "The 17 backend route records are mapped clues, not dynamically verified Qt signal/slot handlers.",
+            "Original Qt C++ implementation was not reconstructed; the generated PySide6 rebuild is a derivative skeleton.",
+            "Keep every destructive/write capability disabled until specialist transport, selected target, backup and authorization are proven.",
+            "",
+            "## Continuation",
+            "",
+            "1. Correlate the 17 static route records against observed read-only GUI events and backend traces.",
+            "2. Investigate 43 backend route gaps without promoting guesses to working functions.",
+            "3. Run approved information-reading and partition-table-read qualification separately.",
+            "4. Keep original frozen harvest untouched; record physical results separately.",
+            "",
+            "Per-control static evidence is in donor-recovery-completion-20261015.json.",
+            "",
+          ]
+          if not p.exists():
+             with p.open("x",encoding="utf-8") as out:
+                json.dump(receipt,out,indent=2,ensure_ascii=False)
+                out.write("\n")
+          else:
+             check=json.loads(p.read_text(encoding="utf-8"))
+             assert check["static_join_sha256"]==receipt["static_join_sha256"]
+          if not m.exists():
+             with m.open("x",encoding="utf-8") as out:out.write("\n".join(prose))
+          else:
+             assert m.read_text(encoding="utf-8").startswith("# Donor Fetcher - AndroidUtility v200")
+          print("HANDOFF_JSON="+str(p))
+          print("HANDOFF_MD="+str(m))
+          print("HANDOFF_JSON_SHA256="+hashlib.sha256(p.read_bytes()).hexdigest())
+          print("HANDOFF_MD_SHA256="+hashlib.sha256(m.read_bytes()).hexdigest())
+          print("CONTROLS=60 XREFS=60 ROUTES=17 ROUTE_GAPS=43 DEVICE_ACTIONS=0")
+          '@
+          $code | python.exe -
+          if($LASTEXITCODE -ne 0){throw 'DONOR_STATIC_RECOVERY_HANDOFF_FAILED'}

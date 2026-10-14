@@ -529,6 +529,7 @@ fn ptah_gateway_executes_real_ttg_simulation_as_candidate_only() {
 #[cfg(unix)]
 #[test]
 #[ignore = "requires TTG_PTAH_CREATIVE_REPO and a local Pillow-enabled interpreter"]
+#[allow(clippy::too_many_lines)]
 fn e02_fixture_grant_dispatches_real_creative_studio_and_preserves_node_receipt() {
     use ptah_node::gateway_journal::GatewayJournal;
     use sha2::{Digest as _, Sha256};
@@ -628,7 +629,7 @@ fn e02_fixture_grant_dispatches_real_creative_studio_and_preserves_node_receipt(
     assert!(output.join("preview.png").is_file());
     assert!(output.join("project_bundle.zip").is_file());
 
-    let verification = std::process::Command::new(&interpreter)
+    let check_result = std::process::Command::new(&interpreter)
         .args([
             "-B",
             verifier.to_str().expect("verification path"),
@@ -641,17 +642,20 @@ fn e02_fixture_grant_dispatches_real_creative_studio_and_preserves_node_receipt(
         .output()
         .expect("separate independent Studio verifier");
     assert!(
-        verification.status.success(),
+        check_result.status.success(),
         "Creative output verification rejected: {}",
-        String::from_utf8_lossy(&verification.stderr)
+        String::from_utf8_lossy(&check_result.stderr)
     );
-    let verified: serde_json::Value = serde_json::from_slice(
+    let output_receipt: serde_json::Value = serde_json::from_slice(
         &std::fs::read(output.join("independent_verification.json"))
             .expect("observed verifier report"),
     )
     .expect("verifier JSON");
-    assert_eq!(verified["passed"], true);
-    assert_eq!(verified["registered_files"].as_array().unwrap().len(), 3);
+    assert_eq!(output_receipt["passed"], true);
+    assert_eq!(
+        output_receipt["registered_files"].as_array().unwrap().len(),
+        3
+    );
 
     let stdout_digest = journal
         .complete_from_process(&fixture.node, &frames.request, &digest, &provider, process)

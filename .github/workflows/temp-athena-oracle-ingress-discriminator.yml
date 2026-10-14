@@ -8,24 +8,40 @@ jobs:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
     timeout-minutes: 5
     steps:
-      - name: Inspect existing Oracle process owners
+      - name: Inspect current processes, status and installed ownership guard
         shell: powershell
         run: |
+          $ErrorActionPreference='Stop'
           if ($env:COMPUTERNAME -ne 'ATHENA') { throw 'WRONG_HOST' }
-          Get-CimInstance Win32_Process | Where-Object {
-            $_.Name -eq 'Oracle.exe' -or
-            ($_.Name -eq 'node.exe' -and $_.CommandLine -match 'oracle-live-node') -or
-            $_.Name -eq 'Runner.Listener.exe'
-          } | Select-Object Name,ProcessId,ParentProcessId,CreationDate,ExecutablePath | Format-Table -AutoSize
           $root=Join-Path $env:LOCALAPPDATA 'OracleNode'
-          foreach($name in @('oracle-live-node-selfhost-status.json','oracle-live-node-status.json')){
-            $file=Join-Path $root $name
-            if(Test-Path $file){
-              $s=Get-Content -Raw -LiteralPath $file | ConvertFrom-Json
-              [pscustomobject]@{File=$name;AgeSeconds=[int]((Get-Date)-(Get-Item $file).LastWriteTime).TotalSeconds;Pid=$s.pid;NodeId=$s.nodeId;Connected=$s.connected;TransportConnected=$s.transportConnected;ConnectionId=$s.connectionId} | ConvertTo-Json -Compress
+          $roam=Join-Path $env:APPDATA 'oracle'
+          $statusFiles=@(
+            (Join-Path $root 'oracle-live-node-selfhost-status.json'),
+            (Join-Path $root 'oracle-live-node-status.json'),
+            (Join-Path $roam 'oracle-live-node-status.json')
+          )
+          $exe='C:\Program Files (x86)\THETECHGUY Digital Solutions\Oracle\Oracle.exe'
+          $res=Join-Path (Split-Path $exe) 'resources'
+          $asar=Join-Path $res 'app.asar'
+          if(Test-Path $asar){
+            $str=[Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($asar))
+            [pscustomobject]@{PackageFile='app.asar';Bytes=(Get-Item $asar).Length;HasSelfhostOwnershipGuard=$str.Contains('oracle-live-node-selfhost-status.json');HasExternalLiveStatusFiles=$str.Contains('externalLiveStatusFiles')} | ConvertTo-Json -Compress
+          }else{ 'PACKAGE_ASAR_NOT_FOUND' }
+          Get-ChildItem -LiteralPath $res -ErrorAction SilentlyContinue | Select-Object Name,Length | Format-Table
+          for($i=0;$i -lt 15;$i++){
+            $self=Get-CimInstance Win32_Process | Where-Object {
+              $_.Name -eq 'Oracle.exe' -or
+              ($_.Name -eq 'node.exe' -and $_.CommandLine -match 'oracle-live-node')
             }
-          }
-          $installed='C:\Program Files (x86)\THETECHGUY Digital Solutions\Oracle\Oracle.exe'
-          if(Test-Path $installed){
-            (Get-Item $installed).VersionInfo | Select-Object ProductVersion,FileVersion | Format-List
+            $procs=@($self | ForEach-Object {
+              [pscustomobject]@{Name=$_.Name;Pid=$_.ProcessId;Parent=$_.ParentProcessId;Started=[string]$_.CreationDate;LiveScript=[bool]($_.CommandLine -match 'oracle-live-node');SelfhostArg=[bool]($_.CommandLine -match 'selfhost');PackagedSidecar=[bool]($_.CommandLine -match 'sidecars')}
+            })
+            $statuses=@(foreach($file in $statusFiles){
+              if(Test-Path -LiteralPath $file){
+                $s=Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+                [pscustomobject]@{File=(Split-Path $file -Leaf);Dir=(Split-Path (Split-Path $file -Parent) -Leaf);Age=[int]((Get-Date)-(Get-Item $file).LastWriteTime).TotalSeconds;Pid=$s.pid;Connected=$s.connected;Transport=$s.transportConnected;ConnectionId=$s.connectionId;ExecutionReady=$s.executionReady;RepairState=$s.repairState}
+              }
+            })
+            [pscustomobject]@{Sample=$i;Utc=(Get-Date).ToUniversalTime().ToString('o');Processes=$procs;Statuses=$statuses} | ConvertTo-Json -Depth 5 -Compress
+            Start-Sleep -Seconds 1
           }

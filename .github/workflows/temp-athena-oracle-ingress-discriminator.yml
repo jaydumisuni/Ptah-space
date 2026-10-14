@@ -1,4 +1,4 @@
-name: TEMP ATHENA Oracle owner read-only proof
+name: TEMP ATHENA Oracle packaged runtime mode proof
 on:
   push:
     branches: [diagnostics/athena-node-owners-20261014b]
@@ -11,40 +11,18 @@ jobs:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
     timeout-minutes: 5
     steps:
-      - name: Inspect current processes, status and installed ownership guard
+      - name: Inspect packaged runtime mode support without changes
         shell: powershell
         run: |
-          $ErrorActionPreference='Stop'
           if ($env:COMPUTERNAME -ne 'ATHENA') { throw 'WRONG_HOST' }
-          $root=Join-Path $env:LOCALAPPDATA 'OracleNode'
-          $roam=Join-Path $env:APPDATA 'oracle'
-          $statusFiles=@(
-            (Join-Path $root 'oracle-live-node-selfhost-status.json'),
-            (Join-Path $root 'oracle-live-node-status.json'),
-            (Join-Path $roam 'oracle-live-node-status.json')
-          )
-          $exe='C:\Program Files (x86)\THETECHGUY Digital Solutions\Oracle\Oracle.exe'
-          $res=Join-Path (Split-Path $exe) 'resources'
-          $asar=Join-Path $res 'app.asar'
-          if(Test-Path $asar){
-            $str=[Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($asar))
-            [pscustomobject]@{PackageFile='app.asar';Bytes=(Get-Item $asar).Length;HasSelfhostOwnershipGuard=$str.Contains('oracle-live-node-selfhost-status.json');HasExternalLiveStatusFiles=$str.Contains('externalLiveStatusFiles')} | ConvertTo-Json -Compress
-          }else{ 'PACKAGE_ASAR_NOT_FOUND' }
-          Get-ChildItem -LiteralPath $res -ErrorAction SilentlyContinue | Select-Object Name,Length | Format-Table
-          for($i=0;$i -lt 15;$i++){
-            $self=Get-CimInstance Win32_Process | Where-Object {
-              $_.Name -eq 'Oracle.exe' -or
-              ($_.Name -eq 'node.exe' -and $_.CommandLine -match 'oracle-live-node')
-            }
-            $procs=@($self | ForEach-Object {
-              [pscustomobject]@{Name=$_.Name;Pid=$_.ProcessId;Parent=$_.ParentProcessId;Started=[string]$_.CreationDate;LiveScript=[bool]($_.CommandLine -match 'oracle-live-node');SelfhostArg=[bool]($_.CommandLine -match 'selfhost');PackagedSidecar=[bool]($_.CommandLine -match 'sidecars')}
-            })
-            $statuses=@(foreach($file in $statusFiles){
-              if(Test-Path -LiteralPath $file){
-                $s=Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
-                [pscustomobject]@{File=(Split-Path $file -Leaf);Dir=(Split-Path (Split-Path $file -Parent) -Leaf);Age=[int]((Get-Date)-(Get-Item $file).LastWriteTime).TotalSeconds;Pid=$s.pid;Connected=$s.connected;Transport=$s.transportConnected;ConnectionId=$s.connectionId;ExecutionReady=$s.executionReady;RepairState=$s.repairState}
-              }
-            })
-            [pscustomobject]@{Sample=$i;Utc=(Get-Date).ToUniversalTime().ToString('o');Processes=$procs;Statuses=$statuses} | ConvertTo-Json -Depth 5 -Compress
-            Start-Sleep -Seconds 1
-          }
+          $file='C:\Program Files (x86)\THETECHGUY Digital Solutions\Oracle\resources\app.asar'
+          if(-not (Test-Path -LiteralPath $file)) { throw 'INSTALLED_ASAR_MISSING' }
+          $src=[Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($file))
+          [pscustomobject]@{
+            supportsDaemonClientFlag=$src.Contains('ORACLE_DESKTOP_NODE_RUNTIME_MODE')
+            supportsDaemonClientMode=$src.Contains('daemon-client')
+            hasPr256SelfhostGuard=$src.Contains('oracle-live-node-selfhost-status.json')
+            hasExternalLiveStatusFiles=$src.Contains('externalLiveStatusFiles')
+            desktopOwnerProcess=@(Get-Process Oracle -ErrorAction SilentlyContinue).Count
+            currentUserFlag=[string]([Environment]::GetEnvironmentVariable('ORACLE_DESKTOP_NODE_RUNTIME_MODE','User'))
+          } | ConvertTo-Json -Compress

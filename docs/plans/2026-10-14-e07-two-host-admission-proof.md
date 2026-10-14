@@ -142,3 +142,21 @@ working direct Ptah Control/Node network path is **not qualified**.
 Do not open inbound firewall ports or provision tunnels merely to make
 the test pass; the owner-approved service/network design must identify
 the allowed mTLS endpoint, trust roots, routing, and revocation.
+
+## Follow-up: native Windows SQLite linkage and unprovisioned executable guard
+
+The Windows target now explicitly enables `rusqlite/bundled` in the Control
+and Node package manifests, with a corresponding locked `cc` build
+requirement. Linux's native SQLite linkage is unchanged. The E07 hosted
+Windows job now reacts to relevant package/lockfile changes, builds both
+native executable entry points, runs the Control E01 certificate binding
+suite, and checks that the unprovisioned executables fail with a nonzero
+exit rather than claiming readiness. Its short-lived Actions artifact is
+**compile-only evidence**, never a signed installable production release.
+
+On KRATOS, locked Cargo metadata, source formatting, Linux binary builds,
+E01 certificate enrollment tests (2/2), and strict focused Clippy pass.
+The unprovisioned Node and E01 gateway both exit 2 as required. Hosted
+native Windows build/test evidence must be separately observed on the
+exact published head. No ATHENA Node installation or production E01
+credentials are implied by either platform's compile results.

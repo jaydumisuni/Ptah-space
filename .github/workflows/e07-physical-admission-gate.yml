@@ -8,12 +8,18 @@ on:
     paths:
       - conformance/e07/**
       - .github/workflows/e07-physical-admission-gate.yml
+      - Cargo.lock
+      - services/ptah-node/**
+      - services/ptah-control/**
   push:
     branches:
       - qualification/e07-physical-admission-20261014
     paths:
       - conformance/e07/**
       - .github/workflows/e07-physical-admission-gate.yml
+      - Cargo.lock
+      - services/ptah-node/**
+      - services/ptah-control/**
   workflow_dispatch:
 
 permissions:
@@ -57,6 +63,30 @@ jobs:
       - name: Native Windows Control and Node library tests
         shell: pwsh
         run: cargo test --locked -p ptah-node -p ptah-control --lib
+      - name: Build native Windows candidate executables
+        shell: pwsh
+        run: cargo build --locked -p ptah-node --bin ptah-node -p ptah-control --bin ptah-enrollment-gateway
+      - name: E01 mutual TLS enrollment Windows tests
+        shell: pwsh
+        run: cargo test --locked -p ptah-control --test gateway_mtls_enrollment
+      - name: Assert unprovisioned Node refuses activation
+        shell: pwsh
+        run: |
+          & .\target\debug\ptah-node.exe
+          if ($LASTEXITCODE -eq 0) { throw "Unprovisioned Node reported success" }
+      - name: Assert unprovisioned E01 gateway refuses activation
+        shell: pwsh
+        run: |
+          & .\target\debug\ptah-enrollment-gateway.exe
+          if ($LASTEXITCODE -eq 0) { throw "Unprovisioned gateway reported success" }
+      - name: Upload compile-only native candidate (non-deployable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: e07-windows-unprovisioned-executables
+          path: |
+            target/debug/ptah-node.exe
+            target/debug/ptah-enrollment-gateway.exe
+          retention-days: 3
       - name: Preserve production boundary
         shell: pwsh
         run: |

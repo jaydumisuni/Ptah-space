@@ -74,6 +74,14 @@ jobs:
           $python = $candidates | Select-Object -First 1
           if (-not $python) { throw 'BUILDER_PYTHON_NOT_FOUND' }
           & $python --version
+          $builderRoot='${{ steps.prep.outputs.builder }}'
+          $venv=Split-Path -Parent (Split-Path -Parent $python)
+          $link=Join-Path $builderRoot 'env\python\.venv'
+          if(Test-Path -LiteralPath $link){throw 'ISOLATED_BUILDER_VENV_ALREADY_EXISTS'}
+          New-Item -ItemType Directory -Path (Split-Path -Parent $link) -Force | Out-Null
+          New-Item -ItemType Junction -Path $link -Target $venv | Out-Null
+          if(-not (Test-Path (Join-Path $link 'Scripts\python.exe'))){throw 'BUILDER_PYTHON_JUNCTION_INVALID'}
+          Write-Host 'REUSED_EXISTING_BUILDER_PYTHON_ENVIRONMENT'
           "python=$python" >> $env:GITHUB_OUTPUT
 
       - name: Prove exact Windows target selection

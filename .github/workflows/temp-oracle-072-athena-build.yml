@@ -1,10 +1,10 @@
-name: TEMP Oracle 0.7.2 ATHENA exact-head build
+name: TEMP Oracle 0.7.3 ATHENA isolated qualification
 
 on:
   push:
-    branches: [main]
+    branches: [diagnostics/athena-node-owners-20261014b]
     paths:
-      - ".github/workflows/temp-oracle-072-athena-build.yml"
+      - ".github/workflows/temp-oracle-073-athena-build.yml"
 
 permissions:
   contents: read
@@ -14,7 +14,7 @@ jobs:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
     timeout-minutes: 90
     env:
-      ORACLE_COMMIT: "4e44bf950897ad3dccc6eb8fa3afcbe183173015"
+      ORACLE_COMMIT: "e293ebb1f475a1140f7743937dd7340bd3e324fb"
       BUILDER_COMMIT: "3ffcc6a5453a2bce5841479eb6178921215d2e5b"
       PYTHONUTF8: "1"
 
@@ -32,7 +32,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $root = Join-Path $env:RUNNER_TEMP ("oracle-072-" + $env:GITHUB_RUN_ID)
+          $root = Join-Path $env:RUNNER_TEMP ("oracle-073-" + $env:GITHUB_RUN_ID)
           $oracle = Join-Path $root 'oracle'
           $builder = Join-Path $root 'builder'
           if (Test-Path $root) { Remove-Item -Recurse -Force $root }
@@ -52,7 +52,7 @@ jobs:
           if (@(git -c safe.directory="$($builder.Replace('\','/'))" -C $builder status --porcelain).Count -ne 0) { throw 'BUILDER_WORKTREE_DIRTY' }
 
           $contract = Get-Content (Join-Path $oracle 'techguy-build.json') -Raw | ConvertFrom-Json
-          if ($contract.appVersion -ne '0.7.2') { throw "VERSION_MISMATCH $($contract.appVersion)" }
+          if ($contract.appVersion -ne '0.7.3') { throw "VERSION_MISMATCH $($contract.appVersion)" }
 
           "root=$root" >> $env:GITHUB_OUTPUT
           "oracle=$oracle" >> $env:GITHUB_OUTPUT
@@ -84,7 +84,7 @@ jobs:
           $python = '${{ steps.python.outputs.python }}'
           $oracle = '${{ steps.prep.outputs.oracle }}'
           $targets = & $python -m thetechguy_builder.portable_cli targets $oracle --json | ConvertFrom-Json
-          if ($targets.identity.appVersion -ne '0.7.2') { throw 'TARGET_VERSION_MISMATCH' }
+          if ($targets.identity.appVersion -ne '0.7.3') { throw 'TARGET_VERSION_MISMATCH' }
           $target = $targets.targets | Where-Object { $_.targetId -eq 'windows-installer' -and $_.rootKind -eq 'electron' } | Select-Object -First 1
           if (-not $target) { throw 'WINDOWS_ELECTRON_TARGET_MISSING' }
           if ($target.executionHost -ne 'windows') { throw 'WINDOWS_TARGET_HOST_INVALID' }
@@ -92,7 +92,7 @@ jobs:
           $target | ConvertTo-Json -Depth 10 | Write-Host
           "ROOT_ID=$($target.rootId)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Build Oracle 0.7.2 Windows installer with canonical Builder
+      - name: Build Oracle 0.7.3 Windows installer with canonical Builder
         shell: pwsh
         working-directory: ${{ steps.prep.outputs.builder }}
         run: |
@@ -124,7 +124,7 @@ jobs:
 
           $outDir = Join-Path '${{ steps.prep.outputs.root }}' 'release-output'
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-          $artifactOut = Join-Path $outDir 'Oracle-0.7.2-Windows-x64.exe'
+          $artifactOut = Join-Path $outDir 'Oracle-0.7.3-Windows-x64.exe'
           Copy-Item -LiteralPath $artifact -Destination $artifactOut -Force
           Copy-Item -LiteralPath $reportPath -Destination (Join-Path $outDir 'thetechguy.target-adapter-report.json') -Force
           if (Test-Path $auditPath) { Copy-Item -LiteralPath $auditPath -Destination (Join-Path $outDir 'oracle.desktop-package-audit.json') -Force }
@@ -134,9 +134,9 @@ jobs:
             host = $env:COMPUTERNAME
             oracleCommit = $env:ORACLE_COMMIT
             builderCommit = $env:BUILDER_COMMIT
-            version = '0.7.2'
+            version = '0.7.3'
             target = 'windows-installer'
-            artifactName = 'Oracle-0.7.2-Windows-x64.exe'
+            artifactName = 'Oracle-0.7.3-Windows-x64.exe'
             bytes = $item.Length
             sha256 = $sha
             sourceArtifact = $artifact
@@ -149,7 +149,7 @@ jobs:
       - name: Upload exact-head Windows release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: oracle-0.7.2-windows-exact-head
+          name: oracle-0.7.3-windows-exact-head
           path: ${{ steps.prep.outputs.root }}\release-output\*
           if-no-files-found: error
           retention-days: 14

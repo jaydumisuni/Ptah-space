@@ -714,6 +714,7 @@ name = "ptah-offline-intent"
 version = "0.1.0"
 dependencies = [
  "rusqlite",
+ "serde_json",
 ]
 
 [[package]]

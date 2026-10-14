@@ -331,3 +331,18 @@ fn conflict_projection_cannot_be_downgraded_to_revalidating() {
     drop(journal);
     clean(&path);
 }
+
+#[test]
+fn forged_degraded_projection_cannot_grant_authority() {
+    use ptah_offline_intent::degraded::{DegradedProjection, DegradedState};
+    let forged = DegradedProjection {
+        state: DegradedState::OfflineLocal,
+        pending_count: 1,
+        authority_granted: true,
+        revalidate_required: false,
+    };
+    for projected in [forged.clone().revalidating(), forged.conflict()] {
+        assert!(!projected.authority_granted);
+        assert!(projected.revalidate_required);
+    }
+}

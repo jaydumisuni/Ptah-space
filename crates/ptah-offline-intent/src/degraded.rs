@@ -64,7 +64,9 @@ impl DegradedProjection {
             } else {
                 DegradedState::Revalidating
             },
-            ..self
+            pending_count: self.pending_count,
+            authority_granted: false,
+            revalidate_required: true,
         }
     }
     /// Surface unresolved conflict without silently skipping or replaying it.
@@ -72,7 +74,9 @@ impl DegradedProjection {
     pub fn conflict(self) -> Self {
         Self {
             state: DegradedState::Conflict,
-            ..self
+            pending_count: self.pending_count,
+            authority_granted: false,
+            revalidate_required: true,
         }
     }
 }

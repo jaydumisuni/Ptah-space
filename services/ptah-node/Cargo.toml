@@ -40,3 +40,7 @@ path = "src/main.rs"
 [[test]]
 name = "e03_transfer_guard"
 path = "tests/e03_transfer_guard.rs"
+
+[[bin]]
+name = "ptah-e01-node-client"
+path = "src/bin/ptah-e01-node-client.rs"

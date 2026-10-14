@@ -1,0 +1,52 @@
+name: E07 Deployment-Owned E01 Node Client Qualification
+
+on:
+  push:
+    branches:
+      - qualification/e07-enrollment-client-20261014
+    paths:
+      - services/ptah-node/src/bin/ptah-e01-node-client.rs
+      - services/ptah-node/Cargo.toml
+      - docs/plans/2026-10-14-e07-e01-node-client.md
+      - .github/workflows/e07-e01-node-client.yml
+  pull_request:
+    branches:
+      - qualification/e07-creative-recipe-20261014
+    paths:
+      - services/ptah-node/src/bin/ptah-e01-node-client.rs
+      - services/ptah-node/Cargo.toml
+      - docs/plans/2026-10-14-e07-e01-node-client.md
+      - .github/workflows/e07-e01-node-client.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e01-node-client:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.97.1'
+          components: rustfmt, clippy
+      - name: Verify formatting
+        run: rustfmt --edition 2024 --check services/ptah-node/src/bin/ptah-e01-node-client.rs services/ptah-node/tests/e07_node_client_contract.rs
+      - name: Validate no-credential fail-closed Linux Node client tests
+        run: cargo test --locked -p ptah-node --bin ptah-e01-node-client
+      - name: Prove real binary fails before identity consumption
+        run: cargo test --locked -p ptah-node --test e07_node_client_contract
+      - name: Validate existing E01 authenticated Control test authority
+        run: cargo test --locked -p ptah-control --test gateway_mtls_enrollment
+      - name: Strict production-facing binary lint
+        run: cargo clippy --locked -p ptah-node --bin ptah-e01-node-client -- -D warnings
+      - name: Strict external binary regression lint
+        run: cargo clippy --locked -p ptah-node --test e07_node_client_contract -- -D warnings
+      - name: Build bounded non-dispatching executable
+        run: cargo build --locked -p ptah-node --bin ptah-e01-node-client
+      - name: No deployment identities are manufactured in CI
+        run: echo "CI evidence is NOT live production E01 admission or a valid E02 lease."

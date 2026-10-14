@@ -168,13 +168,18 @@ struct Fixture {
     control: PlacementAuthorityOwner,
     capability: EntityRef,
     provider_revision: EntityRef,
+    session: ptah_node_link::SessionBinding,
 }
 impl Fixture {
     fn new() -> Self {
+        Self::with_fingerprint(CredentialFingerprint::from_der(
+            b"supervisor-e05-gateway-fixture",
+        ))
+    }
+    fn with_fingerprint(fingerprint: CredentialFingerprint) -> Self {
         let node = agent();
         // Only a test enrollment. Production must accept a real authenticated
         // E01 mTLS peer, not a locally constructed fingerprint.
-        let fingerprint = CredentialFingerprint::from_der(b"supervisor-e05-gateway-fixture");
         let approved = ApprovedNodeEnrollment::new(
             entity("core.node_enrollment"),
             node.node_id(),
@@ -241,6 +246,7 @@ impl Fixture {
             control,
             capability,
             provider_revision,
+            session,
         }
     }
 
@@ -811,9 +817,13 @@ async fn tls_e02_authority_exchange(mode: u8) -> Result<(), String> {
         accept_tls, read_frame, write_frame,
     };
     use tokio::net::TcpListener;
-    let mut fixture = Fixture::new();
+    let mut fixture = Fixture::with_fingerprint(CredentialFingerprint::from_der(E02_CLIENT));
     let frames = fixture.issue();
     let expected = frames.request.clone();
+    let mut control = fixture.control;
+    let current_session = fixture.session;
+    let capability = fixture.capability;
+    let provider_revision = fixture.provider_revision;
     let roots = || TlsTrustRoots::from_der(vec![E02_CA.to_vec()]).unwrap();
     let server_config = TlsServerConfig::new(
         TlsIdentity::from_der(vec![E02_SERVER.to_vec()], E02_SERVER_KEY.to_vec()).unwrap(),
@@ -825,6 +835,8 @@ async fn tls_e02_authority_exchange(mode: u8) -> Result<(), String> {
         roots(),
     )
     .unwrap();
+    let control_journal_path = temporary_gateway_database();
+    let service_journal_path = control_journal_path.clone();
     let server = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = server.local_addr().unwrap();
     let service = tokio::spawn(async move {
@@ -841,6 +853,43 @@ async fn tls_e02_authority_exchange(mode: u8) -> Result<(), String> {
             connection_epoch: hello.connection_epoch,
         });
         write_frame(tls.stream_mut(), &ack).await.unwrap();
+        if mode == 0 {
+            use ptah_control::gateway_e02_dispatch::issue_and_send;
+            let requirement = PlacementRequirement::new(
+                entity("activity.attempt"),
+                vec![capability],
+                vec![provider_revision],
+                vec![ResourceRequirement::new("cpu", ResourceUnit::Cores, 1.0).unwrap()],
+                Some(OsFamily::Linux),
+            );
+            let instant = now();
+            let mut journal = ptah_control::gateway_control_journal::ControlDispatchJournal::open(
+                &service_journal_path,
+            )
+            .expect("Control durable writer");
+            let grant = issue_and_send(
+                &mut control,
+                &current_session,
+                &mut tls,
+                PlatformNodeClass::AlwaysOnLinux,
+                &requirement,
+                PlacementPolicy::strict(),
+                vec![ReservedResource::new("cpu", ResourceUnit::Cores, 1.0).unwrap()],
+                PlacementAuthorityTiming::new(instant, instant + 120, instant + 90),
+                entity("runtime.dispatch"),
+                entity("activity.operation"),
+                &mut journal,
+                &format!("sha256:{}", "7".repeat(64)),
+            )
+            .await
+            .expect("Control-owned live E02 issuance");
+            assert_eq!(grant.request.node_id, hello.node_id);
+            assert_eq!(
+                journal.lookup(&grant).unwrap().unwrap().phase,
+                "sent_unconfirmed"
+            );
+            return;
+        }
         let first = LinkMessage::DispatchReservation(Box::new(frames.reservation));
         let mut second = LinkMessage::DispatchLease(Box::new(frames.lease));
         let third = LinkMessage::DispatchRequest(Box::new(frames.request));
@@ -873,6 +922,21 @@ async fn tls_e02_authority_exchange(mode: u8) -> Result<(), String> {
         .map_err(|err| format!("{err:?}"))?;
     let got = receive_one(&fixture.node, &mut stream).await;
     service.await.expect("TLS control fixture join");
+    if mode == 0 {
+        let recovered = ptah_control::gateway_control_journal::ControlDispatchJournal::open(
+            &control_journal_path,
+        )
+        .expect("Control restart");
+        let entries = recovered
+            .unresolved()
+            .expect("Control uncertainty receipts");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].phase, "needs_reconciliation");
+        drop(recovered);
+    }
+    cleanup_gateway_database(&control_journal_path);
+    let _ = std::fs::remove_file(format!("{}.lock", control_journal_path.display()));
+
     if mode != 0 {
         assert!(
             got.is_err(),
@@ -881,7 +945,11 @@ async fn tls_e02_authority_exchange(mode: u8) -> Result<(), String> {
         return Ok(());
     }
     let (guard, frame) = got.map_err(|err| format!("{err:?}"))?;
-    assert_eq!(frame, expected);
+    assert_eq!(frame.node_id, expected.node_id);
+    assert_eq!(
+        frame.attempt_ref.entity_kind,
+        expected.attempt_ref.entity_kind
+    );
     let path = temporary_gateway_database();
     let digest = format!("sha256:{}", "7".repeat(64));
     let mut journal = ptah_node::gateway_journal::GatewayJournal::open(&path).unwrap();
@@ -977,4 +1045,63 @@ fn fence_increment_never_replays_unresolved_attempt_after_restart() {
     assert_eq!(again.unresolved().unwrap().len(), 1);
     drop(again);
     cleanup_gateway_database(&path);
+}
+
+#[cfg(unix)]
+#[test]
+fn control_durable_journal_rejects_duplicate_and_replays_uncertainty_only() {
+    use ptah_control::gateway_control_journal::ControlDispatchJournal;
+    let path = temporary_gateway_database();
+    let mut fixture = Fixture::new();
+    let frames = fixture.issue();
+    let digest = format!("sha256:{}", "d".repeat(64));
+    let mut writer = ControlDispatchJournal::open(&path).expect("Control journal");
+    assert!(
+        ControlDispatchJournal::open(&path).is_err(),
+        "exclusive Control writer"
+    );
+    writer
+        .stage_issued(&frames, &digest)
+        .expect("issue before send");
+    assert!(
+        writer.stage_issued(&frames, &digest).is_err(),
+        "duplicate Attempt"
+    );
+    let mut changed = frames.clone();
+    changed.request.dispatch_ref = entity("runtime.dispatch");
+    assert!(
+        writer.stage_issued(&changed, &digest).is_err(),
+        "same Attempt different Dispatch"
+    );
+    assert!(
+        writer.stage_issued(&frames, "sha256:INVALID").is_err(),
+        "invalid digest"
+    );
+    let issued = writer.lookup(&frames).unwrap().unwrap();
+    assert_eq!(issued.phase, "issued_unknown");
+    assert_eq!(issued.request_digest, digest);
+    writer
+        .mark_sent(&frames)
+        .expect("transport is not completion");
+    assert_eq!(
+        writer.lookup(&frames).unwrap().unwrap().phase,
+        "sent_unconfirmed"
+    );
+    assert!(
+        writer.mark_sent(&frames).is_err(),
+        "cannot acknowledge twice"
+    );
+    drop(writer);
+    let mut recovered = ControlDispatchJournal::open(&path).expect("restart");
+    let unresolved = recovered.unresolved().unwrap();
+    assert_eq!(unresolved.len(), 1);
+    assert_eq!(unresolved[0].phase, "needs_reconciliation");
+    assert_eq!(unresolved[0].request_digest, digest);
+    assert!(
+        recovered.stage_issued(&frames, &digest).is_err(),
+        "no replay after crash"
+    );
+    drop(recovered);
+    cleanup_gateway_database(&path);
+    let _ = std::fs::remove_file(format!("{}.lock", path.display()));
 }

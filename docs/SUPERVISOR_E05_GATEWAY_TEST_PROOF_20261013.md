@@ -216,3 +216,21 @@ and a **new attempt identity** before any execution.
 KRATOS: 12/12 normal Node gateway tests PASS, focused strict Clippy
 PASS, cargo formatting PASS. No production dispatch listener
 was deployed and no Supervisor registry/timer routes changed.
+
+## Control-owned E02 durable issuance and crash uncertainty — 2026-10-14
+
+Control now issues E02 grants through its PlacementAuthorityOwner and sends
+Reservation, Lease/Fence, and DispatchRequest frames only over the matched
+authenticated E01 peer connection. A SQLite WAL/FULL ControlDispatchJournal
+persists the exact request-digest-bound Attempt before any socket write.
+A successful send is sent_unconfirmed, never an execution receipt.
+Restart converts unconfirmed dispatch into needs_reconciliation without replay.
+
+KRATOS: 13/13 normal Node gateway tests, 4/4 retained E01 tests, 2/2
+mTLS enrollment tests, 2/2 executable tests, strict Clippy and formatting
+PASS. Negative tests reject reused Attempt, altered dispatch, invalid digest,
+competing Control owners, and duplicate sends across restart.
+
+These tests use fixture certificates. No persistent production Control dispatch
+service, independently witnessed cross-host outcome reconciliation, production
+enrollment, Supervisor cutover, or E07 authorization is claimed.

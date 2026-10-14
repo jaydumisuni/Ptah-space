@@ -565,6 +565,7 @@ dependencies = [
  "ptah-platform-admission",
  "ptah-provider-api",
  "ptah-transfer",
+ "rusqlite",
  "serde",
  "serde_json",
  "tokio",

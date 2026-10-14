@@ -1,52 +1,34 @@
-name: TEMP Donor App Recover inventory ATHENA
+name: TEMP Donor App Recover resume inspection ATHENA
 on:
   push:
     branches: [diagnostics/donor-apprecover-athena-20261015]
     paths: ['.github/workflows/temp-donor-apprecover-athena.yml']
-  workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  inventory:
+  inspect:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
     timeout-minutes: 6
     steps:
-      - name: Inventory installed App Recover and preserved donor evidence
+      - name: Inspect prior extraction result receipts without changes
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
           if($env:COMPUTERNAME -ne 'ATHENA'){throw 'WRONG_HOST'}
-          $roots=@('D:\projects\app-recover','D:\projects\app recover')
-          foreach($r in $roots){
-            if(Test-Path (Join-Path $r 'app_recover_qt.py')){
-              $p=Get-Item (Join-Path $r 'app_recover_qt.py')
-              [pscustomobject]@{kind='app-recover';path=$r;mainBytes=$p.Length;lastModifiedUtc=$p.LastWriteTimeUtc.ToString('o');bridgePresent=(Test-Path 'D:\projects\Donor Fetcher\app\app_recover_bridge.py')} | ConvertTo-Json -Compress
+          $r='D:\projects\Donor Fetcher\.workspace\athena-harvest\run-20261014-040129'
+          foreach($file in @('run_app_recover_full_readonly.py','run_app_recover_native_qt_readonly.py','app-recover-full-20261014.stdout.log','app-recover-qt-full-20261014.stdout.log')){
+            $p=Join-Path $r $file
+            Write-Output ('===== '+$file+' =====')
+            if(Test-Path $p){Get-Content -LiteralPath $p -TotalCount 140 | ForEach-Object {$_ -replace '(?i)(token|password|secret|api.?key)[=: ]+[^ ,;]+','$1=[REDACTED]'}}else{Write-Output 'MISSING'}
+          }
+          $f=Join-Path $r 'athena-harvest-evidence-freeze.json'
+          if(Test-Path $f){
+            $j=Get-Content $f -Raw|ConvertFrom-Json
+            $d=$j.androidutility_current
+            [pscustomobject]@{FrozenDonorPath=$d.path;Size=$d.size;SHA256=$d.sha256;StillExists=(Test-Path -LiteralPath $d.path)}|ConvertTo-Json -Compress
+          }
+          foreach($base in @("$env:USERPROFILE\Desktop\recovered_apps",'D:\projects\app-recover\.workspace')){
+            if(Test-Path $base){
+              Get-ChildItem -LiteralPath $base -Directory | Where-Object {$_.Name -match 'android|utility|v200'}|Select-Object FullName,LastWriteTime|Format-Table -AutoSize
             }
           }
-          $original='D:\projects\Donor Fetcher\tools\AndroidUtility.v200\AndroidUtility.exe'
-          if(Test-Path $original){
-            $p=Get-Item $original
-            [pscustomobject]@{kind='original-donor';path=$original;size=$p.Length;sha256=(Get-FileHash $original -Algorithm SHA256).Hash.ToLowerInvariant()}|ConvertTo-Json -Compress
-          }else{Write-Output 'ORIGINAL_DONOR_NOT_FOUND'}
-          $workspace='D:\projects\Donor Fetcher\.workspace\athena-harvest\run-20261014-040129'
-          if(Test-Path $workspace){
-            Get-ChildItem -LiteralPath $workspace -File | Where-Object {$_.Name -match 'freeze|live-ui|recover|review'} |
-              Select-Object Name,Length,LastWriteTime | Format-Table -AutoSize
-          }
-          $recovered=Join-Path ([Environment]::GetFolderPath('Desktop')) 'recovered_apps'
-          if(Test-Path $recovered){
-            Get-ChildItem -LiteralPath $recovered -Directory | Select-Object Name,LastWriteTime | Format-Table -AutoSize
-          }else{Write-Output 'RECOVERED_APPS_DIR_MISSING'}
-          Get-CimInstance Win32_Process | Where-Object {$_.Name -match 'androidutility|app.?recover'} |
-            Select-Object Name,ProcessId,CreationDate | Format-Table -AutoSize
-          foreach($cmd in @('python.exe','7z.exe')){
-            $command=Get-Command $cmd -ErrorAction SilentlyContinue
-            if($command){Write-Output ('TOOL_AVAILABLE='+$cmd)}
-          }
-          foreach($location in @('D:\projects\app-recover\.venv\Scripts\python.exe','D:\projects\app recover\.venv\Scripts\python.exe','D:\projects\THETECHGUY Software Builder\env\python\.venv\Scripts\python.exe')){
-            if(Test-Path $location) {
-              Write-Output ('PYTHON_CANDIDATE='+$location)
-              & $location -c "import importlib.util; print('PySide6='+str(importlib.util.find_spec('PySide6') is not None)+';pefile='+str(importlib.util.find_spec('pefile') is not None))"
-            }
-          }
-          Get-PSDrive -Name D | Select-Object Name,@{N='FreeGiB';E={[math]::Round($_.Free/1GB,2)}} | Format-Table

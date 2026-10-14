@@ -45,3 +45,26 @@ This is documentation/review preparation only. No runtime semantics are authoriz
 ## Next safe action
 
 Recover the current ADR-0033 decision and canonical authority, then freeze the sequence-continuity contract in the E06 design before any runtime-source correction. Keep E01–E05 authority and all existing execution/transfer/promotion boundaries unchanged.
+
+
+## Non-authorizing adversarial case inventory
+
+The machine-readable design corpus is `e06-02-sequence-gap-cases.json`. It is
+**preparatory evidence, not an accepted runtime rule or a PASS claim**. Each case
+has two explicit expected dispositions, one for each still-unresolved contract
+candidate. The corpus covers:
+
+- contiguous same-Node records and independent interleaved Node cursors;
+- a missing interior sequence, including a gap obscured by another Node;
+- exact same-intent replay versus a conflicting reuse of one origin sequence;
+- descending order and the terminal `u64::MAX` boundary without wraparound.
+
+A future decision must select and freeze one contract, define the authoritative
+gap-evidence representation if applicable, and bind the accepted result to
+runtime conformance tests. The current pure-history validators must not be
+silently changed based on this preparatory corpus.
+
+**Qualification boundary:** P01D/ADR-0038 independent closure and explicit
+runtime authorization remain separate gates. This addition neither accepts
+ADR-0033 nor authorizes E06 runtime execution, replay, placement, transfer,
+promotion, or release.

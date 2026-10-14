@@ -1,5 +1,8 @@
 name: TEMP ATHENA Oracle owner read-only proof
 on:
+  push:
+    branches: [diagnostics/athena-node-owners-20261014b]
+    paths: ['.github/workflows/temp-athena-oracle-ingress-discriminator.yml']
   workflow_dispatch:
 permissions:
   contents: read

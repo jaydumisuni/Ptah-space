@@ -56,6 +56,7 @@ def report(linux: dict, windows: dict, now: datetime) -> dict:
         },
         "athena":{
             "oracle_terminal_responding":windows.get("machine_reachable") is True,
+            "oracle_execution_observed":windows.get("oracle_terminal_execution_passed") is True,
             "ptah_control_or_node_service_observed":bool(windows.get("services") or windows.get("processes")),
             "production_node_enrollment_verified":False,
         },

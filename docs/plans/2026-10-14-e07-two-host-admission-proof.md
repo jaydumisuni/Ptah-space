@@ -73,3 +73,51 @@ but is **NOT** deployed E01 mTLS, production E05 host admission, E07 production 
 external signed witness service or physical hard-crash proof. The test is ignored in generic CI
 because it requires an explicitly opted-in physical Creative Studio checkout; this prevents
 misrepresenting CI fixtures as production enrollment.
+
+## ATHENA Oracle execution restored — physical recheck, 2026-10-14 16:04 CAT
+
+New direct workstation RPC execution on ATHENA independently completed:
+
+- `cmd.exe /d /c echo ATHENA_E07_EXECUTION_OK`: exit 0
+- Windows PowerShell + WMI operating-system identification: exit 0; Windows 11 Home
+- Cross-machine challenge test: KRATOS generated a random nonce and expected
+  SHA-256; ATHENA computed its digest in native Windows PowerShell and returned
+  the matching value through the authenticated Oracle transport
+
+This **closes the previous ATHENA `NO_QUALIFIED_NODE` execution-transport
+blocker**, but that is a different authority from Ptah E01 enrollment.
+
+A fresh ATHENA read-only PowerShell observation, with UTC timestamp
+`2026-10-14T14:04:10Z`, confirmed no Ptah Node/Control process or service,
+no Git checkout at `D:\\projects\\Ptah-space`, no installed WSL
+distribution, and no Rust toolchain. ATHENA's two available host interfaces
+are on different IPv4 /24 networks from KRATOS's observed active interface;
+a direct Ptah Control-to-Node route has not been demonstrated. Do not assume
+a reachable service based on Oracle relay.
+
+KRATOS's canonical Linux collector completed at
+`2026-10-14T14:04:14Z`. Required capabilities PASS, but the pinned
+image remains unqualified: running Ubuntu 26.04.1 / kernel
+`7.0.0-34-generic` versus accepted Ubuntu 24.04.4 /
+`6.8.0-136-generic`. No host baseline was silently relaxed.
+
+The E07 combined preflight rerun, grounded in the fresh private inputs,
+remains **NO_GO** for E01, E02, E05, actual dispatch, crash recovery,
+Service/Recipe admission and E07. Host execution is now displayed separately
+from production Node enrollment; the new hostile test asserts that a true
+`oracle_terminal_execution_passed` flag cannot grant E07 status.
+
+Private, untracked evidence paths in this worktree:
+- `.workspace/scratch/e07-physical-20261014/athena-host-observation-current.json`
+- `.workspace/scratch/e07-physical-20261014/kratos-current-capabilities.json`
+- `.workspace/scratch/e07-physical-20261014/combined-gate-current.json`
+
+The focused fail-closed preflight suite passed **5/5** on KRATOS.
+No production certificates, authority grants, service installation, device
+writes, firewall changes or Supervisor rerouting occurred.
+
+**Next production blockers:** native supported ATHENA Ptah Node runtime and
+installation, authenticated physical E01 enrollment, E05 role/image admission
+on both hosts, a qualified network route, and independent reboot/crash
+recovery with a deployed witness. Those require actual deployment evidence;
+this host-readiness correction alone cannot close issue #110.

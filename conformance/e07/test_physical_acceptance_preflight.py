@@ -42,6 +42,18 @@ class PhysicalAdmissionTest(unittest.TestCase):
         self.assertEqual(result["status"],"NO_GO")
         self.assertFalse(result["may_run_production_dispatch"])
         self.assertTrue(all(x["status"]=="NOT_PROVEN" for x in result["gates"].values()))
+    def test_restored_oracle_execution_is_not_node_enrollment(self):
+        w=windows()
+        w["oracle_terminal_execution_passed"]=True
+        w["production_lease_authorized"]=True
+        w["authenticated_ptah_control_node_session_observed"]=True
+        result=report(linux(),w,NOW)
+        self.assertTrue(result["athena"]["oracle_execution_observed"])
+        self.assertFalse(result["athena"]["production_node_enrollment_verified"])
+        self.assertEqual(result["status"],"NO_GO")
+        self.assertFalse(result["may_close_e07"])
+        self.assertTrue(all(g["status"]=="NOT_PROVEN" for g in result["gates"].values()))
+
     def test_stale_observations_rejected(self):
         w=windows();w["observed_utc"]="2026-10-13T08:00:00+00:00"
         with self.assertRaisesRegex(ValueError,"not current"):

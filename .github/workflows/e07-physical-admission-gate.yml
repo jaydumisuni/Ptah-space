@@ -33,3 +33,28 @@ jobs:
         run: |
           echo "Hermetic preflight proves only fail-closed gating."
           echo "It does not issue Node credentials, E02 authority or E07 acceptance."
+
+  windows-native-node-build-candidate:
+    name: "Windows Ptah Control/Node compile — non-authorizing"
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Check exact candidate head
+        shell: pwsh
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if ((git rev-parse HEAD).Trim() -ne $env:EXPECTED_HEAD) { throw "Wrong candidate checkout" }
+      - name: Select pinned Rust toolchain
+        shell: pwsh
+        run: rustup show
+      - name: Compile native Windows Ptah Node and Control libraries
+        shell: pwsh
+        run: cargo check --locked -p ptah-node -p ptah-control
+      - name: Preserve production boundary
+        shell: pwsh
+        run: |
+          Write-Output "Windows build compatibility only. No Node enrollment, deployment or E07 acceptance."

@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Prove ATHENA and GitHub authority
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           Write-Host "HOST=$env:COMPUTERNAME"
@@ -29,7 +29,7 @@ jobs:
 
       - name: Create isolated exact-head workspaces
         id: prep
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $root = Join-Path $env:RUNNER_TEMP ("oracle-073-" + $env:GITHUB_RUN_ID)
@@ -63,7 +63,7 @@ jobs:
 
       - name: Resolve Builder-owned Python
         id: python
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $candidates = @(
@@ -77,7 +77,7 @@ jobs:
           "python=$python" >> $env:GITHUB_OUTPUT
 
       - name: Prove exact Windows target selection
-        shell: pwsh
+        shell: powershell
         working-directory: ${{ steps.prep.outputs.builder }}
         run: |
           $ErrorActionPreference = 'Stop'
@@ -93,7 +93,7 @@ jobs:
           "ROOT_ID=$($target.rootId)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build Oracle 0.7.3 Windows installer with canonical Builder
-        shell: pwsh
+        shell: powershell
         working-directory: ${{ steps.prep.outputs.builder }}
         run: |
           $ErrorActionPreference = 'Stop'
@@ -104,7 +104,7 @@ jobs:
 
       - name: Freeze Windows artifact evidence
         id: evidence
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $oracle = '${{ steps.prep.outputs.oracle }}'

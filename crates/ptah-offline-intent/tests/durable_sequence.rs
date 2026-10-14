@@ -315,3 +315,19 @@ fn degraded_views_never_promote_offline_intents_to_authority() {
     drop(journal);
     clean(&path);
 }
+
+#[test]
+fn conflict_projection_cannot_be_downgraded_to_revalidating() {
+    use ptah_offline_intent::degraded::{DegradedProjection, DegradedState};
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    journal.enqueue(&draft("node", "conflicted")).unwrap();
+    let conflict = DegradedProjection::from_queue(&journal).unwrap().conflict();
+    let attempted_retry = conflict.revalidating();
+    assert_eq!(attempted_retry.state, DegradedState::Conflict);
+    assert_eq!(attempted_retry.pending_count, 1);
+    assert!(!attempted_retry.authority_granted);
+    assert!(attempted_retry.revalidate_required);
+    drop(journal);
+    clean(&path);
+}

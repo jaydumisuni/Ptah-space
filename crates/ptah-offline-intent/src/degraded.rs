@@ -55,11 +55,15 @@ impl DegradedProjection {
             revalidate_required: true,
         })
     }
-    /// Mark a local revalidation request while preserving zero action authority.
+    /// Request revalidation without downgrading an unresolved conflict.
     #[must_use]
     pub fn revalidating(self) -> Self {
         Self {
-            state: DegradedState::Revalidating,
+            state: if self.state == DegradedState::Conflict {
+                DegradedState::Conflict
+            } else {
+                DegradedState::Revalidating
+            },
             ..self
         }
     }

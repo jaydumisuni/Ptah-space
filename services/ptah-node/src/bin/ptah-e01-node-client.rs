@@ -92,9 +92,9 @@ fn read_regular_file(path: &Path, sensitive: bool) -> Result<Vec<u8>> {
     }
     #[cfg(unix)]
     if sensitive {
-        use std::os::unix::fs::PermissionsExt;
-        if meta.permissions().mode() & 0o077 != 0 {
-            return Err("secret/Node state must be private (mode 0600)".into());
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        if meta.permissions().mode() & 0o077 != 0 || meta.nlink() != 1 {
+            return Err("secret/Node state must be private and not hard-linked".into());
         }
     }
     let bytes = fs::read(path)?;
@@ -107,7 +107,6 @@ fn read_regular_file(path: &Path, sensitive: bool) -> Result<Vec<u8>> {
 /// Retain one exclusive OS file lock and persist next-generation identity
 /// atomically before attempting network I/O. Do not create a new Node identity.
 fn advance_seed(seed_path: &Path) -> Result<(NodeAgent, File)> {
-    let data = read_regular_file(seed_path, true)?;
     let lock_path = seed_path.with_extension("e01.lock");
     if lock_path
         .symlink_metadata()
@@ -131,6 +130,9 @@ fn advance_seed(seed_path: &Path) -> Result<(NodeAgent, File)> {
         }
     }
     lock.try_lock()?;
+    // Read the seed only after acquiring the lock. A pre-lock read could
+    // replay an obsolete Generation/Epoch after the previous writer exits.
+    let data = read_regular_file(seed_path, true)?;
     let seed: NodeRestartSeed = serde_json::from_slice(&data)?;
     let agent = NodeAgent::restart(seed)?;
     let serialized = serde_json::to_vec_pretty(&agent.restart_seed())?;
@@ -244,6 +246,12 @@ mod tests {
         symlink(&path, &link).unwrap();
         assert!(read_regular_file(&link, false).is_err());
         let _ = fs::remove_file(link);
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let alias = path.with_extension("hardlink");
+        fs::hard_link(&path, &alias).unwrap();
+        assert!(read_regular_file(&path, true).is_err());
+        fs::remove_file(alias).unwrap();
+        assert!(read_regular_file(&path, true).is_ok());
         let _ = fs::remove_file(path);
     }
 

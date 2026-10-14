@@ -565,9 +565,11 @@ dependencies = [
  "ptah-platform-admission",
  "ptah-provider-api",
  "ptah-transfer",
+ "ring",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
 ]
 

@@ -55,6 +55,14 @@ pub enum StageResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Read-only attempt evidence preserved across process restarts.
 pub struct RetainedAttempt {
+    /// Immutable canonical Attempt identity.
+    pub attempt: String,
+    /// Immutable canonical originating Node identity.
+    pub node: String,
+    /// Node Generation at dispatch.
+    pub generation: u64,
+    /// E01 connection epoch at dispatch.
+    pub connection_epoch: u64,
     /// Exact Cookpit request digest.
     pub digest: String,
     /// In-flight, completed or awaiting reconciliation.
@@ -290,17 +298,25 @@ impl GatewayJournal {
         let id = identity(&frame.dispatch_ref)?;
         self.db
             .query_row(
-                "SELECT digest,phase,fence,exit_code,stdout_digest
+                "SELECT attempt,node,generation,epoch,digest,phase,fence,exit_code,stdout_digest
              FROM ptah_gateway_attempts WHERE dispatch=?1",
                 params![id],
                 |r| {
-                    let fence: i64 = r.get(2)?;
+                    let fence: i64 = r.get(6)?;
+                    let generation: i64 = r.get(2)?;
+                    let epoch: i64 = r.get(3)?;
                     Ok(RetainedAttempt {
-                        digest: r.get(0)?,
-                        phase: r.get(1)?,
-                        fence: u64::try_from(fence).unwrap_or(0),
-                        exit_code: r.get(3)?,
-                        stdout_digest: r.get(4)?,
+                        attempt: r.get(0)?,
+                        node: r.get(1)?,
+                        generation: u64::try_from(generation)
+                            .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                        connection_epoch: u64::try_from(epoch)
+                            .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                        digest: r.get(4)?,
+                        phase: r.get(5)?,
+                        fence: u64::try_from(fence).map_err(|_| rusqlite::Error::InvalidQuery)?,
+                        exit_code: r.get(7)?,
+                        stdout_digest: r.get(8)?,
                     })
                 },
             )

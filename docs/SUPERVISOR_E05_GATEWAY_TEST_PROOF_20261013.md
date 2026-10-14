@@ -234,3 +234,9 @@ competing Control owners, and duplicate sends across restart.
 These tests use fixture certificates. No persistent production Control dispatch
 service, independently witnessed cross-host outcome reconciliation, production
 enrollment, Supervisor cutover, or E07 authorization is claimed.
+
+## E07 independently signed external-effect verifier — 2026-10-14
+
+The integrated Control/Node gateway now has a read-only Ed25519 external-effect verifier. It binds one signed independent witness observation to the exact Control Dispatch/Attempt/request digest/fence and the Node's recorded Attempt/Node/Generation/E01 epoch/A05 exit/stdout digest. The verification key must be pinned independently of Node and Control. Canonical domain-separated messages prevent repurposing a signature as dispatch authority. A forged signature, untrusted observer, conflicting process result, swapped Node or epoch, incomplete journal completion or mismatched request is rejected. This is a verifier, **not** an installed witness service or an automatic reconciliation decision. No release, retry or completion state is promoted. Tests and strict Clippy are bound into the exact-head workflow.
+
+Remaining production proof requires independent observer deployment, secure key lifecycle/revocation, actual external effect observation across hard process and host crashes, two-host E01/E02 admission, and E07 acceptance. ATHENA is visible to Oracle but its terminal currently rejects with `NO_QUALIFIED_NODE`; do not bypass the machine qualification gate.

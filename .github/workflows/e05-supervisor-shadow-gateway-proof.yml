@@ -56,5 +56,9 @@ jobs:
         run: cargo test --locked -p ptah-control --test gateway_retained_session
       - name: Strict retained-session Clippy
         run: cargo clippy --locked -p ptah-control --test gateway_retained_session -- -D warnings
+      - name: Independent E07 signed external-effect witness proof
+        run: cargo test --locked -p ptah-control --test gateway_witness
+      - name: Strict signed witness verifier Clippy
+        run: cargo clippy --locked -p ptah-control --test gateway_witness -- -D warnings
       - name: Strict TLS enrollment Clippy
         run: cargo clippy --locked -p ptah-control --test gateway_mtls_enrollment -- -D warnings

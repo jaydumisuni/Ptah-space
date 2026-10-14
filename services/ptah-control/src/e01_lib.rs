@@ -24,3 +24,6 @@ pub mod gateway_e02_dispatch;
 
 /// Durable Control-owned dispatch provenance and fail-closed recovery.
 pub mod gateway_control_journal;
+
+/// Independent external-effect attestation verification; no dispatch authority.
+pub mod gateway_witness;

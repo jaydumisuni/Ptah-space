@@ -121,3 +121,24 @@ installation, authenticated physical E01 enrollment, E05 role/image admission
 on both hosts, a qualified network route, and independent reboot/crash
 recovery with a deployed witness. Those require actual deployment evidence;
 this host-readiness correction alone cannot close issue #110.
+
+
+### Windows compilation and direct TCP verification (2026-10-14)
+
+The native Windows-hosted exact-head `cargo check --locked -p ptah-node
+-p ptah-control` passed on GitHub Actions run
+[38579213250](https://github.com/jaydumisuni/Ptah-space/actions/runs/38579213250).
+This qualifies native Windows **source compilation only**; the Node's
+current executable still requires the reviewed resident runtime and
+deployment-owned E01 credentials before any actual Node can be admitted.
+A separate native Windows **library test** step is now required by the
+E07 physical qualification workflow.
+
+ATHENA attempted read-only TCP handshakes to KRATOS's physical host:
+port 22 failed (no SSH listener was observed), and port 7070 failed
+even though KRATOS reported an active wildcard listener there.
+ATHENA used a different IPv4 subnet/gateway from KRATOS. Thus a
+working direct Ptah Control/Node network path is **not qualified**.
+Do not open inbound firewall ports or provision tunnels merely to make
+the test pass; the owner-approved service/network design must identify
+the allowed mTLS endpoint, trust roots, routing, and revocation.

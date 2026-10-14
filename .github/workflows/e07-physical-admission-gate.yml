@@ -54,6 +54,9 @@ jobs:
       - name: Compile native Windows Ptah Node and Control libraries
         shell: pwsh
         run: cargo check --locked -p ptah-node -p ptah-control
+      - name: Native Windows Control and Node library tests
+        shell: pwsh
+        run: cargo test --locked -p ptah-node -p ptah-control --lib
       - name: Preserve production boundary
         shell: pwsh
         run: |

@@ -1,0 +1,35 @@
+name: E07 Physical Admission Non-Claiming Gate
+
+on:
+  pull_request:
+    branches:
+      - integration/e06-gateway-candidate-20261014
+      - main
+    paths:
+      - conformance/e07/**
+      - .github/workflows/e07-physical-admission-gate.yml
+  push:
+    branches:
+      - qualification/e07-physical-admission-20261014
+    paths:
+      - conformance/e07/**
+      - .github/workflows/e07-physical-admission-gate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  admission-fail-closed:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Python syntax
+        run: python3 -m py_compile conformance/e07/physical_acceptance_preflight.py conformance/e07/test_physical_acceptance_preflight.py
+      - name: Reject forged or stale admission evidence
+        run: python3 -B -m unittest discover -s conformance/e07 -p 'test_physical_acceptance_preflight.py' -v
+      - name: Production no-go declaration
+        run: |
+          echo "Hermetic preflight proves only fail-closed gating."
+          echo "It does not issue Node credentials, E02 authority or E07 acceptance."

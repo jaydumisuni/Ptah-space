@@ -1,0 +1,68 @@
+name: E06 atomic offline journal exact-head qualification
+
+on:
+  push:
+    branches:
+      - e06-intermittent-local-first
+    paths:
+      - "Cargo.lock"
+      - "crates/ptah-offline-intent/**"
+      - "docs/plans/2026-10-14-e06-02-*"
+      - ".github/workflows/e06-atomic-journal-proof.yml"
+  pull_request:
+    paths:
+      - "Cargo.lock"
+      - "crates/ptah-offline-intent/**"
+      - ".github/workflows/e06-atomic-journal-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  atomic-offline:
+    name: Exact-head E06 atomic journal and CLI
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact head
+        env:
+          EXACT_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_HEAD"
+      - name: Pinned Rust toolchain
+        run: rustup show
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Atomic WAL and hostile conformance
+        run: cargo test -p ptah-offline-intent --locked
+      - name: Strict package Clippy
+        run: cargo clippy -p ptah-offline-intent --all-targets --locked -- -D warnings
+      - name: Build isolated local queue executable
+        run: cargo build -p ptah-offline-intent --bin ptah-local-queue --locked
+      - name: End-to-end local queue smoke without dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="$(mktemp -d)"
+          trap 'rm -rf "$dir"' EXIT
+          db="$dir/queue.sqlite"
+          cli="target/debug/ptah-local-queue"
+          "$cli" status "$db" > "$dir/empty.json"
+          "$cli" enqueue "$db" node-ci intent-ci ws-ci activity-ci operation-ci attempt-ci prepare_offline "sha256:$(printf 'a%.0s' {1..64})" > "$dir/first.json"
+          "$cli" enqueue "$db" node-ci intent-ci ws-ci activity-ci operation-ci attempt-ci prepare_offline "sha256:$(printf 'a%.0s' {1..64})" > "$dir/replay.json"
+          "$cli" status "$db" > "$dir/final.json"
+          python3 - "$dir" <<'PY'
+          import json,sys,pathlib
+          root=pathlib.Path(sys.argv[1])
+          load=lambda n: json.loads((root/n).read_text())
+          assert load("empty.json")["state"]=="offline_local"
+          first=load("first.json")
+          assert first["disposition"]=="Distinct" and first["origin_sequence"]=="1"
+          assert first["authority_granted"] is False
+          assert load("replay.json")["disposition"]=="Idempotent"
+          final=load("final.json")
+          assert final["state"]=="queued_not_authorized" and final["count"]==1
+          assert final["authority_granted"] is False
+          PY

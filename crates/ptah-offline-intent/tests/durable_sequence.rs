@@ -402,3 +402,31 @@ fn forged_persisted_revalidation_bit_is_rejected() {
     assert!(DurableIntentJournal::open(&path).is_err());
     clean(&path);
 }
+
+#[test]
+fn duplicate_replay_rejects_matching_noncanonical_cursor_and_tail() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    journal.enqueue(&draft("n1", "one")).unwrap();
+    journal.enqueue(&draft("n1", "two")).unwrap();
+
+    // A matching cursor and tail are not sufficient when both are malformed.
+    let sql = Connection::open(&path).unwrap();
+    let malformed = "0000000000000000000x";
+    sql.execute(
+        "UPDATE queued_intents SET sequence=?1 WHERE intent_id='two'",
+        [malformed],
+    )
+    .unwrap();
+    sql.execute(
+        "UPDATE origin_cursor SET sequence=?1 WHERE node='n1'",
+        [malformed],
+    )
+    .unwrap();
+    drop(sql);
+
+    assert!(journal.enqueue(&draft("n1", "one")).is_err());
+    assert!(journal.append(&intent("n1", 1, "one")).is_err());
+    drop(journal);
+    clean(&path);
+}

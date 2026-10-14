@@ -120,6 +120,11 @@ fn verify_replay_origin_tail(
             "cursor/journal tail mismatch",
         ));
     }
+    // A matching pair is not sufficient: both values may have been corrupted
+    // into the same noncanonical sequence after this journal was opened.
+    for raw in [cursor.as_deref(), tail.as_deref()].into_iter().flatten() {
+        decode_sequence(raw)?;
+    }
     Ok(())
 }
 

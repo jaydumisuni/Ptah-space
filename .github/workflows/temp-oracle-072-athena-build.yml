@@ -4,7 +4,7 @@ on:
   push:
     branches: [diagnostics/athena-node-owners-20261014b]
     paths:
-      - ".github/workflows/temp-oracle-073-athena-build.yml"
+      - ".github/workflows/temp-oracle-072-athena-build.yml"
 
 permissions:
   contents: read

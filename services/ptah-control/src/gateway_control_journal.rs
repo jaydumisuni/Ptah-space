@@ -1,5 +1,9 @@
 //! Durable Control-owned dispatch intent and uncertainty receipts.
 //! No synthetic "success" from a successful wire write.
+use crate::gateway_witness::{
+    EffectVerificationError, NodeCompletion, SignedEffectObservation, TrustedWitness,
+    VerifiedEffectEvidence, verify_effect,
+};
 use crate::node_link::DispatchAuthorityFrames;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::{
@@ -16,6 +20,8 @@ pub enum ControlJournalError {
     Storage(rusqlite::Error),
     /// Ownership, identity, or repeated Attempt failure.
     Conflict(&'static str),
+    /// Rejected independently signed witness evidence.
+    Witness(EffectVerificationError),
     /// Malformed request or state location.
     Invalid(&'static str),
 }
@@ -96,7 +102,17 @@ impl ControlDispatchJournal {
         db.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=FULL;
-             CREATE TABLE IF NOT EXISTS control_dispatches(
+             PRAGMA foreign_keys=ON;
+            CREATE TABLE IF NOT EXISTS control_verified_effects(
+                dispatch TEXT PRIMARY KEY,
+                attempt TEXT NOT NULL UNIQUE,
+                witness_id TEXT NOT NULL,
+                evidence_digest TEXT NOT NULL,
+                exit_code INTEGER NOT NULL,
+                stdout_digest TEXT NOT NULL,
+                FOREIGN KEY(dispatch) REFERENCES control_dispatches(dispatch)
+            ) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS control_dispatches(
                dispatch TEXT PRIMARY KEY,
                attempt TEXT NOT NULL UNIQUE,
                node TEXT NOT NULL,
@@ -186,6 +202,113 @@ impl ControlDispatchJournal {
         }
         Ok(())
     }
+
+    /// Validate and durably retain an independent signed external-effect proof.
+    /// The original Control dispatch phase is deliberately unchanged: a valid
+    /// witness is evidence, NOT permission to replay or promote other actions.
+    ///
+    /// # Errors
+    /// Rejects wrong signer, missing Node result, stale Control/Node identity,
+    /// conflicting witness evidence and storage failures.
+    pub fn record_verified_effect(
+        &mut self,
+        frame: &DispatchAuthorityFrames,
+        node: &NodeCompletion,
+        signed: &SignedEffectObservation,
+        trusted: &TrustedWitness<'_>,
+    ) -> Result<VerifiedEffectEvidence, ControlJournalError> {
+        let control = self.lookup(frame)?.ok_or(ControlJournalError::Conflict(
+            "Control Attempt not journaled",
+        ))?;
+        let verified =
+            verify_effect(&control, node, signed, trusted).map_err(ControlJournalError::Witness)?;
+        let expected_node = key(&frame.request.node_id)?;
+        if signed.observation.node != expected_node
+            || signed.observation.generation != frame.request.node_generation.value()
+            || signed.observation.connection_epoch != frame.request.connection_epoch.value()
+        {
+            return Err(ControlJournalError::Conflict(
+                "Control Node generation/epoch mismatch",
+            ));
+        }
+        let dispatch = control.dispatch;
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let stored: (String, i64, i64) = tx.query_row(
+            "SELECT node,generation,epoch FROM control_dispatches WHERE dispatch=?1",
+            params![&dispatch],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
+        if stored.0 != expected_node
+            || u64::try_from(stored.1).ok() != Some(signed.observation.generation)
+            || u64::try_from(stored.2).ok() != Some(signed.observation.connection_epoch)
+        {
+            return Err(ControlJournalError::Conflict(
+                "persisted Control owner mismatch",
+            ));
+        }
+        let witness = verified.witness_id.clone();
+        let digest = verified.canonical_sha256.clone();
+        tx.execute(
+            "INSERT OR IGNORE INTO control_verified_effects
+              (dispatch,attempt,witness_id,evidence_digest,exit_code,stdout_digest)
+              VALUES(?1,?2,?3,?4,?5,?6)",
+            params![
+                &dispatch,
+                &control.attempt,
+                &witness,
+                &digest,
+                signed.observation.observed_exit_code,
+                &signed.observation.observed_stdout_digest
+            ],
+        )?;
+        let found: (String, String, String, i32, String) = tx.query_row(
+            "SELECT attempt,witness_id,evidence_digest,exit_code,stdout_digest
+             FROM control_verified_effects WHERE dispatch=?1",
+            params![&dispatch],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )?;
+        if found
+            != (
+                control.attempt,
+                witness,
+                digest,
+                signed.observation.observed_exit_code,
+                signed.observation.observed_stdout_digest.clone(),
+            )
+        {
+            return Err(ControlJournalError::Conflict("immutable witness changed"));
+        }
+        tx.commit()?;
+        Ok(verified)
+    }
+
+    /// Read persisted witness-evidence identity without promoting dispatch.
+    ///
+    /// # Errors
+    /// Propagates storage and identity errors.
+    pub fn verified_effect(
+        &self,
+        frame: &DispatchAuthorityFrames,
+    ) -> Result<Option<VerifiedEffectEvidence>, ControlJournalError> {
+        let id = key(&frame.request.dispatch_ref)?;
+        self.db
+            .query_row(
+                "SELECT evidence_digest,witness_id FROM control_verified_effects
+             WHERE dispatch=?1",
+                params![id],
+                |r| {
+                    Ok(VerifiedEffectEvidence {
+                        canonical_sha256: r.get(0)?,
+                        witness_id: r.get(1)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     /// Inspect all uncertain effect attempts after reopening or before shutdown.
     ///
     /// # Errors

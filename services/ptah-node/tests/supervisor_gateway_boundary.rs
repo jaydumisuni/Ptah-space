@@ -1105,3 +1105,145 @@ fn control_durable_journal_rejects_duplicate_and_replays_uncertainty_only() {
     cleanup_gateway_database(&path);
     let _ = std::fs::remove_file(format!("{}.lock", path.display()));
 }
+
+#[cfg(unix)]
+#[test]
+#[allow(clippy::too_many_lines)]
+fn signed_external_effect_receipt_survives_control_restart_without_replay() {
+    use ptah_control::gateway_control_journal::ControlDispatchJournal;
+    use ptah_control::gateway_witness::{
+        EffectObservation, NodeCompletion, SignedEffectObservation, TrustedWitness,
+        canonical_message,
+    };
+    use ptah_node::gateway_journal::GatewayJournal;
+    use ring::signature::{Ed25519KeyPair, KeyPair};
+    let mut fixture = Fixture::new();
+    let frames = fixture.issue();
+    let digest = format!("sha256:{}", "a".repeat(64));
+    let control_path = temporary_gateway_database();
+    let node_path = temporary_gateway_database();
+    let mut control = ControlDispatchJournal::open(&control_path).unwrap();
+    control.stage_issued(&frames, &digest).unwrap();
+    control.mark_sent(&frames).unwrap();
+    drop(control);
+    let mut guard = NodeDispatchGuard::for_agent(&fixture.node);
+    guard
+        .accept_reservation(&fixture.node, &frames.reservation, now())
+        .unwrap();
+    guard
+        .accept_lease(&fixture.node, &frames.lease, now())
+        .unwrap();
+    let provider = provider(&fixture.node);
+    let expected = provider
+        .attempt_context(1, entity("runtime.facility"))
+        .unwrap();
+    let mut journal = GatewayJournal::open(&node_path).unwrap();
+    let process = journal
+        .spawn_once(
+            &fixture.node,
+            &guard,
+            &frames.request,
+            now(),
+            &digest,
+            &provider,
+            &expected,
+            process_spec("/bin/true"),
+        )
+        .unwrap();
+    assert!(
+        provider
+            .wait_for_exit(process, Duration::from_secs(5))
+            .unwrap()
+            .success
+    );
+    journal
+        .complete_from_process(&fixture.node, &frames.request, &digest, &provider, process)
+        .unwrap();
+    let retained = journal.get(&frames.request).unwrap().unwrap();
+    drop(journal);
+    let observation = EffectObservation {
+        schema: "ptah.external-effect-witness.v1".into(),
+        witness_id: "independent-observer-test-only".into(),
+        dispatch: serde_json::to_string(&frames.request.dispatch_ref).unwrap(),
+        attempt: retained.attempt.clone(),
+        request_digest: retained.digest.clone(),
+        node: retained.node.clone(),
+        generation: retained.generation,
+        connection_epoch: retained.connection_epoch,
+        fence: retained.fence,
+        provider_generation: 1,
+        process_identity: format!("test-process:{process:?}"),
+        boot_identity: "test-boot-not-physical".into(),
+        observed_exit_code: retained.exit_code.unwrap(),
+        observed_stdout_digest: retained.stdout_digest.clone().unwrap(),
+        observation_source: "signed hermetic test observation".into(),
+    };
+    let keypair = Ed25519KeyPair::from_seed_unchecked(&[21_u8; 32]).unwrap();
+    let key: [u8; 32] = keypair.public_key().as_ref().try_into().unwrap();
+    let signed = SignedEffectObservation {
+        signature: keypair
+            .sign(&canonical_message(&observation).unwrap())
+            .as_ref()
+            .to_vec(),
+        observation,
+    };
+    let trusted = TrustedWitness {
+        witness_id: "independent-observer-test-only",
+        ed25519_public_key: &key,
+    };
+    let completion = NodeCompletion {
+        attempt: retained.attempt,
+        node: retained.node,
+        generation: retained.generation,
+        connection_epoch: retained.connection_epoch,
+        request_digest: retained.digest,
+        phase: retained.phase,
+        fence: retained.fence,
+        exit_code: retained.exit_code,
+        stdout_digest: retained.stdout_digest,
+    };
+    let mut control = ControlDispatchJournal::open(&control_path).unwrap();
+    assert_eq!(
+        control.lookup(&frames).unwrap().unwrap().phase,
+        "needs_reconciliation"
+    );
+    let mut unknown = completion.clone();
+    unknown.phase = "needs_reconciliation".into();
+    assert!(
+        control
+            .record_verified_effect(&frames, &unknown, &signed, &trusted)
+            .is_err()
+    );
+    assert!(control.verified_effect(&frames).unwrap().is_none());
+    let mut forged = signed.clone();
+    forged.signature[0] ^= 1;
+    assert!(
+        control
+            .record_verified_effect(&frames, &completion, &forged, &trusted)
+            .is_err()
+    );
+    assert!(control.verified_effect(&frames).unwrap().is_none());
+    let verified = control
+        .record_verified_effect(&frames, &completion, &signed, &trusted)
+        .unwrap();
+    assert_eq!(
+        control
+            .record_verified_effect(&frames, &completion, &signed, &trusted)
+            .unwrap(),
+        verified
+    );
+    assert_eq!(
+        control.lookup(&frames).unwrap().unwrap().phase,
+        "needs_reconciliation"
+    );
+    drop(control);
+    let after = ControlDispatchJournal::open(&control_path).unwrap();
+    assert_eq!(after.verified_effect(&frames).unwrap(), Some(verified));
+    assert_eq!(
+        after.lookup(&frames).unwrap().unwrap().phase,
+        "needs_reconciliation"
+    );
+    drop(after);
+    cleanup_gateway_database(&control_path);
+    cleanup_gateway_database(&node_path);
+}

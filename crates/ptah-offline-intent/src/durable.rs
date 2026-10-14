@@ -93,6 +93,36 @@ fn decode_sequence(value: &str) -> Result<u64, DurableIntentError> {
     }
     Ok(sequence)
 }
+// A duplicate replay is still a journal acknowledgement. Check the committed
+// cursor against its immutable tail before returning Idempotent, without an
+// O(n) scan on every append. Full interior-gap validation remains on open().
+fn verify_replay_origin_tail(
+    tx: &rusqlite::Transaction<'_>,
+    node: &str,
+) -> Result<(), DurableIntentError> {
+    let cursor: Option<String> = tx
+        .query_row(
+            "SELECT sequence FROM origin_cursor WHERE node=?1",
+            params![node],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let tail: Option<String> = tx
+        .query_row(
+            "SELECT sequence FROM queued_intents WHERE node=?1
+             ORDER BY sequence DESC LIMIT 1",
+            params![node],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if cursor != tail {
+        return Err(DurableIntentError::Integrity(
+            "cursor/journal tail mismatch",
+        ));
+    }
+    Ok(())
+}
+
 impl DurableIntentJournal {
     /// Open the WAL/FULL journal and verify complete per-origin contiguous history.
     /// This store cannot execute or approve queued intents.
@@ -258,6 +288,7 @@ impl DurableIntentJournal {
                     "reused intent identity changed",
                 ));
             }
+            verify_replay_origin_tail(&tx, &existing.origin.node_id)?;
             tx.commit()?;
             return Ok((existing, ReplayDisposition::Idempotent));
         }
@@ -363,6 +394,7 @@ impl DurableIntentJournal {
                 row_intent,
             )?;
             if stored == *intent {
+                verify_replay_origin_tail(&tx, &intent.origin.node_id)?;
                 tx.commit()?;
                 return Ok(ReplayDisposition::Idempotent);
             }

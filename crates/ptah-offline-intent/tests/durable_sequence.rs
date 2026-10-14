@@ -205,6 +205,44 @@ fn enqueue_allocates_sequence_after_commit_with_two_writers() {
     clean(&path);
 }
 #[test]
+fn idempotent_replay_rejects_corrupt_cursor_without_acknowledging_authority() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    journal.enqueue(&draft("n1", "one")).unwrap();
+
+    let sql = Connection::open(&path).unwrap();
+    sql.execute(
+        "UPDATE origin_cursor SET sequence='00000000000000000002' WHERE node='n1'",
+        [],
+    )
+    .unwrap();
+    drop(sql);
+
+    // An already-open journal must not acknowledge duplicate work when its
+    // origin cursor no longer agrees with the immutable committed tail.
+    assert!(journal.enqueue(&draft("n1", "one")).is_err());
+    assert!(journal.append(&intent("n1", 1, "one")).is_err());
+
+    let sql = Connection::open(&path).unwrap();
+    sql.execute(
+        "UPDATE origin_cursor SET sequence='00000000000000000001' WHERE node='n1'",
+        [],
+    )
+    .unwrap();
+    drop(sql);
+    assert_eq!(
+        journal.enqueue(&draft("n1", "one")).unwrap().1,
+        ReplayDisposition::Idempotent
+    );
+    assert_eq!(
+        journal.append(&intent("n1", 1, "one")).unwrap(),
+        ReplayDisposition::Idempotent
+    );
+    drop(journal);
+    clean(&path);
+}
+
+#[test]
 fn failed_enqueue_cursor_transaction_never_reserves_a_sequence() {
     let path = scratch();
     let mut j = DurableIntentJournal::open(&path).unwrap();

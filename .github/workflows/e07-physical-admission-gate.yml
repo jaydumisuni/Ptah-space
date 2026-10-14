@@ -69,16 +69,23 @@ jobs:
       - name: E01 mutual TLS enrollment Windows tests
         shell: pwsh
         run: cargo test --locked -p ptah-control --test gateway_mtls_enrollment
+      - name: Native Windows gateway secret-file policy tests
+        shell: pwsh
+        run: cargo test --locked -p ptah-control --bin ptah-enrollment-gateway
       - name: Assert unprovisioned Node refuses activation
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          if (-not (Test-Path .\target\debug\ptah-node.exe)) { throw "No native Node executable" }
           & .\target\debug\ptah-node.exe
-          if ($LASTEXITCODE -eq 0) { throw "Unprovisioned Node reported success" }
+          if ($LASTEXITCODE -ne 2) { throw "Unprovisioned Node did not fail closed with code 2" }
       - name: Assert unprovisioned E01 gateway refuses activation
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          if (-not (Test-Path .\target\debug\ptah-enrollment-gateway.exe)) { throw "No native gateway executable" }
           & .\target\debug\ptah-enrollment-gateway.exe
-          if ($LASTEXITCODE -eq 0) { throw "Unprovisioned gateway reported success" }
+          if ($LASTEXITCODE -ne 2) { throw "Unprovisioned gateway did not fail closed with code 2" }
       - name: Upload compile-only native candidate (non-deployable)
         uses: actions/upload-artifact@v4
         with:

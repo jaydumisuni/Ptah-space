@@ -160,3 +160,18 @@ The unprovisioned Node and E01 gateway both exit 2 as required. Hosted
 native Windows build/test evidence must be separately observed on the
 exact published head. No ATHENA Node installation or production E01
 credentials are implied by either platform's compile results.
+
+## Windows runner correction and sensitive-file constraint
+
+Exact-head Windows run 38584526153 built both native executables and passed
+the E01 mutual-TLS test, but the startup assertion initially failed because
+PowerShell treats the deliberately nonzero Node exit as a native-command
+error. The workflow now explicitly permits that expected exit and requires
+**exactly code 2**. A missing executable cannot satisfy the assertion.
+
+The Windows E01 listener now rejects **all sensitive-file loading** until a
+Windows ACL/owner-validation implementation is independently qualified. This
+prevents the current Windows candidate from claiming production enrollment
+merely by accepting a path. A Windows regression checks that public nonsecret
+fixture reading still works and sensitive fixture loading fails. No private
+keys or approved production enrollments are issued by the build workflow.

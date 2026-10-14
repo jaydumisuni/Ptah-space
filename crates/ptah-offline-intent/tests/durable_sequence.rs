@@ -295,3 +295,23 @@ fn unsafe_permissions_and_file_aliases_are_rejected() {
     assert!(DurableIntentJournal::open(&path).is_ok());
     clean(&path);
 }
+
+#[test]
+fn degraded_views_never_promote_offline_intents_to_authority() {
+    use ptah_offline_intent::degraded::{DegradedProjection, DegradedState};
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    let empty = DegradedProjection::from_queue(&journal).unwrap();
+    assert_eq!(empty.state, DegradedState::OfflineLocal);
+    assert!(!empty.authority_granted && empty.revalidate_required);
+    journal.enqueue(&draft("node", "queued")).unwrap();
+    let queued = DegradedProjection::from_queue(&journal).unwrap();
+    assert_eq!(queued.state.as_str(), "queued_not_authorized");
+    assert_eq!(queued.pending_count, 1);
+    for projection in [queued.clone().revalidating(), queued.conflict()] {
+        assert!(!projection.authority_granted);
+        assert!(projection.revalidate_required);
+    }
+    drop(journal);
+    clean(&path);
+}

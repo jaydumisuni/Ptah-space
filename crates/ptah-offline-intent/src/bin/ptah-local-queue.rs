@@ -1,4 +1,5 @@
 //! Local-first queue CLI. No network, process execution or authority promotion.
+use ptah_offline_intent::degraded::DegradedProjection;
 use ptah_offline_intent::durable::{DurableIntentJournal, IntentDraft};
 use std::{env, path::Path};
 
@@ -19,20 +20,16 @@ fn run() -> Result<(), String> {
             if args.next().is_some() {
                 return Err(String::from("unexpected arguments"));
             }
-            let history = queue.history().map_err(|e| format!("{e:?}"))?;
-            let status = if history.is_empty() {
-                "offline_local"
-            } else {
-                "queued_not_authorized"
-            };
+            let projection = DegradedProjection::from_queue(&queue)
+                .map_err(|e| format!("degraded projection failed: {e:?}"))?;
             println!(
                 "{}",
                 serde_json::json!({
                     "schema":"ptah.e06.local-queue-status.v1",
-                    "state":status,
-                    "count":history.len(),
-                    "authority_granted":false,
-                    "revalidate_required":true,
+                    "state":projection.state.as_str(),
+                    "count":projection.pending_count,
+                    "authority_granted":projection.authority_granted,
+                    "revalidate_required":projection.revalidate_required,
                 })
             );
         }

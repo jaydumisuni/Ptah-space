@@ -551,3 +551,6 @@ mod tests {
 
 /// Durable per-Node queued-intent journal; no execution authority.
 pub mod durable;
+
+/// Non-authoritative offline/revalidation/conflict status projection.
+pub mod degraded;

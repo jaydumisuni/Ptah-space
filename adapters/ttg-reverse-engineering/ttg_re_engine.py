@@ -170,6 +170,22 @@ def resolve_command(value: str) -> str | None:
     return shutil.which(value)
 
 
+def _rea_launch_prefix(rea_cli: str) -> list[str] | None:
+    """Never implicitly shell a Windows npm .cmd/.bat launcher."""
+    executable = resolve_command(rea_cli)
+    if executable is None:
+        return None
+    suffix = Path(executable).suffix.lower()
+    if suffix in {".cmd", ".bat", ".ps1"}:
+        return None
+    if suffix in {".js", ".mjs", ".cjs"}:
+        node = resolve_command("node")
+        return [node, executable] if node else None
+    if suffix == ".py":
+        return [sys.executable, executable]
+    return [executable]
+
+
 def capabilities(rea_cli: str = "rea", app_recover_root: str | None = None) -> dict[str, Any]:
     app_root = Path(app_recover_root) if app_recover_root else None
     return {
@@ -182,7 +198,7 @@ def capabilities(rea_cli: str = "rea", app_recover_root: str | None = None) -> d
                 "available": bool(app_root and (app_root / "native_export_recovery.py").is_file()),
                 "scope": "App Recover static native export evidence; dependency-qualified separately",
             },
-            "rea": {"available": bool(resolve_command(rea_cli)), "scope": "REA CLI supported target inspections; prerequisites depend on task"},
+             "rea": {"available": bool(_rea_launch_prefix(rea_cli)), "scope": "REA CLI supported target inspections; prerequisites depend on task"},
         },
         "runtime_authority": "caller-owned Ptah Workspace, Grant, A04 Attempt and A05 process",
         "native_binary_execution": False,
@@ -320,14 +336,14 @@ def analyze(
             if task["status"] != "success":
                 receipt["provider_failures"] += 1
     if "rea" in providers:
-        exe = resolve_command(rea_cli)
+        launch = _rea_launch_prefix(rea_cli)
         operation = _rea_operation(kind)
-        if not exe:
-            results.append({"provider": "rea", "status": "unavailable", "reason": "REA CLI not installed/explicitly configured"})
+        if not launch:
+            results.append({"provider": "rea", "status": "unavailable", "reason": "REA CLI unavailable, or Windows batch wrapper rejected; supply a Node .mjs entrypoint"})
         elif not operation:
             results.append({"provider": "rea", "status": "unsupported", "reason": f"no safe REA static lane for {kind}"})
         else:
-            task = _invoke([exe, operation, str(source.resolve()), "--json"], destination / "rea.log", timeout)
+            task = _invoke([*launch, operation, str(source.resolve()), "--json"], destination / "rea.log", timeout)
             if task["status"] == "success":
                 proof = _parse_rea_evidence(destination / "rea.log", destination)
                 task["evidence"] = proof

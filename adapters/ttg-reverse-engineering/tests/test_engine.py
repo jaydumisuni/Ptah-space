@@ -133,7 +133,7 @@ class ReverseEngineeringBridgeTests(unittest.TestCase):
 
     def test_rea_invocation_with_controlled_mock_and_no_shell(self):
         # Only test the fixed command contract; this is not a claim a native REA backend is installed.
-        shim = self.root / "mock-rea"
+        shim = self.root / "mock-rea.py"
         shim.write_text("#!/usr/bin/env python3\nimport sys,json\nprint(json.dumps({'rea_progress':{'phase':'started'}}))\nprint(json.dumps({'evidence_id':'ev_mock','subject':{'digest':{'sha256':'abc'}},'args':sys.argv[1:]}))\n")
         shim.chmod(shim.stat().st_mode | stat.S_IXUSR)
         source = self.root / "sample.mjs"
@@ -172,6 +172,20 @@ class ReverseEngineeringBridgeTests(unittest.TestCase):
         backend_receipt = report["provider_results"][0]["evidence"]
         receipt_path = out / backend_receipt["file"]
         self.assertEqual(backend_receipt["sha256"], hashlib.sha256(receipt_path.read_bytes()).hexdigest())
+
+    def test_rea_script_launch_policy_is_cross_platform_and_blocks_batch(self):
+        stub = self.root / "rea.py"
+        stub.write_text("print('ok')\\n")
+        self.assertEqual(engine._rea_launch_prefix(str(stub)),
+                         [sys.executable, str(stub.resolve())])
+        batch = self.root / "rea.cmd"
+        batch.write_text("@echo off\\n")
+        self.assertIsNone(engine._rea_launch_prefix(str(batch)))
+        node_script = self.root / "rea.mjs"
+        node_script.write_text("process.stdout.write('ok')\\n")
+        launch = engine._rea_launch_prefix(str(node_script))
+        if engine.resolve_command("node"):
+            self.assertEqual(launch[1], str(node_script.resolve()))
 
     def test_driver_missing_root_remains_unavailable(self):
         source = self.root / "sample.exe"

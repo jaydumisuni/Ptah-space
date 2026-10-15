@@ -60,7 +60,7 @@ recovered. Provider failures and unavailable backends remain explicit.
 | ZIP container | REA | inspect-artifact |
 | Unknown | Neutral adapter | Fingerprint and explicit unsupported lane |
 
-REA CLI provider calls use fixed argv and shell=False. REA progress JSONL is
+REA CLI provider calls use fixed argv and shell=False. On Windows pass the REA Node .mjs entrypoint rather than a .cmd/.bat npm wrapper; the launcher uses Node explicitly. REA progress JSONL is
 retained separately from final typed Evidence in rea_evidence.json with a
 SHA-256 evidence digest, an Evidence ID, and the source digest claimed by REA.
 
@@ -91,7 +91,7 @@ install/rebuild/GUI operations remain outside this static bridge.
 
 ## KRATOS qualification — 15 October 2026
 
-- Bridge regression suite: 12/12 pass.
+- Bridge regression suite: 15/15 pass on KRATOS (Windows proof separate).
 - Python compilation: pass.
 - Isolated local REA version 6.5.0 CLI: capability query passed.
 - Real REA JavaScript analysis: exit 0, 16 progress records, final Evidence ID

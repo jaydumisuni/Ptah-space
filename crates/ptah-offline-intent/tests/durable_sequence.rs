@@ -430,3 +430,24 @@ fn duplicate_replay_rejects_matching_noncanonical_cursor_and_tail() {
     drop(journal);
     clean(&path);
 }
+
+#[test]
+fn duplicate_replay_rejects_deleted_interior_origin_record() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    for key in ["one", "two", "three"] {
+        journal.enqueue(&draft("n1", key)).unwrap();
+    }
+
+    // The committed cursor still agrees with the tail, but history is no
+    // longer contiguous. Duplicate replay must not acknowledge this store.
+    let sql = Connection::open(&path).unwrap();
+    sql.execute("DELETE FROM queued_intents WHERE intent_id='two'", [])
+        .unwrap();
+    drop(sql);
+
+    assert!(journal.enqueue(&draft("n1", "one")).is_err());
+    assert!(journal.append(&intent("n1", 1, "one")).is_err());
+    drop(journal);
+    clean(&path);
+}

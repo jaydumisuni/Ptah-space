@@ -122,8 +122,24 @@ fn verify_replay_origin_tail(
     }
     // A matching pair is not sufficient: both values may have been corrupted
     // into the same noncanonical sequence after this journal was opened.
-    for raw in [cursor.as_deref(), tail.as_deref()].into_iter().flatten() {
-        decode_sequence(raw)?;
+    if let Some(raw) = cursor.as_deref() {
+        let committed = decode_sequence(raw)?;
+        // A duplicate is still an acknowledgement: detect a deleted interior
+        // record even when the cursor and final record continue to agree.
+        // Count only this origin and only on replay; distinct append remains
+        // O(1) rather than rescanning the journal on every allocation.
+        let row_count: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM queued_intents WHERE node=?1",
+            params![node],
+            |row| row.get(0),
+        )?;
+        let row_count = u64::try_from(row_count)
+            .map_err(|_| DurableIntentError::Integrity("invalid origin journal count"))?;
+        if row_count != committed {
+            return Err(DurableIntentError::Integrity(
+                "noncontiguous origin journal",
+            ));
+        }
     }
     Ok(())
 }

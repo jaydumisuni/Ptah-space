@@ -223,7 +223,7 @@ def _invoke(argv: list[str], log_path: Path, timeout: int) -> dict[str, Any]:
     return {"tool": Path(argv[0]).name, "status": status, "exit_code": exit_code, "log": log_path.name, "timeout_seconds": timeout}
 
 
-def _parse_rea_evidence(log_path: Path, destination: Path) -> dict[str, Any]:
+def _parse_rea_evidence(log_path: Path, destination: Path, source: Path, expected_sha256: str | None) -> dict[str, Any]:
     """Extract the final REA Evidence JSONL record, never confuse progress with proof."""
     if log_path.stat().st_size > MAX_REA_EVIDENCE_BYTES:
         return {"status": "unavailable", "reason": "REA output exceeded evidence parsing budget"}
@@ -243,6 +243,23 @@ def _parse_rea_evidence(log_path: Path, destination: Path) -> dict[str, Any]:
     if final is None:
         return {"status": "unavailable", "reason": "REA did not provide a final typed Evidence record",
                 "progress_records": progress}
+    subject = final["subject"]
+    claimed_path = subject.get("local_path")
+    claimed_digest = subject.get("digest", {}).get("sha256") if isinstance(subject.get("digest"), dict) else None
+    if not isinstance(claimed_path, str) or not claimed_path:
+        return {"status": "unavailable", "reason": "REA Evidence subject has no source path"}
+    try:
+        bound_path = Path(claimed_path).resolve()
+    except (OSError, ValueError):
+        return {"status": "unavailable", "reason": "REA Evidence subject path is invalid"}
+    if bound_path != source.resolve():
+        return {"status": "unavailable", "reason": "REA Evidence subject is not the admitted input"}
+    if not isinstance(claimed_digest, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", claimed_digest):
+        return {"status": "unavailable", "reason": "REA Evidence subject digest is invalid"}
+    if source.is_file() and (expected_sha256 is None or claimed_digest.lower() != expected_sha256.lower()):
+        return {"status": "unavailable", "reason": "REA Evidence subject digest does not match input"}
+    if source.is_dir() and subject.get("format") != "directory":
+        return {"status": "unavailable", "reason": "REA Evidence subject is not a directory"}
     output_path = destination / "rea_evidence.json"
     payload = (json.dumps(final, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     output_path.write_bytes(payload)
@@ -345,10 +362,23 @@ def analyze(
         else:
             task = _invoke([*launch, operation, str(source.resolve()), "--json"], destination / "rea.log", timeout)
             if task["status"] == "success":
-                proof = _parse_rea_evidence(destination / "rea.log", destination)
+                proof = _parse_rea_evidence(
+                    destination / "rea.log", destination, source, classification["sha256"]
+                )
                 task["evidence"] = proof
                 if proof["status"] != "captured":
                     task["status"] = "incomplete_evidence"
+                else:
+                    try:
+                        updated = inspect_input(source)
+                        if updated["sha256"] != classification["sha256"] or updated.get("size") != classification.get("size"):
+                            task["status"] = "incomplete_evidence"
+                            proof["status"] = "unavailable"
+                            proof["reason"] = "REA input changed during analysis"
+                    except (AdmissionError, OSError, ValueError):
+                        task["status"] = "incomplete_evidence"
+                        proof["status"] = "unavailable"
+                        proof["reason"] = "REA input could not be revalidated after analysis"
             results.append({"provider": "rea", "operation": operation, **task, "view": "rea_evidence"})
             if task["status"] != "success":
                 receipt["provider_failures"] += 1

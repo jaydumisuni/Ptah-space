@@ -75,6 +75,13 @@ is already connected to the adapter. The adapter regression suite is now
 REA CLI provider calls use fixed argv and shell=False. On Windows pass the REA Node .mjs entrypoint rather than a .cmd/.bat npm wrapper; the launcher uses Node explicitly. REA progress JSONL is
 retained separately from final typed Evidence in rea_evidence.json with a
 SHA-256 evidence digest, an Evidence ID, and the source digest claimed by REA.
+Before accepting REA evidence, the adapter verifies the exact admitted source
+path and a valid source digest. For regular files it requires the REA subject
+digest to equal the original input SHA-256; for directories it checks the
+subject is the admitted directory, while recognizing REA and this bridge use
+different tree-digest algorithms. The bridge independently re-hashes the source
+after analysis to detect intervening modifications. A mismatched or invalid
+subject is incomplete_evidence, not a completed analysis.
 
 APK Extractor's Windows Qt UI is intentionally not imported. Its proven
 multi-view workflow is wrapped using safer bounded ZIP extraction and the
@@ -124,3 +131,13 @@ install/rebuild/GUI operations remain outside this static bridge.
 3. Pin/digest each provider release (including REA fork provenance) and
    compare real APK/.NET/PE/ELF/firmware test corpora with the declared claims.
 4. Obtain security review and exact-head proof before production activation.
+
+## Focused evidence-binding qualification (15 October 2026)
+
+A controlled check confirmed the previously accepted mismatched REA subject
+and then verified the corrected adapter rejects it. Real REA analysis still
+passes for a JavaScript directory and a ZIP archive. An intentionally incorrect
+REA subject path now yields partial/incomplete_evidence with nonzero CLI exit.
+The KRATOS regression suite includes source-path and digest mismatch cases
+(18/18 passing). This is an adapter-integrity test, **not** proof of
+real-world reverse-engineering precision/recall or an integrated COG runtime.

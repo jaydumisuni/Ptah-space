@@ -164,7 +164,15 @@ class ReverseEngineeringBridgeTests(unittest.TestCase):
     def test_rea_invocation_with_controlled_mock_and_no_shell(self):
         # Only test the fixed command contract; this is not a claim a native REA backend is installed.
         shim = self.root / "mock-rea.py"
-        shim.write_text("#!/usr/bin/env python3\nimport sys,json\nprint(json.dumps({'rea_progress':{'phase':'started'}}))\nprint(json.dumps({'evidence_id':'ev_mock','subject':{'digest':{'sha256':'abc'}},'args':sys.argv[1:]}))\n")
+        shim.write_text(
+            "import sys,json,hashlib\n"
+            "from pathlib import Path\n"
+            "p=Path(sys.argv[-2]).resolve()\n"
+            "print(json.dumps({'rea_progress':{'phase':'started'}}))\n"
+            "print(json.dumps({'evidence_id':'ev_mock','subject':"
+            "{'local_path':str(p),'digest':{'sha256':hashlib.sha256(p.read_bytes()).hexdigest()},"
+            "'format':'file'},'args':sys.argv[1:]}))\n"
+        )
         shim.chmod(shim.stat().st_mode | stat.S_IXUSR)
         source = self.root / "sample.mjs"
         source.write_text("export const x=1")
@@ -175,6 +183,30 @@ class ReverseEngineeringBridgeTests(unittest.TestCase):
         self.assertEqual(evidence["args"], ["analyze-javascript-application", str(source.resolve()), "--json"])
         self.assertEqual(receipt["provider_results"][0]["evidence"]["evidence_id"], "ev_mock")
         self.assertEqual(receipt["provider_results"][0]["evidence"]["progress_records"], 1)
+
+    def test_rea_input_identity_must_match(self):
+        source = self.root / "source.mjs"
+        source.write_text("export const value=1;")
+        actual = hashlib.sha256(source.read_bytes()).hexdigest()
+        cases = [
+            ("different-path", "/different/file.mjs", actual),
+            ("different-digest", str(source.resolve()), "0" * 64),
+            ("non-digest", str(source.resolve()), "invalid"),
+        ]
+        for index, (name, claimed_path, claimed_digest) in enumerate(cases):
+            with self.subTest(case=name):
+                data = {
+                    "evidence_id": "ev_test",
+                    "subject": {
+                        "local_path": claimed_path,
+                        "digest": {"sha256": claimed_digest},
+                        "format": "file",
+                    },
+                }
+                log = self.root / f"rea-record-{index}.log"
+                log.write_text(json.dumps(data) + "\n")
+                result = engine._parse_rea_evidence(log, self.root, source, actual)
+                self.assertNotEqual(result["status"], "captured")
 
     def test_provider_candidate_manifest_does_not_admit_runtime(self):
         manifest = json.loads((SOURCE.parent / "provider-candidate.json").read_text())

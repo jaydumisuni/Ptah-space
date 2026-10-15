@@ -1247,3 +1247,70 @@ fn signed_external_effect_receipt_survives_control_restart_without_replay() {
     cleanup_gateway_database(&control_path);
     cleanup_gateway_database(&node_path);
 }
+
+/// Child test intentionally bypasses Rust destructors after committing a Control
+/// dispatch. This is an abrupt process exit, not a physical power-cut proof.
+#[cfg(unix)]
+#[test]
+fn control_journal_abrupt_exit_fixture_child() {
+    let Ok(path) = std::env::var("PTAH_E07_CRASH_CHILD_DB") else {
+        return;
+    };
+    let stage = std::env::var("PTAH_E07_CRASH_CHILD_STAGE").expect("stage");
+    let mut fixture = Fixture::new();
+    let frames = fixture.issue();
+    let digest = format!("sha256:{}", "c".repeat(64));
+    let mut journal = ptah_control::gateway_control_journal::ControlDispatchJournal::open(
+        std::path::Path::new(&path),
+    )
+    .expect("open in child");
+    journal
+        .stage_issued(&frames, &digest)
+        .expect("durable before send");
+    if stage == "sent" {
+        journal
+            .mark_sent(&frames)
+            .expect("persist sent, not completed");
+    }
+    // Exit without closing SQLite or the journal lock: the OS releases the
+    // lock; SQLite WAL/FULL retains the committed uncertain state.
+    std::process::exit(77);
+}
+
+#[cfg(unix)]
+#[test]
+fn control_journal_abrupt_process_exit_does_not_lose_or_replay_attempt() {
+    for stage in ["issued", "sent"] {
+        let path = temporary_gateway_database();
+        let child = std::process::Command::new(std::env::current_exe().expect("test exe"))
+            .args([
+                "--exact",
+                "control_journal_abrupt_exit_fixture_child",
+                "--nocapture",
+            ])
+            .env("PTAH_E07_CRASH_CHILD_DB", &path)
+            .env("PTAH_E07_CRASH_CHILD_STAGE", stage)
+            .output()
+            .expect("isolated child process");
+        assert_eq!(
+            child.status.code(),
+            Some(77),
+            "child must really exit abruptly: {}",
+            String::from_utf8_lossy(&child.stderr)
+        );
+        let recovered = ptah_control::gateway_control_journal::ControlDispatchJournal::open(&path)
+            .expect("exclusive lock reclaimed after child death");
+        let unresolved = recovered.unresolved().expect("no lost E02 intent");
+        assert_eq!(unresolved.len(), 1);
+        assert_eq!(unresolved[0].phase, "needs_reconciliation");
+        assert_eq!(
+            unresolved[0].request_digest,
+            format!("sha256:{}", "c".repeat(64))
+        );
+        // No authority to mark execution successful or to retry it.
+        assert!(unresolved[0].phase != "completed");
+        drop(recovered);
+        cleanup_gateway_database(&path);
+        let _ = std::fs::remove_file(format!("{}.lock", path.display()));
+    }
+}

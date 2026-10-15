@@ -271,3 +271,41 @@ Focused opt-in/negative executable tests: 5/5 PASS; strict Clippy PASS.
 The native ATHENA `ptah-e01-node-client.exe` remains fail-closed
 pending Windows ACL/durable state custody. Host TCP reachability does
 not establish mutually authenticated Ptah E01 session authority.
+
+
+## E07 Control process-death recovery qualification — 2026-10-16
+
+The gateway test suite now forks the actual compiled Rust integration-test
+executable as a distinct Control process and intentionally calls
+`std::process::exit(77)` **without Rust destructors** after either:
+(1) committing `issued_unknown` before an E02 socket write, or
+(2) committing `sent_unconfirmed` after transmission was recorded.
+
+A new Control owner reopens the same SQLite WAL/FULL database after the
+child dies and verifies the OS file lock is released, exactly one Attempt
+remains, the request digest is unchanged and the phase is
+`needs_reconciliation`. No action is rerun or marked complete.
+Both injected shutdown points pass; the full normal gateway suite runs
+**16/16 PASS, 1 opt-in real Simulation fixture ignored**, with strict
+Clippy and formatting PASS on KRATOS.
+
+**Scope limitation:** This proves abrupt *Control process exit* only.
+It does not simulate hard host power loss, independent witness failure,
+simultaneous two-machine recovery, a production E02 service, or production
+enrollment. Those remain E07 admission requirements.
+
+### Physical ATHENA↔KRATOS E01 attempt — 2026-10-16
+
+ATHENA Oracle command execution was independently restored, and a native
+Windows Node-client artifact was obtained from exact-head hosted Windows
+run 38810551881 into ATHENA's C: NTFS test workspace. The KRATOS
+private-LAN enrollment gateway bound successfully at
+`192.168.1.101:18786` using a 180-second, **disposable-only**
+test enrollment projection. The matching Windows client invocation was
+blocked by Oracle's execution safety gate before a result was obtained.
+The bounded Control listener exited by timeout, and no production
+service or Supervisor route was changed.
+
+**No cross-host E01 handshake, E05 physical admission, or production
+Node enrollment was proven.** Do not use prior exFAT D: test state
+as protected credential custody or work around the denied invocation.

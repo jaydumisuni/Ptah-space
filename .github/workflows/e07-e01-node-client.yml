@@ -89,11 +89,29 @@ jobs:
           & $client
           if ($LASTEXITCODE -ne 2) { throw "unprovisioned E01 client returned $LASTEXITCODE (expected 2)" }
           $global:LASTEXITCODE = 0
+      - name: Native E01 artifact SHA-256 custody manifest
+        shell: pwsh
+        run: |
+          $binary = "target/debug/ptah-e01-node-client.exe"
+          if (-not (Test-Path $binary)) { throw "missing exact-head native binary" }
+          $head = (git rev-parse HEAD).Trim()
+          $sha = (Get-FileHash -Algorithm SHA256 -Path $binary).Hash.ToLowerInvariant()
+          $manifest = [ordered]@{
+            schema = "ptah.e07.windows-ci-artifact-manifest.v1"
+            source_head_sha = $head
+            executable_sha256 = $sha
+            production_enrollment = $false
+            deployment_authorized = $false
+          }
+          $manifest | ConvertTo-Json | Set-Content -Path target/debug/ptah-e01-node-client.manifest.json -Encoding ascii
+          if ((Get-Content target/debug/ptah-e01-node-client.manifest.json -Raw | ConvertFrom-Json).executable_sha256 -ne $sha) { throw "artifact digest roundtrip failed" }
       - name: Compile-only E01 client for physical host qualification
         uses: actions/upload-artifact@v4
         with:
           name: e07-windows-e01-node-client-non-deployable
-          path: target/debug/ptah-e01-node-client.exe
+          path: |
+            target/debug/ptah-e01-node-client.exe
+            target/debug/ptah-e01-node-client.manifest.json
           retention-days: 2
       - name: Windows DPAPI, atomic replacement, ACL and restart-lock custody test
         shell: powershell

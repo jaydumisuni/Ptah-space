@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::{
     collections::HashSet,
     env, fs,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     path::PathBuf,
     str::FromStr,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -45,9 +45,35 @@ struct Config {
     enrollment_path: PathBuf,
 }
 fn config_from_args() -> Result<Config, String> {
+    config_from_iter(env::args().skip(1))
+}
+fn allowed_bind(ip: IpAddr, allow_private: bool) -> bool {
+    if ip.is_loopback() {
+        return true;
+    }
+    if !allow_private {
+        return false;
+    }
+    match ip {
+        IpAddr::V4(addr) => {
+            let o = addr.octets();
+            o[0] == 10 || (o[0] == 172 && (16..=31).contains(&o[1])) || (o[0] == 192 && o[1] == 168)
+        }
+        IpAddr::V6(_) => false,
+    }
+}
+fn config_from_iter(args: impl IntoIterator<Item = String>) -> Result<Config, String> {
+    let mut allow_private = false;
     let mut entries = std::collections::BTreeMap::new();
-    let mut it = env::args().skip(1);
+    let mut it = args.into_iter();
     while let Some(key) = it.next() {
+        if key == "--allow-private-lan" {
+            if allow_private {
+                return Err("duplicate private-LAN option".into());
+            }
+            allow_private = true;
+            continue;
+        }
         if ![
             "--listen",
             "--server-cert",
@@ -72,9 +98,9 @@ fn config_from_args() -> Result<Config, String> {
     let listen: SocketAddr = val("--listen")?
         .parse()
         .map_err(|_| "invalid bind address")?;
-    if !listen.ip().is_loopback() {
+    if !allowed_bind(listen.ip(), allow_private) {
         return Err(String::from(
-            "initial enrollment listener must bind to loopback",
+            "listener must be loopback, or explicit private RFC1918 address with --allow-private-lan",
         ));
     }
     let config = Config {
@@ -229,6 +255,75 @@ mod tests {
             "expires_at_epoch_seconds":null
         })
     }
+
+    fn listener_args(endpoint: &str, opt_in: bool) -> Vec<String> {
+        let mut v = vec![
+            "--listen".to_string(),
+            endpoint.to_string(),
+            "--server-cert".to_string(),
+            "server.pem".to_string(),
+            "--server-key".to_string(),
+            "key.pem".to_string(),
+            "--client-ca".to_string(),
+            "ca.pem".to_string(),
+            "--enrollments".to_string(),
+            "approved.json".to_string(),
+        ];
+        if opt_in {
+            v.push("--allow-private-lan".to_string());
+        }
+        v
+    }
+    #[test]
+    fn loopback_allowed_without_private_opt_in() {
+        for endpoint in ["127.0.0.1:9238", "[::1]:9238"] {
+            assert!(config_from_iter(listener_args(endpoint, false)).is_ok());
+        }
+        assert!(config_from_iter(listener_args("192.168.0.100:9238", false)).is_err());
+    }
+    #[test]
+    fn only_specific_private_ipv4_bind_allowed_with_opt_in() {
+        for endpoint in [
+            "192.168.0.100:9238",
+            "192.168.1.100:9238",
+            "10.10.10.1:9238",
+            "172.16.0.1:9238",
+            "172.31.255.1:9238",
+        ] {
+            assert!(
+                config_from_iter(listener_args(endpoint, true)).is_ok(),
+                "{endpoint}"
+            );
+        }
+        for endpoint in [
+            "0.0.0.0:9238",
+            "[::]:9238",
+            "8.8.8.8:9238",
+            "1.1.1.1:9238",
+            "169.254.1.10:9238",
+            "100.64.0.1:9238",
+            "172.15.0.1:9238",
+            "172.32.0.1:9238",
+            "192.0.2.1:9238",
+            "[fe80::1]:9238",
+            "[fc00::1]:9238",
+        ] {
+            assert!(
+                config_from_iter(listener_args(endpoint, true)).is_err(),
+                "{endpoint}"
+            );
+        }
+    }
+    #[test]
+    fn duplicate_private_bind_opt_in_is_refused() {
+        let mut a = listener_args("192.168.0.100:9238", true);
+        a.push("--allow-private-lan".to_string());
+        assert!(config_from_iter(a).is_err());
+        let mut b = listener_args("192.168.0.100:9238", true);
+        b.push("--unsupported-option".to_string());
+        assert!(config_from_iter(b).is_err());
+    }
+
     #[test]
     fn enrollment_config_accepts_only_canonical_approved_entries() {
         let fingerprint = "a".repeat(64);

@@ -244,3 +244,30 @@ Remaining production proof requires independent observer deployment, secure key 
 ### E07 durable signed evidence after Control restart — 2026-10-14
 
 The Control journal has an immutable `control_verified_effects` table. Only the `record_verified_effect` method can add a row, after checking an externally pinned Ed25519 witness signature against the exact persisted Control Node/Generation/E01 epoch/Dispatch/Attempt/request/fence and the Node's real A05 completion. A repeated identical receipt is idempotent; conflicting receipts, swapped Node identity, altered signed bytes and Node `needs_reconciliation` are rejected. After Control restart, the independent evidence remains readable, while the original dispatch remains `needs_reconciliation` and cannot automatically replay or promote further work. The KRATOS integration test uses an actual A05 `/bin/true` effect and explicitly test-only signing credentials; it does **not** prove an independent production witness daemon, real machine power-loss durability or deployment-ready recovery.
+
+
+## Explicit private-LAN E01 bind candidate — 2026-10-15
+
+Physical ATHENA and KRATOS have a direct working IPv4 route, but Ptah's
+enrollment executable previously permitted loopback binding only. This
+change adds an explicit `--allow-private-lan` switch allowing one
+specific RFC1918 IPv4 endpoint, e.g. an approved KRATOS interface.
+
+Loopback remains the default. Without the flag, every nonloopback bind
+is rejected. Even with the flag, wildcard (`0.0.0.0` or `[::]`),
+public IPv4, link-local, CGNAT, unapproved ranges and all nonloopback
+IPv6 addresses are refused. The executable **still** validates
+deployment-owned server TLS key, trusted client CA and approved
+canonical E01 enrollment *before* opening any listener.
+
+This code is not a deployment approval. The explicit endpoint, firewall
+access policy, TLS server SAN, approved A02 Node identity, certificate
+expiry/revocation and role admission must be qualified independently.
+The listener remains **E01 Hello/Heartbeat/Close only** and cannot
+accept E02/A05 commands. No production service was started on either
+machine and Supervisor was not rerouted.
+
+Focused opt-in/negative executable tests: 5/5 PASS; strict Clippy PASS.
+The native ATHENA `ptah-e01-node-client.exe` remains fail-closed
+pending Windows ACL/durable state custody. Host TCP reachability does
+not establish mutually authenticated Ptah E01 session authority.

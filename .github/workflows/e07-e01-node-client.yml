@@ -50,3 +50,40 @@ jobs:
         run: cargo build --locked -p ptah-node --bin ptah-e01-node-client
       - name: No deployment identities are manufactured in CI
         run: echo "CI evidence is NOT live production E01 admission or a valid E02 lease."
+
+  windows-unprovisioned-node-client:
+    name: "Windows E01 client native startup — non-authorizing"
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Exact-head source check
+        shell: pwsh
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if ((git rev-parse HEAD).Trim() -ne $env:EXPECTED_HEAD) { throw "wrong E01 client head" }
+      - name: Compile native E01 Node client for Windows
+        shell: pwsh
+        run: cargo build --locked -p ptah-node --bin ptah-e01-node-client
+      - name: Unprovisioned Windows E01 client must refuse
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $client = ".\\target\\debug\\ptah-e01-node-client.exe"
+          if (-not (Test-Path $client)) { throw "native E01 client missing" }
+          & $client
+          if ($LASTEXITCODE -ne 2) { throw "unprovisioned E01 client returned $LASTEXITCODE (expected 2)" }
+          $global:LASTEXITCODE = 0
+      - name: Compile-only E01 client for physical host qualification
+        uses: actions/upload-artifact@v4
+        with:
+          name: e07-windows-e01-node-client-non-deployable
+          path: target/debug/ptah-e01-node-client.exe
+          retention-days: 2
+      - name: Preserve no-go boundary
+        shell: pwsh
+        run: Write-Output "Compilation and refusal only; no Windows Node state ACL admission, TLS enrollment, installed service or E07 acceptance."

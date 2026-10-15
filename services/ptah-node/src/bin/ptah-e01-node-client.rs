@@ -18,7 +18,7 @@ use std::{
     time::Duration,
 };
 
-#[cfg(unix)]
+#[cfg(any(unix, test))]
 use std::io::Write;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;

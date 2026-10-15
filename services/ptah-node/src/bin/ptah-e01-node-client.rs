@@ -124,9 +124,13 @@ fn advance_seed(seed_path: &Path) -> Result<(NodeAgent, File)> {
     let lock = options.open(&lock_path)?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        if lock.metadata()?.permissions().mode() & 0o077 != 0 {
-            return Err("Node lock file must be private".into());
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let metadata = lock.metadata()?;
+        if !metadata.is_file()
+            || metadata.nlink() != 1
+            || metadata.permissions().mode() & 0o077 != 0
+        {
+            return Err("Node lock must be a private regular non-hardlinked file".into());
         }
     }
     lock.try_lock()?;
@@ -253,6 +257,32 @@ mod tests {
         fs::remove_file(alias).unwrap();
         assert!(read_regular_file(&path, true).is_ok());
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn aliased_node_lock_cannot_consume_generation() {
+        let path = std::env::temp_dir().join(format!(
+            "ptah-e01-lock-alias-{}.json",
+            ptah_identifiers::EntityId::new_v7()
+        ));
+        let initial = NodeAgent::bootstrap().unwrap();
+        let serialized = serde_json::to_vec(&initial.restart_seed()).unwrap();
+        fs::write(&path, &serialized).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let lock_path = path.with_extension("e01.lock");
+        fs::write(&lock_path, b"").unwrap();
+        fs::set_permissions(&lock_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let alias = path.with_extension("lock-hardlink");
+        fs::hard_link(&lock_path, &alias).unwrap();
+        assert!(advance_seed(&path).is_err(), "aliased Node lock must fail");
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            serialized,
+            "seed must remain unchanged"
+        );
+        fs::remove_file(&alias).unwrap();
+        fs::remove_file(&lock_path).unwrap();
+        fs::remove_file(&path).unwrap();
     }
 
     #[test]

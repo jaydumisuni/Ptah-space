@@ -13,11 +13,13 @@ use std::{
     collections::BTreeMap,
     env,
     fs::{self, File, OpenOptions},
-    io::Write,
     net::SocketAddr,
     path::{Path, PathBuf},
     time::Duration,
 };
+
+#[cfg(unix)]
+use std::io::Write;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 

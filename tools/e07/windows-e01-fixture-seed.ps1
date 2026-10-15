@@ -8,7 +8,8 @@ if(-not [IO.Path]::IsPathRooted($root) -or [IO.Directory]::Exists($root) -or [IO
 [IO.Directory]::CreateDirectory($root) | Out-Null
 $owner=[Security.Principal.WindowsIdentity]::GetCurrent().User
 function Secure($p,[bool]$dir){
- $acl=Get-Acl -LiteralPath $p
+ $entry=if($dir){[IO.DirectoryInfo]::new($p)}else{[IO.FileInfo]::new($p)}
+ $acl=$entry.GetAccessControl()
  $acl.SetOwner($owner)
  $acl.SetAccessRuleProtection($true,$false)
  foreach($ace in @($acl.Access)){[void]$acl.RemoveAccessRuleAll($ace)}
@@ -16,7 +17,7 @@ function Secure($p,[bool]$dir){
  foreach($sid in @($owner,[Security.Principal.SecurityIdentifier]::new('S-1-5-18'),[Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'))){
   $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,[Security.AccessControl.FileSystemRights]::FullControl,$inherit,[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow))
  }
- Set-Acl -LiteralPath $p -AclObject $acl
+ $entry.SetAccessControl($acl)
 }
 Secure $root $true
 $seed=Join-Path $root 'node.dpapi'

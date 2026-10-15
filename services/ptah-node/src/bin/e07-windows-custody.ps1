@@ -22,7 +22,8 @@ function CheckPath([string]$path) {
 function CheckAcl([string]$path) {
  $path = CheckPath $path
  if (-not [IO.File]::Exists($path) -and -not [IO.Directory]::Exists($path)) { Deny 'protected file absent' }
- $acl=Get-Acl -LiteralPath $path
+ $entry=if([IO.Directory]::Exists($path)){[IO.DirectoryInfo]::new($path)}else{[IO.FileInfo]::new($path)}
+ $acl=$entry.GetAccessControl()
  $self=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
  $allowed=@($self,'S-1-5-18','S-1-5-32-544')
  if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $self){Deny 'incorrect owner'}
@@ -37,14 +38,16 @@ function CheckAcl([string]$path) {
 }
 function ProtectAcl([string]$path) {
  $self=[Security.Principal.WindowsIdentity]::GetCurrent().User
- $acl=Get-Acl -LiteralPath $path
+ $entry=if([IO.Directory]::Exists($path)){[IO.DirectoryInfo]::new($path)}else{[IO.FileInfo]::new($path)}
+ $acl=$entry.GetAccessControl()
  $acl.SetOwner($self);$acl.SetAccessRuleProtection($true,$false)
  foreach($ace in @($acl.Access)) {[void]$acl.RemoveAccessRuleAll($ace)}
  foreach($sid in @($self,[Security.Principal.SecurityIdentifier]::new('S-1-5-18'),[Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'))) {
   $rule=[Security.AccessControl.FileSystemAccessRule]::new($sid,[Security.AccessControl.FileSystemRights]::FullControl,[Security.AccessControl.InheritanceFlags]::None,[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow)
   $acl.AddAccessRule($rule)
  }
- Set-Acl -LiteralPath $path -AclObject $acl
+ $entry=if([IO.Directory]::Exists($path)){[IO.DirectoryInfo]::new($path)}else{[IO.FileInfo]::new($path)}
+ $entry.SetAccessControl($acl)
  CheckAcl $path
 }
 function Entropy {

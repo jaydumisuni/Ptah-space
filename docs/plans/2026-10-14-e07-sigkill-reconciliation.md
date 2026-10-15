@@ -34,3 +34,24 @@ enrollment, and signed owner go/no-go.
 Related Ptah #110, #114, #116, gateway PR #112, E07 PR #113.
 No Ptah production services, host reboots, firewall settings or Supervisor
 routes are changed by this test.
+
+
+## Post-effect / pre-receipt physical process kill — 2026-10-15
+
+An additional independent KRATOS process-death test covers the case that
+the original pre-effect stage test could not: the Node **actually launched**
+a bounded `/usr/bin/python3` process through Ptah A05 and observed that
+it wrote a unique external-effect file. Before the Node completed its durable
+A05 receipt, the test parent killed only its explicitly owned Node child.
+On restart the Node journal retained the matching E02-fenced Attempt in
+`needs_reconciliation`, with no invented exit/stdout digest; replay via
+`spawn_once` was denied, despite the separately observed external file.
+
+Evidence on KRATOS: 1/1 targeted post-effect SIGKILL PASS, active gateway
+suite 16/16 PASS (two external specialist tests intentionally opt-in).
+The same exact test is added to the hosted E07 SIGKILL workflow.
+
+This is **not** a trusted production witness: the marker is an independently
+read fixture file, not an approved signer or verified two-machine effect
+receipt. Hard power loss, durable cross-host signed witness operation,
+Node enrollment, and supervised production dispatch are still NO-GO.

@@ -1529,3 +1529,160 @@ fn signed_external_effect_receipt_survives_control_restart_without_replay() {
     cleanup_gateway_database(&control_path);
     cleanup_gateway_database(&node_path);
 }
+
+#[cfg(unix)]
+#[test]
+#[allow(clippy::too_many_lines)] // parent and killed-child proof kept adjacent for audit
+fn e07_sigkill_after_actual_a05_effect_does_not_invent_completion_or_replay() {
+    use ptah_node::gateway_journal::{GatewayJournal, StageResult};
+    use ptah_node_link::{DispatchLeaseFrame, DispatchRequestFrame, DispatchReservationFrame};
+    let folder = std::env::temp_dir().join(format!(
+        "ptah-e07-post-effect-{}",
+        ptah_identifiers::EntityId::new_v7()
+    ));
+    if let Ok(parent) = std::env::var("PTAH_E07_KILL_POST_EFFECT_CHILD") {
+        let folder = std::path::PathBuf::from(parent);
+        let mut fixture = Fixture::new();
+        let frames = fixture.issue();
+        let mut guard = NodeDispatchGuard::for_agent(&fixture.node);
+        guard
+            .accept_reservation(&fixture.node, &frames.reservation, now())
+            .unwrap();
+        guard
+            .accept_lease(&fixture.node, &frames.lease, now())
+            .unwrap();
+        let digest = format!("sha256:{}", "f".repeat(64));
+        let mut journal = GatewayJournal::open(&folder.join("attempt.sqlite3")).unwrap();
+        let provider = provider(&fixture.node);
+        let expected = provider
+            .attempt_context(1, entity("runtime.facility"))
+            .unwrap();
+        let effect = folder.join("external-effect.txt");
+        let mut spec = process_spec("/usr/bin/python3");
+        spec.args=vec![
+            "-c".into(),
+            "import pathlib,sys; p=pathlib.Path(sys.argv[1]); p.write_text('REAL_EXTERNAL_EFFECT_COMMITTED'); print('effect-captured')".into(),
+            effect.to_string_lossy().into_owned(),
+        ];
+        let process = journal
+            .spawn_once(
+                &fixture.node,
+                &guard,
+                &frames.request,
+                now(),
+                &digest,
+                &provider,
+                &expected,
+                spec,
+            )
+            .expect("stage and launch real A05 provider");
+        assert!(
+            provider
+                .wait_for_exit(process, Duration::from_secs(5))
+                .unwrap()
+                .success
+        );
+        assert_eq!(
+            std::fs::read_to_string(&effect).unwrap(),
+            "REAL_EXTERNAL_EFFECT_COMMITTED"
+        );
+        let bytes = serde_json::to_vec(&(
+            fixture.node,
+            frames.reservation,
+            frames.lease,
+            frames.request,
+        ))
+        .unwrap();
+        std::fs::write(folder.join("authority-fixture.json"), bytes).unwrap();
+        // Marker is written only after the external effect genuinely happened;
+        // the final Node journal completion intentionally has not been written.
+        let marker = folder.join("effect-observed.marker");
+        std::fs::write(&marker, b"effect_exists_before_receipt").unwrap();
+        std::fs::File::open(&marker).unwrap().sync_all().unwrap();
+        std::thread::sleep(Duration::from_secs(30));
+        panic!("parent should kill exact child after effect before receipt");
+    }
+    std::fs::create_dir_all(&folder).unwrap();
+    let binary = std::env::current_exe().unwrap();
+    let mut child = std::process::Command::new(binary)
+        .arg("--exact")
+        .arg("e07_sigkill_after_actual_a05_effect_does_not_invent_completion_or_replay")
+        .arg("--nocapture")
+        .env("PTAH_E07_KILL_POST_EFFECT_CHILD", &folder)
+        .spawn()
+        .expect("spawn isolated bounded Node test child");
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let marker = folder.join("effect-observed.marker");
+    while !marker.is_file() && std::time::Instant::now() < deadline {
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "child stopped before effect"
+        );
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    assert!(marker.is_file(), "A05 external effect marker missing");
+    child.kill().expect("kill only the owned test process");
+    assert!(!child.wait().unwrap().success());
+    let evidence = std::fs::read(folder.join("authority-fixture.json")).unwrap();
+    let (node, reservation, lease, request): (
+        NodeAgent,
+        DispatchReservationFrame,
+        DispatchLeaseFrame,
+        DispatchRequestFrame,
+    ) = serde_json::from_slice(&evidence).unwrap();
+    let mut guard = NodeDispatchGuard::for_agent(&node);
+    guard
+        .accept_reservation(&node, &reservation, now())
+        .unwrap();
+    guard.accept_lease(&node, &lease, now()).unwrap();
+    let digest = format!("sha256:{}", "f".repeat(64));
+    let database = folder.join("attempt.sqlite3");
+    let mut recovered = GatewayJournal::open(&database).expect("recover killed Node journal");
+    let retained = recovered.get(&request).unwrap().expect("same A04 Attempt");
+    assert_eq!(retained.phase, "needs_reconciliation");
+    assert!(retained.exit_code.is_none(), "never invent A05 completion");
+    assert!(
+        retained.stdout_digest.is_none(),
+        "never invent output digest"
+    );
+    assert_eq!(retained.digest, digest);
+    assert_eq!(recovered.unresolved().unwrap().len(), 1);
+    assert_eq!(
+        recovered
+            .stage(&node, &guard, &request, now(), &digest)
+            .unwrap(),
+        StageResult::AlreadyRegistered
+    );
+    let external = folder.join("external-effect.txt");
+    assert_eq!(
+        std::fs::read_to_string(&external).unwrap(),
+        "REAL_EXTERNAL_EFFECT_COMMITTED"
+    );
+    // A subsequent execution through spawn_once must fail even though the
+    // external effect exists; only an independent witness can reconcile it.
+    let provider = provider(&node);
+    let expected = provider
+        .attempt_context(1, entity("runtime.facility"))
+        .unwrap();
+    assert!(
+        recovered
+            .spawn_once(
+                &node,
+                &guard,
+                &request,
+                now(),
+                &digest,
+                &provider,
+                &expected,
+                process_spec("/bin/true"),
+            )
+            .is_err(),
+        "uncertain Attempt may never launch twice"
+    );
+    assert_eq!(recovered.unresolved().unwrap().len(), 1);
+    drop(recovered);
+    cleanup_gateway_database(&database);
+    let _ = std::fs::remove_file(format!("{}.lock", database.display()));
+    let _ = std::fs::remove_dir_all(folder);
+    eprintln!("PTAH_E07_POST_EFFECT_SIGKILL_UNCERTAIN=PASS; INDEPENDENT_WITNESS_NOT_ASSERTED");
+}

@@ -9,12 +9,16 @@ Ptah's existing admission/caller authority is a REQUIRED upstream responsibility
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import selectors
+import stat
+import time
 import sys
 from urllib.parse import urlsplit
 
@@ -128,26 +132,115 @@ def child_env() -> dict[str,str]:
             env[name]=os.environ[name]
     return env
 
-def execute(wheel:Path,command:list[str]) -> tuple[dict,int]:
+def _immutable_wheel_fd(wheel: Path) -> int:
+    """Pin wheel *bytes*, not pathname; mutable source inode cannot change child import."""
+    source = None
+    sealed = None
     try:
-        process=subprocess.run(
-            [sys.executable,"-I","-B","-c",_CHILD,str(wheel),*command],
-            cwd="/",env=child_env(),capture_output=True,timeout=SEARCH_TIMEOUT_SECONDS,
-            check=False)
-    except subprocess.TimeoutExpired:
-        raise BridgeError("search_timeout") from None
-    except OSError:
-        raise BridgeError("search_spawn_failed") from None
-    if len(process.stdout)>MAX_OUTPUT_BYTES or len(process.stderr)>8192:
-        raise BridgeError("search_output_exceeds_bounds")
-    if process.returncode not in (0,2):
+        source = os.open(str(wheel), os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        info = os.fstat(source)
+        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= 5_000_000:
+            raise BridgeError("invalid_wheel")
+        if not hasattr(os, "memfd_create") or not hasattr(os, "MFD_ALLOW_SEALING"):
+            raise BridgeError("immutable_wheel_unavailable")
+        sealed = os.memfd_create("ttg-search-pinned-wheel",
+            flags=os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
+        digest = hashlib.sha256()
+        total = 0
+        while True:
+            data = os.read(source, min(65536, 5_000_001-total))
+            if not data:
+                break
+            total += len(data)
+            if total > 5_000_000:
+                raise BridgeError("invalid_wheel")
+            digest.update(data)
+            os.write(sealed, data)
+        if total != info.st_size or digest.hexdigest() != EXPECTED_WHEEL_SHA256:
+            raise BridgeError("wheel_digest_mismatch")
+        # A sealed, anonymous ZIP descriptor stays immutable even if an attacker
+        # replaces/truncates/modifies the original path or inode after validation.
+        seals = (fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW |
+                 fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL)
+        fcntl.fcntl(sealed, fcntl.F_ADD_SEALS, seals)
+        os.lseek(sealed, 0, os.SEEK_SET)
+        verified = sealed
+        sealed = None
+        return verified
+    except OSError as exc:
+        raise BridgeError("immutable_wheel_unavailable") from exc
+    finally:
+        if source is not None:
+            os.close(source)
+        if sealed is not None:
+            os.close(sealed)
+
+
+def _bounded_child(argv: list[str], wheel_fd: int) -> tuple[bytes, bytes, int]:
+    """Drain process pipes incrementally; never buffer more than fixed limits."""
+    child = None
+    output = { "stdout": bytearray(), "stderr": bytearray() }
+    limits = {"stdout": MAX_OUTPUT_BYTES, "stderr": 8192}
+    try:
+        child = subprocess.Popen(argv, cwd="/", env=child_env(),
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, pass_fds=(wheel_fd,), close_fds=True)
+        with selectors.DefaultSelector() as selector:
+            for name,stream in (("stdout",child.stdout),("stderr",child.stderr)):
+                os.set_blocking(stream.fileno(),False)
+                selector.register(stream,selectors.EVENT_READ,data=name)
+            deadline=time.monotonic()+SEARCH_TIMEOUT_SECONDS
+            while selector.get_map():
+                remaining=deadline-time.monotonic()
+                if remaining <= 0:
+                    raise BridgeError("search_timeout")
+                events=selector.select(timeout=min(remaining,0.25))
+                for key,_ in events:
+                    name=key.data
+                    cap=limits[name]
+                    # Read at most one byte beyond cap to detect overflow.
+                    data=os.read(key.fileobj.fileno(),min(8192,cap+1-len(output[name])))
+                    if not data:
+                        selector.unregister(key.fileobj)
+                        continue
+                    output[name].extend(data)
+                    if len(output[name])>cap:
+                        raise BridgeError("search_output_exceeds_bounds")
+            remaining=deadline-time.monotonic()
+            if remaining<=0:
+                raise BridgeError("search_timeout")
+            try: child.wait(timeout=remaining)
+            except subprocess.TimeoutExpired:
+                raise BridgeError("search_timeout") from None
+        return bytes(output["stdout"]),bytes(output["stderr"]),child.returncode
+    except OSError as exc:
+        raise BridgeError("search_spawn_failed") from exc
+    finally:
+        if child is not None:
+            if child.poll() is None:
+                child.kill()
+            child.wait()
+            if child.stdout is not None: child.stdout.close()
+            if child.stderr is not None: child.stderr.close()
+
+
+def execute(wheel:Path,command:list[str]) -> tuple[dict,int]:
+    # The verified import archive is /proc/self/fd/N, backed by sealed memfd.
+    # The subprocess never opens the untrusted original wheel pathname.
+    fd=_immutable_wheel_fd(wheel)
+    try:
+        payload,stderr,returncode = _bounded_child(
+            [sys.executable,"-I","-B","-c",_CHILD,f"/proc/self/fd/{fd}",*command],fd)
+    finally:
+        os.close(fd)
+    if returncode not in (0,2):
         raise BridgeError("search_provider_rejected_request")
-    try:content=json.loads(process.stdout)
+    try: content=json.loads(payload)
     except (UnicodeError,ValueError):
         raise BridgeError("invalid_search_provider_response") from None
     if not isinstance(content,dict):
         raise BridgeError("invalid_search_provider_response")
-    return content,process.returncode
+    return content,returncode
 
 def present(operation:str,payload:dict,returncode:int,body:dict,generation:int) -> dict:
     # Never reclassify discovery snippets as verified page content, nor treat

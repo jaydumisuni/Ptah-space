@@ -24,9 +24,9 @@ A05 holds canonical identity, Node binding and Activity/Attempt/Lease authority.
 
 ### Safety controls
 
-1. Hash-pin immutable external wheel, verify digest before executing every request; reject altered/missing artifact.
+1. Open the external pinned wheel without following symlinks, copy and SHA-256 verify it into a Linux anonymous memfd, apply immutable write/grow/shrink seals, then execute the child by inherited descriptor. Mutating/replacing the original after verification cannot alter imported bytes.
 2. Never invoke shell interpolation or accept arbitrary Search flags, mutations, installs or source indexing from Ptah API requests.
-3. Bound request body to 8 KiB, query 250 characters, top results 10, output 160 KiB, upstream process timeout 30 seconds.
+3. Bound request body to 8 KiB, query 250 characters, top results 10, stdout 160 KiB, stderr 8 KiB and runtime 30 seconds. Drain child pipes incrementally; terminate on overflow rather than buffering unbounded output.
 4. Run Python in isolated mode, preserve the existing shared per-user XDG provider-quota state; do not create a separate resettable free-provider allowance.
 5. Limit operations to `search`, `read` over HTTPS and `doctor`. Disabled paid Search adapter cannot be enabled through this protocol.
 6. Preserve `LOCAL_INDEXED`, `DISCOVERED`, `READABLE`, `UNAVAILABLE` and partial-source truth distinctions. Search snippets never become canonical Ptah source evidence or factual assertions.
@@ -37,8 +37,8 @@ A05 holds canonical identity, Node binding and Activity/Attempt/Lease authority.
 - Actual bridge-to-wheel **live Web search** returned official Python unittest documentation (5 results, about 1.4 s); paid calls 0.
 - Actual bridge-to-wheel **direct HTML read** returned `READABLE` at example.com (about 1.0 s); paid calls 0.
 - Operator CLI search/read/doctor all returned valid response; paid calls 0.
-- **28/28 Python tests** when external wheel is present (offline-only CI may skip 2 physical cases).
-- **A05 physical Native Process Provider test PASS:** correct Provider generation, current A05 PTY Input Lease, successful observed exit, qualified pinned external wheel. Run by explicitly configuring approved `PTAH_TTG_SEARCH_WHEEL` and `PTAH_TTG_SEARCH_BRIDGE`.
+- **31/31 Python tests** when external wheel is present (offline-only CI may skip 2 physical cases).
+- **A05 physical Native Process Provider test PASS:** correct Provider generation, current A05 PTY Input Lease, successful observed exit, qualified pinned external wheel. Run with approved `PTAH_TTG_SEARCH_WHEEL`. The bridge is always derived from this checkout's Cargo manifest directory; an optional `PTAH_TTG_SEARCH_BRIDGE` hint is rejected if it identifies a different file.
 - Native-process crate unit and regression acceptance PASS; `cargo fmt --all -- --check` PASS.
 - Browser Provider sources not modified; no Ptah production service started or restarted.
 

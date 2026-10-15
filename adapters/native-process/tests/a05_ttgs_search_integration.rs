@@ -4,7 +4,7 @@
 //! pinned TTG Internet Search through a controlled PTY input lease.
 //!
 //! Normal CI stays source-only; physical proof sets both PTAH_TTG_SEARCH_WHEEL
-//! and PTAH_TTG_SEARCH_BRIDGE to approved absolute paths. No browser touched.
+//! to a pinned release; the bridge is always from this exact checkout.
 
 #![cfg(unix)]
 
@@ -63,16 +63,28 @@ fn provider() -> NativeProcessProvider {
 
 #[test]
 fn pinned_search_runs_under_real_ptah_process_provider_with_fenced_input() {
-    let (Ok(wheel), Ok(bridge)) = (
-        std::env::var("PTAH_TTG_SEARCH_WHEEL"),
-        std::env::var("PTAH_TTG_SEARCH_BRIDGE"),
-    ) else {
+    let Ok(wheel) = std::env::var("PTAH_TTG_SEARCH_WHEEL") else {
         // This is a physical-host acceptance check, not a CI dependency on
         // developer home paths. CI still checks the Python adapter contracts.
         return;
     };
     assert!(std::path::Path::new(&wheel).is_absolute());
-    assert!(std::path::Path::new(&bridge).is_absolute());
+    // Never execute the operator's stale/foreign checkout as proof of this
+    // PR. Resolve the only permitted script relative to Cargo's crate path.
+    let bridge = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../internet-search/bridge.py")
+        .canonicalize()
+        .expect("checked-out Search bridge must exist");
+    if let Ok(operator_hint) = std::env::var("PTAH_TTG_SEARCH_BRIDGE") {
+        let hinted = std::path::Path::new(&operator_hint)
+            .canonicalize()
+            .expect("hinted bridge must exist");
+        assert_eq!(
+            hinted, bridge,
+            "bridge hint differs from checked-out source"
+        );
+    }
+    assert!(bridge.is_file(), "checked-out bridge must be a file");
     let native = provider();
     let process = native
         .spawn(ProcessSpec {
@@ -80,7 +92,7 @@ fn pinned_search_runs_under_real_ptah_process_provider_with_fenced_input() {
             args: vec![
                 "-I".into(),
                 "-B".into(),
-                bridge,
+                bridge.to_string_lossy().into_owned(),
                 "--wheel".into(),
                 wheel,
                 "--provider-generation".into(),

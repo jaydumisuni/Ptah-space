@@ -127,17 +127,60 @@ class BridgeContracts(unittest.TestCase):
         self.assertEqual(env["XDG_STATE_HOME"],"/tmp/shared-truth")
         self.assertNotIn("HTTP_PROXY",env)
         self.assertEqual(env["PYTHONNOUSERSITE"],"1")
-    def test_child_command_uses_isolated_python_and_no_shell(self):
-        wheel=Path("/non-existent/example.whl")
-        response=type("Result",(),{"returncode":0,"stdout":json.dumps({"results":[]}).encode(),
-                                   "stderr":b""})()
-        with patch.object(bridge.subprocess,"run",return_value=response) as command:
-            out,rc=bridge.execute(wheel,["search","safe"])
-        args=command.call_args.args[0]
-        self.assertEqual(args[1:4],["-I","-B","-c"])
-        self.assertEqual(args[5],str(wheel))
-        self.assertNotIn("--brave-api",args)
-        self.assertFalse(command.call_args.kwargs.get("shell",False))
+    def test_child_command_uses_sealed_descriptor_not_source_path(self):
+        import fcntl
+        if not WHEEL_PATH.exists():
+            self.skipTest("physical pinned wheel unavailable")
+        with patch.object(bridge,"_bounded_child",return_value=(b'{"results":[]}',b"",0)) as run:
+            out,rc=bridge.execute(WHEEL_PATH,["search","safe"])
+        argv,fd=run.call_args.args
+        self.assertEqual(argv[1:4],["-I","-B","-c"])
+        self.assertEqual(argv[5],f"/proc/self/fd/{fd}")
+        self.assertNotIn(str(WHEEL_PATH),argv)
+        self.assertEqual(rc,0)
+        self.assertEqual(out,{"results":[]})
+    def test_verified_archive_is_sealed_and_survives_path_replacement(self):
+        import fcntl
+        if not WHEEL_PATH.exists():
+            self.skipTest("physical pinned wheel unavailable")
+        with tempfile.TemporaryDirectory() as root:
+            source=Path(root)/"pinned.whl"
+            source.write_bytes(WHEEL_PATH.read_bytes())
+            fd=bridge._immutable_wheel_fd(source)
+            try:
+                self.assertEqual(
+                    hashlib.sha256(Path(f"/proc/self/fd/{fd}").read_bytes()).hexdigest(),
+                    bridge.EXPECTED_WHEEL_SHA256)
+                source.write_bytes(b"attacker changed the source file")
+                self.assertEqual(
+                    hashlib.sha256(Path(f"/proc/self/fd/{fd}").read_bytes()).hexdigest(),
+                    bridge.EXPECTED_WHEEL_SHA256)
+                with self.assertRaises(OSError):
+                    os.write(fd,b"tamper")
+                self.assertTrue(fcntl.fcntl(fd,fcntl.F_GET_SEALS)&fcntl.F_SEAL_WRITE)
+            finally:os.close(fd)
+            with self.assertRaisesRegex(bridge.BridgeError,"wheel_digest_mismatch"):
+                bridge.execute(source,["doctor"])
+    def test_child_stdout_limit_is_enforced_while_streaming(self):
+        fd=os.memfd_create("test-command",os.MFD_CLOEXEC)
+        try:
+            with patch.object(bridge,"SEARCH_TIMEOUT_SECONDS",4):
+                with self.assertRaisesRegex(bridge.BridgeError,"search_output_exceeds_bounds"):
+                    bridge._bounded_child([
+                        os.sys.executable,"-c",
+                        "import sys;sys.stdout.write('A'*300000);sys.stdout.flush()"
+                    ],fd)
+        finally:os.close(fd)
+    def test_child_stderr_limit_is_enforced_while_streaming(self):
+        fd=os.memfd_create("test-command",os.MFD_CLOEXEC)
+        try:
+            with patch.object(bridge,"SEARCH_TIMEOUT_SECONDS",4):
+                with self.assertRaisesRegex(bridge.BridgeError,"search_output_exceeds_bounds"):
+                    bridge._bounded_child([
+                        os.sys.executable,"-c",
+                        "import sys;sys.stderr.write('x'*12000);sys.stderr.flush()"
+                    ],fd)
+        finally:os.close(fd)
     def test_provider_unavailability_not_fabricated(self):
         item=bridge.present("search",{"results":[],"attempts":[],
              "result_truth":"DISCOVERED_NOT_PAGE_VERIFIED"},2,msg(),7)

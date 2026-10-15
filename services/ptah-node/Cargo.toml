@@ -44,3 +44,7 @@ path = "tests/e03_transfer_guard.rs"
 [[bin]]
 name = "ptah-e01-node-client"
 path = "src/bin/ptah-e01-node-client.rs"
+
+# Native Windows MSVC does not provide sqlite3.lib; bundle SQLite for Windows only.
+[target.'cfg(windows)'.dependencies]
+rusqlite = { workspace = true, features = ["bundled"] }

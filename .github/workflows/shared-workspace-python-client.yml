@@ -1,0 +1,28 @@
+name: Shared Ptah Workspace Control Python Client
+on:
+  push:
+    branches:
+      - integration/shared-workspace-control-client-20261016
+    paths:
+      - 'clients/python/**'
+      - '.github/workflows/shared-workspace-python-client.yml'
+  pull_request:
+    paths:
+      - 'clients/python/**'
+      - '.github/workflows/shared-workspace-python-client.yml'
+jobs:
+  python-client:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '${{ matrix.python-version }}'
+      - name: Compile adapter
+        run: python -m py_compile clients/python/ptah_control_client.py
+      - name: Run authority and submission boundary tests
+        working-directory: clients/python
+        run: python -m unittest -v test_ptah_control_client.py

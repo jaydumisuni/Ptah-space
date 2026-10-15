@@ -1,4 +1,4 @@
-name: TEMP ATHENA Oracle packaged runtime mode proof
+name: TEMP ATHENA donor-to-IMEI device-free qualification
 on:
   push:
     branches: [diagnostics/athena-node-owners-20261014b]
@@ -9,20 +9,49 @@ permissions:
 jobs:
   inspect:
     runs-on: [self-hosted, athena, windows, x64, physical, ptah]
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
-      - name: Inspect packaged runtime mode support without changes
+      - name: Validate existing donor evidence and IMEI routing without devices
         shell: powershell
         run: |
-          if ($env:COMPUTERNAME -ne 'ATHENA') { throw 'WRONG_HOST' }
-          $file='C:\Program Files (x86)\THETECHGUY Digital Solutions\Oracle\resources\app.asar'
-          if(-not (Test-Path -LiteralPath $file)) { throw 'INSTALLED_ASAR_MISSING' }
-          $src=[Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($file))
-          [pscustomobject]@{
-            supportsDaemonClientFlag=$src.Contains('ORACLE_DESKTOP_NODE_RUNTIME_MODE')
-            supportsDaemonClientMode=$src.Contains('daemon-client')
-            hasPr256SelfhostGuard=$src.Contains('oracle-live-node-selfhost-status.json')
-            hasExternalLiveStatusFiles=$src.Contains('externalLiveStatusFiles')
-            desktopOwnerProcess=@(Get-Process Oracle -ErrorAction SilentlyContinue).Count
-            currentUserFlag=[string]([Environment]::GetEnvironmentVariable('ORACLE_DESKTOP_NODE_RUNTIME_MODE','User'))
-          } | ConvertTo-Json -Compress
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ne 'ATHENA') { throw 'WRONG_MACHINE' }
+          $imei = 'D:\projects\TechGuy-IMEI'
+          $donor = 'D:\projects\Donor Fetcher'
+          $python = Join-Path $imei '.venv\Scripts\python.exe'
+          if (!(Test-Path -LiteralPath $python) -or !(Test-Path -LiteralPath (Join-Path $donor 'scripts\validate_androidutility_ptah_rea_handoff_v2.py'))) { throw 'QUALIFICATION_SOURCE_MISSING' }
+          $env:PYTHONDONTWRITEBYTECODE='1'
+          $env:PYTHONPATH=$imei
+          $report = Join-Path $env:RUNNER_TEMP 'donor-imei-device-free-qualification.txt'
+          $failureCount=0
+          $sections = @(
+            @{Name='donor_provenance_v2';Cwd=$donor;Arg=@((Join-Path $donor 'scripts\validate_androidutility_ptah_rea_handoff_v2.py'),'--root',$donor)},
+            @{Name='imei_native_dispatch';Cwd=$imei;Arg=@('-m','unittest','discover','-s','tests','-p','test_donor_utility_dispatch_20261015.py','-v')},
+            @{Name='imei_utilities_controls';Cwd=$imei;Arg=@('-m','unittest','discover','-s','tests','-p','test_donor_utilities_controls.py','-v')},
+            @{Name='imei_exit_service';Cwd=$imei;Arg=@('-m','unittest','discover','-s','tests','-p','test_androidutility_single_donor_native_exit_20261015.py','-v')},
+            @{Name='imei_transport_contract';Cwd=$imei;Arg=@('-m','unittest','discover','-s','tests','-p','test_frozen_transport_contract.py','-v')}
+          )
+          foreach ($section in $sections) {
+            Push-Location $section.Cwd
+            try {
+              $name=$section.Name
+              "=== $name ===" | Out-File -LiteralPath $report -Encoding UTF8 -Append
+              $output=(& $python @($section.Arg) 2>&1 | Out-String -Width 220)
+              $code=$LASTEXITCODE
+              $output | Out-File -LiteralPath $report -Encoding UTF8 -Append
+              Write-Host "RESULT=$name EXIT=$code"
+              if ($code -ne 0) { $failureCount++ }
+            } finally { Pop-Location }
+          }
+          "OVERALL_FAILURES=$failureCount" | Out-File -LiteralPath $report -Encoding UTF8 -Append
+          Get-Content -LiteralPath $report | Select-Object -Last 85
+          if ($failureCount) { throw "DEVICE_FREE_QUALIFICATION_FAILED_$failureCount" }
+
+      - name: Upload device-free qualification receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: athena-donor-imei-device-free-qualification
+          path: ${{ runner.temp }}/donor-imei-device-free-qualification.txt
+          if-no-files-found: warn
+          retention-days: 14

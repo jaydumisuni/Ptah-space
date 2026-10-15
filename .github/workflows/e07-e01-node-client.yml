@@ -10,6 +10,8 @@ on:
       - Cargo.lock
       - docs/plans/2026-10-14-e07-e01-node-client.md
       - tools/e07/windows-node-custody-selftest.ps1
+      - tools/e07/windows-e01-fixture-seed.ps1
+      - services/ptah-node/src/bin/e07-windows-custody.ps1
       - .github/workflows/e07-e01-node-client.yml
   pull_request:
     branches:
@@ -20,6 +22,8 @@ on:
       - Cargo.lock
       - docs/plans/2026-10-14-e07-e01-node-client.md
       - tools/e07/windows-node-custody-selftest.ps1
+      - tools/e07/windows-e01-fixture-seed.ps1
+      - services/ptah-node/src/bin/e07-windows-custody.ps1
       - .github/workflows/e07-e01-node-client.yml
   workflow_dispatch:
 
@@ -73,6 +77,9 @@ jobs:
       - name: Compile native E01 Node client for Windows
         shell: pwsh
         run: cargo build --locked -p ptah-node --bin ptah-e01-node-client
+      - name: Native Rust Windows protected-state and restart tests
+        shell: pwsh
+        run: cargo test --locked -p ptah-node --bin ptah-e01-node-client -- --nocapture
       - name: Unprovisioned Windows E01 client must refuse
         shell: pwsh
         run: |

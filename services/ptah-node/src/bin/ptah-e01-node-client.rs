@@ -97,6 +97,10 @@ fn read_regular_file(path: &Path, sensitive: bool) -> Result<Vec<u8>> {
             return Err("secret/Node state must be private and not hard-linked".into());
         }
     }
+    #[cfg(windows)]
+    if sensitive {
+        windows_custody(path, "check", None)?;
+    }
     let bytes = fs::read(path)?;
     if bytes.is_empty() || bytes.len() > 1024 * 1024 {
         return Err("input must be nonempty and bounded".into());
@@ -106,6 +110,7 @@ fn read_regular_file(path: &Path, sensitive: bool) -> Result<Vec<u8>> {
 
 /// Retain one exclusive OS file lock and persist next-generation identity
 /// atomically before attempting network I/O. Do not create a new Node identity.
+#[cfg(unix)]
 fn advance_seed(seed_path: &Path) -> Result<(NodeAgent, File)> {
     let lock_path = seed_path.with_extension("e01.lock");
     if lock_path
@@ -198,14 +203,77 @@ async fn session(config: &Config, agent: &NodeAgent, tls: TlsClientConfig) -> Re
     Ok(())
 }
 
+// The only Windows custody implementation is embedded in the binary.
+// No external script path, Node identity, credentials, or shell code is accepted
+// from a caller. The child receives a bounded JSON request over an anonymous
+// local pipe; cleartext canonical seed is never written to disk by this code.
+#[cfg(windows)]
+fn windows_custody(path: &Path, mode: &str, seed: Option<&str>) -> Result<String> {
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+    let mut child = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command"])
+        .arg(include_str!("e07-windows-custody.ps1"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let request = serde_json::json!({
+        "mode": mode,
+        "path": path,
+        "seed": seed,
+    });
+    let serialized = serde_json::to_vec(&request)?;
+    if serialized.len() > 131_072 {
+        return Err("Windows custody request too large".into());
+    }
+    child
+        .stdin
+        .take()
+        .ok_or("custody stdin unavailable")?
+        .write_all(&serialized)?;
+    let output = child.wait_with_output()?;
+    if !output.status.success() || output.stdout.len() > 65_536 {
+        return Err("Windows DPAPI or ACL custody rejected request".into());
+    }
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+#[cfg(windows)]
+fn advance_windows_seed(seed_path: &Path) -> Result<(NodeAgent, File)> {
+    if !seed_path.is_absolute() {
+        return Err("Windows seed path must be absolute".into());
+    }
+    let lock_path = seed_path.with_extension("e01.lock");
+    // Validate the protected directory and sealed seed before lock creation.
+    windows_custody(seed_path, "check", None)?;
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)?;
+    lock.try_lock()?;
+    // A new lock inherits a private directory ACL, then is explicitly sealed.
+    windows_custody(&lock_path, "protect", None)?;
+    let old = windows_custody(seed_path, "read", None)?;
+    let previous: NodeRestartSeed = serde_json::from_str(&old)?;
+    let agent = NodeAgent::restart(previous)?;
+    let new_seed = serde_json::to_string(&agent.restart_seed())?;
+    windows_custody(seed_path, "write", Some(&new_seed))?;
+    Ok((agent, lock))
+}
+
 #[tokio::main]
 async fn main() {
     let outcome = async {
         // Windows deployment requires independently audited private-key/state
         // ACLs and crash-durable state replacement; do not silently downgrade.
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         return Err::<(), Box<dyn std::error::Error>>(
-            "Windows E01 Node state custody is not qualified".into(),
+            "E01 Node state custody is unsupported on this platform".into(),
         );
         let config = args_to_config(env::args().skip(1))?;
         let cert = read_regular_file(&config.certificate, false)?;
@@ -216,7 +284,10 @@ async fn main() {
             TlsIdentity::from_pem(&cert, &key)?,
             TlsTrustRoots::from_pem(&ca)?,
         )?;
+        #[cfg(unix)]
         let (agent, _lock) = advance_seed(&config.node_seed)?;
+        #[cfg(windows)]
+        let (agent, _lock) = advance_windows_seed(&config.node_seed)?;
         session(&config, &agent, tls).await
     }
     .await;
@@ -307,5 +378,98 @@ mod tests {
         drop(writer);
         let _ = fs::remove_file(path.with_extension("e01.lock"));
         let _ = fs::remove_file(path);
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    use std::process::{Command, Stdio};
+
+    fn disposable_seed() -> (PathBuf, NodeAgent) {
+        let agent = NodeAgent::bootstrap().expect("disposable Node identity");
+        let root = std::env::temp_dir().join(format!(
+            "ptah-e07-native-custody-test-{}",
+            ptah_identifiers::EntityId::new_v7()
+        ));
+        let request = serde_json::json!({
+            "root":root,
+            "seed":serde_json::to_string(&agent.restart_seed()).unwrap(),
+        });
+        let mut child = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command"])
+            .arg(include_str!(
+                "../../../../tools/e07/windows-e01-fixture-seed.ps1"
+            ))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("Windows disposable fixture process");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(serde_json::to_string(&request).unwrap().as_bytes())
+            .unwrap();
+        let result = child.wait_with_output().unwrap();
+        assert!(
+            result.status.success(),
+            "disposable seed fixture failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        (root, agent)
+    }
+
+    #[test]
+    fn windows_dpapi_custody_is_atomic_private_exclusive_and_monotonic() {
+        let (root, initial) = disposable_seed();
+        let seed = root.join("node.dpapi");
+        let raw = fs::read(&seed).unwrap();
+        assert!(
+            !raw.windows(b"record_revision".len())
+                .any(|window| window == b"record_revision"),
+            "plain seed must not exist on disk"
+        );
+        let (first, first_lock) = advance_windows_seed(&seed).expect("first persisted restart");
+        assert_eq!(first.node_id(), initial.node_id());
+        assert!(first.generation().value() > initial.generation().value());
+        assert!(
+            advance_windows_seed(&seed).is_err(),
+            "concurrent canonical Node lock must be refused"
+        );
+        drop(first_lock);
+        let (second, second_lock) = advance_windows_seed(&seed).expect("second persisted restart");
+        assert_eq!(first.node_id(), second.node_id());
+        assert!(second.generation().value() > first.generation().value());
+        assert!(
+            second.connection_epoch().value() > first.connection_epoch().value(),
+            "E01 epoch must never be reused across successful restarts"
+        );
+        drop(second_lock);
+        let sealed = fs::read(&seed).unwrap();
+        let mut bad = sealed;
+        let tail = bad.last_mut().unwrap();
+        *tail ^= 1;
+        fs::write(&seed, &bad).unwrap();
+        assert!(
+            advance_windows_seed(&seed).is_err(),
+            "altered DPAPI ciphertext must not authorize another restart"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn windows_unprotected_or_missing_state_fails_closed() {
+        let root = std::env::temp_dir().join(format!(
+            "ptah-e07-invalid-state-{}",
+            ptah_identifiers::EntityId::new_v7()
+        ));
+        fs::create_dir(&root).unwrap();
+        let seed = root.join("node.dpapi");
+        fs::write(&seed, b"not encrypted").unwrap();
+        assert!(advance_windows_seed(&seed).is_err());
+        assert!(read_regular_file(&seed, true).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 }

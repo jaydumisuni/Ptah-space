@@ -88,7 +88,7 @@ jobs:
           name: e07-windows-e01-node-client-non-deployable
           path: target/debug/ptah-e01-node-client.exe
           retention-days: 2
-      - name: Windows DPAPI and restrictive ACL physical-equivalent custody test
+      - name: Windows DPAPI, atomic replacement, ACL and restart-lock custody test
         shell: powershell
         run: |
           $root = Join-Path $env:RUNNER_TEMP ('ptah-e07-disposable-custody-' + [guid]::NewGuid().ToString('N'))

@@ -101,8 +101,47 @@ $state = Join-Path $Root "e07-disposable-node-seed.dpapi"
 Protect-State $source $state
 $plain=Verify-State $state
 Assert-True (([Convert]::ToBase64String($source) -ceq [Convert]::ToBase64String($plain))) "DPAPI round-trip mismatch"
+
+# Simulated generation transition: dispose pre-commit staging without touching
+# canonical state, then replace it atomically using .NET File.Replace.
+$next=New-Object byte[] 64
+$rng2=[Security.Cryptography.RNGCryptoServiceProvider]::new()
+try { $rng2.GetBytes($next) } finally { $rng2.Dispose() }
+$pending=Join-Path $Root "next-generation.pending.dpapi"
+Protect-State $next $pending
+Assert-True (([Convert]::ToBase64String((Verify-State $state)) -ceq [Convert]::ToBase64String($source))) "Pending write modified canonical state before commit"
+[IO.File]::Delete($pending)
+Assert-True (([Convert]::ToBase64String((Verify-State $state)) -ceq [Convert]::ToBase64String($source))) "Interrupted precommit modified canonical state"
+Protect-State $next $pending
+$backup=Join-Path $Root "retired-generation.backup.dpapi"
+[IO.File]::Replace($pending,$state,$backup)
+Check-Acl $state
+Assert-True (([Convert]::ToBase64String((Verify-State $state)) -ceq [Convert]::ToBase64String($next))) "Committed replacement not recovered"
+Assert-True (-not ([IO.File]::Exists($pending))) "Unconsumed pending state"
+Assert-True ([IO.File]::Exists($backup)) "Atomic replacement backup absent"
+Check-Acl $backup
+[IO.File]::Delete($backup)
+Assert-True (-not ([IO.File]::Exists($backup))) "Retired backup remained"
+# A second process must not concurrently modify the same canonical state.
+$lockPath=Join-Path $Root "restart.lock"
+$empty=New-Object byte[] 0
+[IO.File]::WriteAllBytes($lockPath,$empty)
+Secure-Acl $lockPath $false
+$lock=[IO.FileStream]::new($lockPath,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+try {
+    $denied=$false
+    try {
+        $second=[IO.FileStream]::new($lockPath,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+        $second.Dispose()
+    } catch [System.IO.IOException] { $denied=$true }
+    Assert-True $denied "Competing restart lock owner was not rejected"
+} finally { $lock.Dispose() }
+$reopened=[IO.FileStream]::new($lockPath,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+$reopened.Dispose()
+Check-Acl $lockPath
+
 $raw=[IO.File]::ReadAllBytes($state)
-Assert-True (-not ([Convert]::ToBase64String($source) -ceq [Convert]::ToBase64String($raw))) "Plaintext exposure"
+Assert-True (-not ([Convert]::ToBase64String($next) -ceq [Convert]::ToBase64String($raw))) "Plaintext exposure"
 $raw[$raw.Length-1]=$raw[$raw.Length-1] -bxor 1
 [IO.File]::WriteAllBytes($state,$raw)
 $rejected=$false
@@ -114,6 +153,9 @@ Assert-True $rejected "Tampered ciphertext was accepted"
     dpapi_current_user = $true
     restrictive_acl = $true
     tamper_rejected = $true
+    interrupted_precommit_preserved = $true
+    atomic_replacement_recovered = $true
+    competing_restart_lock_rejected = $true
     production_enrollment = $false
     location = $Root
 } | ConvertTo-Json -Compress

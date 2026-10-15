@@ -1,0 +1,34 @@
+name: TEMP Donor Qt cross-donor isolated acceptance
+on:
+  push:
+    branches: [diagnostics/donor-qt-20261015]
+    paths: ['.github/workflows/temp-donor-qt-20261015.yml']
+permissions:
+  contents: read
+jobs:
+  qt-acceptance:
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 7
+    steps:
+      - name: Exact-PR-head donor backend and headless Qt tests
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:COMPUTERNAME -ne 'ATHENA'){throw 'WRONG_PHYSICAL_HOST'}
+          $expected='7ad20cd76620379b89e4348605e95051f9cf12c2'
+          $work=Join-Path $env:RUNNER_TEMP ("donor-qt-"+$env:GITHUB_RUN_ID)
+          if(Test-Path $work){throw 'EXISTING_QA_DIRECTORY_PRESERVED'}
+          gh repo clone jaydumisuni/Donor-Fetcher $work -- --no-tags --depth 1 --branch feature/androidutility-v200-native-ops-gates-20261015 --config core.longpaths=true
+          if($LASTEXITCODE){throw 'DONOR_CLONE_FAILED'}
+          $head=(& git -C $work rev-parse HEAD).Trim()
+          Write-Output ('DONOR_EXACT_HEAD='+$head)
+          if($head -ne $expected){throw 'DONOR_EXACT_HEAD_MISMATCH'}
+          Push-Location $work
+          try{
+            $env:QT_QPA_PLATFORM='offscreen'
+            & python.exe -m unittest tests.test_androidutility_native_operation_gates tests.test_cross_donor_utilities tests.test_multi_donor_ui -v
+            if($LASTEXITCODE){throw ('DONOR_QT_TEST_FAILED='+$LASTEXITCODE)}
+            & python.exe scripts\qualify_cross_donor_utilities.py --root $work --output (Join-Path $work 'evidence\cross-donor-runner-matrix.json')
+            if($LASTEXITCODE){throw 'DONOR_MATRIX_FAILED'}
+            Write-Output 'DONOR_QT_EXACT_HEAD_ACCEPTANCE_PASS'
+          } finally { Pop-Location }

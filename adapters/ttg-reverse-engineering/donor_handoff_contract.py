@@ -156,17 +156,136 @@ def verify(root: Path, native_source: Path | None = None) -> tuple[dict, list]:
     return receipt, edges
 
 
+
+INDIRECT_PATH = "evidence/athena-harvest/20261015/androidutility-qt-instance-indirect-dispatch-v1.json"
+INDIRECT_SCHEMA = "ttg.donor.androidutility.qt-instance-indirect-dispatch.v1"
+INDIRECT_SHA = "053343dea7cd939f275981b30f814ebe667456616a4a5c037b341c166986e282"
+EXPECTED_IAT_IMPORTS = {
+    "GetCurrentThreadId", "WaitForSingleObject", "CloseHandle", "CreateThread",
+    "SetThreadPriority", "ResumeThread", "GetCurrentThread", "GetThreadPriority",
+}
+
+
+def verify_indirect(root: Path) -> tuple[dict, list]:
+    """Validate candidate-only static dispatch against the v2 source graph."""
+    root = root.resolve()
+    path = child(root, INDIRECT_PATH)
+    transport = verify_evidence_digest(path, INDIRECT_SHA)
+    row = load_json(path)
+    qt_path = child(root, "evidence/athena-harvest/20261015/androidutility-qt-metacall-dispatch-v3.json")
+    direct_path = child(root, "evidence/athena-harvest/20261015/androidutility-native-handler-callgraph-v1.json")
+    qt = load_json(qt_path)
+    if row.get("schema") != INDIRECT_SCHEMA or row.get("source_sha256") != NATIVE_SHA or row.get("source_bytes") != 353236480:
+        raise HandoffRejected("indirect evidence schema or native source mismatch")
+    if (verify_evidence_digest(qt_path, row.get("qt_evidence_sha256")) not in
+            {"raw", "git_lf_to_original_crlf_exact"}):
+        raise HandoffRejected("Qt evidence digest mismatch")
+    verify_evidence_digest(direct_path, row.get("direct_callgraph_evidence_sha256"))
+    named = qt.get("named_ui_associations", [])
+    expected = {(a["slot_name"], a["native_handler_entry_va"]) for a in named}
+    actual = row.get("static_setup_associations", [])
+    if len(expected) != 13 or len(actual) != 13:
+        raise HandoffRejected("incomplete Qt setup associations")
+    seen = set()
+    for item in actual:
+        key = (item.get("slot_name"), item.get("native_handler_entry_va"))
+        if key not in expected or key in seen:
+            raise HandoffRejected("Qt setup slot missing, duplicated or rebinding")
+        seen.add(key)
+        if item.get("runtime_sender_receiver_pair_proven") is not False or item.get("device_operation_enabled") is not False:
+            raise HandoffRejected("unsupported runtime or device authority promotion")
+        proofs = item.get("static_setup_evidence")
+        if not isinstance(proofs, list) or not proofs:
+            raise HandoffRejected("missing construction evidence")
+        for proof in proofs:
+            if proof.get("same_setup_function_proven") is not True:
+                raise HandoffRejected("unsupported setup-function claim")
+            member = proof.get("widget_storage_candidate")
+            if member is not None and member.get("exact_widget_instance_proven") is not False:
+                raise HandoffRejected("unproved instance target promoted")
+    sites = row.get("indirect_callsites", [])
+    if not isinstance(sites, list) or len(sites) != 39 or row.get("unique_indirect_callsites") != 39:
+        raise HandoffRejected("indirect instruction inventory changed")
+    allowed = {"pe_import_iat", "base_index_memory_indirect", "register_indirect"}
+    counts = {"pe_import_iat": 0, "base_index_memory_indirect": 0, "register_indirect": 0}
+    addresses = set()
+    imports = set()
+    for site in sites:
+        va = site.get("instruction_va")
+        shape = site.get("dispatch_shape")
+        raw_bytes = site.get("instruction_bytes")
+        if (not isinstance(va, str) or not va.startswith("0x")
+                or not isinstance(raw_bytes, str) or len(raw_bytes) not in range(2, 32)
+                or any(c not in "0123456789abcdef" for c in raw_bytes)):
+            raise HandoffRejected("invalid instruction witness")
+        try:
+            address = int(va, 16)
+        except ValueError as e:
+            raise HandoffRejected("invalid instruction address") from e
+        if address < 0x401000 or va in addresses or shape not in allowed:
+            raise HandoffRejected("duplicate address or unrecognized indirect shape")
+        addresses.add(va)
+        counts[shape] += 1
+        if shape == "pe_import_iat":
+            if (site.get("proven_target") is not True
+                or site.get("imported_library", "").upper() != "KERNEL32.DLL"
+                or site.get("target_kind") != "declared_import_symbol_not_runtime_library_address"):
+                raise HandoffRejected("unbound or escalated IAT edge")
+            imports.add(site.get("imported_symbol"))
+        elif site.get("proven_target") is not False:
+            raise HandoffRejected("unresolved dispatch promoted")
+    if (counts != row.get("indirect_dispatch_shape_counts") or counts !=
+            {"pe_import_iat": 8, "base_index_memory_indirect": 17, "register_indirect": 14}
+            or imports != EXPECTED_IAT_IMPORTS):
+        raise HandoffRejected("dispatch census or import binding changed")
+    scan = row.get("per_slot_scan", [])
+    if len(scan) != 13 or {s.get("slot") for s in scan} != {x[0] for x in expected}:
+        raise HandoffRejected("per-slot scan incomplete")
+    for item in scan:
+        items = item.get("indirect_site_vas")
+        if not isinstance(items, list) or len(items) != item.get("unique_indirect_callsites") or len(items) != len(set(items)) or not set(items).issubset(addresses):
+            raise HandoffRejected("per-slot scan cites unsupported instruction")
+    if (row.get("ui_runtime_receiver_proven") is not False
+        or row.get("handler_to_backend_protocol_proven") is not False
+        or row.get("device_operations_executed") != 0 or row.get("binary_modifications") != 0
+        or row.get("verified_iat_callsite_count") != 8):
+        raise HandoffRejected("unproven backend or device access claim")
+    receipt = {
+        "indirect_evidence_schema": INDIRECT_SCHEMA,
+        "indirect_evidence_sha256": INDIRECT_SHA,
+        "indirect_digest_transport": transport,
+        "qt_setup_candidates": 13,
+        "static_indirect_instruction_sites": 39,
+        "pe_declared_import_edges": 8,
+        "unresolved_non_iat_indirect_sites": 31,
+        "concrete_device_backend_edges": 0,
+        "physical_device_actions": 0,
+        "execution_authorized": False,
+        "production_ptah_provider_admitted": False,
+    }
+    return receipt, sites
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--donor-root", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True, help="New output directory; existing paths are rejected")
     parser.add_argument("--native-source", type=Path, default=None)
+    parser.add_argument("--include-indirect-v1", action="store_true",
+                        help="Require exact b71220c SHA-bound static indirect candidate evidence")
     args = parser.parse_args()
     try:
         receipt, edges = verify(args.donor_root, args.native_source)
+        indirect_sites = None
+        if args.include_indirect_v1:
+            extra, indirect_sites = verify_indirect(args.donor_root)
+            receipt.update(extra)
         args.out.mkdir(parents=True, exist_ok=False)
         (args.out / "receipt.json").write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         (args.out / "qt_method_edges.json").write_text(json.dumps(edges, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        if indirect_sites is not None:
+            (args.out / "indirect_dispatch_candidates.json").write_text(
+                json.dumps(indirect_sites, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(receipt, sort_keys=True))
         return 0
     except (HandoffRejected, FileExistsError, FileNotFoundError, OSError, ValueError) as e:

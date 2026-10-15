@@ -158,6 +158,41 @@ dispatch, callbacks, selected ABI and physical device proof are outstanding.
 No device operations or licensing changes are authorized by this importer.
 Ptah A04/A05/A07 admission remains a separate gate.
 
+## AndroidUtility indirect dispatch evidence — b71220c (candidate only)
+
+Donor commit b71220c extends the exact SHA-256-bound App Recover PE32
+analysis. Static Qt constructor/object-name crosschecks find 13 named setup
+associations in two setup functions, each calling Qt connectSlotsByName.
+This is **not** proof of runtime sender/receiver instance binding.
+
+A two-direct-call-level scan of 162 native functions identified **39 distinct
+indirect callsites**: eight PE import-table callsites (KERNEL32 thread/handle
+functions), 17 indexed-memory indirect calls, and 14 register-indirect calls.
+The last 31 lack concrete callee identity. No device backend call is proved.
+
+With an isolated Donor checkout at exact commit b71220cc7a35ca5d31596837db087ec337e7c8e4:
+
+    python3 adapters/ttg-reverse-engineering/donor_handoff_contract.py \
+      --donor-root /approved/donor-checkout-at-b71220c \
+      --out /approved/new-immutable-import-receipt \
+      --include-indirect-v1
+
+The optional flag requires evidence SHA-256
+053343dea7cd939f275981b30f814ebe667456616a4a5c037b341c166986e282
+and cross-checks the original v2 Qt and callgraph evidence. Output adds
+indirect_dispatch_candidates.json to the existing receipt and Qt edge file.
+It **does not** admit a Ptah provider, create grants or leases, register
+runtime operation edges, or permit device reads/writes.
+
+ATHENA native analyzer: six tests passed. Real GitHub evidence replay on
+KRATOS: 24 Qt method edges, 13 static setup candidates, 39 indirect sites,
+eight declared imports, 31 unresolved sites, and zero device operations.
+Importer adversarial + regression tests: 16/16 pass. Original donor PE rehash
+on KRATOS was not performed because that binary was not imported there.
+
+Remaining: instance-pointer alias/dataflow proof; actual virtual callee
+provenance; backend DLL ABI; independently admitted read-only device protocol.
+
 ## Production gate (not yet met)
 
 1. Register this as a Ptah provider through accepted A04/A05 admission and

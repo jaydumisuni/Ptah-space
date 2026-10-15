@@ -42,7 +42,7 @@ class DonorEvidenceIntakeTests(unittest.TestCase):
             "method_count": 24,
             "methods": self.methods,
             "named_ui_associations": [
-                {"slot_name": m["name"], "exact_receiver_instance_join_proven": False}
+                {"slot_name": m["name"], "native_handler_entry_va": m["native_handler_entry_va"], "exact_receiver_instance_join_proven": False}
                 for m in self.methods[:13]
             ]
         }

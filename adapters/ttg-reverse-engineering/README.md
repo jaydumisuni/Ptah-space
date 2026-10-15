@@ -122,6 +122,42 @@ install/rebuild/GUI operations remain outside this static bridge.
 - Ghidra/Hopper/IDA, JADX/Apktool and complete Ptah process admission:
   not qualified here.
 
+## AndroidUtility v200 Qt dispatch handoff — evidence-only
+
+The separate importer `donor_handoff_contract.py` accepts v2 SHA-bound
+AndroidUtility Qt metacall evidence from `jaydumisuni/Donor-Fetcher`
+at commit `c7333a51047bb84fb8d53f62229ba29a50eb5cd4`.
+
+Use an isolated checkout containing the 20261014 and 20261015
+evidence directories, the UI object offsets, and the backend-map manifest:
+
+    python3 adapters/ttg-reverse-engineering/donor_handoff_contract.py \
+      --donor-root /approved/donor-metadata-checkout \
+      --out /approved/new-evidence-receipt-directory
+
+The output directory must not exist. The receipt.json and qt_method_edges.json
+are non-authoritative evidence, not Ptah workspace, Object, Grant, provider
+admission, device capability, or production registration.
+
+The importer checks the v1 predecessor, nine evidence references and their
+frozen SHA-256 digests, and all 24 exact native Qt method dispatch edges.
+When Git canonicalizes Windows CRLF JSON to LF, only a deterministic CRLF
+reconstruction matching the original SHA-256 AND byte size is accepted.
+
+On KRATOS the actual c7333a5 sparse checkout passed: ten verified source
+objects, eight audited Git line-ending reconstructions, 24 exact Qt dispatcher
+edges and 13 objectName/slot candidates. The receipt is
+`metadata_only_verified`: it did not rehash the original 353,236,480-byte
+native PE on KRATOS. Supplying --native-source enables that check when
+the exact binary is present under approved workspace authority.
+
+No complete UI sender-instance → handler → backend/device operation is
+proven. The bounded eight-hop direct call graph examined 2,658 functions
+without reaching the 224 known QLibrary resolver sites. Indirect/virtual
+dispatch, callbacks, selected ABI and physical device proof are outstanding.
+No device operations or licensing changes are authorized by this importer.
+Ptah A04/A05/A07 admission remains a separate gate.
+
 ## Production gate (not yet met)
 
 1. Register this as a Ptah provider through accepted A04/A05 admission and

@@ -338,10 +338,9 @@ impl QueuedIntent {
         // The append-only journal tail must agree with the recovered cursor.
         // A missing tail is corruption too: a successor must not skip a lost
         // local intent merely because the checkpoint itself is well-formed.
-        let journal_matches_checkpoint = match last_same_node_sequence {
-            Some(last) => last == recovered.value,
-            None => recovered.value == trusted_cursor.value,
-        };
+        // A checkpoint cannot replace missing journal evidence, even when
+        // both the trusted and recovered cursors agree on the same value.
+        let journal_matches_checkpoint = last_same_node_sequence == Some(recovered.value);
         if !journal_matches_checkpoint {
             return Err(IntentValidationError::CheckpointJournalMismatch);
         }

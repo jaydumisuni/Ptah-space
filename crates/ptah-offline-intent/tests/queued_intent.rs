@@ -745,6 +745,23 @@ fn append_preflight_rejects_journal_behind_recovered_cursor() {
 }
 
 #[test]
+fn append_preflight_rejects_missing_entire_origin_history() {
+    let trusted = LocalSequence {
+        node_id: "node-1".into(),
+        value: 7,
+    };
+    let successor = queued("prepare", 8, format!("sha256:{}", "a".repeat(64))).unwrap();
+    assert_eq!(
+        successor.preflight_append_after_checkpoint(
+            &trusted,
+            &trusted.checkpoint_bytes().unwrap(),
+            std::iter::empty::<&QueuedIntent>(),
+        ),
+        Err(IntentValidationError::CheckpointJournalMismatch)
+    );
+}
+
+#[test]
 fn append_preflight_rejects_invalid_first_record_without_draining_history() {
     let digest = format!("sha256:{}", "a".repeat(64));
     let trusted = LocalSequence {

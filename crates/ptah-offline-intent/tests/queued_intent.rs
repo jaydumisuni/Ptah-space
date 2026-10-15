@@ -426,6 +426,33 @@ fn replay_preflight_is_idempotent_but_never_grants_authority() {
 }
 
 #[test]
+fn cross_node_intent_id_reuse_is_not_distinct_even_with_unique_origin() {
+    let original = queued("prepare", 7, format!("sha256:{}", "a".repeat(64))).unwrap();
+    let mut foreign = original.clone();
+    foreign.origin.node_id = "node-2".into();
+
+    // Intent identity is global even though sequence allocation is Node-scoped.
+    assert_eq!(
+        original.classify_replay(&foreign),
+        Err(IntentValidationError::ConflictingReplay)
+    );
+    assert_eq!(
+        original.classify_against_history([&foreign]),
+        Err(IntentValidationError::ConflictingReplay)
+    );
+
+    foreign.intent_id = "intent-2".into();
+    assert_eq!(
+        original.classify_replay(&foreign),
+        Ok(ReplayDisposition::Distinct)
+    );
+    assert_eq!(
+        original.classify_against_history([&foreign]),
+        Ok(ReplayDisposition::Distinct)
+    );
+}
+
+#[test]
 fn replay_preflight_revalidates_mutable_envelopes_before_identity_comparison() {
     let original = queued("prepare", 7, format!("sha256:{}", "a".repeat(64))).unwrap();
     let mut invalid_candidate = original.clone();

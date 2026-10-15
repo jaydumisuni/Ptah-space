@@ -74,6 +74,24 @@ fn atomic_append_and_reopen_with_interleaved_nodes() {
     clean(&path);
 }
 #[test]
+fn idempotent_replay_remains_node_scoped_after_other_node_progress() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    journal.append(&intent("n1", 1, "first")).unwrap();
+    journal.append(&intent("n2", 1, "other-first")).unwrap();
+    journal.append(&intent("n2", 2, "other-second")).unwrap();
+
+    assert_eq!(
+        journal.append(&intent("n1", 1, "first")).unwrap(),
+        ReplayDisposition::Idempotent
+    );
+    journal.verify().unwrap();
+    assert_eq!(journal.history().unwrap().len(), 3);
+    drop(journal);
+    clean(&path);
+}
+
+#[test]
 fn missing_successor_and_modified_replay_fail_without_cursor_progress() {
     let path = scratch();
     let mut j = DurableIntentJournal::open(&path).unwrap();

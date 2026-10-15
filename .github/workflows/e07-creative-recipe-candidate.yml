@@ -1,0 +1,40 @@
+name: E07 Creative Studio D04 Candidate Proof
+
+on:
+  push:
+    branches:
+      - qualification/e07-creative-recipe-20261014
+    paths:
+      - crates/ptah-recipe-registry/tests/d04_acceptance.rs
+      - docs/plans/2026-10-14-e07-creative-studio-recipe-candidate.md
+      - .github/workflows/e07-creative-recipe-candidate.yml
+  pull_request:
+    branches:
+      - qualification/e07-crash-reconciliation-20261014
+    paths:
+      - crates/ptah-recipe-registry/tests/d04_acceptance.rs
+      - docs/plans/2026-10-14-e07-creative-studio-recipe-candidate.md
+      - .github/workflows/e07-creative-recipe-candidate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  creative-d04-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.98.1'
+          components: rustfmt, clippy
+      - name: Verify D04 test formatting
+        run: rustfmt --edition 2024 --check crates/ptah-recipe-registry/tests/d04_acceptance.rs
+      - name: Qualify native Creative Studio Recipe and required acceptance boundary
+        run: cargo test --locked -p ptah-recipe-registry --test d04_acceptance
+      - name: Strict D04 test lint
+        run: cargo clippy --locked -p ptah-recipe-registry --test d04_acceptance -- -D warnings

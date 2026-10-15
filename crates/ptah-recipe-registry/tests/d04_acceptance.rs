@@ -239,6 +239,127 @@ fn recipe_revision_is_immutable_and_monotonic() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
+fn e07_creative_studio_recipe_remains_unadmitted_with_local_d04_service() {
+    let path = ledger_path("e07-creative-candidate");
+    let service_ref = reference("runtime.service_registration");
+    let provider_instance = reference("runtime.provider_instance");
+    let mut services = ServiceRegistry::default();
+    services
+        .register(
+            ServiceRegistration {
+                registration_ref: service_ref.clone(),
+                service_key: "ttg.creative.studio.embedded".to_owned(),
+                provider_revision_ref: reference("runtime.provider_revision"),
+                provider_instance_ref: provider_instance.clone(),
+                provider_generation: 7,
+                freshness_token: "generation-7".to_owned(),
+                endpoint_alias: "embedded://creative-studio".to_owned(),
+                observed_at: "2026-10-14T12:00:00Z".to_owned(),
+                expires_at: Some("2026-10-14T13:00:00Z".to_owned()),
+                capability_refs: vec![reference("core.capability")],
+                limitations: vec!["developer fixture; not enrolled Ptah Node".to_owned()],
+            },
+            7,
+        )
+        .unwrap();
+    let selected = services
+        .resolve(
+            "ttg.creative.studio.embedded",
+            &provider_instance,
+            7,
+            "2026-10-14T12:30:00Z",
+        )
+        .unwrap();
+    assert_eq!(selected.candidates().len(), 1);
+    assert!(!selected.is_ambiguous());
+    assert!(
+        services
+            .resolve(
+                "ttg.creative.studio.embedded",
+                &provider_instance,
+                8,
+                "2026-10-14T12:30:00Z",
+            )
+            .is_err(),
+        "stale D04 Provider generation may not be rebound"
+    );
+    assert!(
+        services
+            .resolve(
+                "ttg.creative.studio.embedded",
+                &provider_instance,
+                7,
+                "2026-10-14T13:00:01Z",
+            )
+            .is_err(),
+        "expired service observation cannot authorize an operation"
+    );
+
+    let mut input = revision_input(1);
+    input.recipe_type = "document_or_media_render".to_owned();
+    input.steps[0].name = "Render editable creative campaign".to_owned();
+    input.steps[0].step_key = "creative.render".to_owned();
+    input.steps[0].step_type = "ttg.creative.studio.render".to_owned();
+    input.steps[0].service_requirement_refs = vec![service_ref.clone()];
+    input.service_requirement_refs = vec![service_ref];
+    input.proof_requirements = vec![
+        ProofRequirementInput {
+            proof_domain: "output_integrity".to_owned(),
+            required: true,
+            protocol_or_policy_refs: vec![reference("core.policy")],
+        },
+        ProofRequirementInput {
+            proof_domain: "independent_review".to_owned(),
+            required: true,
+            protocol_or_policy_refs: vec![reference("core.policy")],
+        },
+    ];
+    input
+        .limitations
+        .push("production E01/E02/E05 and owner acceptance absent".to_owned());
+    let revision_ref = {
+        let mut store = RecipeStore::open(&path).unwrap();
+        let created = store
+            .create_recipe_with_revision(
+                &RecipeInput {
+                    recipe_key: "ttg.creative.studio.campaign.render".to_owned(),
+                    name: "TTG Creative Studio campaign render".to_owned(),
+                    summary: "Candidate D04 editable campaign render".to_owned(),
+                    authority_ref: reference("core.actor"),
+                    created_at: "2026-10-14T12:00:00Z".to_owned(),
+                },
+                &input,
+            )
+            .unwrap();
+        store
+            .propose(&RecipeProposalInput {
+                proposed_recipe_revision_ref: created.revision_ref.clone(),
+                proposal_source: "human".to_owned(),
+                proposer_ref: reference("core.actor"),
+                source_evidence_refs: vec![reference("security.evidence_item")],
+                confidence: 0.5,
+                assumptions: Vec::new(),
+                unsupported_or_unknown: vec!["production admission absent".to_owned()],
+                proposed_at: "2026-10-14T12:01:00Z".to_owned(),
+                limitations: vec!["proposal is not acceptance".to_owned()],
+            })
+            .unwrap();
+        assert!(matches!(
+            store.accepted_revision_at(&created.revision_ref, "2026-10-14T12:02:00Z"),
+            Err(D04Error::AcceptanceMissing { .. })
+        ));
+        created.revision_ref
+    };
+    let reopened = RecipeStore::open(&path).unwrap();
+    assert!(matches!(
+        reopened.accepted_revision_at(&revision_ref, "2026-10-14T12:05:00Z"),
+        Err(D04Error::AcceptanceMissing { .. })
+    ));
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn proposal_does_not_imply_acceptance() {
     let path = ledger_path("proposal");
     let mut store = RecipeStore::open(&path).expect("open");

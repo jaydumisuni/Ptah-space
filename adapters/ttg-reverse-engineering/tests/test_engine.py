@@ -98,6 +98,36 @@ class ReverseEngineeringBridgeTests(unittest.TestCase):
             f.writestr("anything", "x")
         self.assertEqual(engine.inspect_input(z)["kind"], "zip_container")
 
+    def test_no_selected_provider_never_claims_evidence(self):
+        cases = [
+            ("unknown.txt", b"unrecognized", ["apk_extractor", "app_recover"]),
+            ("test.apk", b"not really APK", ["apk_extractor"]),
+            ("firmware.bin", b"random firmware candidate", ["app_recover"]),
+            ("script.mjs", b"export const x=1;", ["apk_extractor", "app_recover"]),
+            ("native.elf", b"\\x7fELF" + b"\\x00" * 20, ["apk_extractor"]),
+        ]
+        for ix, (name, payload, providers) in enumerate(cases):
+            with self.subTest(name=name, providers=providers):
+                source = self.root / name
+                source.write_bytes(payload)
+                out = self.root / f"unsupported-{ix}"
+                report = engine.analyze(source, out, providers=set(providers),
+                                        rea_cli="missing-rea", app_recover_root=None)
+                self.assertEqual(report["provider_results"], [])
+                self.assertEqual(report["analysis_state"], "unsupported")
+                self.assertEqual(report["completion"], "evidence_only")
+                self.assertIn("No selected qualified analyzer", " ".join(report["limitations"]))
+
+    def test_cli_exit_nonzero_for_no_provider_and_partial(self):
+        source = self.root / "unknown.txt"
+        source.write_bytes(b"this is not a supported reverse engineering target")
+        out = self.root / "no-provider"
+        cmd = [sys.executable, str(SOURCE), "analyze", str(source),
+               "--out", str(out), "--providers", "apk_extractor"]
+        completed = subprocess.run(cmd, capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 2)
+        self.assertEqual(json.loads((out / "receipt.json").read_text())["analysis_state"], "unsupported")
+
     def test_unavailable_rea_reported_without_guessing(self):
         p = self.root / "binfile"
         p.write_bytes(b"\x7fELFfake")

@@ -352,11 +352,19 @@ def analyze(
             results.append({"provider": "rea", "operation": operation, **task, "view": "rea_evidence"})
             if task["status"] != "success":
                 receipt["provider_failures"] += 1
-    receipt["analysis_state"] = "partial" if receipt["provider_failures"] or any(
-        r.get("status") in {"unavailable", "unsupported"} or
-        any(v.get("status") in {"unavailable", "rejected"} for v in r.get("views", []))
-        for r in results
-    ) else "evidence_recorded"
+    # No matching provider is a classification-only outcome, never evidence
+    # of completed reverse-engineering analysis.
+    if not results:
+        receipt["analysis_state"] = "unsupported"
+        receipt["limitations"].append(
+            "No selected qualified analyzer handled this artifact kind; classification only."
+        )
+    else:
+        receipt["analysis_state"] = "partial" if receipt["provider_failures"] or any(
+            r.get("status") in {"unavailable", "unsupported", "failed", "timeout", "incomplete_evidence"} or
+            any(v.get("status") in {"unavailable", "rejected", "failed", "timeout"} for v in r.get("views", []))
+            for r in results
+        ) else "evidence_recorded"
     (destination / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
     return receipt
 
@@ -387,7 +395,7 @@ def main(argv: list[str] | None = None) -> int:
                           app_recover_python=args.app_recover_python, timeout=args.timeout)
         print(json.dumps({"schema": SCHEMA, "analysis_state": receipt["analysis_state"],
                           "receipt": str((args.out / "receipt.json").resolve())}))
-        return 0 if receipt["provider_failures"] == 0 else 2
+        return 0 if receipt["analysis_state"] == "evidence_recorded" else 2
     except (AdmissionError, OSError, zipfile.BadZipFile) as exc:
         print(json.dumps({"schema": SCHEMA, "analysis_state": "admission_rejected", "error": str(exc)[:500]}), file=sys.stderr)
         return 3

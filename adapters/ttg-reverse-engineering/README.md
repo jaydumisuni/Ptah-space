@@ -46,6 +46,18 @@ Grant, Activity/Attempt, approval or production verification.
 The receipt states completion=evidence_only. analysis_state=evidence_recorded
 means selected backends supplied evidence, not that original source has been
 recovered. Provider failures and unavailable backends remain explicit.
+A selected-provider mismatch with zero backend results must return
+analysis_state=unsupported with CLI exit code 2, not evidence_recorded.
+A partial result similarly returns exit code 2; inspect receipt.json to
+distinguish partial evidence from unsupported routes.
+
+Adversarial replay on KRATOS (15 October 2026) found 20/24 intentionally
+mismatched provider combinations incorrectly claiming evidence_recorded on
+the earlier draft. After the fail-closed correction, all 20 return unsupported
+with zero false evidence_recorded claims; the other four remain partial.
+These stress fixtures are not a population estimate or evidence that COG
+is already connected to the adapter. The adapter regression suite is now
+17/17 passing on KRATOS. TTG-Simulation G1 analysis is candidate-only.
 
 ## Routing
 

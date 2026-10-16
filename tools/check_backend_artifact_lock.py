@@ -56,6 +56,28 @@ def check_static(lock: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]
             expected_manifest = entry.get("signed_checksum_manifest_sha256")
             if result.get("signed_checksum_manifest_sha256") != expected_manifest:
                 raise LockError("Git signed checksum manifest digest mismatch")
+            # The version-selected upstream list is preserved byte-for-byte;
+            # current kernel.org lists are rolling and must not silently
+            # replace it. Require actual same-run PGP proof and exact custody.
+            from_signed_snapshot = result.get("signed_checksum_manifest_transfer")
+            signature = result.get("signed_checksum_manifest_pgp")
+            if not isinstance(from_signed_snapshot, dict) or (
+                from_signed_snapshot.get("retrieval_mode") !=
+                "original_signed_manifest_pinned_in_repository"
+                or from_signed_snapshot.get("sha256") != expected_manifest
+                or from_signed_snapshot.get("same_run_download") is not False
+                or from_signed_snapshot.get("source_path") !=
+                "conformance/immutable-source-manifests/git-2.55.0-sha256sums.asc"
+            ):
+                raise LockError("Git original signed manifest custody evidence incomplete")
+            if not isinstance(signature, dict) or (
+                signature.get("status") != "good_signature_and_pinned_fingerprint"
+                or signature.get("fingerprint") !=
+                "B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1"
+                or signature.get("public_key_sha256") !=
+                "099fb3eca2b31006bc0f37db9dd9226a1bc51a8958d54c278e3f67006a8a114b"
+            ):
+                raise LockError("Git checksum autosigner cryptographic evidence absent")
         checked.append(component)
 
     if len(checked) != report.get("verified_artifact_count"):

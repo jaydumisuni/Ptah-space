@@ -27,6 +27,10 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Verify original kernel.org Git manifest custody
+        run: |
+          python -m unittest tools/test_pinned_git_manifest.py tools/test_backend_git_manifest_custody.py -q
+
       - name: Verify authoritative backend downloads
         run: |
           mkdir -p conformance/reports/backend-artifacts downloads/backend-artifacts

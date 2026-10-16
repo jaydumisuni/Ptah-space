@@ -488,3 +488,21 @@ fn duplicate_replay_rejects_deleted_interior_origin_record() {
     drop(journal);
     clean(&path);
 }
+
+#[test]
+fn rejected_draft_does_not_reserve_origin_sequence_or_intent_identity() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    let mut invalid = draft("n1", "retry");
+    invalid.canonical_input_digest = "sha256:not-a-canonical-digest".into();
+
+    assert!(journal.enqueue(&invalid).is_err());
+    assert!(journal.history().unwrap().is_empty());
+
+    let (accepted, disposition) = journal.enqueue(&draft("n1", "retry")).unwrap();
+    assert_eq!(disposition, ReplayDisposition::Distinct);
+    assert_eq!(accepted.origin.value, 1);
+    journal.verify().unwrap();
+    drop(journal);
+    clean(&path);
+}

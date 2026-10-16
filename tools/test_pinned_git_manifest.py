@@ -26,7 +26,7 @@ class OriginalGitManifestCustodyTests(unittest.TestCase):
         self.assertEqual(item["status"],"good_signature_and_pinned_fingerprint")
         self.assertEqual(item["fingerprint"],verifier.KERNEL_ORG_AUTOSIGNER_FPR)
     def test_03_modified_manifest_fails_before_archive_download(self):
-        with tempfile.TemporaryDirectory(dir=self.root/".workspace") as folder:
+        with tempfile.TemporaryDirectory(dir=self.root) as folder:
             forged=Path(folder)/"forged.asc"
             forged.write_bytes(self.manifest.read_bytes()+b"\n")
             with patch.object(verifier,"download",side_effect=AssertionError("must not fetch")):

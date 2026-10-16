@@ -1,0 +1,95 @@
+name: TEMP ATHENA IMEI offline ABI staging proof
+on:
+  push:
+    branches: [diagnostics/athena-imei-abi-20261016]
+    paths: ['.github/workflows/techguy-imei-offline-abi-20261016.yml']
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 9
+    steps:
+      - name: Verify exact original project and device-free ABI tests
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:COMPUTERNAME -ne 'ATHENA'){throw 'WRONG_HOST'}
+          $root='D:\projects\TechGuy-IMEI'
+          if(-not (Test-Path -LiteralPath (Join-Path $root 'core\native_abi_contract.py'))){throw 'STATIC_ABI_CONTRACT_NOT_PRESENT'}
+          if(-not (Test-Path -LiteralPath (Join-Path $root '.workspace\abi-string-x86\NativeAbiStringCallX86.exe'))){throw 'STRING_ABI_MOCK_NOT_BUILT'}
+          Set-Location -LiteralPath $root
+          & python.exe -m pytest -q tests/test_native_abi_contract_20261016.py tests/test_native_x86_abi_preflight_20261016.py tests/test_native_abi_selected_session_20261016.py tests/test_native_abi_mock_facade_20261016.py
+          if($LASTEXITCODE -ne 0){throw 'ABI_REGRESSION_FAIL'}
+
+      - name: Freeze disposable x86 inspection staging without vendor code
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-Location -LiteralPath 'D:\projects\TechGuy-IMEI'
+          $script=@'
+          from pathlib import Path
+          import hashlib,json,subprocess,shutil,pefile
+          from datetime import datetime,timezone
+          from core.native_abi_contract import qualify_static_contract
+          from core.native_abi_adapter import ROOT
+          report=qualify_static_contract()
+          sources={
+            "NativeAbiProbeX86.exe": ROOT/".workspace"/"bin"/"NativeAbiProbeX86.exe",
+            "NativeAbiMockCallX86.exe": ROOT/".workspace"/"abi-mock-x86"/"NativeAbiMockCallX86.exe",
+            "TTGNativeAbiFixtureX86.dll": ROOT/".workspace"/"abi-mock-x86"/"TTGNativeAbiFixtureX86.dll",
+            "NativeAbiStringCallX86.exe": ROOT/".workspace"/"abi-string-x86"/"NativeAbiStringCallX86.exe",
+            "TTGMockStringServiceX86.dll": ROOT/".workspace"/"abi-string-x86"/"TTGMockStringServiceX86.dll",
+          }
+          exe=sources["NativeAbiStringCallX86.exe"]
+          dll=sources["TTGMockStringServiceX86.dll"]
+          cp=subprocess.run([str(exe),str(dll)],capture_output=True,text=True,timeout=15)
+          if cp.returncode!=0:raise SystemExit("STRING_FIXTURE_FAILED")
+          proof=json.loads(cp.stdout.strip())
+          if not(proof.get("ok") is True and proof.get("processBits")==32 and proof.get("ctorArgs")==2 and proof.get("queryArgs")==2 and proof.get("virtualDestructor") is True and proof.get("mfcCompatibilityProven") is False and proof.get("donorDllLoaded") is False and proof.get("deviceOperations")==0):
+            raise SystemExit("STRING_FIXTURE_UNTRUSTED")
+          stage=ROOT/".workspace"/"stage"/"native-abi-offline-20261016"
+          if stage.exists():raise SystemExit("OFFLINE_STAGE_ALREADY_EXISTS_NO_OVERWRITE")
+          stage.mkdir(parents=True)
+          captured={}
+          for name,source in sources.items():
+            if not source.is_file() or source.is_symlink():raise SystemExit("STAGE_INPUT_MISSING:"+name)
+            pe=pefile.PE(str(source),fast_load=True)
+            try:
+              if pe.FILE_HEADER.Machine!=0x14c or pe.OPTIONAL_HEADER.Magic!=0x10b:raise SystemExit("STAGE_NON_X86_BINARY:"+name)
+            finally:pe.close()
+            output=stage/name
+            shutil.copy2(source,output)
+            first=hashlib.sha256(source.read_bytes()).hexdigest()
+            second=hashlib.sha256(output.read_bytes()).hexdigest()
+            if first!=second:raise SystemExit("STAGE_COPY_MISMATCH:"+name)
+            captured[name]={"sha256":second,"size":output.stat().st_size,"peMachine":"0x14c"}
+          receipt={
+            "schema":"ttg.imei.native-abi-offline-stage.v1",
+            "host":"ATHENA",
+            "capturedUtc":datetime.now(timezone.utc).isoformat(),
+            "sourceProject":str(ROOT),"stage":str(stage),
+            "nativeContract":report,
+            "stringFixture":proof,
+            "files":captured,
+            "vendorBinaryCopies":0,"vendorCodeLoaded":False,"deviceOperations":0,
+            "factoryResetCallable":False,"frpCallable":False,"partitionMutationCallable":False,
+            "mfcBinaryCompatibilityProven":False,"productionReleaseEligible":False,
+          }
+          serialized=json.dumps(receipt,indent=2,ensure_ascii=False)+"\n"
+          (stage/"manifest.json").write_text(serialized,encoding="utf-8")
+          evidence=ROOT/"docs"/"evidence"/"native-abi-offline-stage-20261016.json"
+          with evidence.open("x",encoding="utf-8") as stream:stream.write(serialized)
+          print(json.dumps({"result":"OFFLINE_X86_STAGE_PROVEN","sourceFiles":len(captured),"realDllLoaded":False,"deviceOperations":0,"evidenceSha256":hashlib.sha256(evidence.read_bytes()).hexdigest(),"evidencePath":str(evidence)},indent=2))
+          '@
+          & python.exe -c $script
+          if($LASTEXITCODE -ne 0){throw 'ABI_STAGE_FAILED'}
+
+      - name: Upload small offline evidence record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: athena-imei-abi-offline-stage
+          path: D:/projects/TechGuy-IMEI/docs/evidence/native-abi-offline-stage-20261016.json
+          if-no-files-found: warn
+          retention-days: 30

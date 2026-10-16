@@ -82,7 +82,11 @@ jobs:
           with evidence.open("x",encoding="utf-8") as stream:stream.write(serialized)
           print(json.dumps({"result":"OFFLINE_X86_STAGE_PROVEN","sourceFiles":len(captured),"realDllLoaded":False,"deviceOperations":0,"evidenceSha256":hashlib.sha256(evidence.read_bytes()).hexdigest(),"evidencePath":str(evidence)},indent=2))
           '@
-          & python.exe -c $script
+          $tempScript=Join-Path $env:RUNNER_TEMP 'athena-native-abi-stage-20261016.py'
+          if(Test-Path -LiteralPath $tempScript){throw 'TEMP_STAGE_SCRIPT_ALREADY_EXISTS'}
+          Set-Content -LiteralPath $tempScript -Value $script -Encoding UTF8
+          $env:PYTHONPATH='D:\projects\TechGuy-IMEI'
+          & python.exe $tempScript
           if($LASTEXITCODE -ne 0){throw 'ABI_STAGE_FAILED'}
 
       - name: Upload small offline evidence record

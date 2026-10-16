@@ -506,3 +506,26 @@ fn rejected_draft_does_not_reserve_origin_sequence_or_intent_identity() {
     drop(journal);
     clean(&path);
 }
+
+#[test]
+fn duplicate_replay_rejects_zero_sequence_hidden_by_matching_count_and_tail() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    journal.enqueue(&draft("n1", "one")).unwrap();
+    journal.enqueue(&draft("n1", "two")).unwrap();
+
+    // Two rows and a cursor at 2 can still conceal a forged sequence zero.
+    // A duplicate acknowledgement must not bypass full origin integrity.
+    let sql = Connection::open(&path).unwrap();
+    sql.execute(
+        "UPDATE queued_intents SET sequence='00000000000000000000' WHERE intent_id='one'",
+        [],
+    )
+    .unwrap();
+    drop(sql);
+
+    assert!(journal.enqueue(&draft("n1", "two")).is_err());
+    assert!(journal.append(&intent("n1", 2, "two")).is_err());
+    drop(journal);
+    clean(&path);
+}

@@ -124,18 +124,25 @@ fn verify_replay_origin_tail(
     // into the same noncanonical sequence after this journal was opened.
     if let Some(raw) = cursor.as_deref() {
         let committed = decode_sequence(raw)?;
-        // A duplicate is still an acknowledgement: detect a deleted interior
-        // record even when the cursor and final record continue to agree.
-        // Count only this origin and only on replay; distinct append remains
-        // O(1) rather than rescanning the journal on every allocation.
-        let row_count: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM queued_intents WHERE node=?1",
-            params![node],
-            |row| row.get(0),
-        )?;
-        let row_count = u64::try_from(row_count)
-            .map_err(|_| DurableIntentError::Integrity("invalid origin journal count"))?;
-        if row_count != committed {
+        // A matching count and tail can conceal a forged interior sequence.
+        // Validate every stored sequence for this origin on duplicate replay;
+        // ordinary distinct appends retain their O(1) allocation path.
+        let mut stmt =
+            tx.prepare("SELECT sequence FROM queued_intents WHERE node=?1 ORDER BY sequence")?;
+        let rows = stmt.query_map(params![node], |row| row.get::<_, String>(0))?;
+        let mut expected = 0_u64;
+        for raw in rows {
+            let value = decode_sequence(&raw?)?;
+            expected = expected
+                .checked_add(1)
+                .ok_or(DurableIntentError::Integrity("origin sequence overflow"))?;
+            if value != expected {
+                return Err(DurableIntentError::Integrity(
+                    "noncontiguous origin journal",
+                ));
+            }
+        }
+        if expected != committed {
             return Err(DurableIntentError::Integrity(
                 "noncontiguous origin journal",
             ));

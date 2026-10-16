@@ -47,6 +47,12 @@ def report(linux: dict, windows: dict, now: datetime) -> dict:
         raise ValueError("malformed optional cross-host probe")
     # This is an untrusted host observation, not a verified E01 Node link.
     reachability=probe.get("tcp_succeeded") is True
+    # Observation only. Sharing an IPv4 prefix does not imply peer reachability:
+    # two isolated L2 segments can advertise identical subnet assignments.
+    kratos_neighbor = probe.get("kratos_neighbor_resolved") is True
+    athena_neighbor = probe.get("athena_neighbor_resolved") is True
+    layer2_unreachable = (probe.get("kratos_neighbor_resolved") is False
+                          and probe.get("athena_neighbor_resolved") is False)
     return {
         "schema":"ptah.e07.physical_acceptance_preflight.v1",
         "status":"NO_GO",
@@ -72,6 +78,10 @@ def report(linux: dict, windows: dict, now: datetime) -> dict:
             "port":probe.get("port") if reachability else None,
             "listener_identity_verified":False,
             "ptah_e01_enrollment_verified":False,
+            "kratos_neighbor_resolved_observed":kratos_neighbor,
+            "athena_neighbor_resolved_observed":athena_neighbor,
+            "layer2_unreachable_observed":layer2_unreachable,
+            "same_prefix_is_not_connectivity_evidence":True,
             "nonclaim":"TCP reachability does not prove a Ptah listener or current E01 identity.",
         },
         "owner_go_no_go_required":True,

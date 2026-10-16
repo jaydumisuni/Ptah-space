@@ -77,6 +77,42 @@ class PhysicalAdmissionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"cross-host probe"):
             report(linux(),w,NOW)
 
+    def test_overlapping_ipv4_prefix_does_not_establish_l2_transport(self):
+        w=windows()
+        w["cross_host_probe"]={
+            "target_ipv4":"192.0.2.101","port":7070,
+            "tcp_succeeded":False,
+            "kratos_neighbor_resolved":False,
+            "athena_neighbor_resolved":False,
+            "ptah_e01_enrolled":True,
+            "production_lease_authorized":True,
+        }
+        result=report(linux(),w,NOW)
+        transport=result["cross_host_transport"]
+        self.assertTrue(transport["layer2_unreachable_observed"])
+        self.assertFalse(transport["athena_to_kratos_tcp_observed"])
+        self.assertFalse(transport["listener_identity_verified"])
+        self.assertFalse(transport["ptah_e01_enrollment_verified"])
+        self.assertFalse(result["may_run_production_dispatch"])
+
+    def test_forged_peer_resolution_still_cannot_admit_ptah(self):
+        w=windows()
+        w["cross_host_probe"]={
+            "target_ipv4":"192.0.2.101","port":7070,
+            "tcp_succeeded":True,
+            "kratos_neighbor_resolved":True,
+            "athena_neighbor_resolved":True,
+            "ptah_e01_enrolled":True,
+            "production_lease_authorized":True,
+        }
+        result=report(linux(),w,NOW)
+        transport=result["cross_host_transport"]
+        self.assertFalse(transport["layer2_unreachable_observed"])
+        self.assertFalse(transport["listener_identity_verified"])
+        self.assertFalse(transport["ptah_e01_enrollment_verified"])
+        self.assertEqual(result["status"],"NO_GO")
+        self.assertFalse(result["may_close_e07"])
+
     def test_stale_observations_rejected(self):
         w=windows();w["observed_utc"]="2026-10-13T08:00:00+00:00"
         with self.assertRaisesRegex(ValueError,"not current"):

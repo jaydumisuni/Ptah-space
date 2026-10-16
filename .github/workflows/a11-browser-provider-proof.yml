@@ -6,8 +6,6 @@ on:
       - "browser-provider/**"
       - "crates/ptah-provider-api/**"
       - "crates/ptah-browser-runtime/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
       - ".github/workflows/a11-browser-provider-proof.yml"
 
 permissions:

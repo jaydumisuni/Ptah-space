@@ -3,8 +3,6 @@ name: D05 Package Plugin Lifecycle exact-head proof
 on:
   pull_request:
     paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
       - "D05_PACKAGE_PLUGIN_LIFECYCLE.md"
       - "crates/ptah-package-plugin/**"
       - "docs/superpowers/plans/2026-09-02-d05-package-plugin-lifecycle.md"

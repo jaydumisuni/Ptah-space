@@ -5,6 +5,13 @@ on:
     branches: [e01-secure-multi-node-identity-connection]
   pull_request:
     branches: [main]
+    paths:
+      - "E01_SECURE_MULTI_NODE_IDENTITY_CONNECTION.md"
+      - "crates/ptah-node-link/**"
+      - "services/ptah-node/**"
+      - "services/ptah-control/tests/e01_node_link.rs"
+      - "tools/check_e01_secure_multi_node.py"
+      - ".github/workflows/e01-secure-multi-node-identity-connection.yml"
   workflow_dispatch:
 
 permissions:

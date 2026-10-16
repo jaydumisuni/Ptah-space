@@ -3,8 +3,6 @@ name: D03 Knowledge Data Search v2 exact-head proof
 on:
   pull_request:
     paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
       - "D03_KNOWLEDGE_DATA_SEARCH_V2.md"
       - "crates/ptah-knowledge-search/**"
       - "adapters/database-sqlite/**"

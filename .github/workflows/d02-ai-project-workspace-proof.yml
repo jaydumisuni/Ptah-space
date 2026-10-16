@@ -3,8 +3,6 @@ name: D02 AI Project Workspace exact-head proof
 on:
   pull_request:
     paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
       - "D02_AI_PROJECT_WORKSPACE.md"
       - "crates/ptah-ai-workspace/**"
       - "docs/superpowers/plans/2026-09-02-d02-ai-project-workspace.md"

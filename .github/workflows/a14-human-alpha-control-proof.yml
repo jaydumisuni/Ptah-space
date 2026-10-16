@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - "services/ptah-control/**"
-      - "Cargo.lock"
       - ".github/workflows/a14-human-alpha-control-proof.yml"
 
 permissions:

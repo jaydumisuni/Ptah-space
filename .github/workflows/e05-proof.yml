@@ -4,6 +4,13 @@ on:
     branches: [e05-platform-nodes]
   pull_request:
     branches: [main]
+    paths:
+      - "E05_PLATFORM_NODES.md"
+      - "tools/check_e05_conformance.py"
+      - "tools/check_e05_physical_stage.py"
+      - "crates/ptah-platform-admission/src/**"
+      - "crates/ptah-platform-admission/tests/**"
+      - ".github/workflows/e05-proof.yml"
   workflow_dispatch:
 permissions:
   contents: read

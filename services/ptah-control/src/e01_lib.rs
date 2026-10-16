@@ -12,3 +12,18 @@ pub mod node_link;
 pub mod placement;
 /// E03 short-lived Node-to-Node transfer-ticket authority owner.
 pub mod transfer;
+
+/// Production E01 mutual-TLS Node authentication and canonical enrollment.
+pub mod gateway_enrollment;
+
+/// Persistent authenticated E01 sessions; no dispatch authority.
+pub mod gateway_session;
+
+/// Control-owned placement issuance on an authenticated Node link.
+pub mod gateway_e02_dispatch;
+
+/// Durable Control-owned dispatch provenance and fail-closed recovery.
+pub mod gateway_control_journal;
+
+/// Independent external-effect attestation verification; no dispatch authority.
+pub mod gateway_witness;

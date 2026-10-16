@@ -45,6 +45,8 @@ class SubmissionStatus:
     request_id: str
     control_state: str
     execution_status: str
+    workspace_id: str | None = None
+    caller_context: dict[str, Any] | None = None
 
 class PtahControlClient:
     """Same-host Ptah adapter for Hunter, Supervisor, Formula, COG and others.
@@ -113,7 +115,8 @@ class PtahControlClient:
 
     def submit_control(self, *, kind: str, target_id: str, payload: dict[str, Any],
                        approval_id: str | None=None, provider_id: str | None=None,
-                       expected_provider_generation: int | None=None) -> Submission:
+                       expected_provider_generation: int | None=None,
+                       expected_workspace_id: str | None=None) -> Submission:
         if kind not in _ALLOWED:
             raise PtahBoundaryError('operation is not in Ptah A14 ControlKind')
         if not target_id or not isinstance(payload, dict):
@@ -123,6 +126,9 @@ class PtahControlClient:
         if provider_id is not None and expected_provider_generation is None:
             raise PtahBoundaryError('provider generation required for provider-bound action')
         projection = self.observe()
+        if (expected_workspace_id is not None and
+                projection.authority['workspace_id'] != expected_workspace_id):
+            raise PtahBoundaryError('canonical workspace changed before submission')
         request_id = str(uuid4())
         result = self._json('/api/control', {
             'request_id':request_id,'kind':kind,'target_id':target_id,
@@ -147,5 +153,12 @@ class PtahControlClient:
         if (result.get('control_state') != 'authorized_for_dispatch' or
                 result.get('execution_status') != 'not_executed_by_this_control_service'):
             raise PtahBoundaryError('no independently qualified execution status')
+        workspace_id = result.get('workspace_id')
+        if workspace_id is not None and not isinstance(workspace_id, str):
+            raise PtahBoundaryError('invalid submission workspace identity')
+        context = result.get('caller_context')
+        if context is not None and not isinstance(context, dict):
+            raise PtahBoundaryError('invalid caller provenance')
         return SubmissionStatus(
-            request_id, result['control_state'], result['execution_status'])
+            request_id, result['control_state'], result['execution_status'],
+            workspace_id, context)

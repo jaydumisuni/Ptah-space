@@ -112,6 +112,9 @@ impl ControlServer {
                     "execution_status": "not_executed_by_this_control_service",
                     "workspace_id": submission.authority.workspace_id,
                     "target_id": submission.target_id,
+                    // Informational provenance only. The caller tag is not
+                    // an authenticated role or an E02 execution grant.
+                    "caller_context": submission.payload.get("caller_context"),
                 });
                 let body = serde_json::to_string(&projection)
                     .map_err(|error| format!("cannot serialize status: {error}"))?;

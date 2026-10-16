@@ -36,7 +36,8 @@ class Handler(BaseHTTPRequestHandler):
                                'control_state':'authorized_for_dispatch',
                                'execution_status':'not_executed_by_this_control_service',
                                'workspace_id':result['expected']['workspace_id'],
-                               'target_id':result['target_id']})
+                               'target_id':result['target_id'],
+                               'caller_context':result.get('payload',{}).get('caller_context')})
         else:
             self.response(404,{'error':'not_found'})
     def do_POST(self):
@@ -75,6 +76,12 @@ class PtahClientTests(unittest.TestCase):
                          'http://127.0.0.1:7800/anything'):
             with self.subTest(endpoint=endpoint), self.assertRaises(PtahBoundaryError):
                 PtahControlClient(endpoint)
+    def test_current_workspace_guard_rejects_cross_workspace_submission(self):
+        with self.assertRaisesRegex(PtahBoundaryError,'workspace changed'):
+            self.client.submit_control(kind='checkpoint_request',target_id='w1',
+                payload={},expected_workspace_id='another-workspace')
+        self.assertEqual(Handler.submissions,[])
+
     def test_protected_action_requires_caller_approval(self):
         with self.assertRaisesRegex(PtahBoundaryError,'approval'):
             self.client.submit_control(kind='accept_worker_result',target_id='worker1',payload={})

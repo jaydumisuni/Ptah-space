@@ -8,6 +8,7 @@ import tempfile
 import time
 from pathlib import Path
 from ptah_control_client import PtahControlClient, PtahBoundaryError
+from ptah_shared_workspace import SharedWorkspace
 
 def stop(process):
     if process is not None and process.poll() is None:
@@ -18,7 +19,7 @@ def stop(process):
             process.kill()
             process.wait(timeout=4)
 
-def qualify(binary, fixture):
+def qualify(binary, fixture, shared_clients=False):
     if not binary.is_file() or not fixture.is_file():
         raise RuntimeError("missing Rust executable or A14 test fixture")
     with tempfile.TemporaryDirectory(prefix="ptah-control-proof-") as dirname:
@@ -51,20 +52,47 @@ def qualify(binary, fixture):
         try:
             first,client=start()
             authority=client.observe().authority
-            receipt=client.submit_control(kind="checkpoint_request",
-                    target_id=authority["workspace_id"],payload={})
-            before=client.read_submission(receipt.request_id)
-            if before.execution_status!="not_executed_by_this_control_service":
-                raise AssertionError("False execution status")
+            if shared_clients:
+                workspace=SharedWorkspace(client)
+                callers=("cookpit","supervisor","formula","ttg-simulation","hunter")
+                handles={caller:workspace.for_tool(caller,"ptah") for caller in callers}
+                receipts={caller:handle.checkpoint({"test":"shared-workspace-restart"})
+                          for caller,handle in handles.items()}
+                before={caller:handles[caller].readback(receipts[caller])
+                        for caller in callers}
+            else:
+                receipt=client.submit_control(kind="checkpoint_request",
+                        target_id=authority["workspace_id"],payload={})
+                before=client.read_submission(receipt.request_id)
+                if before.execution_status!="not_executed_by_this_control_service":
+                    raise AssertionError("False execution status")
             stop(first)
             first=None
             second,restarted=start()
-            after=restarted.read_submission(receipt.request_id)
-            if after!=before:
-                raise AssertionError("request changed across process restart")
+            if shared_clients:
+                workspace=SharedWorkspace(restarted)
+                after={caller:workspace.for_tool(caller,"ptah").readback(receipts[caller])
+                       for caller in callers}
+                if after!=before:
+                    raise AssertionError("multi-client readback changed across restart")
+                expected=len(callers)
+            else:
+                after=restarted.read_submission(receipt.request_id)
+                if after!=before:
+                    raise AssertionError("request changed across process restart")
+                expected=1
             lines=log.read_text(encoding="utf-8").splitlines()
-            if len(lines)!=1:
+            if len(lines)!=expected:
                 raise AssertionError("exact durable submission cardinality lost")
+            if shared_clients:
+                names={item["payload"]["caller_context"]["tool"] for item
+                       in (json.loads(line) for line in lines)}
+                if names!=set(callers):
+                    raise AssertionError("caller provenance lost in Control journal")
+                return {"result":"PASS","callers":list(callers),
+                        "workspace_id":authority["workspace_id"],
+                        "persisted_submissions":len(lines),
+                        "execution_status":"not_executed_by_this_control_service"}
             return {"result":"PASS","request_id":receipt.request_id,
                     "persisted_submissions":len(lines),
                     "execution_status":after.execution_status}
@@ -76,8 +104,9 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--binary",required=True,type=Path)
     parser.add_argument("--fixture",required=True,type=Path)
+    parser.add_argument("--shared-clients",action="store_true")
     opts=parser.parse_args()
-    print(json.dumps(qualify(opts.binary,opts.fixture),sort_keys=True))
+    print(json.dumps(qualify(opts.binary,opts.fixture,opts.shared_clients),sort_keys=True))
 
 if __name__=="__main__":
     main()

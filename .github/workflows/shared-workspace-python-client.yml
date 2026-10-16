@@ -24,10 +24,10 @@ jobs:
         with:
           python-version: '${{ matrix.python-version }}'
       - name: Compile adapter
-        run: python -m py_compile clients/python/ptah_control_client.py
+        run: python -m py_compile clients/python/ptah_control_client.py clients/python/ptah_shared_workspace.py clients/python/qualify_live_ptah_control.py
       - name: Run authority and submission boundary tests
         working-directory: clients/python
-        run: python -m unittest -v test_ptah_control_client.py
+        run: python -m unittest -v test_ptah_control_client.py test_ptah_shared_workspace.py
   physical-control-readback:
     runs-on: ubuntu-latest
     steps:
@@ -39,3 +39,5 @@ jobs:
         run: cargo build --locked -p ptah-control --bin ptah-control
       - name: Physically submit, restart and read back
         run: python3 clients/python/qualify_live_ptah_control.py --binary target/debug/ptah-control --fixture services/ptah-control/tests/fixtures/a14_snapshot.json
+      - name: Prove shared Ptah Control across independent tools after restart
+        run: python3 clients/python/qualify_live_ptah_control.py --binary target/debug/ptah-control --fixture services/ptah-control/tests/fixtures/a14_snapshot.json --shared-clients

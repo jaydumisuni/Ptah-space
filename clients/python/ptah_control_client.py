@@ -40,6 +40,12 @@ class Submission:
     request_id: str
     state: str = 'authorized_for_dispatch_not_executed'
 
+@dataclass(frozen=True)
+class SubmissionStatus:
+    request_id: str
+    control_state: str
+    execution_status: str
+
 class PtahControlClient:
     """Same-host Ptah adapter for Hunter, Supervisor, Formula, COG and others.
 
@@ -88,7 +94,10 @@ class PtahControlClient:
                 if not isinstance(value, dict):
                     raise PtahBoundaryError('Ptah response must be an object')
                 return value
-        except (error.HTTPError, error.URLError, OSError, json.JSONDecodeError) as exc:
+        except error.HTTPError as exc:
+            exc.close()
+            raise PtahBoundaryError(f'Ptah operation rejected: HTTP {exc.code}') from exc
+        except (error.URLError, OSError, json.JSONDecodeError) as exc:
             raise PtahBoundaryError(f'Ptah operation unavailable or rejected: {exc}') from exc
 
     def observe(self) -> Projection:
@@ -123,3 +132,20 @@ class PtahControlClient:
         if result.get('request_id') != request_id:
             raise PtahBoundaryError('Ptah returned an unexpected submission identity')
         return Submission(request_id)
+
+
+    def read_submission(self, request_id: str) -> SubmissionStatus:
+        # Look up the exact durably recorded control request after process
+        # restart. This API does not claim Node execution or result acceptance.
+        if (not isinstance(request_id, str) or
+                not 1 <= len(request_id) <= 128 or
+                not all(c.isascii() and (c.isalnum() or c == '-') for c in request_id)):
+            raise PtahBoundaryError('invalid bounded submission identity')
+        result = self._json('/api/submissions/' + request_id)
+        if result.get('request_id') != request_id:
+            raise PtahBoundaryError('submission read-back identity mismatch')
+        if (result.get('control_state') != 'authorized_for_dispatch' or
+                result.get('execution_status') != 'not_executed_by_this_control_service'):
+            raise PtahBoundaryError('no independently qualified execution status')
+        return SubmissionStatus(
+            request_id, result['control_state'], result['execution_status'])

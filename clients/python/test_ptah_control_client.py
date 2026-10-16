@@ -27,6 +27,16 @@ class Handler(BaseHTTPRequestHandler):
             self.response(200,{'authority':AUTH,'workspaces':['w1']})
         elif self.path == '/api/shell-v2':
             self.response(200,{'authority':dict(AUTH, node_generation=5) if self.mismatch else AUTH})
+        elif self.path.startswith('/api/submissions/'):
+            identity=self.path.removeprefix('/api/submissions/')
+            result=next((x for x in self.submissions if x['request_id']==identity),None)
+            if result is None:
+                return self.response(404,{'error':'not_found'})
+            self.response(200,{'request_id':identity,
+                               'control_state':'authorized_for_dispatch',
+                               'execution_status':'not_executed_by_this_control_service',
+                               'workspace_id':result['expected']['workspace_id'],
+                               'target_id':result['target_id']})
         else:
             self.response(404,{'error':'not_found'})
     def do_POST(self):
@@ -78,6 +88,19 @@ class PtahClientTests(unittest.TestCase):
                                            target_id='w1',payload={})
         self.assertTrue(receipt.request_id)
         self.assertEqual(Handler.origins,[f'http://127.0.0.1:{self.http.server_port}'])
+
+    def test_submission_round_trip_retains_nonexecution_status(self):
+        receipt=self.client.submit_control(kind='checkpoint_request',target_id='w1',payload={})
+        status=self.client.read_submission(receipt.request_id)
+        self.assertEqual(status.request_id,receipt.request_id)
+        self.assertEqual(status.control_state,'authorized_for_dispatch')
+        self.assertEqual(status.execution_status,'not_executed_by_this_control_service')
+
+    def test_submission_readback_refuses_invalid_or_missing_identity(self):
+        with self.assertRaises(PtahBoundaryError):
+            self.client.read_submission('../escape')
+        with self.assertRaises(PtahBoundaryError):
+            self.client.read_submission('missing-id')
 
     def test_exact_snapshot_bound_submission_not_completion(self):
         receipt=self.client.submit_control(kind='terminal_reconnect',target_id='t1',payload={},

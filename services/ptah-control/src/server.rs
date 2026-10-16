@@ -66,6 +66,11 @@ impl ControlServer {
         if let Err(error) = validate_request_authority(stream, &request) {
             return write_json_error(stream, 403, "forbidden_origin", &error);
         }
+        if request.method == "GET"
+            && let Some(request_id) = request.path.strip_prefix("/api/submissions/")
+        {
+            return self.read_submission_status(stream, request_id);
+        }
         match (request.method.as_str(), request.path.as_str()) {
             ("GET", "/") => write_response(stream, 200, "text/html; charset=utf-8", INDEX_HTML),
             ("GET", "/preflight.js") => {
@@ -81,6 +86,39 @@ impl ControlServer {
             ("GET", "/api/shell-v2") => self.write_shell_v2(stream),
             ("POST", "/api/control") => self.submit_control(stream, &request.body),
             _ => write_json_error(stream, 404, "not_found", "route not found"),
+        }
+    }
+
+    fn read_submission_status(
+        &self,
+        stream: &mut TcpStream,
+        request_id: &str,
+    ) -> Result<(), String> {
+        if request_id.is_empty()
+            || request_id.len() > 128
+            || !request_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        {
+            return write_json_error(stream, 400, "invalid_request_id", "invalid submission id");
+        }
+        match find_submission(&self.config.submission_path, request_id) {
+            Ok(Some(submission)) => {
+                // An A14 submission has NOT been executed by this service. Do
+                // not convert a persisted 202 into a synthetic A05 receipt.
+                let projection = serde_json::json!({
+                    "request_id": submission.request_id,
+                    "control_state": "authorized_for_dispatch",
+                    "execution_status": "not_executed_by_this_control_service",
+                    "workspace_id": submission.authority.workspace_id,
+                    "target_id": submission.target_id,
+                });
+                let body = serde_json::to_string(&projection)
+                    .map_err(|error| format!("cannot serialize status: {error}"))?;
+                write_response(stream, 200, "application/json", &body)
+            }
+            Ok(None) => write_json_error(stream, 404, "not_found", "submission not found"),
+            Err(error) => write_json_error(stream, 503, "submission_log_unavailable", &error),
         }
     }
 
@@ -489,6 +527,29 @@ fn parse_request_framing<'a>(
 
 fn find_header_end(bytes: &[u8]) -> Option<usize> {
     bytes.windows(4).position(|window| window == b"\r\n\r\n")
+}
+
+fn find_submission(path: &Path, request_id: &str) -> Result<Option<AuthorizedSubmission>, String> {
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("cannot open submission log: {error}")),
+    };
+    for line in BufReader::new(file).lines() {
+        let line = line.map_err(|error| format!("cannot read submission log: {error}"))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        if line.len() > MAX_REQUEST_BYTES {
+            return Err(String::from("oversized submission log record"));
+        }
+        let submission: AuthorizedSubmission = serde_json::from_str(&line)
+            .map_err(|error| format!("submission log contains invalid record: {error}"))?;
+        if submission.request_id == request_id {
+            return Ok(Some(submission));
+        }
+    }
+    Ok(None)
 }
 
 fn request_id_exists(path: &Path, request_id: &str) -> Result<bool, String> {
@@ -904,5 +965,38 @@ mod tests {
         assert!(parse_request_framing(duplicate).is_err());
         let chunked = ["Host: 127.0.0.1:7800", "Transfer-Encoding: chunked"].into_iter();
         assert!(parse_request_framing(chunked).is_err());
+    }
+    #[test]
+    fn durable_submission_readback_is_identity_bound_and_not_execution() {
+        let current = snapshot();
+        let approved = authorize_control(
+            &current,
+            request(ControlKind::CheckpointRequest, "workspace-1"),
+        )
+        .expect("control authorizes fixture request");
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "ptah-e07-control-readback-{}-{now}.ndjson",
+            std::process::id()
+        ));
+        assert!(
+            find_submission(&path, &approved.request_id)
+                .unwrap()
+                .is_none()
+        );
+        append_json_line(&path, &approved).expect("durable control submission");
+        let persisted = find_submission(&path, &approved.request_id)
+            .unwrap()
+            .expect("same identity after independent read");
+        assert_eq!(persisted, approved);
+        assert!(
+            find_submission(&path, "not-this-request")
+                .unwrap()
+                .is_none()
+        );
+        std::fs::remove_file(path).expect("clean isolated test log");
     }
 }

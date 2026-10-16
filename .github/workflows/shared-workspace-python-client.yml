@@ -5,10 +5,12 @@ on:
       - integration/shared-workspace-control-client-20261016
     paths:
       - 'clients/python/**'
+      - 'services/ptah-control/src/server.rs'
       - '.github/workflows/shared-workspace-python-client.yml'
   pull_request:
     paths:
       - 'clients/python/**'
+      - 'services/ptah-control/src/server.rs'
       - '.github/workflows/shared-workspace-python-client.yml'
 jobs:
   python-client:
@@ -26,3 +28,14 @@ jobs:
       - name: Run authority and submission boundary tests
         working-directory: clients/python
         run: python -m unittest -v test_ptah_control_client.py
+  physical-control-readback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Validate real Control Rust server
+        run: cargo test --locked -p ptah-control --bin ptah-control
+      - name: Build Control executable
+        run: cargo build --locked -p ptah-control --bin ptah-control
+      - name: Physically submit, restart and read back
+        run: python3 clients/python/qualify_live_ptah_control.py --binary target/debug/ptah-control --fixture services/ptah-control/tests/fixtures/a14_snapshot.json

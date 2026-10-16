@@ -12,8 +12,6 @@ on:
       - ".github/workflows/c08-device-identity-transport.yml"
   pull_request:
     paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
       - "C08_DEVICE_IDENTITY_TRANSPORT.md"
       - "crates/ptah-device-runtime/**"
       - ".github/workflows/c08-device-identity-transport.yml"

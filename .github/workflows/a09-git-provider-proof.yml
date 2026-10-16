@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - "adapters/git-cli/**"
-      - "Cargo.lock"
       - ".github/workflows/a09-git-provider-proof.yml"
 
 permissions:

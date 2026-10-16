@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - "crates/ptah-object-store/**"
-      - "Cargo.lock"
       - ".github/workflows/a07-object-store-proof.yml"
 
 permissions:

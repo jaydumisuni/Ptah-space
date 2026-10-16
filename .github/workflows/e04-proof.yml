@@ -5,6 +5,12 @@ on:
     branches: [e04-compatible-workspace-movement]
   pull_request:
     branches: [main]
+    paths:
+      - "E04_COMPATIBLE_WORKSPACE_MOVEMENT.md"
+      - "tools/check-e04-conformance.py"
+      - "crates/ptah-workspace-movement/src/**"
+      - "crates/ptah-workspace-movement/tests/**"
+      - ".github/workflows/e04-proof.yml"
   workflow_dispatch:
 
 permissions:

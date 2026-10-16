@@ -12,8 +12,6 @@ on:
       - ".github/workflows/c11-device-manager-mibu-workload-admissions.yml"
   pull_request:
     paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
       - "C11_DEVICE_MANAGER_MIBU_WORKLOAD_ADMISSIONS.md"
       - "adapters/ttg-device-workloads/**"
       - ".github/workflows/c11-device-manager-mibu-workload-admissions.yml"

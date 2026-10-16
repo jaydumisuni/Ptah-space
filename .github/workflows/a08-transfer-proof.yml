@@ -5,7 +5,6 @@ on:
     paths:
       - "crates/ptah-transfer/**"
       - "crates/ptah-events/**"
-      - "Cargo.lock"
       - ".github/workflows/a08-transfer-proof.yml"
 
 permissions:

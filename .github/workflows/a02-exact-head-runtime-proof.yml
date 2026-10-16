@@ -5,10 +5,7 @@ on:
     paths:
       - "crates/ptah-identifiers/**"
       - "crates/ptah-node-agent/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
       - "clippy.toml"
-      - "dependencies/**"
       - ".github/workflows/a02-exact-head-runtime-proof.yml"
   workflow_dispatch:
 

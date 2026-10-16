@@ -3,8 +3,6 @@ name: D04 Recipes Service Registry exact-head proof
 on:
   pull_request:
     paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
       - "D04_RECIPES_SERVICE_REGISTRY.md"
       - "crates/ptah-recipe-registry/**"
       - "docs/superpowers/plans/2026-09-02-d04-recipes-service-registry.md"

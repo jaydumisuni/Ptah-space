@@ -5,6 +5,11 @@ on:
     branches: [e03-node-to-node-object-artifact-transfer]
   pull_request:
     branches: [main]
+    paths:
+      - "E03_NODE_TO_NODE_OBJECT_ARTIFACT_TRANSFER.md"
+      - "services/ptah-control/tests/e03_node_transfer.rs"
+      - "tools/check_e03_node_transfer.py"
+      - ".github/workflows/e03-node-to-node-object-artifact-transfer.yml"
   workflow_dispatch:
 
 permissions:

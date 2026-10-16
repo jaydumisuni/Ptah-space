@@ -24,6 +24,3 @@ On 16 October 2026, direct GitHub inspection of PR #121 exact head `a30644418ca1
 - Existing E01–E05 proofs must remain immutable on their owned phase heads. The repository's required-check governance must decide which checks apply to future unrelated PRs, and make a universal current-head baseline/security gate mandatory before any scope-specific skip can be accepted.
 
 **Do not merge Search PR #121, auto-enroll providers, modify the live browser, or activate Production** based on this additive checker. Continue issue #122 until independently authorized admission conditions are actually met. No payments or paid Search providers.
-
-### Exact-head scope evolution (16 October)
-The Search branch also contains the complete independently validated Rust remediation and the exact signed-manifest/A01/Phase 0C custody changes. The Search A05 additive verifier accepts only the complete enumerated governance file set, runs the real Rust lock, A01, Phase 0C and signed-manifest tests, and rejects all other workflow/frozen authority modifications. Its own four governance files are individually pinned in the allowlist. This remains **scope verification**, not an E01–E05 proof substitute, merger authorization or production activation.

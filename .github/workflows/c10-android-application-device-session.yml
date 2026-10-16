@@ -12,8 +12,6 @@ on:
       - ".github/workflows/c10-android-application-device-session.yml"
   pull_request:
     paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
       - "C10_ANDROID_APPLICATION_DEVICE_SESSION.md"
       - "crates/ptah-android-runtime/**"
       - ".github/workflows/c10-android-application-device-session.yml"

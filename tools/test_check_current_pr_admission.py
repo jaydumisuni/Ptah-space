@@ -9,6 +9,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
+# Immutable pre-governance reference. Never compare the current branch to
+# floating origin/main after the workflow applicability migration merges.
+HISTORIC_PRE_GOVERNANCE_BASE="e7d2381680d95de6128cb4d62cadb518344c1416"
 spec=importlib.util.spec_from_file_location("current_pr_admission",ROOT/"tools/check_current_pr_admission.py")
 assert spec and spec.loader
 policy=importlib.util.module_from_spec(spec)
@@ -21,10 +24,18 @@ class ApplicabilityProofTests(unittest.TestCase):
         cls.history={}
         for name in policy.HISTORIC:
             before=subprocess.check_output(
-                ["git","show","origin/main:.github/workflows/"+name],
+                ["git","show",HISTORIC_PRE_GOVERNANCE_BASE+":.github/workflows/"+name],
                 cwd=ROOT,text=True,timeout=20)
             after=(ROOT/".github/workflows"/name).read_text()
             cls.history[name]=(before,after)
+
+    def test_historical_base_is_fixed_pre_governance_ancestor(self):
+        self.assertEqual(HISTORIC_PRE_GOVERNANCE_BASE,
+                         "e7d2381680d95de6128cb4d62cadb518344c1416")
+        proc=subprocess.run(["git","merge-base","--is-ancestor",
+                             HISTORIC_PRE_GOVERNANCE_BASE,"HEAD"],
+                            cwd=ROOT,timeout=20,check=False)
+        self.assertEqual(proc.returncode,0)
 
     def test_all_22_only_exact_reviewed_pr_events_changed(self):
         self.assertEqual(len(policy.HISTORIC),22)

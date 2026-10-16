@@ -1,0 +1,61 @@
+name: ATHENA Donor to IMEI read-only inventory
+
+on:
+  push:
+    branches: [diagnostics/donor-imei-recovery-20261016]
+    paths: [.github/workflows/temp-athena-donor-imei-inventory.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: [self-hosted, athena, windows, x64, physical, ptah]
+    timeout-minutes: 8
+    steps:
+      - name: Inventory donor/recovery/IMEI implementation without device actions
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:COMPUTERNAME -ne 'ATHENA') { throw 'WRONG_HOST' }
+          $root = 'D:\projects\Donor Fetcher'
+          $run = Join-Path $root '.workspace\athena-harvest\run-20261014-040129'
+          $out = [ordered]@{
+            schema = 'ttg.donor-imei-readonly-inventory.v1'
+            host = 'ATHENA'
+            observed_utc = (Get-Date).ToUniversalTime().ToString('o')
+            donor_root_present = (Test-Path -LiteralPath $root)
+            harvest_run_present = (Test-Path -LiteralPath $run)
+            device_actions = 0
+          }
+          $out.candidate_roots = @('D:\projects\TechGuy-IMEI','D:\projects\TECHGUY-IMEI','D:\projects\in progress\TechGuy-IMEI','D:\projects\in progress\TGT ATO iDiot proof','D:\projects\app-recover','D:\projects\app recover') | ForEach-Object {
+            $p = $_
+            [pscustomobject]@{leaf=(Split-Path $p -Leaf);present=Test-Path -LiteralPath $p;app_recover_entry=Test-Path -LiteralPath (Join-Path $p 'app_recover_qt.py')}
+          }
+          $files=@('controls-AndroidUtility.v200.json','expanded-recovered-interface-summary.json','priority-harvest-review-summary.json','athena-harvest-evidence-freeze.json','live-ui-monitor.json','utilities-evidence-review-20261014.json')
+          $out.harvest_files=@(foreach($name in $files) {
+            $p=Join-Path $run $name
+            if(Test-Path -LiteralPath $p){
+              $j=Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
+              [pscustomobject]@{file=$name;sha256=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant();bytes=(Get-Item $p).Length;top_level_keys=@($j.PSObject.Properties.Name);rows=@($j.rows).Count;captures=@($j.captures).Count}
+            } else { [pscustomobject]@{file=$name;present=$false} }
+          })
+          $out.existing_mapping_files=@(Get-ChildItem -LiteralPath (Join-Path $root 'remakes') -Filter 'button-map.json' -File -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 30 @{N='tool';E={$_.Directory.Name}},Length,LastWriteTime)
+          $out.existing_imei_code=@(Get-ChildItem -LiteralPath 'D:\projects' -Directory -ErrorAction SilentlyContinue |
+            Where-Object {$_.Name -match 'IMEI|TechGuy Tool|TGT'} |
+            Select-Object -First 25 Name)
+          $out.donor_processes=@(Get-CimInstance Win32_Process | Where-Object { $_.Name -match '(?i)androidutility|app.?recover' } |
+            Select-Object Name,ProcessId,ParentProcessId)
+          $report=Join-Path $env:RUNNER_TEMP 'ttg-donor-imei-inventory.json'
+          $out | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $report -Encoding UTF8
+          Get-Content -LiteralPath $report
+      - name: Retain inventory receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ttg-donor-imei-readonly-inventory
+          path: ${{ runner.temp }}/ttg-donor-imei-inventory.json
+          if-no-files-found: warn
+          retention-days: 7

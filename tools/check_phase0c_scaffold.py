@@ -161,6 +161,7 @@ if selection_path.is_file():
         "exact_versions_locked_policy_evidence_open",
         "exact_versions_and_policy_locked_host_proof_open",
         "exact_versions_and_policy_selected_host_proof_open",
+        "exact_versions_and_policy_selected_e01_lock_frozen",
     }:
         raise SystemExit("Rust dependency selection has an unknown Phase 0C state")
 
@@ -174,31 +175,62 @@ if selection_path.is_file():
     if cargo_record.get("git_dependency_count") != 0:
         raise SystemExit("Git dependencies were not allowed in the selected Phase 0C graph")
 
-    external = external_cargo_universe(cargo_lock_path)
-    if len(external) != FROZEN_EXTERNAL_CARGO_PACKAGE_COUNT:
-        raise SystemExit("Current Cargo external package count drifted from Phase 0C selection")
-    if any(item["source"].startswith("git+") for item in external):
-        raise SystemExit("Git dependencies are not allowed in the selected Rust graph")
-    if external_universe_sha256(external) != FROZEN_EXTERNAL_CARGO_UNIVERSE_SHA256:
-        raise SystemExit("Current Cargo external dependency universe drifted from Phase 0C selection")
+    if selection.get("status") == "exact_versions_and_policy_selected_e01_lock_frozen":
+        # Later E01 progression supersedes Phase 0C's original package graph.
+        # Preserve historical lock fields, but validate the evolved *exact*
+        # Cargo.lock and all 13 selected dependencies against current evidence.
+        # Cargo-deny advisories remain an independent REQUIRED security gate.
+        if historical_sha != sha256(cargo_lock_path):
+            raise SystemExit("E01-evolved Cargo.lock digest differs from exact selection")
+        external = external_cargo_universe(cargo_lock_path)
+        if cargo_record.get("registry_package_count") != len(external):
+            raise SystemExit("E01-evolved external package count mismatch")
+        resolved_count = len(tomllib.loads(cargo_lock_path.read_text(encoding="utf-8")).get("package", []))
+        if cargo_record.get("resolved_package_count") != resolved_count:
+            raise SystemExit("E01-evolved resolved package count mismatch")
+        if any(item["source"].startswith("git+") for item in external):
+            raise SystemExit("Git Cargo dependency introduced in E01-evolved graph")
+        policy = selection.get("selection_policy", {})
+        if any(policy.get(key) is not False for key in (
+            "git_dependencies_allowed","unknown_registries_allowed","wildcards_allowed"
+        )) or policy.get("exact_manifest_versions") is not True:
+            raise SystemExit("E01-evolved Rust dependency selection policy weakened")
+        direct_entries = selection.get("direct_dependencies")
+        if not isinstance(direct_entries, list) or len(direct_entries) != 13:
+            raise SystemExit("E01-evolved direct Rust dependency list is incomplete")
+        resolved = {(item["name"],item["version"]): item for item in external}
+        for entry in direct_entries:
+            if not isinstance(entry, dict):
+                raise SystemExit("E01-evolved dependency entry is invalid")
+            item = resolved.get((entry.get("name"),entry.get("version")))
+            if item is None or item.get("source") != entry.get("source") or item.get("checksum") != entry.get("checksum"):
+                raise SystemExit("E01-evolved dependency checksum/source mismatch")
+    else:
+        external = external_cargo_universe(cargo_lock_path)
+        if len(external) != FROZEN_EXTERNAL_CARGO_PACKAGE_COUNT:
+            raise SystemExit("Current Cargo external package count drifted from Phase 0C selection")
+        if any(item["source"].startswith("git+") for item in external):
+            raise SystemExit("Git dependencies are not allowed in the selected Rust graph")
+        if external_universe_sha256(external) != FROZEN_EXTERNAL_CARGO_UNIVERSE_SHA256:
+            raise SystemExit("Current Cargo external dependency universe drifted from Phase 0C selection")
 
-    resolved = {(item["name"], item["version"]): item for item in external}
-    direct_entries = selection.get("direct_dependencies")
-    if not isinstance(direct_entries, list) or len(direct_entries) != 10:
-        raise SystemExit("Historical direct Rust dependency selection is incomplete")
-    for entry in direct_entries:
-        if not isinstance(entry, dict):
-            raise SystemExit("Historical direct Rust dependency entry is invalid")
-        name = entry.get("name")
-        version = entry.get("version")
-        key = (name, version)
-        current = resolved.get(key)
-        if current is None:
-            raise SystemExit(f"Selected dependency is missing from current Cargo.lock: {name}@{version}")
-        if current.get("source") != entry.get("source"):
-            raise SystemExit(f"Selected dependency source drifted: {name}@{version}")
-        if current.get("checksum") != entry.get("checksum"):
-            raise SystemExit(f"Selected dependency checksum drifted: {name}@{version}")
+        resolved = {(item["name"], item["version"]): item for item in external}
+        direct_entries = selection.get("direct_dependencies")
+        if not isinstance(direct_entries, list) or len(direct_entries) != 10:
+            raise SystemExit("Historical direct Rust dependency selection is incomplete")
+        for entry in direct_entries:
+            if not isinstance(entry, dict):
+                raise SystemExit("Historical direct Rust dependency entry is invalid")
+            name = entry.get("name")
+            version = entry.get("version")
+            key = (name, version)
+            current = resolved.get(key)
+            if current is None:
+                raise SystemExit(f"Selected dependency is missing from current Cargo.lock: {name}@{version}")
+            if current.get("source") != entry.get("source"):
+                raise SystemExit(f"Selected dependency source drifted: {name}@{version}")
+            if current.get("checksum") != entry.get("checksum"):
+                raise SystemExit(f"Selected dependency checksum drifted: {name}@{version}")
 
     workspace = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
     members = workspace.get("workspace", {}).get("members", [])

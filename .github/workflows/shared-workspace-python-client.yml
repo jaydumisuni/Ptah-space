@@ -6,11 +6,15 @@ on:
     paths:
       - 'clients/python/**'
       - 'services/ptah-control/src/server.rs'
+      - 'services/ptah-control/src/verified_readback.rs'
+      - 'services/ptah-control/src/main.rs'
       - '.github/workflows/shared-workspace-python-client.yml'
   pull_request:
     paths:
       - 'clients/python/**'
       - 'services/ptah-control/src/server.rs'
+      - 'services/ptah-control/src/verified_readback.rs'
+      - 'services/ptah-control/src/main.rs'
       - '.github/workflows/shared-workspace-python-client.yml'
 jobs:
   python-client:
@@ -27,7 +31,7 @@ jobs:
         run: python -m py_compile clients/python/ptah_control_client.py clients/python/ptah_shared_workspace.py clients/python/qualify_live_ptah_control.py
       - name: Run authority and submission boundary tests
         working-directory: clients/python
-        run: python -m unittest -v test_ptah_control_client.py test_ptah_shared_workspace.py
+        run: python -m unittest -v test_ptah_control_client.py test_ptah_shared_workspace.py test_ptah_verified_readback.py
   physical-control-readback:
     runs-on: ubuntu-latest
     steps:

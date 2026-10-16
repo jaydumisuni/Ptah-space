@@ -40,6 +40,16 @@ class Submission:
     request_id: str
     state: str = 'authorized_for_dispatch_not_executed'
 
+
+@dataclass(frozen=True)
+class VerifiedEffect:
+    witness_id: str
+    evidence_digest: str
+    exit_code: int
+    stdout_digest: str
+    control_state: str = "independent_witness_evidence_only"
+    completion_accepted: bool = False
+
 @dataclass(frozen=True)
 class SubmissionStatus:
     request_id: str
@@ -47,6 +57,7 @@ class SubmissionStatus:
     execution_status: str
     workspace_id: str | None = None
     caller_context: dict[str, Any] | None = None
+    verified_effect: VerifiedEffect | None = None
 
 class PtahControlClient:
     """Same-host Ptah adapter for Hunter, Supervisor, Formula, COG and others.
@@ -150,9 +161,32 @@ class PtahControlClient:
         result = self._json('/api/submissions/' + request_id)
         if result.get('request_id') != request_id:
             raise PtahBoundaryError('submission read-back identity mismatch')
+        status = result.get('execution_status')
         if (result.get('control_state') != 'authorized_for_dispatch' or
-                result.get('execution_status') != 'not_executed_by_this_control_service'):
-            raise PtahBoundaryError('no independently qualified execution status')
+                status not in ('not_executed_by_this_control_service',
+                               'independent_a05_effect_verified')):
+            raise PtahBoundaryError('unrecognized execution or Control status')
+        evidence = result.get('verified_effect')
+        receipt = None
+        if status == 'independent_a05_effect_verified':
+            if not isinstance(evidence, dict):
+                raise PtahBoundaryError('verified effect claimed without receipt')
+            digest = lambda value: (isinstance(value,str) and len(value)==71 and
+                value.startswith('sha256:') and
+                all(c in '0123456789abcdef' for c in value[7:]))
+            if (not isinstance(evidence.get('witness_id'),str) or
+                not evidence['witness_id'] or
+                not digest(evidence.get('evidence_digest')) or
+                not digest(evidence.get('stdout_digest')) or
+                type(evidence.get('exit_code')) is not int or
+                evidence.get('control_state')!='independent_witness_evidence_only' or
+                evidence.get('completion_accepted') is not False):
+                raise PtahBoundaryError('invalid independent effect receipt')
+            receipt=VerifiedEffect(
+                evidence['witness_id'], evidence['evidence_digest'],
+                evidence['exit_code'], evidence['stdout_digest'])
+        elif evidence is not None:
+            raise PtahBoundaryError('evidence without verified status')
         workspace_id = result.get('workspace_id')
         if workspace_id is not None and not isinstance(workspace_id, str):
             raise PtahBoundaryError('invalid submission workspace identity')
@@ -161,4 +195,4 @@ class PtahControlClient:
             raise PtahBoundaryError('invalid caller provenance')
         return SubmissionStatus(
             request_id, result['control_state'], result['execution_status'],
-            workspace_id, context)
+            workspace_id, context, receipt)

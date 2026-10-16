@@ -1,3 +1,4 @@
+use crate::verified_readback::lookup_effect;
 use ptah_control::{
     AuthorizedSubmission, ControlKind, HumanControlRequest, HumanSnapshot, authorize_control,
     build_workspace_shell_v2_projection, validate_snapshot,
@@ -20,6 +21,7 @@ pub(crate) struct ServerConfig {
     pub(crate) listen: String,
     pub(crate) snapshot_path: PathBuf,
     pub(crate) submission_path: PathBuf,
+    pub(crate) verified_dispatch_journal: Option<PathBuf>,
 }
 
 pub(crate) struct ControlServer {
@@ -106,10 +108,29 @@ impl ControlServer {
             Ok(Some(submission)) => {
                 // An A14 submission has NOT been executed by this service. Do
                 // not convert a persisted 202 into a synthetic A05 receipt.
+                let evidence = match self.config.verified_dispatch_journal.as_deref() {
+                    Some(path) => match lookup_effect(path, &submission) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            return write_json_error(
+                                stream,
+                                503,
+                                "verified_effect_unavailable",
+                                &error,
+                            );
+                        }
+                    },
+                    None => None,
+                };
                 let projection = serde_json::json!({
                     "request_id": submission.request_id,
                     "control_state": "authorized_for_dispatch",
-                    "execution_status": "not_executed_by_this_control_service",
+                    "execution_status": if evidence.is_some() {
+                        "independent_a05_effect_verified"
+                    } else {
+                        "not_executed_by_this_control_service"
+                    },
+                    "verified_effect": evidence,
                     "workspace_id": submission.authority.workspace_id,
                     "target_id": submission.target_id,
                     // Informational provenance only. The caller tag is not
@@ -787,6 +808,7 @@ mod tests {
             listen: local.to_string(),
             snapshot_path,
             submission_path,
+            verified_dispatch_journal: None,
         });
         server
             .handle_connection(&mut server_stream)

@@ -60,3 +60,44 @@ shared-workspace cutover.
 
 Run tests:
 `python3 -m unittest -v test_ptah_control_client.py test_ptah_shared_workspace.py`.
+
+
+## Independently witnessed A05 result readback
+
+The optional Control flag \`--verified-dispatch-journal /secure/ptah/control-dispatch.sqlite\`
+enables read-only lookup of evidence **already verified and durably recorded**
+through Ptah's E07 \`ControlDispatchJournal::record_verified_effect\`.
+No journal is created or opened for writing by this HTTP projection.
+When absent, the Control response remains
+\`not_executed_by_this_control_service\`.
+
+For each persisted \`AuthorizedSubmission\`, Control computes
+\`sha256:\` + SHA-256 of the canonical serialized submission and matches
+that exact digest against the dispatch journal. A matching immutable
+\`control_verified_effects\` row with the same Attempt and Dispatch permits
+the response state \`independent_a05_effect_verified\` and returns:
+\`witness_id\`, \`evidence_digest\`, \`exit_code\`, \`stdout_digest\`,
+and \`completion_accepted=false\`. No second record for the same
+submission is accepted; ambiguity results in HTTP 503.
+
+**Boundary:** This is a read projection of previously verified evidence,
+not a new witness signature verification, not a dispatch service,
+not a success or approval decision, and not a way for clients to mint
+receipts. The writer must be the existing pinned, independently qualified
+Control verification process. Store the journal as a private regular file
+inside a deployment-controlled state directory. On Unix, readback rejects
+symlinked, hardlinked or group/world-accessible journal files.
+Direct modification of the underlying database by a privileged actor
+remains outside this HTTP readback's cryptographic validation.
+
+A genuine cross-tool Ptah submission must carry its canonical submission
+digest all the way into E02 \`stage_issued\`. The A05 result must be
+observed by the actual Node and an independent signed witness must
+pass \`record_verified_effect\` before this projection becomes populated.
+Do not seed the evidence tables from a client or untrusted tool.
+
+Focused KRATOS proof: 12/12 Rust Control tests, 19/19 Python tests,
+strict Clippy, and actual five-caller Control submit/restart/readback PASS.
+These tests do not represent an automatically running production E02/A05
+dispatcher. ATHENA's Oracle execution works, but no admitted Ptah Node
+executable/service was found in the checked Windows locations.

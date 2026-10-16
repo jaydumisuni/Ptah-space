@@ -24,3 +24,7 @@ python3 clients/python/qualify_live_ptah_control.py \
 ```
 
 The dedicated GitHub workflow runs this same real-process smoke after a build. No production deployment is claimed from a standalone proof process.
+
+## Verified external-effect readback extension (16 October 2026)
+
+See `clients/python/README.md` for the optional `--verified-dispatch-journal` projection, exact submission-digest match, fail-closed ambiguous evidence, and trust limitations. KRATOS Control binary 12/12 tests and Python 19/19 pass; the real five-caller restart smoke passes. No production Node or two-machine dispatch is thereby established.

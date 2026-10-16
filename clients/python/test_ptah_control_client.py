@@ -12,6 +12,7 @@ AUTH={'workspace_id':'w1','workspace_revision':1,'session_id':'s1',
 class Handler(BaseHTTPRequestHandler):
     mismatch = False
     submissions = []
+    origins = []
     def log_message(self, *args):
         pass
     def response(self, status, value):
@@ -32,6 +33,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != '/api/control':
             return self.response(404,{'error':'not_found'})
         value=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        self.origins.append(self.headers.get('Origin'))
+        if self.headers.get('Origin') != f'http://127.0.0.1:{self.server.server_port}':
+            return self.response(403,{'error':'forbidden_origin'})
         self.submissions.append(value)
         if value['expected'] != AUTH:
             return self.response(409,{'error':'stale_authority'})
@@ -48,7 +52,7 @@ class PtahClientTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.http.shutdown();cls.http.server_close();cls.thread.join(timeout=2)
     def setUp(self):
-        Handler.mismatch=False;Handler.submissions.clear()
+        Handler.mismatch=False;Handler.submissions.clear();Handler.origins.clear()
     def test_observe_exact_matching_stamps(self):
         self.assertEqual(self.client.observe().authority,AUTH)
     def test_refuses_mismatched_projection(self):
@@ -69,6 +73,12 @@ class PtahClientTests(unittest.TestCase):
         with self.assertRaisesRegex(PtahBoundaryError,'not in Ptah'):
             self.client.submit_control(kind='execute_shell',target_id='n1',payload={'cmd':'date'})
         self.assertEqual(Handler.submissions,[])
+    def test_protected_post_has_exact_loopback_origin(self):
+        receipt=self.client.submit_control(kind='checkpoint_request',
+                                           target_id='w1',payload={})
+        self.assertTrue(receipt.request_id)
+        self.assertEqual(Handler.origins,[f'http://127.0.0.1:{self.http.server_port}'])
+
     def test_exact_snapshot_bound_submission_not_completion(self):
         receipt=self.client.submit_control(kind='terminal_reconnect',target_id='t1',payload={},
                                            provider_id='p1',expected_provider_generation=4)

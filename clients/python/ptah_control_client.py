@@ -69,10 +69,13 @@ class PtahControlClient:
         body = None if payload is None else json.dumps(payload, separators=(',', ':')).encode()
         if body is not None and len(body) > 65_536:
             raise PtahBoundaryError('request exceeds bounded size')
+        headers={'Accept':'application/json', 'Content-Type':'application/json',
+                 'Cache-Control':'no-store'}
+        if body is not None:
+            # Match the real Ptah A14 protected POST same-origin requirement.
+            headers['Origin']=self.endpoint
         req = request.Request(
-            self.endpoint + path, data=body,
-            headers={'Accept':'application/json', 'Content-Type':'application/json',
-                     'Cache-Control':'no-store'},
+            self.endpoint + path, data=body, headers=headers,
             method='GET' if payload is None else 'POST')
         try:
             with self.opener.open(req, timeout=self.timeout) as response:

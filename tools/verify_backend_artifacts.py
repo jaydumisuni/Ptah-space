@@ -15,6 +15,7 @@ import base64
 import hashlib
 import json
 import re
+import tempfile
 import shutil
 import subprocess
 from pathlib import Path
@@ -136,6 +137,59 @@ def extract_named_sha256(manifest: Path, filename: str, authority: str) -> str:
     return match.group(1)
 
 
+KERNEL_ORG_AUTOSIGNER_FPR = "B8868C80BA62A1FFFAF5FDA9632D3A06589DA6B1"
+KERNEL_ORG_AUTOSIGNER_KEY_SHA256 = "099fb3eca2b31006bc0f37db9dd9226a1bc51a8958d54c278e3f67006a8a114b"
+
+
+def verify_pinned_kernel_checksum_signature(manifest: Path) -> dict[str, str]:
+    """Authenticate archived kernel.org autosigner material with a pinned key.
+
+    The original checksum file's digest also must match the immutable Phase 0C
+    backend lock. This operation never signs, alters or authorizes a new lock.
+    """
+    key = ROOT / "conformance/immutable-source-manifests/kernel-org-autosigner-public.gpg"
+    if key.is_symlink() or not key.is_file():
+        raise ArtifactError("pinned kernel.org autosigner key missing or symlinked")
+    if digest(key, "sha256") != KERNEL_ORG_AUTOSIGNER_KEY_SHA256:
+        raise ArtifactError("pinned kernel.org autosigner key digest mismatch")
+    executable = shutil.which("gpg")
+    if executable is None:
+        raise ArtifactError("gpg required to verify archived kernel.org manifest")
+    with tempfile.TemporaryDirectory(prefix="ptah-kernel-manifest-") as folder:
+        home = Path(folder) / "gnupg"
+        home.mkdir(mode=0o700)
+        fingerprint = subprocess.run(
+            [executable, "--batch", "--homedir", str(home),
+             "--with-colons", "--show-keys", str(key)],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        fprs = {line.split(":")[9] for line in fingerprint.stdout.splitlines()
+                if line.startswith("fpr:") and len(line.split(":")) > 9}
+        if fingerprint.returncode or KERNEL_ORG_AUTOSIGNER_FPR not in fprs:
+            raise ArtifactError("kernel.org autosigner fingerprint mismatch")
+        imported = subprocess.run(
+            [executable, "--batch", "--homedir", str(home), "--import", str(key)],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        if imported.returncode:
+            raise ArtifactError("kernel.org autosigner key import failed")
+        verified = subprocess.run(
+            [executable, "--batch", "--homedir", str(home),
+             "--status-fd", "1", "--verify", str(manifest)],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        expected = "[GNUPG:] VALIDSIG " + KERNEL_ORG_AUTOSIGNER_FPR + " "
+        if verified.returncode or not any(
+            line.startswith(expected) for line in verified.stdout.splitlines()
+        ):
+            raise ArtifactError("archived kernel.org checksum manifest PGP verification failed")
+    return {
+        "fingerprint": KERNEL_ORG_AUTOSIGNER_FPR,
+        "public_key_sha256": KERNEL_ORG_AUTOSIGNER_KEY_SHA256,
+        "status": "good_signature_and_pinned_fingerprint",
+    }
+
+
 def verify_signed_manifest_artifact(
     *,
     component: str,
@@ -144,9 +198,40 @@ def verify_signed_manifest_artifact(
     manifest_url: str,
     manifest_filename: str,
     download_root: Path,
+    pinned_snapshot: Path | None = None,
+    immutable_snapshot_sha256: str | None = None,
 ) -> dict[str, Any]:
     manifest = download_root / manifest_filename
-    manifest_transfer = download(manifest_url, manifest)
+    if pinned_snapshot is not None:
+        # kernel.org's sha256sums.asc is a *rolling* signed catalogue.
+        # Never compare today's catalogue bytes against an old immutable
+        # digest. Recover the exact historically selected signed bytes,
+        # without changing the frozen lock or claiming a new signature.
+        if pinned_snapshot.is_symlink() or not pinned_snapshot.is_file():
+            raise ArtifactError("pinned Git checksum evidence missing or symlinked")
+        if not pinned_snapshot.resolve().is_relative_to(ROOT.resolve()):
+            raise ArtifactError("pinned checksum evidence must be under repository")
+        if not isinstance(immutable_snapshot_sha256, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", immutable_snapshot_sha256
+        ):
+            raise ArtifactError("immutable signed manifest digest missing")
+        observed_manifest_digest = digest(pinned_snapshot, "sha256")
+        if observed_manifest_digest != immutable_snapshot_sha256:
+            raise ArtifactError("pinned historical signed manifest digest mismatch")
+        shutil.copyfile(pinned_snapshot, manifest)
+        manifest_transfer = {
+            "retrieval_mode": "original_signed_manifest_pinned_in_repository",
+            "original_url": manifest_url,
+            "source_path": pinned_snapshot.relative_to(ROOT).as_posix(),
+            "sha256": observed_manifest_digest,
+            "same_run_download": False,
+        }
+    else:
+        manifest_transfer = download(manifest_url, manifest)
+    signature_evidence = (
+        verify_pinned_kernel_checksum_signature(manifest)
+        if pinned_snapshot is not None else None
+    )
     expected = extract_named_sha256(manifest, filename, component)
     target = download_root / filename
     transfer = download(url, target)
@@ -164,6 +249,7 @@ def verify_signed_manifest_artifact(
         "transfer": transfer,
         "signed_checksum_manifest_sha256": digest(manifest, "sha256"),
         "signed_checksum_manifest_transfer": manifest_transfer,
+        "signed_checksum_manifest_pgp": signature_evidence,
     }
 
 
@@ -235,6 +321,8 @@ def verify(lock_path: Path, download_root: Path) -> dict[str, Any]:
                     manifest_url=manifest_url,
                     manifest_filename="git-sha256sums.asc",
                     download_root=download_root,
+                    pinned_snapshot=ROOT / "conformance/immutable-source-manifests/git-2.55.0-sha256sums.asc",
+                    immutable_snapshot_sha256=entry.get("signed_checksum_manifest_sha256"),
                 )
             )
             continue

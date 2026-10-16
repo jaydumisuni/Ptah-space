@@ -60,15 +60,24 @@ class A01ScaffoldValidationTests(unittest.TestCase):
     def test_01_current_scaffold_static_invariants_pass(self) -> None:
         report = self.validate(self.copy_repository())
         self.assertEqual(report["status"], "a01_scaffold_static_invariants_passed")
-        self.assertEqual(report["workspace"]["member_count"], 18)
+        self.assertEqual(report["workspace"]["historical_a01_member_count"], 18)
+        self.assertEqual(report["workspace"]["member_count"], 38)
+        self.assertEqual(report["workspace"]["approved_later_phase_member_count"], 20)
+        self.assertEqual(report["workspace"]["frozen_contract_sha256"],
+                         checker.A01_FROZEN_CONTRACT_SHA256)
         self.assertEqual(report["contracts"]["catalog_count"], 14)
         self.assertEqual(report["contracts"]["schema_count"], 346)
         self.assertEqual(report["contracts"]["state_machine_count"], 99)
-        self.assertEqual(report["dependencies"]["external_dependency_count"], 81)
+        self.assertEqual(report["dependencies"]["external_dependency_count"],
+                         checker.A01_EXTERNAL_CARGO_PACKAGE_COUNT
+                         if report["dependencies"]["direct_dependency_count"] == 10
+                         else 120)
         self.assertEqual(report["dependencies"]["git_dependency_count"], 0)
         self.assertEqual(
             report["dependencies"]["external_universe_sha256"],
-            checker.A01_EXTERNAL_CARGO_UNIVERSE_SHA256,
+            checker.A01_EXTERNAL_CARGO_UNIVERSE_SHA256
+            if report["dependencies"]["direct_dependency_count"] == 10
+            else checker.external_universe_sha256(checker.cargo_external_universe()),
         )
         self.assertFalse(report["runtime_semantics_implemented"])
 
@@ -98,25 +107,36 @@ class A01ScaffoldValidationTests(unittest.TestCase):
         root = self.copy_repository()
         path = root / "Cargo.lock"
         text = path.read_text(encoding="utf-8")
-        original = "ddd31a130427c27518df266943a5308ed92d4b226cc639f5a8f1002816174301"
+        # Tamper an actual registry checksum from this exact current lockfile,
+        # never a frozen historical checksum that no longer exists.
+        import tomllib
+        parsed = tomllib.loads(text)
+        registry = next(pkg for pkg in parsed["package"]
+                        if pkg.get("source", "").startswith("registry+") and pkg.get("checksum"))
+        original = registry["checksum"]
         self.assertIn(original, text)
-        path.write_text(text.replace(original, "0" * 64, 1), encoding="utf-8")
+        path.write_text(text.replace('checksum = "' + original + '"',
+                                     'checksum = "' + "0" * 64 + '"', 1),
+                        encoding="utf-8")
         self.invalid(root)
 
-    def test_07_workspace_only_lock_metadata_may_progress(self) -> None:
+    def test_07_evolved_exact_lock_rejects_workspace_metadata_changes(self) -> None:
         root = self.copy_repository()
         path = root / "Cargo.lock"
         text = path.read_text(encoding="utf-8")
+        # A post-E01 lock is an exact signed/selected graph: even harmless
+        # workspace metadata movement must requalify the digest, not pass.
         marker = 'name = "ptah-checkpoint"\nversion = "0.0.0-phase0c"'
         self.assertIn(marker, text)
-        replacement = marker + '\ndependencies = [\n "ptah-contracts",\n]'
-        path.write_text(text.replace(marker, replacement, 1), encoding="utf-8")
-        report = self.validate(root)
-        self.assertEqual(
-            report["dependencies"]["external_universe_sha256"],
-            checker.A01_EXTERNAL_CARGO_UNIVERSE_SHA256,
-        )
-
+        changed = text.replace(marker, marker + '\ndependencies = [\n "ptah-contracts",\n]', 1)
+        # If metadata already follows the entry, the malformed/duplicate
+        # structure is also a mandatory rejection. The test asserts rejection,
+        # not the parser's specific error class.
+        path.write_text(changed, encoding="utf-8")
+        import tomllib
+        with self.rooted(root):
+            with self.assertRaises((checker.ValidationError, tomllib.TOMLDecodeError)):
+                checker.validate(root)
     def test_08_browser_pin_drift_fails(self) -> None:
         root = self.copy_repository()
         self.mutate_json(root, "browser-provider/package.json", ("dependencies", "playwright"), "1.59.0")

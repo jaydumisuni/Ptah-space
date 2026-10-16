@@ -1,0 +1,59 @@
+name: Search A05 exact-head scope proof (additive)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "adapters/internet-search/**"
+      - "adapters/native-process/tests/a05_ttgs_search_integration.rs"
+      - "tools/ptah_internet_search.py"
+      - "docs/TTG_INTERNET_SEARCH_PROVIDER_2026-10-15.md"
+      - "dependencies/rust-direct-lock.json"
+
+permissions:
+  contents: read
+
+jobs:
+  search-a05-scope:
+    if: github.event.pull_request.head.ref == 'integration/ttg-internet-search-provider-20261015'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      PTAH_EXACT_HEAD: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Check out exact Search candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_HEAD }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+      - name: Validate exact-head scope and dependency policy
+        run: |
+          set -euo pipefail
+          mkdir -p conformance/reports/search-a05
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_HEAD"
+          python3 tools/check_search_a05_admission.py \
+            --base origin/main \
+            --head "$PTAH_EXACT_HEAD" \
+            --output conformance/reports/search-a05/scope.json
+      - name: Test read-only Search adapter contracts
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s adapters/internet-search/test \
+            -p 'test_*.py' -v
+      - name: Retain exact-head scope evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: search-a05-scope-${{ env.PTAH_EXACT_HEAD }}
+          path: conformance/reports/search-a05/scope.json
+          if-no-files-found: warn
+          retention-days: 30
+
+# This is additive and never supersedes E01-E05, A01, Phase 0C
+# signed artifact custody, branch protection or production E07 admission.

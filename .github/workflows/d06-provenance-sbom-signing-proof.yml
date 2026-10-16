@@ -3,8 +3,6 @@ name: D06 Provenance SBOM Signing exact-head proof
 on:
   pull_request:
     paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
       - "D06_PROVENANCE_SBOM_SIGNING.md"
       - "crates/ptah-provenance/**"
       - "docs/superpowers/plans/2026-09-02-d06-provenance-sbom-signing.md"

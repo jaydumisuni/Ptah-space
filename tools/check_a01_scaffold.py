@@ -15,6 +15,11 @@ ACTION_PIN = re.compile(r"^[0-9a-f]{40}$")
 A01_EXTERNAL_CARGO_UNIVERSE_SHA256 = "06f6b4c9f8f2ad70de76d6d3f79241503414744fdc5b567eb5e5512960dce459"
 A01_EXTERNAL_CARGO_PACKAGE_COUNT = 81
 
+# Explicit later-phase members, reviewed separately from immutable A01's first 18.
+# Unrecognized or reordered members fail closed. This is not an A01 freeze rewrite.
+A01_FROZEN_CONTRACT_SHA256 = "3f61aa231134f23cc6c7b78d037bb9980d1d4150ebe9a4ac4b706e25c638be69"
+APPROVED_EVOLVED_WORKSPACE_MEMBERS = ['crates/ptah-contracts', 'crates/ptah-identifiers', 'crates/ptah-ledger', 'crates/ptah-events', 'crates/ptah-receipts', 'crates/ptah-node-agent', 'crates/ptah-node-link', 'crates/ptah-node-transfer', 'crates/ptah-placement-runtime', 'crates/ptah-activity-runtime', 'crates/ptah-workspace', 'crates/ptah-ai-workspace', 'crates/ptah-knowledge-search', 'crates/ptah-recipe-registry', 'crates/ptah-package-plugin', 'crates/ptah-provenance', 'crates/ptah-security-evidence', 'crates/ptah-application-runtime', 'crates/ptah-object-store', 'crates/ptah-transfer', 'crates/ptah-provider-api', 'crates/ptah-device-runtime', 'crates/ptah-android-runtime', 'crates/ptah-browser-runtime', 'crates/ptah-checkpoint', 'crates/ptah-platform-admission', 'crates/ptah-workspace-movement', 'crates/ptah-archive-decomposition', 'services/ptah-node', 'services/ptah-control', 'adapters/container-oci', 'adapters/git-cli', 'adapters/decomposition-libarchive', 'adapters/database-sqlite', 'adapters/native-process', 'adapters/ttg-device-xray', 'adapters/ttg-device-workloads', 'evidence/rust-dependency-lock']
+
 
 class ValidationError(RuntimeError):
     """Raised when an A01 scaffold invariant is not satisfied."""
@@ -42,12 +47,20 @@ def validate_workspace(contract: dict[str, Any]) -> dict[str, Any]:
     package = config.get("package", {})
     members = config.get("members", [])
     expected = contract["required_workspace_members"]
-    require(members == expected, "Rust workspace member order/content drifted from A01 contract")
+    require(sha256(CONTRACT_PATH) == A01_FROZEN_CONTRACT_SHA256,
+            "historical A01 contract digest drifted")
+    require(members in (expected, APPROVED_EVOLVED_WORKSPACE_MEMBERS),
+            "Rust workspace member order/content lacks approved later-phase scope")
+    require([member for member in members if member in expected] == expected,
+            "historical A01 workspace members were modified or reordered")
     require(package.get("rust-version") == contract["required_rust_toolchain"], "Rust toolchain pin mismatch")
     require(package.get("publish") is False, "workspace packages must remain non-publishable by default")
     for member in expected:
         require((ROOT / member / "Cargo.toml").is_file(), f"workspace member manifest missing: {member}")
-    return {"member_count": len(members), "rust_toolchain": package.get("rust-version")}
+    return {"member_count": len(members), "rust_toolchain": package.get("rust-version"),
+            "historical_a01_member_count":len(expected),
+            "approved_later_phase_member_count":len(members)-len(expected),
+            "frozen_contract_sha256":A01_FROZEN_CONTRACT_SHA256}
 
 
 def validate_browser(contract: dict[str, Any]) -> dict[str, Any]:
@@ -130,7 +143,10 @@ def validate_dependency_lock(contract: dict[str, Any]) -> dict[str, Any]:
     require(policy.get("exact_manifest_versions") is True, "exact Rust manifest versions are not enforced")
     require(policy.get("git_dependencies_allowed") is False, "Git Rust dependencies must remain forbidden")
     dependencies = record.get("direct_dependencies")
-    require(isinstance(dependencies, list) and len(dependencies) == 10, "A01 expects ten locked direct Rust dependencies")
+    evolved=record.get("status") == "exact_versions_and_policy_selected_e01_lock_frozen"
+    expected_direct_count=13 if evolved else 10
+    require(isinstance(dependencies, list) and len(dependencies) == expected_direct_count,
+            "A01/E01 direct Rust dependency count mismatch")
     names: set[str] = set()
     for item in dependencies:
         require(isinstance(item, dict), "invalid Rust dependency record")
@@ -149,10 +165,30 @@ def validate_dependency_lock(contract: dict[str, Any]) -> dict[str, Any]:
     require(historical_cargo.get("git_dependency_count") == 0, "historical A01 Cargo.lock contains Git dependencies")
 
     external = cargo_external_universe()
-    require(len(external) == A01_EXTERNAL_CARGO_PACKAGE_COUNT, "A01 external Cargo package count drifted")
-    require(not any(item["source"].startswith("git+") for item in external), "Git Cargo dependency introduced")
+    if evolved:
+        # E01 succeeded A01. The historical 81-package signature is not
+        # relabelled as a digest for today's evolving Cargo graph.
+        require(historical_sha == sha256(ROOT / "Cargo.lock"),
+                "E01-evolved exact Cargo.lock SHA does not match current selection")
+        require(record.get("cargo_lock",{}).get("registry_package_count") == len(external),
+                "E01-evolved registry package count differs from immutable lock selection")
+        require(record.get("cargo_lock",{}).get("resolved_package_count") ==
+                len(tomllib.loads((ROOT/"Cargo.lock").read_text(encoding="utf-8")).get("package",[])),
+                "E01-evolved package graph count mismatch")
+        require(record.get("selection_policy",{}).get("git_dependencies_allowed") is False,
+                "E01-evolved Git dependencies allowed unexpectedly")
+        require(record.get("selection_policy",{}).get("wildcards_allowed") is False,
+                "E01-evolved wildcard dependencies allowed unexpectedly")
+        require(record.get("selection_policy",{}).get("unknown_registries_allowed") is False,
+                "E01-evolved registry policy changed")
+    else:
+        require(len(external) == A01_EXTERNAL_CARGO_PACKAGE_COUNT, "A01 external Cargo package count drifted")
+    require(not any(item["source"].startswith("git+") for item in external),
+            "Git Cargo dependency introduced")
     universe_sha = external_universe_sha256(external)
-    require(universe_sha == A01_EXTERNAL_CARGO_UNIVERSE_SHA256, "A01 external Cargo dependency universe drifted")
+    if not evolved:
+        require(universe_sha == A01_EXTERNAL_CARGO_UNIVERSE_SHA256,
+                "A01 external Cargo dependency universe drifted")
 
     resolved = {(item["name"], item["version"]): item for item in external}
     for item in dependencies:
@@ -188,10 +224,12 @@ def validate_action_pins() -> dict[str, Any]:
     references: list[dict[str, str]] = []
     for path in workflows:
         for raw in path.read_text(encoding="utf-8").splitlines():
-            line = raw.strip()
-            if not line.startswith("uses:") and " uses:" not in raw:
+            # Recognize only actual YAML action keys, not fragments of Python
+            # heredocs such as a guard containing the string " uses:".
+            match = re.match(r"^\s*(?:-\s*)?uses:\s*(.*?)\s*$", raw)
+            if not match:
                 continue
-            value = line.split("uses:", 1)[1].strip()
+            value = match.group(1).strip()
             value = value.split(" #", 1)[0].strip().strip('"\'')
             if value.startswith("./"):
                 continue

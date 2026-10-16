@@ -1,0 +1,85 @@
+name: Current-head universal admission
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  exact-head-current-pr:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PTAH_ADMISSION_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      PTAH_ADMISSION_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: tools
+    steps:
+      - name: Check out immutable requested commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_ADMISSION_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+      - name: Verify exact commit and immutable historic phase-proof applicability
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_ADMISSION_HEAD"
+          python3 tools/check_current_pr_admission.py \
+            --base "$PTAH_ADMISSION_BASE" \
+            --head "$PTAH_ADMISSION_HEAD" \
+            --output "$RUNNER_TEMP/current-pr-scope.json"
+      - name: Verify universal frozen state and dependency baseline
+        run: |
+          set -euo pipefail
+          python3 tools/check_rust_dependency_lock.py > "$RUNNER_TEMP/rust-lock.json"
+          python3 tools/check_a01_scaffold.py > "$RUNNER_TEMP/a01.json"
+          python3 tools/check_phase0c_scaffold.py > "$RUNNER_TEMP/phase0c.log"
+          python3 -m unittest \
+            tools/test_check_current_pr_admission.py \
+            tools/test_check_search_a05_admission.py \
+            tools/test_check_a01_scaffold.py \
+            tools/test_pinned_git_manifest.py \
+            tools/test_backend_git_manifest_custody.py -q
+      - name: Verify exact-head Search adapter scope when applicable
+        run: |
+          set -euo pipefail
+          if python3 - "$RUNNER_TEMP/current-pr-scope.json" <<'PY'
+          import json, sys
+          scope=json.load(open(sys.argv[1], encoding="utf-8"))
+          sys.exit(0 if scope["search_scope_requires_independent_checker"] else 1)
+          PY
+          then
+            python3 tools/check_search_a05_admission.py \
+              --base "$PTAH_ADMISSION_BASE" \
+              --head "$PTAH_ADMISSION_HEAD" \
+              --output "$RUNNER_TEMP/search-scope.json"
+            python3 -m unittest discover -s adapters/internet-search/test -p 'test_*.py' -q
+          else
+            echo "SEARCH_SCOPE_NOT_APPLICABLE_NOT_TESTED"
+          fi
+      - name: Verify universal formatting and exact-head stability
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+          cargo +1.97.1 fmt --all -- --check
+          test "$(git rev-parse HEAD)" = "$PTAH_ADMISSION_HEAD"
+          test -z "$(git status --porcelain --untracked-files=no)"
+      - name: Record scope without substituting historical phase proofs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: current-pr-scope-${{ env.PTAH_ADMISSION_HEAD }}
+          path: ${{ runner.temp }}/current-pr-scope.json
+          if-no-files-found: error
+          retention-days: 30
+
+# This gate is universal for PRs to main. Historical phase workflows retain
+# their original exact-head/predecessor checks and run for phase-owned deltas.
+# It does not grant production enrollment, release signing, or Search activation.

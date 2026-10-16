@@ -5,6 +5,11 @@ on:
     branches: [e02-placement-reservation-lease-fence]
   pull_request:
     branches: [main]
+    paths:
+      - "E02_PLACEMENT_RESERVATION_LEASE_FENCE.md"
+      - "services/ptah-control/tests/e02_placement_authority.rs"
+      - "tools/check_e02_placement_authority.py"
+      - ".github/workflows/e02-placement-reservation-lease-fence.yml"
   workflow_dispatch:
 
 permissions:

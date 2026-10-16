@@ -261,6 +261,25 @@ fn idempotent_replay_rejects_corrupt_cursor_without_acknowledging_authority() {
 }
 
 #[test]
+fn interleaved_nodes_continue_independently_after_restart() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    journal.enqueue(&draft("n1", "first")).unwrap();
+    journal.enqueue(&draft("n2", "peer-first")).unwrap();
+    drop(journal);
+
+    let mut recovered = DurableIntentJournal::open(&path).unwrap();
+    let (peer, _) = recovered.enqueue(&draft("n2", "peer-second")).unwrap();
+    let (next, _) = recovered.enqueue(&draft("n1", "second")).unwrap();
+    assert_eq!(peer.origin.value, 2);
+    assert_eq!(next.origin.value, 2);
+    recovered.verify().unwrap();
+    assert_eq!(recovered.history().unwrap().len(), 4);
+    drop(recovered);
+    clean(&path);
+}
+
+#[test]
 fn failed_enqueue_cursor_transaction_never_reserves_a_sequence() {
     let path = scratch();
     let mut j = DurableIntentJournal::open(&path).unwrap();

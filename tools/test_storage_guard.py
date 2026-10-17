@@ -260,6 +260,24 @@ class StorageGuardContract(unittest.TestCase):
             (module/".cargo"/"config.toml").write_text("[build]\nrustflags=['-C','target-cpu=native']\n")
             self.assertFalse(guard.git_clean(parent))
 
+    def test_retention_clock_starts_only_after_final_validation(self):
+        calls=[]
+        def fingerprint(_):
+            calls.append("fingerprint")
+            return "f"*64
+        def clock():
+            calls.append("clock")
+            return 12345678
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(
+            guard,"git_clean",return_value=True),patch.object(
+            guard,"active_builds",return_value=False),patch.object(
+            guard,"cache_fingerprint",side_effect=fingerprint),patch.object(
+            guard.time,"time",side_effect=clock):
+            guard.mark(self.project,self.receipt)
+        self.assertEqual(calls,["fingerprint","fingerprint","clock"])
+        marker=json.loads(guard.marker_path(self.cache).read_text())
+        self.assertEqual(marker["qualified_at_epoch"],12345678)
+
     def test_uninitialized_submodule_is_never_exact_head(self):
         from subprocess import CompletedProcess
         with patch.object(guard,"_checkout_inputs_clean",return_value=True),patch.object(

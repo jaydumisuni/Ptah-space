@@ -246,7 +246,6 @@ def mark(project,receipt):
     item={"schema":"ttg.storage.cache-qualification.v1","project":str(project),"cache":str(cache),
        "head":qualified_head,"receipt":str(evidence),"receipt_sha256":validated_digest,
        "cache_fingerprint":fingerprint,
-       "qualified_at_epoch":time.time(),"qualified_at_utc":now(),
        "allow_cleanup":True,"cleanup_type":"cargo-clean-target-dir"}
     # Fresh qualification state must be stable at the moment the marker
     # becomes visible, not just before receipt parsing and hashing.
@@ -256,6 +255,10 @@ def mark(project,receipt):
     validate_retained_bytes(evidence,validated_digest)
     if cache_fingerprint(cache)!=fingerprint:
         raise ValueError("cache rebuilt or changed during qualification")
+    # Retention starts at publication, not before potentially slow final
+    # checkout/recursive submodule/cache inventory checks.
+    item["qualified_at_epoch"]=time.time()
+    item["qualified_at_utc"]=now()
     atomic_json(marker_path(cache),item)
     return {"marked_disposable":str(cache),"head":item["head"],"receipt_sha256":item["receipt_sha256"]}
 

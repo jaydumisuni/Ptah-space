@@ -32,12 +32,21 @@ struct Config {
     node_seed: PathBuf,
     enrollment_ref: EntityRef,
     duration: Duration,
+    resident: bool,
 }
 
 fn args_to_config(args: impl IntoIterator<Item = String>) -> Result<Config> {
     let mut options = BTreeMap::new();
     let mut args = args.into_iter();
+    let mut resident = false;
     while let Some(key) = args.next() {
+        if key == "--resident" {
+            if resident {
+                return Err("resident option repeated".into());
+            }
+            resident = true;
+            continue;
+        }
         if ![
             "--endpoint",
             "--server-name",
@@ -67,6 +76,9 @@ fn args_to_config(args: impl IntoIterator<Item = String>) -> Result<Config> {
     if !(2..=3_600).contains(&seconds) {
         return Err("duration must be between 2 and 3600 seconds".into());
     }
+    if resident && seconds < 30 {
+        return Err("resident session duration must be at least 30 seconds".into());
+    }
     let certificate = PathBuf::from(take("--client-cert")?);
     let private_key = PathBuf::from(take("--client-key")?);
     let control_ca = PathBuf::from(take("--control-ca")?);
@@ -84,6 +96,7 @@ fn args_to_config(args: impl IntoIterator<Item = String>) -> Result<Config> {
         node_seed,
         enrollment_ref,
         duration: Duration::from_secs(seconds),
+        resident,
     })
 }
 
@@ -268,29 +281,43 @@ fn advance_windows_seed(seed_path: &Path) -> Result<(NodeAgent, File)> {
     Ok((agent, lock))
 }
 
+/// One authenticated E01 attempt; any error stops the resident candidate.
+async fn authenticated_e01_once(config: &Config) -> Result<()> {
+    // Revalidate the certificate and the private-key ACL before each session.
+    // Invalid TLS never consumes another canonical Node generation.
+    let cert = read_regular_file(&config.certificate, false)?;
+    let key = read_regular_file(&config.private_key, true)?;
+    let ca = read_regular_file(&config.control_ca, false)?;
+    let tls = TlsClientConfig::new(
+        TlsIdentity::from_pem(&cert, &key)?,
+        TlsTrustRoots::from_pem(&ca)?,
+    )?;
+    #[cfg(unix)]
+    let (agent, _lock) = advance_seed(&config.node_seed)?;
+    #[cfg(windows)]
+    let (agent, _lock) = advance_windows_seed(&config.node_seed)?;
+    session(config, &agent, tls).await
+}
+
 #[tokio::main]
 async fn main() {
-    let outcome = async {
-        // Windows deployment requires independently audited private-key/state
-        // ACLs and crash-durable state replacement; do not silently downgrade.
+    let outcome: Result<()> = async {
         #[cfg(not(any(unix, windows)))]
         return Err::<(), Box<dyn std::error::Error>>(
-            "E01 Node state custody is unsupported on this platform".into(),
+            "E01 Node state custody unsupported on this platform".into(),
         );
         let config = args_to_config(env::args().skip(1))?;
-        let cert = read_regular_file(&config.certificate, false)?;
-        let key = read_regular_file(&config.private_key, true)?;
-        let ca = read_regular_file(&config.control_ca, false)?;
-        // Invalid TLS configuration may not consume a canonical Node generation.
-        let tls = TlsClientConfig::new(
-            TlsIdentity::from_pem(&cert, &key)?,
-            TlsTrustRoots::from_pem(&ca)?,
-        )?;
-        #[cfg(unix)]
-        let (agent, _lock) = advance_seed(&config.node_seed)?;
-        #[cfg(windows)]
-        let (agent, _lock) = advance_windows_seed(&config.node_seed)?;
-        session(&config, &agent, tls).await
+        loop {
+            // This resident mode is E01 liveness only. It never receives an
+            // executable command or constructs a production E02 authority.
+            // An authentication, IO, or protected-state failure is fail-closed:
+            // no uncontrolled retry loop and no substituted identity.
+            authenticated_e01_once(&config).await?;
+            if !config.resident {
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
     }
     .await;
     if let Err(error) = outcome {
@@ -473,5 +500,55 @@ mod windows_tests {
         assert!(advance_windows_seed(&seed).is_err());
         assert!(read_regular_file(&seed, true).is_err());
         fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod resident_args_tests {
+    use super::*;
+    fn arguments(seconds: &str, resident: bool) -> Vec<String> {
+        let ref_json =
+            serde_json::to_string(&EntityRef::new("core.node_enrollment").expect("canonical ref"))
+                .expect("serialize");
+        let mut args = vec![
+            "--endpoint",
+            "127.0.0.1:9238",
+            "--server-name",
+            "localhost",
+            "--client-cert",
+            "client.crt",
+            "--client-key",
+            "client.key",
+            "--control-ca",
+            "ca.crt",
+            "--node-seed",
+            "node.dpapi",
+            "--enrollment-ref-json",
+            &ref_json,
+            "--seconds",
+            seconds,
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+        if resident {
+            args.push(String::from("--resident"));
+        }
+        args
+    }
+    #[test]
+    fn resident_mode_requires_longer_session_and_is_explicit() {
+        assert!(!args_to_config(arguments("4", false)).unwrap().resident);
+        assert!(args_to_config(arguments("4", true)).is_err());
+        assert!(args_to_config(arguments("30", true)).unwrap().resident);
+        assert!(args_to_config(arguments("3600", true)).unwrap().resident);
+        assert!(args_to_config(arguments("3601", true)).is_err());
+    }
+    #[test]
+    fn repeated_or_incomplete_resident_option_fails_closed() {
+        let mut duplicated = arguments("30", true);
+        duplicated.push(String::from("--resident"));
+        assert!(args_to_config(duplicated).is_err());
+        assert!(args_to_config(vec![String::from("--resident")]).is_err());
     }
 }

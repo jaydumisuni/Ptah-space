@@ -51,6 +51,10 @@ export class PlaywrightBackend {
   async launchProcess({ profileMode, userDataDir, readonly, launchOptions }) {
     await this.assertLockedRuntime();
     const ownedOptions = await lockedOwnedLaunchOptions(launchOptions);
+    // launchPersistentContext accepts context-level TLS flags directly.
+    // Reject those before any profile is opened, not only in createContext.
+    invariant(ownedOptions.ignoreHTTPSErrors !== true,
+      "tls_verification_bypass_forbidden", "Ptah-owned Chromium must verify HTTPS certificates");
     invariant(!ownedOptions.args?.some(arg => typeof arg === "string" &&
       /^(--ignore-certificate-errors(?:[-=].*)?|--allow-insecure-localhost(?:=.*)?|--disable-web-security(?:=.*)?)$/i.test(arg)),
       "tls_verification_bypass_forbidden", "Ptah-owned Chromium must verify HTTPS certificates");

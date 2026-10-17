@@ -81,3 +81,13 @@ test("Ptah rejects explicit insecure launch arguments", {
     }),{code:"tls_verification_bypass_forbidden"},flag);
   }
 });
+
+test("Persistent Ptah profile cannot opt out of HTTPS verification", {
+  skip: process.env.PTAH_PLAYWRIGHT_PHYSICAL !== "1",
+}, async () => {
+  await assert.rejects(new PlaywrightBackend().launchProcess({
+    profileMode: "persistent_exclusive",
+    userDataDir: "/tmp/ptah-tls-rejection-must-not-be-created",
+    launchOptions: {ignoreHTTPSErrors:true, headless:true}
+  }),{code:"tls_verification_bypass_forbidden"});
+});

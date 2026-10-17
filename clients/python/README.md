@@ -101,3 +101,50 @@ strict Clippy, and actual five-caller Control submit/restart/readback PASS.
 These tests do not represent an automatically running production E02/A05
 dispatcher. ATHENA's Oracle execution works, but no admitted Ptah Node
 executable/service was found in the checked Windows locations.
+
+## Local Ptah workspace access through Oracle (no native Node prerequisite)
+
+`ptah_local_workspace.py` exposes the existing on-disk Ptah repository and
+workspace areas to independently selected callers. It **does not** open,
+authenticate or replace an Oracle connection. ChatGPT/Hunter first access
+their machine using Oracle, then inspect the Ptah path that already exists
+on that machine.
+
+On KRATOS:
+
+```bash
+python3 clients/python/ptah_local_workspace.py \
+  --root /home/kratos/projects/Ptah-space --caller hunter
+python3 clients/python/ptah_local_workspace.py \
+  --root /home/kratos/projects/Ptah-space --caller chatgpt
+```
+
+Both resolve the same canonical `.workspace/workspaces`, `worktrees`,
+`evidence`, `proof-history` and `recovery` areas. The caller label is
+provenance only. Files and tools are used via the caller's existing Oracle
+machine session and ordinary host filesystem/Git capabilities.
+
+For an existing local Hunter Python process, with its own host access:
+
+```python
+from ptah_local_workspace import LocalPtahWorkspace
+view = LocalPtahWorkspace(
+    "/home/kratos/projects/Ptah-space"
+).caller_view("hunter")
+```
+
+Add this clients/python directory to that process's trusted Python import
+path when integrating the runtime; importing the module does not mutate
+Hunter state or attach it to a running process. A Windows/ATHENA caller must
+supply and verify its **actual** Ptah root, not reuse the KRATOS path.
+
+The separate `PtahControlClient` / `SharedWorkspace` API is an
+**optional** authority-stamped checkpoint/readback facility. Absence of a
+loopback Control listener must not prevent normal Ptah workspace access;
+nor does a successful local directory discovery grant permission to issue
+E02/A05 work, change Supervisor routing, or accept a result.
+
+KRATOS evidence 17 October 2026: local caller discovery succeeded for
+`hunter` and `chatgpt`, and Python tests were 23/23 PASS. Oracle reported
+ATHENA **offline** during this check, so cross-host live continuity and
+adoption by the running Hunter process are not claimed.

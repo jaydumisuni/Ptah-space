@@ -28,10 +28,10 @@ jobs:
         with:
           python-version: '${{ matrix.python-version }}'
       - name: Compile adapter
-        run: python -m py_compile clients/python/ptah_control_client.py clients/python/ptah_shared_workspace.py clients/python/qualify_live_ptah_control.py
+        run: python -m py_compile clients/python/ptah_control_client.py clients/python/ptah_shared_workspace.py clients/python/ptah_local_workspace.py clients/python/qualify_live_ptah_control.py
       - name: Run authority and submission boundary tests
         working-directory: clients/python
-        run: python -m unittest -v test_ptah_control_client.py test_ptah_shared_workspace.py test_ptah_verified_readback.py
+        run: python -m unittest -v test_ptah_control_client.py test_ptah_shared_workspace.py test_ptah_local_workspace.py test_ptah_verified_readback.py
   physical-control-readback:
     runs-on: ubuntu-latest
     steps:

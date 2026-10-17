@@ -132,59 +132,57 @@ def cargo_paths_inside_checkout(project):
 
 
 def _external_cargo_overrides_safe(project):
-    """Inspect effective Cargo config paths without reading credentials.
+    """Reject unprovable Cargo config path redirection in every build context.
 
-    Cargo merges configs from checkout ancestors and CARGO_HOME. An external
-    location that can alter local dependency source must never qualify a cache.
+    Unlike Cargo manifest dependencies, configuration-relative paths may use
+    surprising bases, includes, and descendant member working directories.
+    Automatic destructive cleanup supports only configurations with no path
+    override or includes. Cargo manifest path deps inside HEAD are supported.
     """
     root=Path(project).resolve(strict=True)
-    candidates=[]
+    # Include every tracked descendant config, not just the workspace root:
+    # a build run from member/.cargo may select that configuration.
+    tracked=subprocess.run(["git","-C",str(root),"ls-files","--cached","-z"],
+                           capture_output=True,timeout=20)
+    if tracked.returncode:return False
+    configs=[]
+    for raw in tracked.stdout.split(b"\0"):
+        if not raw:continue
+        relative=Path(raw.decode("utf-8","surrogateescape"))
+        if relative.name in ("config","config.toml") and relative.parent.name==".cargo":
+            configs.append(root/relative)
     for parent in (root,*root.parents):
-        candidates += [parent/".cargo"/"config",parent/".cargo"/"config.toml"]
+        configs.extend([parent/".cargo"/"config",parent/".cargo"/"config.toml"])
     home=Path(os.environ.get("CARGO_HOME",Path.home()/".cargo")).expanduser()
-    candidates += [home/"config",home/"config.toml"]
-    for name in ("CARGO_TARGET_DIR",):
-        value=os.environ.get(name)
+    configs.extend([home/"config",home/"config.toml"])
+    if len(configs)>2200:return False
+    for variable in ("CARGO_TARGET_DIR","CARGO_BUILD_TARGET_DIR"):
+        value=os.environ.get(variable)
         if value:
             try:
                 if not Path(value).expanduser().resolve(strict=True).is_relative_to(root):
                     return False
-            except (OSError,ValueError):
-                return False
-    for config in dict.fromkeys(candidates):
+            except (OSError,ValueError):return False
+    for config in dict.fromkeys(configs):
         if not config.exists():continue
         if config.is_symlink() or not config.is_file():return False
         try:
-            with config.open("rb") as stream: content=tomllib.load(stream)
-        except (OSError,ValueError,tomllib.TOMLDecodeError):
-            return False
-        def clean(node):
+            with config.open("rb") as stream:content=tomllib.load(stream)
+        except (OSError,ValueError,tomllib.TOMLDecodeError):return False
+
+        def no_unbound_sources(node):
             if isinstance(node,dict):
                 for key,value in node.items():
-                    if key=="paths":
-                        if not isinstance(value,list) or not all(isinstance(x,str) for x in value):
-                            return False
-                        for entry in value:
-                            try:
-                                target=(config.parent/entry).resolve(strict=True)
-                                # A global, mutable config override cannot be
-                                # bound to the project's exact Git HEAD.
-                                if not config.resolve(strict=True).is_relative_to(root):
-                                    return False
-                                if not target.is_relative_to(root):return False
-                            except (OSError,ValueError):return False
-                    elif key in ("path","directory","target-dir") and isinstance(value,str):
-                        # Conservative: external Cargo-controlled source/build
-                        # locations are not captured by exact checkout proof.
-                        try:
-                            target=(config.parent/value).resolve(strict=True)
-                            if not target.is_relative_to(root):return False
-                        except (OSError,ValueError):return False
-                    if not clean(value):return False
+                    # All of these can redirect build inputs outside HEAD.
+                    # Reject rather than guess Cargo's include/path base.
+                    if key in ("paths","path","directory","target-dir","include"):
+                        return False
+                    if not no_unbound_sources(value):return False
             elif isinstance(node,list):
-                return all(clean(entry) for entry in node)
+                return all(no_unbound_sources(value) for value in node)
             return True
-        if not clean(content):return False
+
+        if not no_unbound_sources(content):return False
     return True
 
 

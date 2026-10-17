@@ -352,6 +352,13 @@ class StorageGuardContract(unittest.TestCase):
             subprocess.run(["git","add","."],cwd=project,check=True)
             subprocess.run(["git","-c","user.name=Fixture","-c",
                 "user.email=fixture@example.invalid","commit","-qm","internal config"],cwd=project,check=True)
+            # Even an internal Cargo config path override is not admitted
+            # automatically: its effective base depends on Cargo config rules.
+            self.assertFalse(guard.git_clean(project))
+            config.unlink()
+            subprocess.run(["git","add","-A"],cwd=project,check=True)
+            subprocess.run(["git","-c","user.name=Fixture","-c",
+                "user.email=fixture@example.invalid","commit","-qm","remove override"],cwd=project,check=True)
             self.assertTrue(guard.git_clean(project))
 
     def test_global_cargo_config_paths_must_not_supply_build_inputs(self):
@@ -369,6 +376,39 @@ class StorageGuardContract(unittest.TestCase):
             with patch.dict(guard.os.environ,{"CARGO_HOME":str(home)}):
                 self.assertFalse(guard.git_clean(repo))
 
+    def test_cargo_config_include_and_descendant_config_fail_closed(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as directory:
+            repo=Path(directory)/"repo";repo.mkdir()
+            (repo/"Cargo.toml").write_text(
+                "[workspace]\nmembers = ['member']\nresolver='2'\n")
+            member=repo/"member";member.mkdir()
+            (member/"Cargo.toml").write_text(
+                "[package]\nname='member'\nversion='0.1.0'\nedition='2021'\n")
+            subprocess.run(["git","init","-q"],cwd=repo,check=True)
+            subprocess.run(["git","add","."],cwd=repo,check=True)
+            subprocess.run(["git","-c","user.name=Fixture","-c",
+                "user.email=fixture@example.invalid","commit","-qm","workspace"],cwd=repo,check=True)
+            self.assertTrue(guard.git_clean(repo))
+            cfg=member/".cargo";cfg.mkdir()
+            (cfg/"config.toml").write_text("paths = ['../../../external']\n")
+            subprocess.run(["git","add","."],cwd=repo,check=True)
+            subprocess.run(["git","-c","user.name=Fixture","-c",
+                "user.email=fixture@example.invalid","commit","-qm","member config"],cwd=repo,check=True)
+            self.assertFalse(guard.git_clean(repo))
+            (cfg/"config.toml").write_text("include = ['local.toml']\n")
+            (cfg/"local.toml").write_text("paths = ['../../outside']\n")
+            subprocess.run(["git","add","."],cwd=repo,check=True)
+            subprocess.run(["git","-c","user.name=Fixture","-c",
+                "user.email=fixture@example.invalid","commit","-qm","config include"],cwd=repo,check=True)
+            self.assertFalse(guard.git_clean(repo))
+            (cfg/"config.toml").unlink()
+            (cfg/"local.toml").unlink()
+            subprocess.run(["git","add","-A"],cwd=repo,check=True)
+            subprocess.run(["git","-c","user.name=Fixture","-c",
+                "user.email=fixture@example.invalid","commit","-qm","no config overrides"],cwd=repo,check=True)
+            self.assertTrue(guard.git_clean(repo))
+
     def test_same_device_bind_mount_inside_target_denied_by_mount_namespace(self):
         with patch.object(guard,"_mount_points",return_value=[
             self.root,self.cache/"bind-on-same-device"
@@ -385,6 +425,7 @@ class StorageGuardContract(unittest.TestCase):
         from subprocess import CompletedProcess
         with patch.object(guard,"_checkout_inputs_clean",return_value=True),patch.object(
             guard,"cargo_paths_inside_checkout",return_value=True),patch.object(
+            guard,"_external_cargo_overrides_safe",return_value=True),patch.object(
             guard.subprocess,"run",return_value=CompletedProcess(
                 ["git","submodule","status"],0,"-"+
                 "0"*40+" missing/module\n","")):

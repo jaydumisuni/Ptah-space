@@ -61,9 +61,10 @@ jobs:
             test/owned-physical-isolation.test.mjs \
             test/playwright-qualification.test.mjs \
             test/provider-core.test.mjs \
-            test/workspace-operator.test.mjs | tee /tmp/ptah-owned-browser.tap
-          grep -q '^# tests 26$' /tmp/ptah-owned-browser.tap
-          grep -q '^# pass 26$' /tmp/ptah-owned-browser.tap
+            test/workspace-operator.test.mjs \
+            test/workspace-default-route.test.mjs | tee /tmp/ptah-owned-browser.tap
+          grep -q '^# tests 31$' /tmp/ptah-owned-browser.tap
+          grep -q '^# pass 31$' /tmp/ptah-owned-browser.tap
           grep -q '^# fail 0$' /tmp/ptah-owned-browser.tap
 
       - name: Verify changed file whitespace and no runtime binary committed

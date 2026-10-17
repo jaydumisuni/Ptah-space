@@ -86,3 +86,26 @@ operator/agent diagnostics, **not** a replacement for canonical Ptah
 workspace-agent routing, long-lived browser sessions or authenticated
 interactive workflows. Canonical A11 admission still governs production
 workspace selection and command authority.
+
+
+## Default Ptah workspace browser command
+
+For an agent or operator executing a **browser intent within this Ptah workspace**,
+use the Ptah-owned A11 route, never Oracle's shared browser:
+
+```bash
+/path/to/node-24.18.0 tools/ptah_workspace.mjs https://example.com/
+/path/to/node-24.18.0 tools/ptah_workspace.mjs browser read https://example.com/
+```
+
+Both forms launch a **new ephemeral Ptah-managed Chromium session** and return
+rendered page evidence. The route rejects arbitrary commands, credential-embedded
+URLs, and headed desktop windows unless the caller explicitly sets
+`PTAH_WORKSPACE_ALLOW_HEADED=1`. It has **no Oracle or OS Chrome fallback**.
+The dedicated Playwright runtime and isolated profile boundaries are unchanged.
+
+This is the default *command-level* browser route, not an assertion of universal
+production AI-agent task dispatch. Production Node enrollment and canonical
+provider selection still require separate control-plane admission. Neither the
+operator CLI nor this wrapper grants persistent-profile leases or bypasses site
+authentication/captcha restrictions.

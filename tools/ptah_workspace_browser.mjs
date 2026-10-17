@@ -72,6 +72,8 @@ async function main(argv) {
       pageStateVerified: verified.verified, state: verified.state,
       committedUrl: navigation.committedUrl, title: verified.title,
       httpStatus: navigation.status ?? null,
+      tlsChainRecovery: navigation.evidence?.parliamentIssuerChainRecovered === true
+        ? "OFFICIAL_INTERMEDIATE_VERIFIED" : "NOT_REQUIRED",
       contentTruth: "RENDERED_PAGE_NOT_FACT_VERIFIED",
       pageText: content.bytes.toString("utf8").slice(0, 12000),
       screenshotFile

@@ -8,6 +8,22 @@ import { BROWSER_SOURCE, lockedOwnedLaunchOptions } from "./owned_chromium.mjs";
 
 const require = createRequire(import.meta.url);
 
+/**
+ * The public National Assembly host omits its RapidSSL intermediate certificate,
+ * while the official apex host serves a complete, normally trusted chain.
+ * Never apply this recovery to any other site or any non-certificate failure.
+ */
+export function needsParliamentChainRecovery(url, error) {
+  if (!String(error?.message ?? "").includes("net::ERR_CERT_AUTHORITY_INVALID")) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && parsed.hostname === "www.parliament.gov.zm" &&
+      parsed.username === "" && parsed.password === "" && parsed.port === "";
+  } catch {
+    return false;
+  }
+}
+
 export class PlaywrightBackend {
   #events = [];
   #downloads = new Map();
@@ -35,6 +51,9 @@ export class PlaywrightBackend {
   async launchProcess({ profileMode, userDataDir, readonly, launchOptions }) {
     await this.assertLockedRuntime();
     const ownedOptions = await lockedOwnedLaunchOptions(launchOptions);
+    invariant(!ownedOptions.args?.some(arg => typeof arg === "string" &&
+      /^(--ignore-certificate-errors(?:[-=].*)?|--allow-insecure-localhost(?:=.*)?|--disable-web-security(?:=.*)?)$/i.test(arg)),
+      "tls_verification_bypass_forbidden", "Ptah-owned Chromium must verify HTTPS certificates");
     invariant(profileMode !== "managed_remote" && profileMode !== "other_registered", "profile_mode_not_supported", `local Playwright backend cannot implement ${profileMode}`);
     if (profileMode === "persistent_shared_readonly") {
       invariant(readonly === true, "readonly_profile_required", "shared persistent profile must be read-only");
@@ -50,6 +69,8 @@ export class PlaywrightBackend {
   }
 
   async createContext(processHandle, { contextOptions }) {
+    invariant(contextOptions?.ignoreHTTPSErrors !== true,
+      "tls_verification_bypass_forbidden", "Ptah-owned Chromium must verify HTTPS certificates");
     let context;
     if (processHandle.kind === "persistent") {
       invariant(!processHandle.claimedContext, "persistent_context_already_claimed", "persistent Browser Process exposes one persistent context");
@@ -77,9 +98,38 @@ export class PlaywrightBackend {
     return { ...holder, aliases: [] };
   }
   async navigate(pageHandle, { url, timeoutMs }) {
-    const response = await pageHandle.page.goto(url, { waitUntil: "commit", timeout: timeoutMs });
+    let response;
+    let validChainRecovered = false;
+    try {
+      response = await pageHandle.page.goto(url, { waitUntil: "commit", timeout: timeoutMs });
+    } catch (error) {
+      if (!needsParliamentChainRecovery(url, error)) throw error;
+      // Fetch ONLY the certificate-chain-complete official HTTPS sibling host
+      // inside this isolated Chromium process. Chromium validates this TLS
+      // connection itself and may cache the intermediate for the original host.
+      // The AppSuite login page is NOT substituted for the public website.
+      const warmup = await pageHandle.page.context().newPage();
+      try {
+        const trusted = await warmup.goto("https://parliament.gov.zm/", {
+          waitUntil: "domcontentloaded", timeout: Math.min(timeoutMs ?? 20_000, 20_000),
+        });
+        invariant(trusted?.status() === 200 &&
+          new URL(warmup.url()).origin === "https://parliament.gov.zm",
+          "parliament_chain_source_invalid",
+          "Official issuer-chain source could not be authenticated by Chromium");
+      } finally {
+        await warmup.close();
+      }
+      // Retry ORIGINAL public site, ORIGINAL path, same TLS verification.
+      // Failure remains a failure; no ignoreHTTPSErrors/CA trust escalation.
+      response = await pageHandle.page.goto(url, { waitUntil: "commit", timeout: timeoutMs });
+      validChainRecovered = true;
+    }
     pageHandle.lastResponse = response;
-    return { state: "committed", committedUrl: pageHandle.page.url(), status: response?.status(), evidence: { url: pageHandle.page.url(), responseHeaders: response ? await response.allHeaders() : {} } };
+    return { state: "committed", committedUrl: pageHandle.page.url(), status: response?.status(), evidence: {
+      url: pageHandle.page.url(), responseHeaders: response ? await response.allHeaders() : {},
+      parliamentIssuerChainRecovered: validChainRecovered,
+    } };
   }
   async verifyPageState(pageHandle, { waitUntil, timeoutMs }) {
     try {

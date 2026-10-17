@@ -163,6 +163,7 @@ def qualify(base: str, head: str) -> dict:
     if historic_changes and historic_changes != set(HISTORIC):
         raise AdmissionError("partial_historical_governance_change")
     phase = {}
+    a11_maintenance=False
     for name in HISTORIC:
         path = ".github/workflows/" + name
         before = git("show", base + ":" + path)
@@ -178,8 +179,20 @@ def qualify(base: str, head: str) -> dict:
         relevant = scope_affected(name, scope, changed)
         phase[name] = "REQUIRES_PHASE_OWNED_PROOF" if relevant else "NOT_APPLICABLE_NOT_TESTED"
         if relevant:
-            # A simultaneous governance change never launders phase-owned code.
-            raise AdmissionError("independent_phase_owned_change_requires_own_proof: " + name)
+            # Original historical A11 proof remains immutable and NOT passing
+            # for post-baseline maintenance. An independently physically
+            # qualified exact-head A11 maintenance gate may handle only its
+            # tightly scoped Browser Provider surface. All other phases fail.
+            if name == "a11-browser-provider-proof.yml" and not historic_changes:
+                from check_a11_maintenance_admission import qualify as qualify_a11
+                try:
+                    qualify_a11(base,head)
+                except ValueError as error:
+                    raise AdmissionError("a11_maintenance_scope_rejected: "+str(error)) from error
+                phase[name] = "A11_POST_BASELINE_PHYSICAL_PROOF_REQUIRED"
+                a11_maintenance=True
+            else:
+                raise AdmissionError("independent_phase_owned_change_requires_own_proof: " + name)
     search_paths = {
         "README.md", "adapters/internet-search/README.md",
         "adapters/internet-search/bridge.py",
@@ -197,6 +210,7 @@ def qualify(base: str, head: str) -> dict:
         "historical_governance_event_only_change": len(historic_changes) == len(HISTORIC),
         "historical_phase_proofs": phase,
         "search_scope_requires_independent_checker": touches_search,
+        "a11_maintenance_scope_requires_independent_checker": a11_maintenance,
         "universal_baseline_required": True,
         "paid_search_authorized": False,
         "production_activation_authorized": False,

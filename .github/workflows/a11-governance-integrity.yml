@@ -1,0 +1,54 @@
+name: A11 governance integrity — immutable base authority
+
+# pull_request_target executes this WORKFLOW from the trusted base commit.
+# NEVER check out or execute PR-head code. The target diff is data only.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  a11-governance-integrity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PTAH_BASE: ${{ github.event.pull_request.base.sha }}
+      PTAH_HEAD: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout trusted base authority only
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_BASE }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Enforce immutable A11 governance surfaces
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_BASE"
+          git fetch --no-tags origin "$PTAH_HEAD"
+          git merge-base --is-ancestor "$PTAH_BASE" "$PTAH_HEAD"
+          python3 - <<'PY'
+          import os,subprocess,sys
+          base=os.environ["PTAH_BASE"]
+          head=os.environ["PTAH_HEAD"]
+          changed=set(subprocess.check_output(
+              ["git","diff","--name-only","--diff-filter=ACDMRT",
+               base+"..."+head],text=True).splitlines())
+          # A PR may change A11 PRODUCT paths only through separately qualified
+          # maintenance. A PR cannot change this trusted admission authority.
+          immutable={
+            ".github/workflows/a11-post-baseline-maintenance.yml",
+            ".github/workflows/a11-governance-integrity.yml",
+            ".github/workflows/current-head-universal-admission.yml",
+            "tools/check_a11_maintenance_admission.py",
+            "tools/check_current_pr_admission.py",
+          }
+          violation=sorted(changed & immutable)
+          if violation:
+              print("BASE_AUTHORITY_REJECTED_SELF_MODIFICATION: "+", ".join(violation),
+                    file=sys.stderr)
+              sys.exit(1)
+          print("BASE_AUTHORITY_A11_GOVERNANCE_IMMUTABLE")
+          PY

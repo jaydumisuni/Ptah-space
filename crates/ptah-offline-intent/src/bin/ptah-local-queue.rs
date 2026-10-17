@@ -13,13 +13,22 @@ fn run() -> Result<(), String> {
     let mut args = env::args().skip(1);
     let command = args.next().ok_or("expected status|enqueue")?;
     let path = args.next().ok_or("expected private SQLite journal path")?;
+    // Reject invalid commands and arity before opening or creating storage.
+    let parts = args.collect::<Vec<_>>();
+    match command.as_str() {
+        "status" if !parts.is_empty() => return Err(String::from("unexpected arguments")),
+        "enqueue" if parts.len() != 8 => {
+            return Err(String::from(
+                "enqueue requires NODE INTENT WORKSPACE ACTIVITY OPERATION ATTEMPT ACTION DIGEST",
+            ))
+        }
+        "status" | "enqueue" => {}
+        _ => return Err(String::from("unknown command; expected status|enqueue")),
+    }
     let mut queue = DurableIntentJournal::open(Path::new(&path))
         .map_err(|error| format!("journal failed closed: {error:?}"))?;
     match command.as_str() {
         "status" => {
-            if args.next().is_some() {
-                return Err(String::from("unexpected arguments"));
-            }
             let projection = DegradedProjection::from_queue(&queue)
                 .map_err(|e| format!("degraded projection failed: {e:?}"))?;
             println!(
@@ -34,12 +43,6 @@ fn run() -> Result<(), String> {
             );
         }
         "enqueue" => {
-            let parts = args.collect::<Vec<_>>();
-            if parts.len() != 8 {
-                return Err(String::from(
-                "enqueue requires NODE INTENT WORKSPACE ACTIVITY OPERATION ATTEMPT ACTION DIGEST"
-            ));
-            }
             let draft = IntentDraft {
                 node_id: parts[0].clone(),
                 intent_id: parts[1].clone(),

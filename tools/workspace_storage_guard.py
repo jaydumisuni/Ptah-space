@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import socket
 import subprocess
@@ -58,7 +59,7 @@ def git_head(project):
     return r.stdout.strip()
 
 def git_clean(project):
-    r=subprocess.run(["git","-C",str(project),"status","--porcelain","--untracked-files=no"],capture_output=True,text=True)
+    r=subprocess.run(["git","-C",str(project),"status","--porcelain","--untracked-files=all"],capture_output=True,text=True)
     return r.returncode==0 and not r.stdout.strip()
 
 def valid_cache(project,cache):
@@ -103,15 +104,45 @@ def mark(project,receipt):
     project=Path(project).expanduser().resolve(strict=True)
     cache=project/"target"
     valid_cache(project,cache)
-    if not git_clean(project): raise ValueError("source checkout has uncommitted tracked modifications")
-    evidence=Path(receipt).expanduser().resolve(strict=True)
-    if evidence.is_symlink() or not evidence.is_file(): raise ValueError("not a regular evidence receipt")
+    if not git_clean(project): raise ValueError("source checkout has untracked or modified files")
+    if active_builds(): raise ValueError("build running: cannot qualify cache")
+    proposed=Path(receipt).expanduser()
+    if proposed.is_symlink(): raise ValueError("receipt symlink is not allowed")
+    evidence=proposed.resolve(strict=True)
+    if not evidence.is_file(): raise ValueError("not a regular evidence receipt")
+    if evidence.is_relative_to(cache.resolve(strict=True)):
+        raise ValueError("receipt inside disposable cache cannot be retained")
     # Safety is based on an *operator-reviewed* proof file, not substring matching.
     proof=json.loads(evidence.read_text())
     if not isinstance(proof,dict) or proof.get("status")!="PASS" or proof.get("head")!=git_head(project):
         raise ValueError("receipt must be structured PASS at exact Git head")
-    if not proof.get("evidence_ref") or not proof.get("tests") or proof.get("allow_disposable_cleanup") is not True:
-        raise ValueError("receipt missing proof reference, tests or cleanup decision")
+    if not isinstance(proof.get("machine"),str) or not proof["machine"].strip():
+        raise ValueError("receipt missing machine identity")
+    timestamp=proof.get("utc")
+    try:
+        instant=dt.datetime.fromisoformat(timestamp.replace("Z","+00:00"))
+        if instant.tzinfo is None or instant.utcoffset() is None: raise ValueError()
+    except (ValueError,TypeError,AttributeError):
+        raise ValueError("receipt requires timezone-aware UTC timestamp") from None
+    commands=proof.get("commands")
+    if not isinstance(commands,list) or not commands or not all(isinstance(c,str) and c.strip() for c in commands):
+        raise ValueError("receipt requires actual test commands")
+    hashes=proof.get("output_hashes")
+    if not isinstance(hashes,dict) or not hashes or not all(
+        isinstance(k,str) and k.strip() and isinstance(v,str)
+        and re.fullmatch(r"[a-f0-9]{64}",v) for k,v in hashes.items()
+    ):
+        raise ValueError("receipt requires output SHA-256 values")
+    if proof.get("cleanup_classification")!="regenerable_cargo_target":
+        raise ValueError("receipt must explicitly classify disposable Cargo output")
+    if not isinstance(proof.get("tests"),list) or not proof["tests"] or not all(
+        isinstance(t,str) and t.strip() for t in proof["tests"]
+    ):
+        raise ValueError("receipt must list tests")
+    if not isinstance(proof.get("evidence_ref"),str) or not proof["evidence_ref"].strip():
+        raise ValueError("receipt missing evidence reference")
+    if proof.get("allow_disposable_cleanup") is not True:
+        raise ValueError("receipt lacks explicit disposable cleanup approval")
     item={"schema":"ttg.storage.cache-qualification.v1","project":str(project),"cache":str(cache),
        "head":git_head(project),"receipt":str(evidence),"receipt_sha256":sha(evidence),
        "qualified_at_epoch":time.time(),"qualified_at_utc":now(),
@@ -146,10 +177,13 @@ def prune(root,min_age_hours=48,apply=False):
             evidence=Path(x["receipt"])
             if not evidence.is_file() or evidence.is_symlink() or sha(evidence)!=x["receipt_sha256"]:
                 raise ValueError("receipt missing or altered")
+            if evidence.resolve(strict=True).is_relative_to(cache.resolve(strict=True)):
+                raise ValueError("receipt is inside the cache")
             if blocked_build: raise ValueError("a Rust build is active on the host")
             saved=size_of(cache)
             action={"cache":str(cache),"estimated_gib":round(saved/GIB,2),"status":"eligible"}
             if apply:
+                if active_builds(): raise ValueError("a Rust build started before cleanup")
                 r=subprocess.run(["cargo","clean","--manifest-path",str(project/"Cargo.toml"),
                     "--target-dir",str(cache)],capture_output=True,text=True,timeout=1200)
                 if r.returncode: raise RuntimeError("cargo clean failed: "+r.stderr[-300:])

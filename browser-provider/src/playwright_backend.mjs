@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { chromium } from "playwright";
 import { BrowserProviderError, invariant } from "./errors.mjs";
 import { LOCKED_RUNTIME, SENSITIVE_HEADERS } from "./locks.mjs";
+import { BROWSER_SOURCE, lockedOwnedLaunchOptions } from "./owned_chromium.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -28,22 +29,23 @@ export class PlaywrightBackend {
   }
 
   describe() {
-    return { implementation: "playwright", version: LOCKED_RUNTIME.playwright, browser: "chromium", chromiumVersion: LOCKED_RUNTIME.chromiumVersion, chromiumRevision: LOCKED_RUNTIME.chromiumRevision };
+    return { implementation: "playwright", version: LOCKED_RUNTIME.playwright, browser: "chromium", chromiumVersion: LOCKED_RUNTIME.chromiumVersion, chromiumRevision: LOCKED_RUNTIME.chromiumRevision, browserSource: BROWSER_SOURCE, sharesPersonalBrowser: false, dependsOnOracleBrowserControl: false };
   }
 
   async launchProcess({ profileMode, userDataDir, readonly, launchOptions }) {
     await this.assertLockedRuntime();
+    const ownedOptions = await lockedOwnedLaunchOptions(launchOptions);
     invariant(profileMode !== "managed_remote" && profileMode !== "other_registered", "profile_mode_not_supported", `local Playwright backend cannot implement ${profileMode}`);
     if (profileMode === "persistent_shared_readonly") {
       invariant(readonly === true, "readonly_profile_required", "shared persistent profile must be read-only");
       throw new BrowserProviderError("readonly_profile_backend_unavailable", "Playwright persistent contexts write profile state; a read-only snapshot backend is required");
     }
     if (profileMode === "persistent_exclusive") {
-      const context = await chromium.launchPersistentContext(userDataDir, launchOptions);
+      const context = await chromium.launchPersistentContext(userDataDir, ownedOptions);
       this.#wireContext(context);
       return { kind: "persistent", context, browser: context.browser(), claimedContext: false, aliases: [{ kind: "playwright_browser", value: context.browser()?.browserType().name() ?? "chromium" }] };
     }
-    const browser = await chromium.launch(launchOptions);
+    const browser = await chromium.launch(ownedOptions);
     return { kind: "ephemeral", browser, aliases: [{ kind: "playwright_browser", value: browser.browserType().name() }] };
   }
 

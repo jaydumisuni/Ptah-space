@@ -10,3 +10,6 @@
 acceptance/*.local.*
 __pycache__/
 *.py[cod]
+
+# A11 browser development runtime is not source
+browser-provider/node_modules/

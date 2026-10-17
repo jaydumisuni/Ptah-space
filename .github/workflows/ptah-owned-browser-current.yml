@@ -1,0 +1,73 @@
+name: Ptah owned browser current-head qualification
+
+on:
+  pull_request:
+    paths:
+      - "browser-provider/**"
+      - "tools/ptah_workspace_browser.mjs"
+      - ".github/workflows/ptah-owned-browser-current.yml"
+      - ".github/workflows/a11-browser-provider-proof.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ptah-owned-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact PR head
+        if: github.event_name == 'pull_request'
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Install pinned Node 24.18.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: browser-provider/package-lock.json
+
+      - name: Install locked Playwright and isolated Chromium
+        working-directory: browser-provider
+        run: |
+          set -euo pipefail
+          test "$(node -v)" = "v24.18.0"
+          npm ci --ignore-scripts
+          npm run check
+          mkdir -p .workspace/browser-runtime
+          PLAYWRIGHT_BROWSERS_PATH="$PWD/.workspace/browser-runtime" \
+            npx playwright install --with-deps chromium
+          test -x ".workspace/browser-runtime/chromium-1223/chrome-linux64/chrome"
+          test "$(node -p "require('./node_modules/playwright/package.json').version")" = "1.60.0"
+
+      - name: Unit and real-process agent isolation
+        working-directory: browser-provider
+        env:
+          PTAH_PLAYWRIGHT_PHYSICAL: "1"
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap \
+            test/owned-chromium.test.mjs \
+            test/owned-physical-isolation.test.mjs \
+            test/playwright-qualification.test.mjs \
+            test/provider-core.test.mjs \
+            test/workspace-operator.test.mjs | tee /tmp/ptah-owned-browser.tap
+          grep -q '^# tests 26$' /tmp/ptah-owned-browser.tap
+          grep -q '^# pass 26$' /tmp/ptah-owned-browser.tap
+          grep -q '^# fail 0$' /tmp/ptah-owned-browser.tap
+
+      - name: Verify changed file whitespace and no runtime binary committed
+        run: |
+          set -euo pipefail
+          git diff --check HEAD^ HEAD
+          ! git ls-files | grep -E '^browser-provider/(node_modules|\.workspace)/'

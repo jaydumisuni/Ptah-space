@@ -524,6 +524,173 @@ fn ptah_gateway_executes_real_ttg_simulation_as_candidate_only() {
     eprintln!("PTAH_SIMULATION_PROOF_STATUS=TEST_FIXTURE_AUTHORITY_ONLY");
 }
 
+// Explicit opt-in specialist consumption proof. All E01/A02/E05/E02 authority
+// in this test is fixture-created. Do not use it as production enrollment.
+#[cfg(unix)]
+#[test]
+#[ignore = "requires TTG_PTAH_CREATIVE_REPO and a local Pillow-enabled interpreter"]
+#[allow(clippy::too_many_lines)]
+fn e02_fixture_grant_dispatches_real_creative_studio_and_preserves_node_receipt() {
+    use ptah_node::gateway_journal::GatewayJournal;
+    use sha2::{Digest as _, Sha256};
+    let root =
+        std::env::var("TTG_PTAH_CREATIVE_REPO").expect("explicit Creative Studio path required");
+    let repo = std::path::Path::new(&root)
+        .canonicalize()
+        .expect("Creative Studio checkout");
+    assert!(repo.join("src/ttg_project_schema.py").is_file());
+    let worker = repo.join("integrations/ptah/creative_worker.py");
+    let verifier = repo.join("integrations/ptah/verify_output.py");
+    assert!(worker.is_file() && verifier.is_file());
+
+    let proof = repo.join(".workspace/scratch").join(format!(
+        "e07-creative-node-{}",
+        ptah_identifiers::EntityId::new_v7()
+    ));
+    std::fs::create_dir_all(&proof).expect("isolated Studio-owned proof directory");
+    let request = proof.join("creative_request.json");
+    let output = proof.join("output");
+    let request_id = String::from("ptah_e02_creative");
+    let payload = serde_json::json!({
+        "schema": "ttg.creative.ptah.request.v1",
+        "operation": "scene_edit",
+        "request_id": request_id,
+        "text": "THETECHGUY",
+        "move_x": 108
+    });
+    let request_bytes = serde_json::to_vec_pretty(&payload).expect("request JSON");
+    std::fs::write(&request, &request_bytes).expect("local bounded job request");
+    let digest = format!("sha256:{:x}", Sha256::digest(&request_bytes));
+
+    let mut fixture = Fixture::new();
+    let frames = fixture.issue();
+    let mut guard = NodeDispatchGuard::for_agent(&fixture.node);
+    guard
+        .accept_reservation(&fixture.node, &frames.reservation, now())
+        .expect("Control-issued test Reservation");
+    guard
+        .accept_lease(&fixture.node, &frames.lease, now())
+        .expect("Control-issued test Lease/Fence");
+    let provider = provider(&fixture.node);
+    let expected = provider
+        .attempt_context(1, entity("runtime.facility"))
+        .expect("Node-local A05 attempt");
+    let journal_path = temporary_gateway_database();
+    let mut journal = GatewayJournal::open(&journal_path).expect("durable Node journal");
+    let interpreter = std::env::var("TTG_PTAH_CREATIVE_PYTHON")
+        .unwrap_or_else(|_| String::from("/usr/bin/python3"));
+    let spec = ProcessSpec {
+        program: interpreter.clone(),
+        args: vec![
+            String::from("-B"),
+            worker.to_string_lossy().into_owned(),
+            String::from("--request"),
+            request.to_string_lossy().into_owned(),
+            String::from("--output"),
+            output.to_string_lossy().into_owned(),
+        ],
+        env: BTreeMap::new(),
+        clear_env: false,
+        cwd: Some(repo.to_string_lossy().into_owned()),
+        mode: ProcessMode::Pipes,
+        max_stream_bytes: 64 * 1024,
+        disconnect_policy: DisconnectPolicy::Retain,
+    };
+    let process = journal
+        .spawn_once(
+            &fixture.node,
+            &guard,
+            &frames.request,
+            now(),
+            &digest,
+            &provider,
+            &expected,
+            spec.clone(),
+        )
+        .expect("Ptah E02 fixture-authorized real Creative Studio A05");
+    let exit = provider
+        .wait_for_exit(process, Duration::from_secs(40))
+        .expect("independent provider exit");
+    let snapshot = provider.snapshot(process).expect("actual stream");
+    let stdout = snapshot.stdout.expect("stdio observation");
+    assert!(
+        exit.success,
+        "Creative Studio worker must exit successfully"
+    );
+    assert_eq!(stdout.truncated_bytes, 0, "no truncated proof bytes");
+    let worker_record: serde_json::Value =
+        serde_json::from_slice(&stdout.bytes).expect("actual Studio result");
+    assert_eq!(
+        worker_record["schema"],
+        "ttg.creative.ptah.worker_result.v1"
+    );
+    assert_eq!(worker_record["request_id"], request_id);
+    assert!(output.join("editable.ttgstudio.json").is_file());
+    assert!(output.join("preview.png").is_file());
+    assert!(output.join("project_bundle.zip").is_file());
+
+    let check_result = std::process::Command::new(&interpreter)
+        .args([
+            "-B",
+            verifier.to_str().expect("verification path"),
+            "--request",
+            request.to_str().expect("request path"),
+            "--output",
+            output.to_str().expect("output path"),
+        ])
+        .current_dir(&repo)
+        .output()
+        .expect("separate independent Studio verifier");
+    assert!(
+        check_result.status.success(),
+        "Creative output verification rejected: {}",
+        String::from_utf8_lossy(&check_result.stderr)
+    );
+    let output_receipt: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(output.join("independent_verification.json"))
+            .expect("observed verifier report"),
+    )
+    .expect("verifier JSON");
+    assert_eq!(output_receipt["passed"], true);
+    assert_eq!(
+        output_receipt["registered_files"].as_array().unwrap().len(),
+        3
+    );
+
+    let stdout_digest = journal
+        .complete_from_process(&fixture.node, &frames.request, &digest, &provider, process)
+        .expect("actual A05 completion receipt");
+    assert_eq!(
+        stdout_digest,
+        format!("sha256:{:x}", Sha256::digest(&stdout.bytes))
+    );
+    drop(journal);
+    let mut reopened = GatewayJournal::open(&journal_path).expect("durable Node restart recovery");
+    assert_eq!(
+        reopened.get(&frames.request).unwrap().unwrap().phase,
+        "completed"
+    );
+    assert!(
+        reopened
+            .spawn_once(
+                &fixture.node,
+                &guard,
+                &frames.request,
+                now(),
+                &digest,
+                &provider,
+                &expected,
+                spec,
+            )
+            .is_err(),
+        "reopened Node journal may not execute an already consumed Attempt"
+    );
+    drop(reopened);
+    cleanup_gateway_database(&journal_path);
+    eprintln!("PTAH_CREATIVE_STUDIO_E02_A05_RESULT=FIXTURE_AUTHORITY_PASS");
+    eprintln!("PTAH_CREATIVE_STUDIO_E07_PRODUCTION_ADMISSION=NOT_PROVEN");
+}
+
 fn verify_shadow_digest(value: &serde_json::Value) -> Result<String, String> {
     use sha2::{Digest, Sha256};
     let mut canonical = value.clone();

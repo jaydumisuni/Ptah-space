@@ -130,6 +130,14 @@ fn read_owned(path: &PathBuf, sensitive: bool) -> Result<Vec<u8>, String> {
             ));
         }
     }
+    // Windows ACL validation is not yet qualified. Do not permit a private
+    // key/enrollment file to be loaded merely because the path exists.
+    #[cfg(windows)]
+    if sensitive {
+        return Err(String::from(
+            "Windows sensitive-file ACL admission is not qualified",
+        ));
+    }
     fs::read(path).map_err(|e| format!("cannot read configured file: {e}"))
 }
 fn canonical_enrollments(input: &[u8]) -> Result<Vec<ApprovedNodeEnrollment>, String> {
@@ -330,6 +338,22 @@ mod tests {
             serde_json::to_vec(&vec![row("approved", "not-a-fingerprint")]).expect("serialize");
         assert!(canonical_enrollments(&malformed).is_err());
     }
+    #[cfg(windows)]
+    #[test]
+    fn windows_sensitive_file_requires_explicit_acl_qualification() {
+        let path = std::env::temp_dir().join(format!(
+            "ptah-win-secret-policy-{}.txt",
+            ptah_identifiers::EntityId::new_v7()
+        ));
+        fs::write(&path, b"harmless-test-material").expect("fixture");
+        assert!(read_owned(&path, true).is_err());
+        assert_eq!(
+            read_owned(&path, false).expect("public material"),
+            b"harmless-test-material"
+        );
+        fs::remove_file(path).expect("cleanup");
+    }
+
     #[test]
     fn server_refuses_missing_or_world_readable_secret_file() {
         let path = std::env::temp_dir().join(format!(

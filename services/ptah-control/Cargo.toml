@@ -43,3 +43,8 @@ path = "tests/d08_application_projection.rs"
 [[test]]
 name = "e03_transfer_authority"
 path = "tests/e03_transfer_authority.rs"
+
+# Native Windows MSVC lacks an implicitly discoverable sqlite3.lib.
+# Bundle SQLite for this target only; leave accepted Linux linkage unchanged.
+[target.'cfg(windows)'.dependencies]
+rusqlite = { workspace = true, features = ["bundled"] }

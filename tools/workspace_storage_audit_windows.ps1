@@ -43,7 +43,7 @@ $drives = @($acceptedDriveLetters | Sort-Object -Unique | ForEach-Object {
 })
 $alerts = @()
 $lowVolumes = @($drives | Where-Object {
-    $_.AvailableFreeSpace -lt 40GB -or $_.AvailableFreeSpace/[Math]::Max(1,$_.TotalSize) -lt 0.15
+    $_.AvailableFreeSpace -lt 40GB -or $_.AvailableFreeSpace/[Math]::Max([double]1,[double]$_.TotalSize) -lt 0.15
 })
 if ($lowVolumes.Count -gt 0) { $alerts += 'LOW_FREE_SPACE' }
 $lowestFree = ($drives | Measure-Object -Property AvailableFreeSpace -Minimum).Minimum

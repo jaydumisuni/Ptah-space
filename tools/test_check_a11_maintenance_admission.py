@@ -57,6 +57,18 @@ class A11MaintenanceTests(unittest.TestCase):
         with patch.object(module,"git",return_value="f"*40):
             with self.assertRaisesRegex(module.AdmissionError,"head_drift"):
                 module.qualify("a"*40,"b"*40)
+    def test_independently_trusted_base_branch_integrity_gate(self):
+        workflow=(ROOT/".github/workflows/a11-governance-integrity.yml").read_text()
+        self.assertIn("pull_request_target:",workflow)
+        self.assertIn("ref: ${{ env.PTAH_BASE }}",workflow)
+        self.assertNotIn("ref: ${{ env.PTAH_HEAD }}",workflow)
+        for protected in (".github/workflows/a11-post-baseline-maintenance.yml",
+                          ".github/workflows/a11-governance-integrity.yml",
+                          ".github/workflows/current-head-universal-admission.yml",
+                          "tools/check_a11_maintenance_admission.py",
+                          "tools/check_current_pr_admission.py"):
+            self.assertIn(protected,workflow)
+        self.assertIn("BASE_AUTHORITY_REJECTED_SELF_MODIFICATION",workflow)
     def test_invalid_sha(self):
         with self.assertRaisesRegex(module.AdmissionError,"invalid_exact_sha"):
             module.qualify("a"*8,"b"*40)

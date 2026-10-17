@@ -20,9 +20,19 @@ that historical predecessor requirement is immutable and remains authentic.
    The GitHub main-branch required-status checks MUST include
    `a11-maintenance` in addition to existing universal/other checks.
 
+3. **Base-branch immutable governance integrity** (`a11-governance-integrity`):
+   a separate required `pull_request_target` job runs exclusively the accepted
+   base-branch workflow, fetches the proposed PR head only as Git **data** and
+   rejects changes to A11 maintenance policy, either universal governance
+   checker/workflow, or this integrity workflow. It never checks out or executes
+   PR-head code. The initial adoption is a one-time governance bootstrap;
+   subsequently any attempt to rewrite these gates through a normal PR fails
+   closed. This job must ALSO be required by branch protection.
+
 Neither a green unit suite nor a green universal scope alone grants A11 production
-enrollment. The required `a11-maintenance` physical check is an independent
-unskippable branch protection condition for merging browser maintenance.
+enrollment. The required `a11-maintenance` physical check and
+the base-owned `a11-governance-integrity` check are independent
+unskippable branch protection conditions for merging browser maintenance.
 The original A11 proof body and trigger remain byte-for-byte unchanged. Its
 historical failure on PR #128 stays visible and is not renamed as a pass.
 

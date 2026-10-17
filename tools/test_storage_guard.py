@@ -155,7 +155,8 @@ class StorageGuardContract(unittest.TestCase):
             if "submodule" in command:
                 return CompletedProcess(command,0,"","")
             return CompletedProcess(command,0,b"target/\0",b"")
-        with patch.object(guard.subprocess,"run",side_effect=fake_run):
+        with patch.object(guard.subprocess,"run",side_effect=fake_run),patch.object(
+            guard,"cargo_paths_inside_checkout",return_value=True):
             self.assertTrue(guard.git_clean(self.project))
         self.assertIn("--untracked-files=all",commands[0])
         self.assertIn("--ignored",commands[1])
@@ -278,9 +279,61 @@ class StorageGuardContract(unittest.TestCase):
         marker=json.loads(guard.marker_path(self.cache).read_text())
         self.assertEqual(marker["qualified_at_epoch"],12345678)
 
+    def test_real_git_external_cargo_path_dependency_denied(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            repo=root/"repo";repo.mkdir()
+            outside=root/"shared";outside.mkdir()
+            (outside/"Cargo.toml").write_text("[package]\nname='shared'\nversion='0.1.0'\nedition='2021'\n")
+            (repo/"Cargo.toml").write_text(
+                "[package]\nname='fixture'\nversion='0.1.0'\nedition='2021'\n"
+                "[dependencies]\nshared={ path='../shared' }\n")
+            subprocess.run(["git","init","-q"],cwd=repo,check=True)
+            subprocess.run(["git","add","Cargo.toml"],cwd=repo,check=True)
+            subprocess.run(["git","-c","user.name=Fixture","-c",
+                "user.email=fixture@example.invalid","commit","-qm","external dep"],cwd=repo,check=True)
+            self.assertFalse(guard.git_clean(repo))
+            internal=repo/"vendor"/"shared"
+            internal.mkdir(parents=True)
+            (internal/"Cargo.toml").write_text((outside/"Cargo.toml").read_text())
+            (repo/"Cargo.toml").write_text(
+                "[package]\nname='fixture'\nversion='0.1.0'\nedition='2021'\n"
+                "[dependencies]\nshared={ path='vendor/shared' }\n")
+            subprocess.run(["git","add","."],cwd=repo,check=True)
+            subprocess.run(["git","-c","user.name=Fixture","-c",
+                "user.email=fixture@example.invalid","commit","-qm","vendored dep"],cwd=repo,check=True)
+            self.assertTrue(guard.git_clean(repo))
+
+    def test_cache_change_between_two_inventory_passes_rejected(self):
+        real_walk=guard.os.walk
+        passes=[0]
+        def changing_walk(*args,**kwargs):
+            passes[0]+=1
+            if passes[0]==2:
+                (self.cache/"fixture.bin").write_bytes(b"modified during second pass")
+            yield from real_walk(*args,**kwargs)
+        with patch.object(guard.os,"walk",side_effect=changing_walk):
+            with self.assertRaisesRegex(ValueError,"cache changed during inventory"):
+                guard.cache_fingerprint(self.cache)
+        self.assertEqual(passes[0],2)
+
+    def test_cache_file_inserted_between_inventory_passes_rejected(self):
+        real_walk=guard.os.walk
+        passes=[0]
+        def adding_walk(*args,**kwargs):
+            passes[0]+=1
+            if passes[0]==2:
+                (self.cache/"new-artifact.bin").write_bytes(b"not in first scan")
+            yield from real_walk(*args,**kwargs)
+        with patch.object(guard.os,"walk",side_effect=adding_walk):
+            with self.assertRaisesRegex(ValueError,"cache changed during inventory"):
+                guard.cache_fingerprint(self.cache)
+
     def test_uninitialized_submodule_is_never_exact_head(self):
         from subprocess import CompletedProcess
         with patch.object(guard,"_checkout_inputs_clean",return_value=True),patch.object(
+            guard,"cargo_paths_inside_checkout",return_value=True),patch.object(
             guard.subprocess,"run",return_value=CompletedProcess(
                 ["git","submodule","status"],0,"-"+
                 "0"*40+" missing/module\n","")):

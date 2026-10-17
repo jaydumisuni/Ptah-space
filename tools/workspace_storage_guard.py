@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import tomllib
 import time
 
 STATE=Path.home()/".local/state/ttg-storage-guard"
@@ -76,8 +77,62 @@ def _checkout_inputs_clean(project):
                for item in ignored.stdout.split(b"\0") if item)
 
 
+def cargo_paths_inside_checkout(project):
+    """Reject Cargo path/build dependencies outside the exact qualified checkout.
+
+    Walk *tracked* manifests only, including manifests used by workspace
+    members, patches and target-specific dependencies. No Cargo network calls.
+    """
+    root=Path(project).resolve(strict=True)
+    listed=subprocess.run(["git","-C",str(root),"ls-files","--cached","-z"],
+                          capture_output=True,timeout=20)
+    if listed.returncode:return False
+    manifests=[
+        Path(raw.decode("utf-8","surrogateescape"))
+        for raw in listed.stdout.split(b"\0") if raw
+        and (raw==b"Cargo.toml" or raw.endswith(b"/Cargo.toml"))
+    ]
+    if not manifests or len(manifests)>2000:return False
+    for relative in manifests:
+        path=root/relative
+        try:
+            actual=path.resolve(strict=True)
+            if path.is_symlink() or not actual.is_relative_to(root):
+                return False
+            with actual.open("rb") as handle:
+                cargo=tomllib.load(handle)
+        except (OSError,ValueError,tomllib.TOMLDecodeError):
+            return False
+
+        def is_internal(node,section=""):
+            if isinstance(node,dict):
+                for key,value in node.items():
+                    # Cargo dependencies/patches, package.workspace,
+                    # build/dependency manifest overrides: conservative reject.
+                    if key=="path" and isinstance(value,str):
+                        try:
+                            resolved=(path.parent/value).resolve(strict=True)
+                            if not resolved.is_relative_to(root):return False
+                        except (OSError,ValueError):
+                            return False
+                    elif section=="package" and key=="workspace" and isinstance(value,str):
+                        try:
+                            resolved=(path.parent/value).resolve(strict=True)
+                            if not resolved.is_relative_to(root):return False
+                        except (OSError,ValueError):
+                            return False
+                    if not is_internal(value,key):return False
+            elif isinstance(node,list):
+                for child in node:
+                    if not is_internal(child,section):return False
+            return True
+
+        if not is_internal(cargo):return False
+    return True
+
+
 def git_clean(project):
-    if not _checkout_inputs_clean(project):
+    if not _checkout_inputs_clean(project) or not cargo_paths_inside_checkout(project):
         return False
     # Git status may hide dirty submodules when .gitmodules sets
     # submodule.<name>.ignore=all. Explicitly enumerate initialized
@@ -96,7 +151,8 @@ def git_clean(project):
             real=child.resolve(strict=True)
             if child.is_symlink() or not real.is_relative_to(base) or not real.is_dir():
                 return False
-            if not _checkout_inputs_clean(child):return False
+            if not _checkout_inputs_clean(child) or not cargo_paths_inside_checkout(child):
+                return False
             revision=subprocess.run(["git","-C",str(child),"rev-parse","HEAD"],
                        capture_output=True,text=True,timeout=15)
             if revision.returncode or revision.stdout.strip()!=match.group(1):
@@ -116,39 +172,66 @@ def retained_receipt(path):
 
 
 def cache_fingerprint(cache):
-    """Bounded exact-tree identity, including filesystem metadata, not file contents.
+    """Two stable bounded tree inventories including the root and directories.
 
-    A replacement, insertion, deletion, symlink, metadata change, or rebuild
-    invalidates the 48-hour-old cache qualification. Unbounded/unsafe trees
-    cannot be admitted for cleanup.
+    This denies qualification/cleanup if entries mutate while traversing:
+    per-directory pre/post checks catch in-directory races and a full second
+    walk catches edits made after a directory was visited. No file contents or
+    user data are read; only filesystem identity and metadata.
     """
     cache=Path(cache)
     if cache.is_symlink() or not cache.is_dir():
         raise ValueError("cache identity unavailable")
     root=cache.resolve(strict=True)
-    original=root.lstat()
-    identity=(original.st_dev,original.st_ino)
-    digest=hashlib.sha256()
+    first=root.lstat()
+    identity=(first.st_dev,first.st_ino)
     started=time.monotonic()
-    count=0
-    for current,dirs,files in os.walk(root,followlinks=False):
-        dirs.sort()
-        for name in sorted(dirs+files):
-            child=Path(current)/name
-            entry=child.lstat()
-            if child.is_symlink():
-                raise ValueError("symlink inside regenerable cache")
-            record=[str(child.relative_to(root)),entry.st_mode,entry.st_dev,
-                    entry.st_ino,entry.st_size,entry.st_mtime_ns,entry.st_ctime_ns]
-            digest.update(json.dumps(record,separators=(",",":"),ensure_ascii=False).encode())
+    total_count=0
+
+    def metadata(entry):
+        return (entry.st_mode,entry.st_dev,entry.st_ino,entry.st_size,
+                entry.st_mtime_ns,entry.st_ctime_ns)
+
+    def inventory():
+        nonlocal total_count
+        digest=hashlib.sha256()
+        for current,dirs,files in os.walk(
+            root,followlinks=False,
+            onerror=lambda error: (_ for _ in ()).throw(error)
+        ):
+            folder=Path(current)
+            before=folder.lstat()
+            if folder.is_symlink() or not folder.resolve(strict=True).is_relative_to(root):
+                raise ValueError("unsafe cache directory")
+            digest.update(json.dumps(["directory",str(folder.relative_to(root)),
+                                      *metadata(before)],separators=(",",":")).encode())
             digest.update(b"\n")
-            count+=1
-            if count>300000 or time.monotonic()-started>30:
-                raise ValueError("cache inventory exceeds safe bound")
-    latest=root.lstat()
-    if cache.is_symlink() or (latest.st_dev,latest.st_ino)!=identity:
-        raise ValueError("cache identity changed during inventory")
-    return digest.hexdigest()
+            dirs.sort()
+            for name in sorted(dirs+files):
+                child=folder/name
+                entry=child.lstat()
+                if child.is_symlink():
+                    raise ValueError("symlink inside regenerable cache")
+                digest.update(json.dumps(["entry",str(child.relative_to(root)),
+                                         *metadata(entry)],separators=(",",":"),
+                                         ensure_ascii=False).encode())
+                digest.update(b"\n")
+                total_count+=1
+                if total_count>300000 or time.monotonic()-started>30:
+                    raise ValueError("cache inventory exceeds safe bound")
+            after=folder.lstat()
+            if metadata(before)!=metadata(after):
+                raise ValueError("cache directory changed during inventory")
+        latest=root.lstat()
+        if cache.is_symlink() or (latest.st_dev,latest.st_ino)!=identity:
+            raise ValueError("cache identity changed during inventory")
+        return digest.hexdigest()
+
+    before=inventory()
+    after=inventory()
+    if before!=after:
+        raise ValueError("cache changed during inventory")
+    return before
 
 
 def validate_retained_bytes(path, expected_hash):

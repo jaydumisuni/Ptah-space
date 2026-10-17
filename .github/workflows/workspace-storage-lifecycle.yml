@@ -1,0 +1,33 @@
+name: Workspace Storage Lifecycle
+on:
+  pull_request:
+    paths:
+      - 'AGENTS.md'
+      - 'docs/operations/WORKSPACE_STORAGE_LIFECYCLE.md'
+      - 'tools/workspace_storage_guard.py'
+      - 'tools/test_storage_guard.py'
+      - '.github/workflows/workspace-storage-lifecycle.yml'
+  push:
+    paths:
+      - 'AGENTS.md'
+      - 'docs/operations/WORKSPACE_STORAGE_LIFECYCLE.md'
+      - 'tools/workspace_storage_guard.py'
+      - 'tools/test_storage_guard.py'
+      - '.github/workflows/workspace-storage-lifecycle.yml'
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile guard
+        run: python -m py_compile tools/workspace_storage_guard.py
+      - name: Verify fail-closed storage policy
+        run: python -m unittest discover -s tools -p 'test_storage_guard.py' -v
+      - name: Read-only audit and default prune
+        run: |
+          python tools/workspace_storage_guard.py audit --root .
+          python tools/workspace_storage_guard.py prune --root .

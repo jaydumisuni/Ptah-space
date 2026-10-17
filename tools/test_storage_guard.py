@@ -211,7 +211,7 @@ class StorageGuardContract(unittest.TestCase):
         with patch.object(guard,"git_head",return_value="a"*40),patch.object(
             guard,"git_clean",side_effect=[True,False]),patch.object(
             guard,"active_builds",return_value=False):
-            with self.assertRaisesRegex(ValueError,"source changed"):
+            with self.assertRaisesRegex(ValueError,"checkout changed"):
                 guard.mark(self.project,self.receipt)
         self.assertFalse(guard.marker_path(self.cache).exists())
 
@@ -233,6 +233,48 @@ class StorageGuardContract(unittest.TestCase):
             self.assertFalse(guard.git_clean(repo))
             (repo/".cargo"/"config.toml").unlink()
             self.assertTrue(guard.git_clean(repo))
+
+    def test_receipt_mutated_after_parse_cannot_publish_marker(self):
+        calls=[0]
+        def change_during_final_check():
+            calls[0]+=1
+            if calls[0]==2:
+                self.receipt.write_text('{"status":"PASS","tampered_after_parse":true}')
+            return False
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(
+            guard,"git_clean",return_value=True),patch.object(
+            guard,"active_builds",side_effect=change_during_final_check):
+            with self.assertRaisesRegex(ValueError,"receipt missing or altered"):
+                guard.mark(self.project,self.receipt)
+        self.assertFalse(guard.marker_path(self.cache).exists())
+
+    def test_receipt_changes_during_size_scan_prevents_cleanup(self):
+        self.qualify()
+        marker=guard.marker_path(self.cache)
+        metadata=json.loads(marker.read_text())
+        metadata["qualified_at_epoch"]=time.time()-72*3600
+        guard.atomic_json(marker,metadata)
+        def mutate_on_size(_):
+            self.receipt.write_text('{"status":"tampered-after-initial-check"}')
+            return 112
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(
+            guard,"git_clean",return_value=True),patch.object(
+            guard,"size_of",side_effect=mutate_on_size),patch.object(
+            guard,"active_builds",return_value=False),patch.object(
+            guard.subprocess,"run",side_effect=AssertionError("cargo clean must never run")):
+            result=guard.prune(self.root,48,True)
+        self.assertEqual(result["actions"][0]["status"],"protected")
+        self.assertIn("receipt missing or altered",result["actions"][0]["reason"])
+        self.assertTrue((self.cache/"fixture.bin").exists())
+        self.assertTrue(marker.exists())
+
+    def test_exact_head_changes_during_mark_fail_closed(self):
+        with patch.object(guard,"git_head",side_effect=["a"*40,"b"*40]),patch.object(
+            guard,"git_clean",return_value=True),patch.object(
+            guard,"active_builds",return_value=False):
+            with self.assertRaisesRegex(ValueError,"source head or checkout changed"):
+                guard.mark(self.project,self.receipt)
+        self.assertFalse(guard.marker_path(self.cache).exists())
 
 if __name__=="__main__":
     unittest.main()

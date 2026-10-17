@@ -81,6 +81,16 @@ def retained_receipt(path):
         raise ValueError("receipt inside a disposable target cache")
     return evidence
 
+
+def validate_retained_bytes(path, expected_hash):
+    source=Path(path)
+    if source.is_symlink():
+        raise ValueError("receipt symlink is not allowed")
+    evidence=retained_receipt(source)
+    if not evidence.is_file() or hashlib.sha256(evidence.read_bytes()).hexdigest()!=expected_hash:
+        raise ValueError("receipt missing or altered during qualification/cleanup")
+    return evidence
+
 def valid_cache(project,cache):
     if project.is_symlink() or cache.is_symlink() or cache.name!="target":
         raise ValueError("only an ordinary direct Cargo target/ is supported")
@@ -129,9 +139,12 @@ def mark(project,receipt):
     if proposed.is_symlink(): raise ValueError("receipt symlink is not allowed")
     evidence=retained_receipt(proposed)
     if not evidence.is_file(): raise ValueError("not a regular evidence receipt")
-    # Safety is based on an *operator-reviewed* proof file, not substring matching.
-    proof=json.loads(evidence.read_text())
-    if not isinstance(proof,dict) or proof.get("status")!="PASS" or proof.get("head")!=git_head(project):
+    # Bind all validation fields and the marker digest to the SAME bytes.
+    validated_bytes=evidence.read_bytes()
+    validated_digest=hashlib.sha256(validated_bytes).hexdigest()
+    proof=json.loads(validated_bytes)
+    qualified_head=git_head(project)
+    if not isinstance(proof,dict) or proof.get("status")!="PASS" or proof.get("head")!=qualified_head:
         raise ValueError("receipt must be structured PASS at exact Git head")
     if not isinstance(proof.get("machine"),str) or not proof["machine"].strip():
         raise ValueError("receipt missing machine identity")
@@ -161,13 +174,15 @@ def mark(project,receipt):
     if proof.get("allow_disposable_cleanup") is not True:
         raise ValueError("receipt lacks explicit disposable cleanup approval")
     item={"schema":"ttg.storage.cache-qualification.v1","project":str(project),"cache":str(cache),
-       "head":git_head(project),"receipt":str(evidence),"receipt_sha256":sha(evidence),
+       "head":qualified_head,"receipt":str(evidence),"receipt_sha256":validated_digest,
        "qualified_at_epoch":time.time(),"qualified_at_utc":now(),
        "allow_cleanup":True,"cleanup_type":"cargo-clean-target-dir"}
     # Fresh qualification state must be stable at the moment the marker
     # becomes visible, not just before receipt parsing and hashing.
     if active_builds(): raise ValueError("build started while qualifying cache")
-    if not git_clean(project): raise ValueError("source changed while qualifying cache")
+    if git_head(project)!=qualified_head or not git_clean(project):
+        raise ValueError("source head or checkout changed while qualifying cache")
+    validate_retained_bytes(evidence,validated_digest)
     atomic_json(marker_path(cache),item)
     return {"marked_disposable":str(cache),"head":item["head"],"receipt_sha256":item["receipt_sha256"]}
 
@@ -195,15 +210,17 @@ def prune(root,min_age_hours=48,apply=False):
                 raise ValueError("retention window not elapsed")
             if git_head(project)!=x["head"] or not git_clean(project):
                 raise ValueError("checkout changed since qualification")
-            evidence=Path(x["receipt"])
-            if not evidence.is_file() or evidence.is_symlink() or sha(evidence)!=x["receipt_sha256"]:
-                raise ValueError("receipt missing or altered")
-            retained_receipt(evidence)
+            evidence=validate_retained_bytes(x["receipt"],x["receipt_sha256"])
             if blocked_build: raise ValueError("a Rust build is active on the host")
             saved=size_of(cache)
             action={"cache":str(cache),"estimated_gib":round(saved/GIB,2),"status":"eligible"}
             if apply:
                 if active_builds(): raise ValueError("a Rust build started before cleanup")
+                # Size scans can take minutes; recheck immediately before Cargo.
+                validate_retained_bytes(evidence,x["receipt_sha256"])
+                if git_head(project)!=x["head"] or not git_clean(project):
+                    raise ValueError("checkout changed immediately before cleanup")
+                valid_cache(project,cache)
                 r=subprocess.run(["cargo","clean","--manifest-path",str(project/"Cargo.toml"),
                     "--target-dir",str(cache)],capture_output=True,text=True,timeout=1200)
                 if r.returncode: raise RuntimeError("cargo clean failed: "+r.stderr[-300:])

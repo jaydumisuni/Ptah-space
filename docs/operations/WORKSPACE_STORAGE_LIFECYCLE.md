@@ -11,7 +11,7 @@ A compact receipt kept **outside** the target directory must include all of:
 - `output_hashes` mapping durable evidence names to lowercase SHA-256 hex digests and a retrievable `evidence_ref`.
 - `cleanup_classification: regenerable_cargo_target` and explicit `allow_disposable_cleanup: true`.
 
-Cache qualification fails while Rust build processes are active, if source files are modified, untracked, or have ignored build inputs (for example `.cargo/config.toml`), or if evidence lives inside **any** disposable `target/` cache, including a different project's cache. Git state and build activity are checked again immediately before publishing the qualification marker. Before each destructive scoped `cargo clean`, build activity and retained receipt custody are checked again. All other evidence, including persistent runtime data and physical recovery receipts, remains protected.
+Cache qualification fails while Rust build processes are active, if source files are modified, untracked, or have ignored build inputs (for example `.cargo/config.toml`), or if evidence lives inside **any** disposable `target/` cache, including a different project's cache. The marker binds to the SHA-256 of the exact receipt bytes parsed for qualification. Git HEAD, ignored inputs, build activity and the unmodified receipt are checked again immediately before publishing the qualification marker. Before each destructive scoped `cargo clean`, build activity, current Git HEAD, clean source and retained receipt custody are checked again after any long-running size scan. All other evidence, including persistent runtime data and physical recovery receipts, remains protected.
 
 ## Hard rule
 

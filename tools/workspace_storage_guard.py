@@ -82,6 +82,42 @@ def retained_receipt(path):
     return evidence
 
 
+def cache_fingerprint(cache):
+    """Bounded exact-tree identity, including filesystem metadata, not file contents.
+
+    A replacement, insertion, deletion, symlink, metadata change, or rebuild
+    invalidates the 48-hour-old cache qualification. Unbounded/unsafe trees
+    cannot be admitted for cleanup.
+    """
+    cache=Path(cache)
+    if cache.is_symlink() or not cache.is_dir():
+        raise ValueError("cache identity unavailable")
+    root=cache.resolve(strict=True)
+    original=root.lstat()
+    identity=(original.st_dev,original.st_ino)
+    digest=hashlib.sha256()
+    started=time.monotonic()
+    count=0
+    for current,dirs,files in os.walk(root,followlinks=False):
+        dirs.sort()
+        for name in sorted(dirs+files):
+            child=Path(current)/name
+            entry=child.lstat()
+            if child.is_symlink():
+                raise ValueError("symlink inside regenerable cache")
+            record=[str(child.relative_to(root)),entry.st_mode,entry.st_dev,
+                    entry.st_ino,entry.st_size,entry.st_mtime_ns,entry.st_ctime_ns]
+            digest.update(json.dumps(record,separators=(",",":"),ensure_ascii=False).encode())
+            digest.update(b"\n")
+            count+=1
+            if count>300000 or time.monotonic()-started>30:
+                raise ValueError("cache inventory exceeds safe bound")
+    latest=root.lstat()
+    if cache.is_symlink() or (latest.st_dev,latest.st_ino)!=identity:
+        raise ValueError("cache identity changed during inventory")
+    return digest.hexdigest()
+
+
 def validate_retained_bytes(path, expected_hash):
     source=Path(path)
     if source.is_symlink():
@@ -173,8 +209,10 @@ def mark(project,receipt):
         raise ValueError("receipt missing evidence reference")
     if proof.get("allow_disposable_cleanup") is not True:
         raise ValueError("receipt lacks explicit disposable cleanup approval")
+    fingerprint=cache_fingerprint(cache)
     item={"schema":"ttg.storage.cache-qualification.v1","project":str(project),"cache":str(cache),
        "head":qualified_head,"receipt":str(evidence),"receipt_sha256":validated_digest,
+       "cache_fingerprint":fingerprint,
        "qualified_at_epoch":time.time(),"qualified_at_utc":now(),
        "allow_cleanup":True,"cleanup_type":"cargo-clean-target-dir"}
     # Fresh qualification state must be stable at the moment the marker
@@ -183,6 +221,8 @@ def mark(project,receipt):
     if git_head(project)!=qualified_head or not git_clean(project):
         raise ValueError("source head or checkout changed while qualifying cache")
     validate_retained_bytes(evidence,validated_digest)
+    if cache_fingerprint(cache)!=fingerprint:
+        raise ValueError("cache rebuilt or changed during qualification")
     atomic_json(marker_path(cache),item)
     return {"marked_disposable":str(cache),"head":item["head"],"receipt_sha256":item["receipt_sha256"]}
 
@@ -192,6 +232,8 @@ def active_builds():
     return any(x.strip() in {"cargo","rustc","rustdoc","sccache","clippy-driver","ld.lld","lld"} for x in p.stdout.splitlines())
 
 def prune(root,min_age_hours=48,apply=False):
+    if not isinstance(min_age_hours,int) or not 48<=min_age_hours<=24*365:
+        raise ValueError("minimum 48 hours of qualified-cache retention required")
     root=Path(root).expanduser().resolve(strict=True)
     actions=[]
     blocked_build=active_builds()
@@ -210,6 +252,11 @@ def prune(root,min_age_hours=48,apply=False):
                 raise ValueError("retention window not elapsed")
             if git_head(project)!=x["head"] or not git_clean(project):
                 raise ValueError("checkout changed since qualification")
+            if not isinstance(x.get("cache_fingerprint"),str) or not re.fullmatch(
+                r"[0-9a-f]{64}",x["cache_fingerprint"]):
+                raise ValueError("cache identity not qualified; requalification required")
+            if cache_fingerprint(cache)!=x["cache_fingerprint"]:
+                raise ValueError("cache changed since qualification; 48h clock must restart")
             evidence=validate_retained_bytes(x["receipt"],x["receipt_sha256"])
             if blocked_build: raise ValueError("a Rust build is active on the host")
             saved=size_of(cache)
@@ -221,6 +268,8 @@ def prune(root,min_age_hours=48,apply=False):
                 if git_head(project)!=x["head"] or not git_clean(project):
                     raise ValueError("checkout changed immediately before cleanup")
                 valid_cache(project,cache)
+                if cache_fingerprint(cache)!=x["cache_fingerprint"]:
+                    raise ValueError("cache changed immediately before cleanup; requalify")
                 r=subprocess.run(["cargo","clean","--manifest-path",str(project/"Cargo.toml"),
                     "--target-dir",str(cache)],capture_output=True,text=True,timeout=1200)
                 if r.returncode: raise RuntimeError("cargo clean failed: "+r.stderr[-300:])
@@ -247,7 +296,7 @@ def main():
         if args.mode=="audit": result=audit(Path(args.root).expanduser().resolve(strict=True))
         elif args.mode=="mark":result=mark(args.project,args.receipt)
         else:
-            if not 1<=args.min_age_hours<=24*365: raise ValueError("unsafe retention interval")
+            if not 48<=args.min_age_hours<=24*365: raise ValueError("minimum 48 hours of qualified-cache retention required")
             result=prune(args.root,args.min_age_hours,args.apply)
         print(json.dumps(result,sort_keys=True,indent=2))
     except (ValueError,OSError,subprocess.SubprocessError) as err:

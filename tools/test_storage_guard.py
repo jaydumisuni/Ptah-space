@@ -54,7 +54,7 @@ class StorageGuardContract(unittest.TestCase):
 
     def test_without_qualification_even_apply_never_cleans(self):
         with patch.object(guard,"active_builds",return_value=False):
-            result=guard.prune(self.root,1,True)
+            result=guard.prune(self.root,48,True)
         self.assertEqual(result["actions"],[])
         self.assertTrue((self.cache/"fixture.bin").exists())
 
@@ -275,6 +275,73 @@ class StorageGuardContract(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"source head or checkout changed"):
                 guard.mark(self.project,self.receipt)
         self.assertFalse(guard.marker_path(self.cache).exists())
+
+    def test_caller_cannot_shorten_48_hour_minimum(self):
+        for requested in (0,1,24,47):
+            with self.subTest(requested=requested),self.assertRaisesRegex(ValueError,"minimum 48 hours"):
+                guard.prune(self.root,requested,True)
+        self.assertTrue((self.cache/"fixture.bin").exists())
+
+    def test_cache_rebuild_restarts_qualification_requirement(self):
+        self.qualify()
+        marker=guard.marker_path(self.cache)
+        old=json.loads(marker.read_text())
+        old["qualified_at_epoch"]=time.time()-72*3600
+        guard.atomic_json(marker,old)
+        (self.cache/"new-build-artifact.bin").write_bytes(b"rebuilt after qualification")
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(
+            guard,"git_clean",return_value=True),patch.object(guard,"active_builds",return_value=False):
+            output=guard.prune(self.root,48,True)
+        self.assertEqual(output["actions"][0]["status"],"protected")
+        self.assertIn("cache changed since qualification",output["actions"][0]["reason"])
+        self.assertTrue((self.cache/"fixture.bin").exists())
+
+    def test_replaced_target_does_not_inherit_previous_qualification(self):
+        self.qualify()
+        marker=guard.marker_path(self.cache)
+        old=json.loads(marker.read_text())
+        old["qualified_at_epoch"]=time.time()-72*3600
+        guard.atomic_json(marker,old)
+        (self.cache/"fixture.bin").unlink()
+        self.cache.rmdir()
+        self.cache.mkdir()
+        (self.cache/"replacement.bin").write_bytes(b"new generation")
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(
+            guard,"git_clean",return_value=True),patch.object(guard,"active_builds",return_value=False):
+            output=guard.prune(self.root,48,True)
+        self.assertEqual(output["actions"][0]["status"],"protected")
+        self.assertTrue((self.cache/"replacement.bin").exists())
+
+    def test_legacy_marker_without_tree_identity_is_never_cleaned(self):
+        self.qualify()
+        marker=guard.marker_path(self.cache)
+        old=json.loads(marker.read_text())
+        old.pop("cache_fingerprint")
+        old["qualified_at_epoch"]=time.time()-72*3600
+        guard.atomic_json(marker,old)
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(
+            guard,"git_clean",return_value=True),patch.object(guard,"active_builds",return_value=False):
+            output=guard.prune(self.root,48,True)
+        self.assertEqual(output["actions"][0]["status"],"protected")
+        self.assertIn("requalification required",output["actions"][0]["reason"])
+
+    def test_cache_modification_during_size_scan_blocks_destructive_call(self):
+        self.qualify()
+        marker=guard.marker_path(self.cache)
+        old=json.loads(marker.read_text())
+        old["qualified_at_epoch"]=time.time()-72*3600
+        guard.atomic_json(marker,old)
+        def change_cache(_):
+            (self.cache/"new.bin").write_bytes(b"new build")
+            return 200
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(
+            guard,"git_clean",return_value=True),patch.object(guard,"active_builds",return_value=False),patch.object(
+            guard,"size_of",side_effect=change_cache),patch.object(
+            guard.subprocess,"run",side_effect=AssertionError("no destructive invocation")):
+            output=guard.prune(self.root,48,True)
+        self.assertEqual(output["actions"][0]["status"],"protected")
+        self.assertIn("cache changed immediately before cleanup",output["actions"][0]["reason"])
+        self.assertTrue((self.cache/"new.bin").exists())
 
 if __name__=="__main__":
     unittest.main()

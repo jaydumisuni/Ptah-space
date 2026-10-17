@@ -19,9 +19,6 @@ env:
 
 jobs:
   a11-proof:
-    # Historical A08 -> A11 acceptance only. Post-admission Browser Provider
-    # corrections are tested by ptah-owned-browser-current.yml instead.
-    if: github.event.pull_request.base.sha == 'd19bcf3e86373b2710fbf731e094a9a3f8e2a469'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:

@@ -1,0 +1,163 @@
+{
+  "schema": "ptah.e06.sequence-gap-review-cases.v1",
+  "status": "non_authorizing_design_evidence",
+  "authority": "docs/plans/2026-10-13-e06-02-journal-sequence-gap-review.md",
+  "cases": [
+    {
+      "id": "contiguous-one-node",
+      "records": [
+        [
+          "node-1",
+          7,
+          "intent-7"
+        ],
+        [
+          "node-1",
+          8,
+          "intent-8"
+        ],
+        [
+          "node-1",
+          9,
+          "intent-9"
+        ]
+      ],
+      "contiguous_contract": "accept",
+      "explicit_gap_contract": "accept"
+    },
+    {
+      "id": "interior-gap",
+      "records": [
+        [
+          "node-1",
+          7,
+          "intent-7"
+        ],
+        [
+          "node-1",
+          9,
+          "intent-9"
+        ]
+      ],
+      "contiguous_contract": "reject_gap",
+      "explicit_gap_contract": "requires_gap_evidence"
+    },
+    {
+      "id": "interleaved-gap",
+      "records": [
+        [
+          "node-1",
+          7,
+          "intent-7"
+        ],
+        [
+          "node-2",
+          3,
+          "intent-b3"
+        ],
+        [
+          "node-1",
+          9,
+          "intent-9"
+        ]
+      ],
+      "contiguous_contract": "reject_gap",
+      "explicit_gap_contract": "requires_gap_evidence"
+    },
+    {
+      "id": "independent-node-cursors",
+      "records": [
+        [
+          "node-1",
+          7,
+          "intent-7"
+        ],
+        [
+          "node-2",
+          3,
+          "intent-b3"
+        ],
+        [
+          "node-1",
+          8,
+          "intent-8"
+        ],
+        [
+          "node-2",
+          4,
+          "intent-b4"
+        ]
+      ],
+      "contiguous_contract": "accept",
+      "explicit_gap_contract": "accept"
+    },
+    {
+      "id": "same-intent-replay",
+      "records": [
+        [
+          "node-1",
+          7,
+          "intent-7"
+        ],
+        [
+          "node-1",
+          7,
+          "intent-7"
+        ]
+      ],
+      "contiguous_contract": "idempotent_replay",
+      "explicit_gap_contract": "idempotent_replay"
+    },
+    {
+      "id": "conflicting-origin-reuse",
+      "records": [
+        [
+          "node-1",
+          7,
+          "intent-7"
+        ],
+        [
+          "node-1",
+          7,
+          "intent-other"
+        ]
+      ],
+      "contiguous_contract": "reject_reuse",
+      "explicit_gap_contract": "reject_reuse"
+    },
+    {
+      "id": "out-of-order",
+      "records": [
+        [
+          "node-1",
+          9,
+          "intent-9"
+        ],
+        [
+          "node-1",
+          8,
+          "intent-8"
+        ]
+      ],
+      "contiguous_contract": "reject_order",
+      "explicit_gap_contract": "reject_order"
+    },
+    {
+      "id": "max-sequence-no-wrap",
+      "records": [
+        [
+          "node-1",
+          18446744073709551614,
+          "intent-max-minus-one"
+        ],
+        [
+          "node-1",
+          18446744073709551615,
+          "intent-max"
+        ]
+      ],
+      "contiguous_contract": "accept_terminal",
+      "explicit_gap_contract": "accept_terminal"
+    }
+  ]
+}

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 John Dumisuni trading as THETECHGUY DIGITAL SOLUTIONS
+# SPDX-License-Identifier: Apache-2.0
 """Read-only local Ptah discovery, independent of optional Node enrollment."""
 import tempfile
 import unittest

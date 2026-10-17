@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 John Dumisuni trading as THETECHGUY DIGITAL SOLUTIONS
+# SPDX-License-Identifier: Apache-2.0
 """Windows-friendly Ptah access, independent of native Node enrollment."""
 import json
 import subprocess

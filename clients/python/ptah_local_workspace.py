@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 John Dumisuni trading as THETECHGUY DIGITAL SOLUTIONS
+# SPDX-License-Identifier: Apache-2.0
 """Discover the existing Ptah workspace using the caller's machine access.
 
 Oracle (or another independently selected machine transport) opens the host

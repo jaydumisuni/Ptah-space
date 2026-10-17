@@ -124,19 +124,23 @@ fn verify_replay_origin_tail(
     // into the same noncanonical sequence after this journal was opened.
     if let Some(raw) = cursor.as_deref() {
         let committed = decode_sequence(raw)?;
-        // A matching count and tail can conceal a forged interior sequence.
-        // Validate every stored sequence for this origin on duplicate replay;
-        // ordinary distinct appends retain their O(1) allocation path.
-        let mut stmt =
-            tx.prepare("SELECT sequence FROM queued_intents WHERE node=?1 ORDER BY sequence")?;
-        let rows = stmt.query_map(params![node], |row| row.get::<_, String>(0))?;
+        // A matching count and tail can conceal a forged interior sequence
+        // or an invalid envelope in an earlier row. Revalidate every stored
+        // envelope on duplicate replay, not only its sequence; distinct
+        // appends retain their O(1) allocation path.
+        let mut stmt = tx.prepare(
+            "SELECT node,sequence,intent_id,workspace_id,activity_id,operation_id,
+             attempt_id,action,digest,revalidate FROM queued_intents
+             WHERE node=?1 ORDER BY sequence",
+        )?;
+        let rows = stmt.query_map(params![node], row_intent)?;
         let mut expected = 0_u64;
-        for raw in rows {
-            let value = decode_sequence(&raw?)?;
+        for row in rows {
+            let item = row?;
             expected = expected
                 .checked_add(1)
                 .ok_or(DurableIntentError::Integrity("origin sequence overflow"))?;
-            if value != expected {
+            if item.origin.value != expected {
                 return Err(DurableIntentError::Integrity(
                     "noncontiguous origin journal",
                 ));

@@ -508,6 +508,25 @@ fn rejected_draft_does_not_reserve_origin_sequence_or_intent_identity() {
 }
 
 #[test]
+fn duplicate_replay_rejects_corrupt_prior_digest() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    journal.enqueue(&draft("n1", "first")).unwrap();
+    journal.enqueue(&draft("n1", "second")).unwrap();
+    let sql = Connection::open(&path).unwrap();
+    sql.execute(
+        "UPDATE queued_intents SET digest='invalid' WHERE intent_id='first'",
+        [],
+    )
+    .unwrap();
+    drop(sql);
+    assert!(journal.enqueue(&draft("n1", "second")).is_err());
+    assert!(journal.append(&intent("n1", 2, "second")).is_err());
+    drop(journal);
+    clean(&path);
+}
+
+#[test]
 fn duplicate_replay_rejects_zero_sequence_hidden_by_matching_count_and_tail() {
     let path = scratch();
     let mut journal = DurableIntentJournal::open(&path).unwrap();

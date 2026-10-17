@@ -2,6 +2,17 @@
 
 Scope: every project, test, agent/chat, build, simulation and Ptah workspace. Canonical GitHub home: jaydumisuni/Ptah-space/docs/operations/WORKSPACE_STORAGE_LIFECYCLE.md. Version 2026-10-17.
 
+## Proof receipt required before disposable-cache qualification
+
+A compact receipt kept **outside** the target directory must include all of:
+
+- `status: PASS`, the exact 40-character `head` SHA, non-empty `tests` and `commands` arrays.
+- `machine` identifying the execution host and a timezone-aware `utc` timestamp.
+- `output_hashes` mapping durable evidence names to lowercase SHA-256 hex digests and a retrievable `evidence_ref`.
+- `cleanup_classification: regenerable_cargo_target` and explicit `allow_disposable_cleanup: true`.
+
+Cache qualification fails while Rust build processes are active, if source files are modified or untracked, or if evidence lives inside the cache. Before each destructive scoped `cargo clean`, build activity is checked again. All other evidence, including persistent runtime data and physical recovery receipts, remains protected.
+
 ## Hard rule
 
 Preserve knowledge and reproducibility; remove only verified recreatable bulk. This is a default operations constraint for ChatGPT, Hunter, Ptah, Supervisor, Formula and authorized collaborators, NOT permission to overwrite their independent safety rules.

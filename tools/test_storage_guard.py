@@ -421,6 +421,52 @@ class StorageGuardContract(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"mount namespace unavailable"):
                 guard.cache_fingerprint(self.cache)
 
+    def test_tracked_symlink_to_mutable_external_source_is_not_qualified(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as directory:
+            base=Path(directory)
+            repo=base/"repo";repo.mkdir()
+            external=base/"library.rs";external.write_text("pub fn value() -> u8 { 1 }\n")
+            (repo/"Cargo.toml").write_text("[package]\nname='lib'\nversion='0.1.0'\nedition='2021'\n")
+            (repo/"src").mkdir()
+            (repo/"src"/"lib.rs").symlink_to(external)
+            subprocess.run(["git","init","-q"],cwd=repo,check=True)
+            subprocess.run(["git","add","."],cwd=repo,check=True)
+            subprocess.run(["git","-c","user.name=Fixture","-c",
+                "user.email=fixture@example.invalid","commit","-qm","external source symlink"],cwd=repo,check=True)
+            self.assertFalse(guard.git_clean(repo))
+
+    def test_cargo_source_replacement_local_registry_rejected(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as directory:
+            repo=Path(directory)/"repo";repo.mkdir()
+            (repo/"Cargo.toml").write_text("[package]\nname='lib'\nversion='0.1.0'\nedition='2021'\n")
+            (repo/".cargo").mkdir()
+            (repo/".cargo"/"config.toml").write_text(
+                "[source.crates-io]\nreplace-with='local'\n"
+                "[source.local]\nlocal-registry='/outside/registry'\n")
+            subprocess.run(["git","init","-q"],cwd=repo,check=True)
+            subprocess.run(["git","add","."],cwd=repo,check=True)
+            subprocess.run(["git","-c","user.name=Fixture","-c",
+                "user.email=fixture@example.invalid","commit","-qm","override"],cwd=repo,check=True)
+            self.assertFalse(guard.git_clean(repo))
+
+    def test_receipt_commands_with_cargo_cli_overrides_rejected(self):
+        for command in ("cargo --config /outside/override.toml test",
+                        "cargo test --config='paths=[\"/tmp/foreign\"]'",
+                        "CARGO_HOME=/outside cargo test --locked",
+                        "RUSTFLAGS='-L /outside' cargo build"):
+            with self.subTest(command=command):
+                receipt=json.loads(self.receipt.read_text())
+                receipt["commands"]=[command]
+                self.receipt.write_text(json.dumps(receipt))
+                with patch.object(guard,"git_clean",return_value=True),patch.object(
+                    guard,"git_head",return_value="a"*40),patch.object(
+                    guard,"active_builds",return_value=False):
+                    with self.assertRaisesRegex(ValueError,"unbound Cargo configuration"):
+                        guard.mark(self.project,self.receipt)
+        self.assertFalse(guard.marker_path(self.cache).exists())
+
     def test_uninitialized_submodule_is_never_exact_head(self):
         from subprocess import CompletedProcess
         with patch.object(guard,"_checkout_inputs_clean",return_value=True),patch.object(

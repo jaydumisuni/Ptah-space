@@ -73,8 +73,16 @@ def _checkout_inputs_clean(project):
                             "--ignored","--exclude-standard","--directory","-z"],
                            capture_output=True,timeout=20)
     if ignored.returncode:return False
-    return all(item.decode("utf-8","surrogateescape").rstrip("/")=="target"
-               for item in ignored.stdout.split(b"\0") if item)
+    if not all(item.decode("utf-8","surrogateescape").rstrip("/")=="target"
+               for item in ignored.stdout.split(b"\0") if item):
+        return False
+    # A clean index can contain a symlink to mutable external source. Even
+    # links within the checkout are excluded from destructive qualification;
+    # every consumed source must be represented directly in the exact HEAD.
+    tracked=subprocess.run(["git","-C",str(project),"ls-files","--stage","-z"],
+                           capture_output=True,timeout=20)
+    if tracked.returncode:return False
+    return not any(row.startswith(b"120000 ") for row in tracked.stdout.split(b"\0") if row)
 
 
 def cargo_paths_inside_checkout(project):
@@ -175,7 +183,9 @@ def _external_cargo_overrides_safe(project):
                 for key,value in node.items():
                     # All of these can redirect build inputs outside HEAD.
                     # Reject rather than guess Cargo's include/path base.
-                    if key in ("paths","path","directory","target-dir","include"):
+                    if key in ("paths","path","directory","target-dir","include",
+                                   "source","replace-with","local-registry",
+                                   "registry","registries","directory-source"):
                         return False
                     if not no_unbound_sources(value):return False
             elif isinstance(node,list):
@@ -395,6 +405,13 @@ def mark(project,receipt):
     commands=proof.get("commands")
     if not isinstance(commands,list) or not commands or not all(isinstance(c,str) and c.strip() for c in commands):
         raise ValueError("receipt requires actual test commands")
+    # A command-line Cargo config or environment override is not covered by
+    # the tracked manifest/config checks. Reject it instead of pretending
+    # unknown higher-precedence inputs were bound to HEAD.
+    for command in commands:
+        if (re.search(r"(?i)(?:^|\s)--config(?:=|\s|$)",command) or
+            re.search(r"(?i)\b(?:CARGO_[A-Z0-9_]+|RUSTFLAGS|RUSTDOCFLAGS|RUSTC_WRAPPER|RUSTUP_TOOLCHAIN)\s*=",command)):
+            raise ValueError("receipt uses unbound Cargo configuration override")
     hashes=proof.get("output_hashes")
     if not isinstance(hashes,dict) or not hashes or not all(
         isinstance(k,str) and k.strip() and isinstance(v,str)

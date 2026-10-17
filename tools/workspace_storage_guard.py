@@ -131,8 +131,67 @@ def cargo_paths_inside_checkout(project):
     return True
 
 
+def _external_cargo_overrides_safe(project):
+    """Inspect effective Cargo config paths without reading credentials.
+
+    Cargo merges configs from checkout ancestors and CARGO_HOME. An external
+    location that can alter local dependency source must never qualify a cache.
+    """
+    root=Path(project).resolve(strict=True)
+    candidates=[]
+    for parent in (root,*root.parents):
+        candidates += [parent/".cargo"/"config",parent/".cargo"/"config.toml"]
+    home=Path(os.environ.get("CARGO_HOME",Path.home()/".cargo")).expanduser()
+    candidates += [home/"config",home/"config.toml"]
+    for name in ("CARGO_TARGET_DIR",):
+        value=os.environ.get(name)
+        if value:
+            try:
+                if not Path(value).expanduser().resolve(strict=True).is_relative_to(root):
+                    return False
+            except (OSError,ValueError):
+                return False
+    for config in dict.fromkeys(candidates):
+        if not config.exists():continue
+        if config.is_symlink() or not config.is_file():return False
+        try:
+            with config.open("rb") as stream: content=tomllib.load(stream)
+        except (OSError,ValueError,tomllib.TOMLDecodeError):
+            return False
+        def clean(node):
+            if isinstance(node,dict):
+                for key,value in node.items():
+                    if key=="paths":
+                        if not isinstance(value,list) or not all(isinstance(x,str) for x in value):
+                            return False
+                        for entry in value:
+                            try:
+                                target=(config.parent/entry).resolve(strict=True)
+                                # A global, mutable config override cannot be
+                                # bound to the project's exact Git HEAD.
+                                if not config.resolve(strict=True).is_relative_to(root):
+                                    return False
+                                if not target.is_relative_to(root):return False
+                            except (OSError,ValueError):return False
+                    elif key in ("path","directory","target-dir") and isinstance(value,str):
+                        # Conservative: external Cargo-controlled source/build
+                        # locations are not captured by exact checkout proof.
+                        try:
+                            target=(config.parent/value).resolve(strict=True)
+                            if not target.is_relative_to(root):return False
+                        except (OSError,ValueError):return False
+                    if not clean(value):return False
+            elif isinstance(node,list):
+                return all(clean(entry) for entry in node)
+            return True
+        if not clean(content):return False
+    return True
+
+
 def git_clean(project):
-    if not _checkout_inputs_clean(project) or not cargo_paths_inside_checkout(project):
+    if (not _checkout_inputs_clean(project) or
+        not cargo_paths_inside_checkout(project) or
+        not _external_cargo_overrides_safe(project)):
         return False
     # Git status may hide dirty submodules when .gitmodules sets
     # submodule.<name>.ignore=all. Explicitly enumerate initialized
@@ -151,7 +210,9 @@ def git_clean(project):
             real=child.resolve(strict=True)
             if child.is_symlink() or not real.is_relative_to(base) or not real.is_dir():
                 return False
-            if not _checkout_inputs_clean(child) or not cargo_paths_inside_checkout(child):
+            if (not _checkout_inputs_clean(child) or
+                not cargo_paths_inside_checkout(child) or
+                not _external_cargo_overrides_safe(child)):
                 return False
             revision=subprocess.run(["git","-C",str(child),"rev-parse","HEAD"],
                        capture_output=True,text=True,timeout=15)
@@ -171,6 +232,29 @@ def retained_receipt(path):
     return evidence
 
 
+def _mount_points():
+    """Read Linux mount namespace, including bind mounts on the same device."""
+    try:
+        lines=Path("/proc/self/mountinfo").read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise ValueError("mount namespace unavailable; cleanup denied") from error
+    mounts=[]
+    for line in lines:
+        fields=line.split()
+        if len(fields)<6:raise ValueError("unparseable mount namespace")
+        encoded=fields[4]
+        mount=re.sub(r"\\([0-7]{3})",
+                     lambda m: chr(int(m.group(1),8)),encoded)
+        mounts.append(Path(mount))
+    return mounts
+
+
+def reject_mounts_inside(cache):
+    root=Path(cache).resolve(strict=True)
+    if any(mount==root or mount.is_relative_to(root) for mount in _mount_points()):
+        raise ValueError("mount point inside disposable cache; cleanup denied")
+
+
 def cache_fingerprint(cache):
     """Two stable bounded tree inventories including the root and directories.
 
@@ -183,6 +267,7 @@ def cache_fingerprint(cache):
     if cache.is_symlink() or not cache.is_dir():
         raise ValueError("cache identity unavailable")
     root=cache.resolve(strict=True)
+    reject_mounts_inside(root)
     first=root.lstat()
     identity=(first.st_dev,first.st_ino)
     started=time.monotonic()
@@ -201,8 +286,10 @@ def cache_fingerprint(cache):
         ):
             folder=Path(current)
             before=folder.lstat()
-            if folder.is_symlink() or not folder.resolve(strict=True).is_relative_to(root):
-                raise ValueError("unsafe cache directory")
+            if (folder.is_symlink() or
+                not folder.resolve(strict=True).is_relative_to(root) or
+                before.st_dev!=identity[0]):
+                raise ValueError("unsafe or mounted cache directory")
             digest.update(json.dumps(["directory",str(folder.relative_to(root)),
                                       *metadata(before)],separators=(",",":")).encode())
             digest.update(b"\n")
@@ -210,8 +297,8 @@ def cache_fingerprint(cache):
             for name in sorted(dirs+files):
                 child=folder/name
                 entry=child.lstat()
-                if child.is_symlink():
-                    raise ValueError("symlink inside regenerable cache")
+                if child.is_symlink() or entry.st_dev!=identity[0]:
+                    raise ValueError("symlink or mounted filesystem inside regenerable cache")
                 digest.update(json.dumps(["entry",str(child.relative_to(root)),
                                          *metadata(entry)],separators=(",",":"),
                                          ensure_ascii=False).encode())
@@ -222,6 +309,7 @@ def cache_fingerprint(cache):
             after=folder.lstat()
             if metadata(before)!=metadata(after):
                 raise ValueError("cache directory changed during inventory")
+        reject_mounts_inside(root)
         latest=root.lstat()
         if cache.is_symlink() or (latest.st_dev,latest.st_ino)!=identity:
             raise ValueError("cache identity changed during inventory")

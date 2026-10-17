@@ -330,6 +330,57 @@ class StorageGuardContract(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"cache changed during inventory"):
                 guard.cache_fingerprint(self.cache)
 
+    def test_real_git_cargo_config_external_paths_denied(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            project=root/"repo";project.mkdir()
+            outside=root/"shared";outside.mkdir()
+            (outside/"Cargo.toml").write_text("[package]\nname='shared'\nversion='0.1.0'\n")
+            (project/"Cargo.toml").write_text("[package]\nname='repo'\nversion='0.1.0'\nedition='2021'\n")
+            (project/".cargo").mkdir()
+            config=project/".cargo"/"config.toml"
+            config.write_text("paths = ['../../shared']\n")
+            subprocess.run(["git","init","-q"],cwd=project,check=True)
+            subprocess.run(["git","add","."],cwd=project,check=True)
+            subprocess.run(["git","-c","user.name=Fixture","-c",
+                "user.email=fixture@example.invalid","commit","-qm","external config"],cwd=project,check=True)
+            self.assertFalse(guard.git_clean(project))
+            (project/"vendor").mkdir()
+            (project/"vendor"/"local").mkdir()
+            config.write_text("paths = ['../vendor/local']\n")
+            subprocess.run(["git","add","."],cwd=project,check=True)
+            subprocess.run(["git","-c","user.name=Fixture","-c",
+                "user.email=fixture@example.invalid","commit","-qm","internal config"],cwd=project,check=True)
+            self.assertTrue(guard.git_clean(project))
+
+    def test_global_cargo_config_paths_must_not_supply_build_inputs(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            repo=root/"repo";repo.mkdir()
+            (repo/"Cargo.toml").write_text("[package]\nname='repo'\nversion='0.1.0'\nedition='2021'\n")
+            subprocess.run(["git","init","-q"],cwd=repo,check=True)
+            subprocess.run(["git","add","."],cwd=repo,check=True)
+            subprocess.run(["git","-c","user.name=Fixture","-c",
+                "user.email=fixture@example.invalid","commit","-qm","clean"],cwd=repo,check=True)
+            home=root/"cargo";home.mkdir()
+            (home/"config.toml").write_text("paths = ['../shared']\n")
+            with patch.dict(guard.os.environ,{"CARGO_HOME":str(home)}):
+                self.assertFalse(guard.git_clean(repo))
+
+    def test_same_device_bind_mount_inside_target_denied_by_mount_namespace(self):
+        with patch.object(guard,"_mount_points",return_value=[
+            self.root,self.cache/"bind-on-same-device"
+        ]):
+            with self.assertRaisesRegex(ValueError,"mount point inside"):
+                guard.cache_fingerprint(self.cache)
+
+    def test_mount_namespace_unavailable_denies_fingerprint(self):
+        with patch.object(guard,"_mount_points",side_effect=ValueError("mount namespace unavailable")):
+            with self.assertRaisesRegex(ValueError,"mount namespace unavailable"):
+                guard.cache_fingerprint(self.cache)
+
     def test_uninitialized_submodule_is_never_exact_head(self):
         from subprocess import CompletedProcess
         with patch.object(guard,"_checkout_inputs_clean",return_value=True),patch.object(

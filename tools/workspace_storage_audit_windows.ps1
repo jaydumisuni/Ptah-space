@@ -48,4 +48,3 @@ New-Item -Path $folder -ItemType Directory -Force | Out-Null
 $file = Join-Path $folder 'latest-audit.json'
 [IO.File]::WriteAllText($file,($result | ConvertTo-Json -Depth 8),(New-Object Text.UTF8Encoding($false)))
 Write-Output ($result | ConvertTo-Json -Depth 5 -Compress)
-

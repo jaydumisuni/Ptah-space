@@ -371,6 +371,28 @@ fn unsafe_permissions_and_file_aliases_are_rejected() {
     clean(&path);
 }
 
+#[cfg(unix)]
+#[test]
+fn unsafe_preexisting_sqlite_sidecar_aliases_are_rejected() {
+    use std::os::unix::fs::symlink;
+    let path = scratch();
+    drop(DurableIntentJournal::open(&path).unwrap());
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = PathBuf::from(format!("{}{suffix}", path.display()));
+        let victim = path.with_extension(format!("sidecar-victim-{}", &suffix[1..]));
+        fs::write(&victim, b"protected test sentinel").unwrap();
+        symlink(&victim, &sidecar).unwrap();
+        assert!(matches!(
+            DurableIntentJournal::open(&path),
+            Err(DurableIntentError::Integrity("unsafe journal sidecar"))
+        ));
+        assert_eq!(fs::read(&victim).unwrap(), b"protected test sentinel");
+        fs::remove_file(&sidecar).unwrap();
+        fs::remove_file(&victim).unwrap();
+    }
+    clean(&path);
+}
+
 #[test]
 fn degraded_views_never_promote_offline_intents_to_authority() {
     use ptah_offline_intent::degraded::{DegradedProjection, DegradedState};

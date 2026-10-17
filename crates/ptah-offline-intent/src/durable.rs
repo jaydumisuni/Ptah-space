@@ -205,6 +205,28 @@ impl DurableIntentJournal {
                 }
                 Err(_) => return Err(DurableIntentError::Integrity("journal metadata failed")),
             }
+            // SQLite may reuse pre-existing WAL/SHM sidecars. Reject unsafe
+            // aliases before SQLite can open or modify an unrelated target.
+            for suffix in ["-wal", "-shm"] {
+                let mut name = path.as_os_str().to_os_string();
+                name.push(suffix);
+                match Path::new(&name).symlink_metadata() {
+                    Ok(metadata)
+                        if !metadata.is_file()
+                            || metadata.nlink() != 1
+                            || (metadata.permissions().mode() & 0o077) != 0 =>
+                    {
+                        return Err(DurableIntentError::Integrity("unsafe journal sidecar"));
+                    }
+                    Ok(_) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(_) => {
+                        return Err(DurableIntentError::Integrity(
+                            "journal sidecar metadata failed",
+                        ));
+                    }
+                }
+            }
         }
         #[cfg(not(unix))]
         if path

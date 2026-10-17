@@ -59,8 +59,27 @@ def git_head(project):
     return r.stdout.strip()
 
 def git_clean(project):
-    r=subprocess.run(["git","-C",str(project),"status","--porcelain","--untracked-files=all"],capture_output=True,text=True)
-    return r.returncode==0 and not r.stdout.strip()
+    # Ordinary Git status hides ignored inputs such as .cargo/config.toml.
+    # Other than the exact regenerable root target/, an ignored file/dir
+    # might affect the build without being represented in HEAD.
+    r=subprocess.run(["git","-C",str(project),"status","--porcelain","--untracked-files=all"],
+        capture_output=True,text=True,timeout=15)
+    if r.returncode or r.stdout.strip(): return False
+    ignored=subprocess.run(["git","-C",str(project),"ls-files","--others","--ignored",
+        "--exclude-standard","--directory","-z"],
+        capture_output=True,timeout=20)
+    if ignored.returncode: return False
+    return all(item.decode("utf-8","surrogateescape").rstrip("/")=="target"
+               for item in ignored.stdout.split(b"\0") if item)
+
+
+def retained_receipt(path):
+    # Reject *any* disposable target ancestry, not just the cache being
+    # qualified: another project's independently prunable target can erase it.
+    evidence=Path(path).resolve(strict=True)
+    if "target" in evidence.parts:
+        raise ValueError("receipt inside a disposable target cache")
+    return evidence
 
 def valid_cache(project,cache):
     if project.is_symlink() or cache.is_symlink() or cache.name!="target":
@@ -108,10 +127,8 @@ def mark(project,receipt):
     if active_builds(): raise ValueError("build running: cannot qualify cache")
     proposed=Path(receipt).expanduser()
     if proposed.is_symlink(): raise ValueError("receipt symlink is not allowed")
-    evidence=proposed.resolve(strict=True)
+    evidence=retained_receipt(proposed)
     if not evidence.is_file(): raise ValueError("not a regular evidence receipt")
-    if evidence.is_relative_to(cache.resolve(strict=True)):
-        raise ValueError("receipt inside disposable cache cannot be retained")
     # Safety is based on an *operator-reviewed* proof file, not substring matching.
     proof=json.loads(evidence.read_text())
     if not isinstance(proof,dict) or proof.get("status")!="PASS" or proof.get("head")!=git_head(project):
@@ -147,6 +164,10 @@ def mark(project,receipt):
        "head":git_head(project),"receipt":str(evidence),"receipt_sha256":sha(evidence),
        "qualified_at_epoch":time.time(),"qualified_at_utc":now(),
        "allow_cleanup":True,"cleanup_type":"cargo-clean-target-dir"}
+    # Fresh qualification state must be stable at the moment the marker
+    # becomes visible, not just before receipt parsing and hashing.
+    if active_builds(): raise ValueError("build started while qualifying cache")
+    if not git_clean(project): raise ValueError("source changed while qualifying cache")
     atomic_json(marker_path(cache),item)
     return {"marked_disposable":str(cache),"head":item["head"],"receipt_sha256":item["receipt_sha256"]}
 
@@ -177,8 +198,7 @@ def prune(root,min_age_hours=48,apply=False):
             evidence=Path(x["receipt"])
             if not evidence.is_file() or evidence.is_symlink() or sha(evidence)!=x["receipt_sha256"]:
                 raise ValueError("receipt missing or altered")
-            if evidence.resolve(strict=True).is_relative_to(cache.resolve(strict=True)):
-                raise ValueError("receipt is inside the cache")
+            retained_receipt(evidence)
             if blocked_build: raise ValueError("a Rust build is active on the host")
             saved=size_of(cache)
             action={"cache":str(cache),"estimated_gib":round(saved/GIB,2),"status":"eligible"}

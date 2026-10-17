@@ -116,7 +116,7 @@ class StorageGuardContract(unittest.TestCase):
         inside=self.cache/"evidence.json"
         inside.write_bytes(self.receipt.read_bytes())
         with patch.object(guard,"git_head",return_value="a"*40),patch.object(guard,"git_clean",return_value=True),patch.object(guard,"active_builds",return_value=False):
-            with self.assertRaisesRegex(ValueError,"inside disposable cache"):
+            with self.assertRaisesRegex(ValueError,"disposable target cache"):
                 guard.mark(self.project,inside)
 
     def test_mark_refuses_incomplete_metadata(self):
@@ -146,11 +146,93 @@ class StorageGuardContract(unittest.TestCase):
         self.assertTrue(marker.exists())
 
     def test_checkout_status_includes_untracked_sources(self):
-        with patch.object(guard.subprocess,"run") as runner:
-            runner.return_value.returncode=0
-            runner.return_value.stdout=""
+        from subprocess import CompletedProcess
+        commands=[]
+        def fake_run(command,**kwargs):
+            commands.append(command)
+            if "status" in command:
+                return CompletedProcess(command,0,"","")
+            return CompletedProcess(command,0,b"target/\0",b"")
+        with patch.object(guard.subprocess,"run",side_effect=fake_run):
             self.assertTrue(guard.git_clean(self.project))
-            self.assertIn("--untracked-files=all",runner.call_args.args[0])
+        self.assertIn("--untracked-files=all",commands[0])
+        self.assertIn("--ignored",commands[1])
+
+    def test_ignored_build_input_blocks_exact_head_qualification(self):
+        from subprocess import CompletedProcess
+        for ignored in (b".cargo/config.toml\0",b"build.rs\0",b"crates/\0"):
+            with self.subTest(ignored=ignored):
+                def fake_run(command,**kwargs):
+                    if "status" in command:
+                        return CompletedProcess(command,0,"","")
+                    return CompletedProcess(command,0,ignored,b"")
+                with patch.object(guard.subprocess,"run",side_effect=fake_run):
+                    self.assertFalse(guard.git_clean(self.project))
+
+    def test_cross_project_target_receipt_rejected_during_mark(self):
+        other=self.root/"other"/"target"
+        other.mkdir(parents=True)
+        copy=other/"important-proof.json"
+        copy.write_bytes(self.receipt.read_bytes())
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(
+            guard,"git_clean",return_value=True),patch.object(guard,"active_builds",return_value=False):
+            with self.assertRaisesRegex(ValueError,"disposable target cache"):
+                guard.mark(self.project,copy)
+        self.assertFalse(guard.marker_path(self.cache).exists())
+
+    def test_older_cross_project_receipt_refuses_prune(self):
+        self.qualify()
+        marker=guard.marker_path(self.cache)
+        item=json.loads(marker.read_text())
+        other=self.root/"other"/"target"
+        other.mkdir(parents=True)
+        copy=other/"proof.json"
+        copy.write_bytes(self.receipt.read_bytes())
+        item["receipt"]=str(copy)
+        item["receipt_sha256"]=guard.sha(copy)
+        item["qualified_at_epoch"]=time.time()-72*3600
+        guard.atomic_json(marker,item)
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(
+            guard,"git_clean",return_value=True),patch.object(guard,"active_builds",return_value=False):
+            result=guard.prune(self.root,48,True)
+        self.assertEqual(result["actions"][0]["status"],"protected")
+        self.assertIn("disposable target cache",result["actions"][0]["reason"])
+        self.assertTrue((self.cache/"fixture.bin").exists())
+
+    def test_build_race_before_marker_write_fails_closed(self):
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(
+            guard,"git_clean",return_value=True),patch.object(
+            guard,"active_builds",side_effect=[False,True]):
+            with self.assertRaisesRegex(ValueError,"build started"):
+                guard.mark(self.project,self.receipt)
+        self.assertFalse(guard.marker_path(self.cache).exists())
+
+    def test_source_race_before_marker_write_fails_closed(self):
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(
+            guard,"git_clean",side_effect=[True,False]),patch.object(
+            guard,"active_builds",return_value=False):
+            with self.assertRaisesRegex(ValueError,"source changed"):
+                guard.mark(self.project,self.receipt)
+        self.assertFalse(guard.marker_path(self.cache).exists())
+
+    def test_real_git_ignored_cargo_config_blocks_marking(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as temporary:
+            repo=Path(temporary)
+            (repo/"Cargo.toml").write_text("[package]\nname='test'\nversion='0.1.0'\nedition='2021'\n")
+            (repo/".gitignore").write_text("target/\n.cargo/config.toml\n")
+            (repo/"target").mkdir()
+            (repo/"target"/"fixture").write_text("synthetic compiled file")
+            subprocess.run(["git","init","-q"],cwd=repo,check=True,capture_output=True)
+            subprocess.run(["git","add","Cargo.toml",".gitignore"],cwd=repo,check=True,capture_output=True)
+            subprocess.run(["git","-c","user.name=Test","-c","user.email=test@example.invalid",
+                            "commit","-qm","test fixture"],cwd=repo,check=True,capture_output=True)
+            self.assertTrue(guard.git_clean(repo))
+            (repo/".cargo").mkdir()
+            (repo/".cargo"/"config.toml").write_text("[build]\nrustflags=['-C', 'target-cpu=native']\n")
+            self.assertFalse(guard.git_clean(repo))
+            (repo/".cargo"/"config.toml").unlink()
+            self.assertTrue(guard.git_clean(repo))
 
 if __name__=="__main__":
     unittest.main()

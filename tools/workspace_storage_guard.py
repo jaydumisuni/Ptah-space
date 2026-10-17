@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 import socket
 import subprocess
 import sys
@@ -82,7 +81,15 @@ def audit(root):
         try: caches.append({"path":str(cache),"bytes":size_of(cache)})
         except (OSError,ValueError,subprocess.SubprocessError): pass
     caches.sort(key=lambda x:x["bytes"],reverse=True)
-    result={"schema":"ttg.storage.audit.v1","utc":now(),"host":socket.gethostname(),
+    free_gib=st.f_bavail*st.f_frsize/GIB
+    available_pct=100*st.f_bavail/max(1,st.f_blocks)
+    total_gib=sum(x["bytes"] for x in caches)/GIB
+    alerts=[]
+    if free_gib<40 or available_pct<15:
+        alerts.append("LOW_FREE_SPACE")
+    if total_gib>10:
+        alerts.append("MULTIPLE_CARGO_BUILDS_EXCEED_10_GIB")
+    result={"schema":"ttg.storage.audit.v1","alerts":alerts,"utc":now(),"host":socket.gethostname(),
       "root":str(root),"filesystem_free_gib":round(st.f_bavail*st.f_frsize/GIB,2),
       "filesystem_used_pct":round(100*(st.f_blocks-st.f_bfree)/max(1,st.f_blocks),2),
       "cargo_target_count":len(caches),"cargo_targets_gib":round(sum(x["bytes"] for x in caches)/GIB,2),
@@ -100,7 +107,11 @@ def mark(project,receipt):
     evidence=Path(receipt).expanduser().resolve(strict=True)
     if evidence.is_symlink() or not evidence.is_file(): raise ValueError("not a regular evidence receipt")
     # Safety is based on an *operator-reviewed* proof file, not substring matching.
-    if not evidence.read_bytes(): raise ValueError("empty evidence receipt")
+    proof=json.loads(evidence.read_text())
+    if not isinstance(proof,dict) or proof.get("status")!="PASS" or proof.get("head")!=git_head(project):
+        raise ValueError("receipt must be structured PASS at exact Git head")
+    if not proof.get("evidence_ref") or not proof.get("tests") or proof.get("allow_disposable_cleanup") is not True:
+        raise ValueError("receipt missing proof reference, tests or cleanup decision")
     item={"schema":"ttg.storage.cache-qualification.v1","project":str(project),"cache":str(cache),
        "head":git_head(project),"receipt":str(evidence),"receipt_sha256":sha(evidence),
        "qualified_at_epoch":time.time(),"qualified_at_utc":now(),

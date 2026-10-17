@@ -40,8 +40,8 @@ class LocalPtahWorkspace:
             resolved = provided.resolve(strict=True)
         except (OSError, RuntimeError) as exc:
             raise WorkspaceUnavailable("Ptah root missing or unreadable") from exc
-        if not resolved.is_dir() or not (resolved / ".git").exists():
-            raise WorkspaceUnavailable("expected existing Ptah Git repository")
+        if not resolved.is_dir():
+            raise WorkspaceUnavailable("expected an existing Ptah directory")
         self.root = resolved
         self.state = _directory(resolved, ".workspace")
 
@@ -50,7 +50,12 @@ class LocalPtahWorkspace:
             raise WorkspaceUnavailable("caller label must be bounded")
         areas: dict[str, str] = {}
         entries: dict[str, list[str]] = {}
+        missing: list[str] = []
         for name in _AREAS:
+            path = self.state / name
+            if not path.exists() and not path.is_symlink():
+                missing.append(name)
+                continue
             path = _directory(self.state, name)
             areas[name] = str(path)
             entries[name] = sorted(
@@ -60,8 +65,11 @@ class LocalPtahWorkspace:
         return {
             "schema": "ptah.local-workspace-discovery.v1",
             "caller_label": caller,
-            "repository": str(self.root),
+            "ptah_root": str(self.root),
+            "repository": str(self.root) if (self.root / ".git").exists() else None,
             "workspace_root": str(self.state),
+            "git_checkout_present": (self.root / ".git").exists(),
+            "missing_optional_areas": missing,
             "areas": areas,
             "directory_names": entries,
             "transport": "provided_by_caller_outside_ptah",

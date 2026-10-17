@@ -119,6 +119,11 @@ python3 clients/python/ptah_local_workspace.py \
   --root /home/kratos/projects/Ptah-space --caller chatgpt
 ```
 
+A partially populated Ptah directory (including an ATHENA workspace without a
+Git checkout) is still discoverable: `git_checkout_present=false` and
+`missing_optional_areas` report exactly what is absent. No missing
+directory is created or claimed to exist.
+
 Both resolve the same canonical `.workspace/workspaces`, `worktrees`,
 `evidence`, `proof-history` and `recovery` areas. The caller label is
 provenance only. Files and tools are used via the caller's existing Oracle

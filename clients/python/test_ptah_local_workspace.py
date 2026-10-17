@@ -35,6 +35,17 @@ class LocalWorkspaceTests(unittest.TestCase):
         with self.assertRaises(WorkspaceUnavailable):
             LocalPtahWorkspace(self.base)
 
+    def test_partial_workspace_without_git_remains_discoverable(self):
+        (self.base / ".git").rmdir()
+        (self.base / ".workspace" / "proof-history").rmdir()
+        view = LocalPtahWorkspace(self.base).caller_view("hunter")
+        self.assertFalse(view["git_checkout_present"])
+        self.assertIsNone(view["repository"])
+        self.assertEqual(view["ptah_root"], str(self.base.resolve()))
+        self.assertIn("proof-history", view["missing_optional_areas"])
+        self.assertNotIn("proof-history", view["areas"])
+        self.assertIn("workspaces", view["areas"])
+
     def test_symlinked_root_or_area_is_rejected(self):
         alias = Path(self.temp.name) / "alias"
         alias.symlink_to(self.base, target_is_directory=True)

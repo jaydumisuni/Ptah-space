@@ -153,3 +153,23 @@ KRATOS evidence 17 October 2026: local caller discovery succeeded for
 `hunter` and `chatgpt`, and Python tests were 23/23 PASS. Oracle reported
 ATHENA **offline** during this check, so cross-host live continuity and
 adoption by the running Hunter process are not claimed.
+
+## October 17 live Hunter workspace proof and ATHENA preparation
+
+Hunter PR #226 adds authenticated read-only Ptah observation to the
+existing Hunter cognitive bridge. Its versioned KRATOS deployment
+returned HTTP 200 from the *running* Hunter service with
+`ptahWorkspace.workspacePresent=true`, all five existing Ptah areas,
+and `executionAuthorized=false`. The service kept its former Cognition
+and bridge-secret protections; Ptah did not become a transport or
+permission authority. This proves the running KRATOS cognitive bridge
+uses the Ptah locator at startup, **not** that all Hunter frontends do.
+
+This repository's cross-platform workspace client now also has a focused
+Windows hosted-CI lane that tests a partial ATHENA-style
+`.workspace` root with no Git checkout or native E07 Node service.
+That is Windows portability qualification, not a physical ATHENA read.
+ATHENA was absent from Oracle's live nodes during the current check.
+A future direct ATHENA observation must identify the actual existing root
+and invoke this same local client using Oracle access; do not create
+missing folders or claim native Ptah E07 enrollment is required.

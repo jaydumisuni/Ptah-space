@@ -58,19 +58,52 @@ def git_head(project):
     if r.returncode: raise ValueError("not a Git source checkout")
     return r.stdout.strip()
 
-def git_clean(project):
-    # Ordinary Git status hides ignored inputs such as .cargo/config.toml.
-    # Other than the exact regenerable root target/, an ignored file/dir
-    # might affect the build without being represented in HEAD.
-    r=subprocess.run(["git","-C",str(project),"status","--porcelain","--untracked-files=all"],
-        capture_output=True,text=True,timeout=15)
+def _checkout_inputs_clean(project):
+    """Fail closed on tracked, untracked and ignored build inputs in a checkout.
+
+    Explicit --ignore-submodules=none overrides submodule.ignore=all.
+    The only exempt ignored path is a direct regenerable target/ cache.
+    """
+    r=subprocess.run(["git","-C",str(project),"status","--porcelain",
+                      "--untracked-files=all","--ignore-submodules=none"],
+                     capture_output=True,text=True,timeout=15)
     if r.returncode or r.stdout.strip(): return False
-    ignored=subprocess.run(["git","-C",str(project),"ls-files","--others","--ignored",
-        "--exclude-standard","--directory","-z"],
-        capture_output=True,timeout=20)
-    if ignored.returncode: return False
+    ignored=subprocess.run(["git","-C",str(project),"ls-files","--others",
+                            "--ignored","--exclude-standard","--directory","-z"],
+                           capture_output=True,timeout=20)
+    if ignored.returncode:return False
     return all(item.decode("utf-8","surrogateescape").rstrip("/")=="target"
                for item in ignored.stdout.split(b"\0") if item)
+
+
+def git_clean(project):
+    if not _checkout_inputs_clean(project):
+        return False
+    # Git status may hide dirty submodules when .gitmodules sets
+    # submodule.<name>.ignore=all. Explicitly enumerate initialized
+    # recursive gitlinks, verify expected HEAD, and inspect their checkouts.
+    tree=subprocess.run(["git","-C",str(project),"submodule","status","--recursive"],
+                        capture_output=True,text=True,timeout=25)
+    if tree.returncode:return False
+    for entry in tree.stdout.splitlines():
+        # Leading space means initialized at the expected gitlink SHA.
+        # - (uninitialized), + (wrong commit), U (conflict) are forbidden.
+        match=re.fullmatch(r" ([0-9a-f]{40}) (.+?)(?: \([^\n]*\))?",entry)
+        if not match:return False
+        child=Path(project)/match.group(2)
+        try:
+            base=Path(project).resolve(strict=True)
+            real=child.resolve(strict=True)
+            if child.is_symlink() or not real.is_relative_to(base) or not real.is_dir():
+                return False
+            if not _checkout_inputs_clean(child):return False
+            revision=subprocess.run(["git","-C",str(child),"rev-parse","HEAD"],
+                       capture_output=True,text=True,timeout=15)
+            if revision.returncode or revision.stdout.strip()!=match.group(1):
+                return False
+        except (OSError,ValueError,subprocess.SubprocessError):
+            return False
+    return True
 
 
 def retained_receipt(path):

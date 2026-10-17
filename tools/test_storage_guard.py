@@ -152,6 +152,8 @@ class StorageGuardContract(unittest.TestCase):
             commands.append(command)
             if "status" in command:
                 return CompletedProcess(command,0,"","")
+            if "submodule" in command:
+                return CompletedProcess(command,0,"","")
             return CompletedProcess(command,0,b"target/\0",b"")
         with patch.object(guard.subprocess,"run",side_effect=fake_run):
             self.assertTrue(guard.git_clean(self.project))
@@ -214,6 +216,57 @@ class StorageGuardContract(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"checkout changed"):
                 guard.mark(self.project,self.receipt)
         self.assertFalse(guard.marker_path(self.cache).exists())
+
+    def test_real_git_submodule_ignore_all_cannot_hide_changed_build_inputs(self):
+        import subprocess
+        def git(cwd,*args):
+            return subprocess.run(["git",*args],cwd=cwd,check=True,
+                                  capture_output=True,text=True).stdout.strip()
+        with tempfile.TemporaryDirectory() as temporary:
+            folder=Path(temporary)
+            child=folder/"upstream-module"
+            parent=folder/"parent"
+            child.mkdir();parent.mkdir()
+            git(child,"init","-q")
+            (child/"Cargo.toml").write_text("[package]\nname='sub'\nversion='0.1.0'\nedition='2021'\n")
+            (child/"src").mkdir()
+            (child/"src"/"lib.rs").write_text("pub fn value() -> u32 { 1 }\n")
+            git(child,"add",".")
+            git(child,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid",
+                "commit","-qm","first version")
+            git(parent,"init","-q")
+            (parent/"Cargo.toml").write_text("[package]\nname='parent'\nversion='0.1.0'\nedition='2021'\n")
+            (parent/".gitignore").write_text("target/\n")
+            git(parent,"add",".")
+            git(parent,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid",
+                "commit","-qm","root")
+            git(parent,"-c","protocol.file.allow=always","submodule","add","-q",
+                str(child),"vendor/module")
+            git(parent,"config","-f",".gitmodules","submodule.vendor/module.ignore","all")
+            git(parent,"add",".gitmodules","vendor/module")
+            git(parent,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid",
+                "commit","-qm","add ignored-status submodule")
+            module=parent/"vendor"/"module"
+            self.assertTrue(guard.git_clean(parent))
+            (module/"src"/"lib.rs").write_text("pub fn value() -> u32 { 999 }\n")
+            self.assertFalse(guard.git_clean(parent))
+            git(module,"checkout","--","src/lib.rs")
+            self.assertTrue(guard.git_clean(parent))
+            (module/"build.rs").write_text("fn main() {}\n")
+            self.assertFalse(guard.git_clean(parent))
+            (module/"build.rs").unlink()
+            self.assertTrue(guard.git_clean(parent))
+            (module/".cargo").mkdir()
+            (module/".cargo"/"config.toml").write_text("[build]\nrustflags=['-C','target-cpu=native']\n")
+            self.assertFalse(guard.git_clean(parent))
+
+    def test_uninitialized_submodule_is_never_exact_head(self):
+        from subprocess import CompletedProcess
+        with patch.object(guard,"_checkout_inputs_clean",return_value=True),patch.object(
+            guard.subprocess,"run",return_value=CompletedProcess(
+                ["git","submodule","status"],0,"-"+
+                "0"*40+" missing/module\n","")):
+            self.assertFalse(guard.git_clean(self.project))
 
     def test_real_git_ignored_cargo_config_blocks_marking(self):
         import subprocess

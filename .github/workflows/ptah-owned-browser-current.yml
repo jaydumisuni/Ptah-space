@@ -67,6 +67,18 @@ jobs:
           grep -q '^# pass 31$' /tmp/ptah-owned-browser.tap
           grep -q '^# fail 0$' /tmp/ptah-owned-browser.tap
 
+      - name: Verify certificate-chain recovery without disabling TLS
+        working-directory: browser-provider
+        env:
+          PTAH_PLAYWRIGHT_PHYSICAL: "1"
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap test/parliament-tls-chain-recovery.test.mjs \
+            | tee /tmp/ptah-parliament-chain.tap
+          grep -q '^# tests 7$' /tmp/ptah-parliament-chain.tap
+          grep -q '^# pass 7$' /tmp/ptah-parliament-chain.tap
+          grep -q '^# fail 0$' /tmp/ptah-parliament-chain.tap
+
       - name: Verify changed file whitespace and no runtime binary committed
         run: |
           set -euo pipefail

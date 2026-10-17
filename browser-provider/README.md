@@ -109,3 +109,34 @@ production AI-agent task dispatch. Production Node enrollment and canonical
 provider selection still require separate control-plane admission. Neither the
 operator CLI nor this wrapper grants persistent-profile leases or bypasses site
 authentication/captcha restrictions.
+
+
+## Zambia Parliament certificate-chain recovery
+
+The public `https://www.parliament.gov.zm/` server (41.77.146.98, observed 2026-10-17) sends
+a valid `*.parliament.gov.zm` RapidSSL leaf certificate **without its RapidSSL TLS RSA CA G1
+intermediate**. OpenSSL/curl consequently report `unable to get local issuer certificate`.
+The official `https://parliament.gov.zm/` server (41.77.145.34) serves the same valid
+wildcard leaf **plus its intermediate** and the standard trusted DigiCert root, but the
+apex website redirects to an AppSuite login. That login is NOT an equivalent public
+Parliament website and is never substituted into search/browser results.
+
+If and **only if** Ptah Chromium receives `ERR_CERT_AUTHORITY_INVALID` from the **exact**
+public HTTPS host `www.parliament.gov.zm`, A11 opens a temporary separate page to
+`https://parliament.gov.zm/` **inside the same isolated browser context**. Chromium
+must itself validate that HTTPS page and load the expected official origin successfully;
+only then does it retry the original, unchanged public HTTPS URL. The browser has
+**no `ignoreHTTPSErrors`, `--ignore-certificate-errors` or certificate-verification bypass**.
+If either HTTPS verification fails, navigation is rejected. No new root authority or
+system trust setting is installed. Normal navigation never incurs the recovery request.
+
+Security regression: `test/parliament-tls-chain-recovery.test.mjs` checks exact hostname
+gating, same-path recovery, authenticated warmup, closure on failed warmup, and explicit
+TLS-bypass rejection. Dedicated current-head CI runs these tests **in addition** to
+the original 31 physical A11 tests; the A11 historical proof and maintenance governance
+checks are unchanged.
+
+The server-side missing intermediate remains the website operator's responsibility.
+Ptah repairs this narrow **client rendering** failure; this does **not** make the
+original web server's incomplete TLS chain valid for other software or claim
+universal Internet certificate remediation.

@@ -31,3 +31,13 @@ self-enroll or self-authorize for production. See
 Repository-owned public Ptah source is licensed under the Apache License, Version 2.0. See `LICENSE`, `NOTICE`, `CONTRIBUTING.md`, `SECURITY.md`, `REUSE.toml`, and `legal/apache-2.0-boundary.json`.
 
 Private THETECHGUY systems, Hunter private knowledge, customer/device/payment data, restricted adapters, unlicensed donor source, and THETECHGUY/Ptah/Hunter trademarks are not automatically licensed by this public repository.
+
+## Optional public-Web search provider
+
+The separate, strictly **zero-cash** read-only Web discovery adapter lives at
+[`public-web-search-provider/`](public-web-search-provider/README.md).
+It reuses an independently installed, verified TTG Search wheel and preserves
+existing Browser and canonical B07/D03 search boundaries. External results are
+non-authoritative. Source-level/isolated qualification does **not** activate a
+Ptah production service or bypass Node enrollment/lease authority.
+See [integration qualification](docs/integrations/public-web-search-20261015.md).

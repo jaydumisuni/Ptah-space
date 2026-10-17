@@ -1,0 +1,9 @@
+{
+  "name": "ptah-public-web-search-provider",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Ptah read-only external Web discovery provider. Uses separately installed TTG Search.",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test", "check": "node --check src/core.mjs && node --check src/server.mjs && node --check src/index.mjs", "start": "node src/server.mjs" }
+}

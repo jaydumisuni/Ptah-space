@@ -1,0 +1,28 @@
+{
+  "schema": "ptah.public-web-search.provider-descriptor.v1",
+  "id": "ptah.public-web-search",
+  "provider_kind": "knowledge",
+  "backend": "isolated_read_only_subprocess",
+  "protocol": "ptah.public_web_search.v1",
+  "engine": "ttg-internet-search@0.7.0a2",
+  "operations": [
+    "search",
+    "read",
+    "health"
+  ],
+  "effects": [
+    "observe"
+  ],
+  "network": "public_https_outbound_only_via_ttq_search",
+  "source_authority": "external_noncanonical_derived",
+  "browser_replacement": false,
+  "budget_zmw": 0,
+  "configuration": "PTAH_PUBLIC_WEB_PYTHON + PTAH_PUBLIC_WEB_HOME + PTAH_PUBLIC_WEB_STATE_DIR; optional PTAH_PUBLIC_WEB_INDEX_DB",
+  "registration_state": "NOT_AUTO_REGISTERED; upstream D04 authorization required for production dispatch",
+  "notes": [
+    "No Ptah schema migration, canonical index merge, lease, service activation, or workspace authority.",
+    "Structured discovery is not fact verification.",
+    "Public HTML is untrusted; browser remains separate.",
+    "Free providers apply their own usage limits."
+  ]
+}

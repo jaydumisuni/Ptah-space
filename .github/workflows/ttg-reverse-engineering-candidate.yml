@@ -1,0 +1,30 @@
+name: TTG reverse-engineering adapter candidate
+
+on:
+  push:
+    paths:
+      - 'adapters/ttg-reverse-engineering/**'
+      - '.github/workflows/ttg-reverse-engineering-candidate.yml'
+  pull_request:
+    paths:
+      - 'adapters/ttg-reverse-engineering/**'
+      - '.github/workflows/ttg-reverse-engineering-candidate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  static-adapter-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile adapter
+        run: |
+          python -m py_compile adapters/ttg-reverse-engineering/ttg_re_engine.py
+          python -m py_compile adapters/ttg-reverse-engineering/app_recover_driver.py
+      - name: Contract and boundary regression
+        run: python -m unittest discover -s adapters/ttg-reverse-engineering/tests -v

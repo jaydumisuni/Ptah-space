@@ -1,0 +1,76 @@
+{
+  "schema": "ttg.ptah.reverse-engineering.provider-candidate.v1",
+  "status": "not_admitted",
+  "disposition": "external_adapters_only",
+  "input_policy": {
+    "materialized_local_path_required": true,
+    "owner_grant_required": true,
+    "regular_files_or_js_application_directory": true,
+    "source_mutation": false,
+    "output_directory_must_be_new": true
+  },
+  "ptah_boundary": {
+    "admission": "caller_authorized_workspace_and_grant",
+    "execution": "A04_Activity_A05_native_process",
+    "results": "A07_derived_artifact_registration_required",
+    "promotion": "review_gate_required",
+    "automatic_registration": false
+  },
+  "operations": [
+    {
+      "id": "ttg.reverse.inspect.v1",
+      "effect": "observe",
+      "backend": "neutral_fingerprint",
+      "launches_target": false
+    },
+    {
+      "id": "ttg.reverse.apk_views.v1",
+      "effect": "draft",
+      "backend": "apk_extractor_workflow",
+      "launches_target": false,
+      "external_tools": [
+        "apktool",
+        "jadx"
+      ]
+    },
+    {
+      "id": "ttg.reverse.pe_exports.v1",
+      "effect": "observe",
+      "backend": "app_recover_static",
+      "launches_target": false
+    },
+    {
+      "id": "ttg.reverse.rea_inspect.v1",
+      "effect": "observe",
+      "backend": "rea_cli",
+      "launches_target": false
+    }
+  ],
+  "source_authority": [
+    {
+      "repository": "jaydumisuni/apk-extractor",
+      "revision": "508a5b80d5d5b7cb0e50befde4b5ad207d60df83",
+      "copying_source_into_public_ptah": false
+    },
+    {
+      "repository": "jaydumisuni/app-recover",
+      "revision": "b986c1db2b66d50188850c4a7c991e2bf8e3a699",
+      "copying_source_into_public_ptah": false
+    },
+    {
+      "repository": "jaydumisuni/rea",
+      "revision": "c7697595d8e1b54ab04ba661f98ad595d0993c34",
+      "installed_package": "rea-agents@6.5.0",
+      "fork_equal_to_package_unproven": true,
+      "copying_source_into_public_ptah": false
+    }
+  ],
+  "release_decision": "candidate_only_until_admitted",
+  "omitted_capabilities": [
+    "device_mutation",
+    "target_program_execution",
+    "decompiler_completeness",
+    "binary_rebuild",
+    "production_provider_registration"
+  ]
+}

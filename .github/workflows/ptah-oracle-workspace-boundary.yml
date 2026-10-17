@@ -1,0 +1,44 @@
+name: Ptah Oracle workspace boundary
+on:
+  pull_request:
+    paths:
+      - 'clients/python/ptah_local_workspace.py'
+      - 'clients/python/test_ptah_local_workspace.py'
+      - 'clients/python/test_ptah_windows_workspace.py'
+      - 'clients/python/README.md'
+      - 'docs/plans/2026-10-18-ptah-oracle-workspace-boundary.md'
+      - '.github/workflows/ptah-oracle-workspace-boundary.yml'
+  push:
+    branches:
+      - fix/ptah-oracle-workspace-boundary-20261018
+    paths:
+      - 'clients/python/**'
+      - '.github/workflows/ptah-oracle-workspace-boundary.yml'
+jobs:
+  linux-workspace:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Check module syntax
+        run: python -m py_compile clients/python/ptah_local_workspace.py
+      - name: Test local read-only workspace boundaries
+        working-directory: clients/python
+        run: python -m unittest -v test_ptah_local_workspace.py
+  windows-partial-workspace:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Check portable workspace locator
+        run: python -m py_compile clients/python/ptah_local_workspace.py
+      - name: Validate partial workspace without Node or Git
+        working-directory: clients/python
+        run: python -m unittest -v test_ptah_windows_workspace.py

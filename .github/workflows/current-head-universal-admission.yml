@@ -64,6 +64,22 @@ jobs:
           else
             echo "SEARCH_SCOPE_NOT_APPLICABLE_NOT_TESTED"
           fi
+      - name: Verify separate A11 maintenance scope when applicable
+        run: |
+          set -euo pipefail
+          python3 -m unittest tools/test_check_a11_maintenance_admission.py -q
+          if python3 - "$RUNNER_TEMP/current-pr-scope.json" <<'PY'
+          import json,sys
+          j=json.load(open(sys.argv[1],encoding="utf-8"))
+          sys.exit(0 if j.get("a11_maintenance_scope_requires_independent_checker") else 1)
+          PY
+          then
+            python3 tools/check_a11_maintenance_admission.py \
+              --base "$PTAH_ADMISSION_BASE" --head "$PTAH_ADMISSION_HEAD" \
+              --output "$RUNNER_TEMP/a11-maintenance-scope.json"
+          else
+            echo "A11_MAINTENANCE_SCOPE_NOT_APPLICABLE_HISTORIC_PROOF_UNCHANGED"
+          fi
       - name: Verify universal formatting and exact-head stability
         run: |
           set -euo pipefail

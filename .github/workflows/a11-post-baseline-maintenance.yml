@@ -1,0 +1,104 @@
+name: A11 post-baseline exact-head maintenance admission
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  a11-maintenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PTAH_HEAD: ${{ github.event.pull_request.head.sha }}
+      PTAH_BASE: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - name: Checkout pinned PR commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Determine whether independent A11 qualification applies
+        id: scope
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_HEAD"
+          git merge-base --is-ancestor "$PTAH_BASE" "$PTAH_HEAD"
+          python3 -m unittest tools/test_check_a11_maintenance_admission.py -q
+          if git diff --name-only "$PTAH_BASE...$PTAH_HEAD" |
+              grep -E '^(browser-provider/|tools/ptah_workspace_browser\.mjs|tools/ptah_workspace\.mjs|\.github/workflows/ptah-owned-browser-current\.yml)' >/dev/null; then
+            python3 tools/check_a11_maintenance_admission.py \
+              --base "$PTAH_BASE" --head "$PTAH_HEAD" --output "$RUNNER_TEMP/a11-scope.json"
+            echo "required=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "A11_NOT_APPLICABLE_HISTORIC_PROOF_UNCHANGED"
+            echo "required=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install pinned Rust
+        if: steps.scope.outputs.required == 'true'
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+          rustc -V | grep -q '^rustc 1.97.1 '
+      - name: Exact A11 runtime and provider tests
+        if: steps.scope.outputs.required == 'true'
+        run: |
+          set -euo pipefail
+          cargo test -p ptah-browser-runtime --test a11 --locked
+          cargo test -p ptah-provider-api --locked
+          cargo fmt --all -- --check
+      - name: Install pinned Node
+        if: steps.scope.outputs.required == 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: browser-provider/package-lock.json
+      - name: Install exact Chromium in owned runtime
+        if: steps.scope.outputs.required == 'true'
+        working-directory: browser-provider
+        run: |
+          set -euo pipefail
+          test "$(node -v)" = "v24.18.0"
+          npm ci --ignore-scripts
+          npm run check
+          mkdir -p .workspace/browser-runtime
+          PLAYWRIGHT_BROWSERS_PATH="$PWD/.workspace/browser-runtime" npx playwright install --with-deps chromium
+          test -x .workspace/browser-runtime/chromium-1223/chrome-linux64/chrome
+          test "$(node -p "require('./node_modules/playwright/package.json').version")" = "1.60.0"
+      - name: Physical A11 browser and independent-agent proof
+        if: steps.scope.outputs.required == 'true'
+        working-directory: browser-provider
+        env:
+          PTAH_PLAYWRIGHT_PHYSICAL: "1"
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap test/owned-chromium.test.mjs \
+            test/owned-physical-isolation.test.mjs test/playwright-qualification.test.mjs \
+            test/provider-core.test.mjs test/workspace-operator.test.mjs \
+            | tee "$RUNNER_TEMP/a11-maintenance-tests.tap"
+          grep -q '^# fail 0$' "$RUNNER_TEMP/a11-maintenance-tests.tap"
+          grep -q '^# pass 26$' "$RUNNER_TEMP/a11-maintenance-tests.tap"
+      - name: Preserve exact-head qualification and no self-mutating proofs
+        if: steps.scope.outputs.required == 'true'
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_HEAD"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          git diff --check "$PTAH_BASE...$PTAH_HEAD"
+          python3 tools/check_a11_maintenance_admission.py \
+            --base "$PTAH_BASE" --head "$PTAH_HEAD" --output "$RUNNER_TEMP/a11-scope-final.json"
+          cmp "$RUNNER_TEMP/a11-scope.json" "$RUNNER_TEMP/a11-scope-final.json"
+      - name: Upload A11 current-head evidence
+        if: steps.scope.outputs.required == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a11-post-baseline-${{ env.PTAH_HEAD }}
+          path: |
+            ${{ runner.temp }}/a11-scope.json
+            ${{ runner.temp }}/a11-maintenance-tests.tap
+          retention-days: 30

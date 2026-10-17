@@ -106,7 +106,8 @@ class ApplicabilityProofTests(unittest.TestCase):
 
     def test_phase_owned_on_governance_must_remain_separately_proved(self):
         script=(ROOT/"tools/check_current_pr_admission.py").read_text()
-        self.assertIn('if relevant:\n            # A simultaneous governance change',script)
+        self.assertIn('if name == "a11-browser-provider-proof.yml" and not historic_changes:',script)
+        self.assertIn("A11_POST_BASELINE_PHYSICAL_PROOF_REQUIRED",script)
         self.assertIn("independent_phase_owned_change_requires_own_proof",script)
 
 

@@ -31,14 +31,19 @@ class StorageGuardContract(unittest.TestCase):
         self.receipt.write_text(json.dumps({
             "status":"PASS","head":"a"*40,
             "tests":["synthetic-fixture"],"evidence_ref":"fixture://local-receipt",
-            "allow_disposable_cleanup":True
+            "allow_disposable_cleanup":True,
+            "machine":"KRATOS",
+            "utc":"2026-10-17T09:00:00+00:00",
+            "commands":["cargo test --locked --offline"],
+            "output_hashes":{"test_output":"a"*64},
+            "cleanup_classification":"regenerable_cargo_target"
         }))
         self.saved_state=guard.STATE
         guard.STATE=self.root/"state"
         self.addCleanup(setattr,guard,"STATE",self.saved_state)
 
     def qualify(self):
-        with patch.object(guard,"git_head",return_value="a"*40),patch.object(guard,"git_clean",return_value=True):
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(guard,"git_clean",return_value=True),patch.object(guard,"active_builds",return_value=False):
             return guard.mark(self.project,self.receipt)
 
     def test_scan_is_read_only_and_bounded(self):
@@ -58,13 +63,13 @@ class StorageGuardContract(unittest.TestCase):
             "status":"PASS","head":"bad","tests":["sample"],"evidence_ref":"fixture://x",
             "allow_disposable_cleanup":True
         }))
-        with patch.object(guard,"git_head",return_value="a"*40),patch.object(guard,"git_clean",return_value=True):
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(guard,"git_clean",return_value=True),patch.object(guard,"active_builds",return_value=False):
             with self.assertRaises(ValueError):
                 guard.mark(self.project,self.receipt)
 
     def test_missing_pass_or_explicit_cleanup_fails_closed(self):
         self.receipt.write_text(json.dumps({"status":"FAIL","head":"a"*40,"tests":["sample"],"evidence_ref":"fixture://x"}))
-        with patch.object(guard,"git_head",return_value="a"*40),patch.object(guard,"git_clean",return_value=True):
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(guard,"git_clean",return_value=True),patch.object(guard,"active_builds",return_value=False):
             with self.assertRaises(ValueError):
                 guard.mark(self.project,self.receipt)
 
@@ -106,5 +111,46 @@ class StorageGuardContract(unittest.TestCase):
             result=guard.prune(self.root,48,False)
         self.assertEqual(result["actions"][0]["status"],"protected")
         self.assertTrue(marker.exists())
+
+    def test_mark_refuses_evidence_inside_target(self):
+        inside=self.cache/"evidence.json"
+        inside.write_bytes(self.receipt.read_bytes())
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(guard,"git_clean",return_value=True),patch.object(guard,"active_builds",return_value=False):
+            with self.assertRaisesRegex(ValueError,"inside disposable cache"):
+                guard.mark(self.project,inside)
+
+    def test_mark_refuses_incomplete_metadata(self):
+        data=json.loads(self.receipt.read_text())
+        del data["output_hashes"]
+        self.receipt.write_text(json.dumps(data))
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(guard,"git_clean",return_value=True),patch.object(guard,"active_builds",return_value=False):
+            with self.assertRaisesRegex(ValueError,"SHA-256"):
+                guard.mark(self.project,self.receipt)
+
+    def test_mark_denied_during_active_build(self):
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(guard,"git_clean",return_value=True),patch.object(guard,"active_builds",return_value=True):
+            with self.assertRaisesRegex(ValueError,"build running"):
+                guard.mark(self.project,self.receipt)
+        self.assertFalse(guard.marker_path(self.cache).exists())
+
+    def test_prune_rechecks_build_immediately_before_cargo_clean(self):
+        self.qualify()
+        marker=guard.marker_path(self.cache)
+        m=json.loads(marker.read_text())
+        m["qualified_at_epoch"]=time.time()-72*3600
+        guard.atomic_json(marker,m)
+        with patch.object(guard,"git_head",return_value="a"*40),patch.object(guard,"git_clean",return_value=True),patch.object(guard,"size_of",return_value=100),patch.object(guard,"active_builds",side_effect=[False,True]),patch.object(guard.subprocess,"run",side_effect=AssertionError("cargo clean must not execute")):
+            result=guard.prune(self.root,48,True)
+        self.assertEqual(result["actions"][0]["status"],"protected")
+        self.assertTrue((self.cache/"fixture.bin").exists())
+        self.assertTrue(marker.exists())
+
+    def test_checkout_status_includes_untracked_sources(self):
+        with patch.object(guard.subprocess,"run") as runner:
+            runner.return_value.returncode=0
+            runner.return_value.stdout=""
+            self.assertTrue(guard.git_clean(self.project))
+            self.assertIn("--untracked-files=all",runner.call_args.args[0])
+
 if __name__=="__main__":
     unittest.main()

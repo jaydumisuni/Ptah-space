@@ -6,6 +6,7 @@ on:
       - 'docs/operations/WORKSPACE_STORAGE_LIFECYCLE.md'
       - 'tools/workspace_storage_guard.py'
       - 'tools/test_storage_guard.py'
+      - 'tools/workspace_storage_audit_windows.ps1'
       - '.github/workflows/workspace-storage-lifecycle.yml'
   push:
     paths:

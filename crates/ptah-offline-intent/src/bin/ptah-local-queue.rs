@@ -25,6 +25,24 @@ fn run() -> Result<(), String> {
         "status" | "enqueue" => {}
         _ => return Err(String::from("unknown command; expected status|enqueue")),
     }
+    let draft = if command == "enqueue" {
+        let draft = IntentDraft {
+            node_id: parts[0].clone(),
+            intent_id: parts[1].clone(),
+            workspace_id: parts[2].clone(),
+            activity_id: parts[3].clone(),
+            operation_id: parts[4].clone(),
+            attempt_id: parts[5].clone(),
+            action: parts[6].clone(),
+            canonical_input_digest: parts[7].clone(),
+        };
+        draft
+            .validate()
+            .map_err(|e| format!("queue rejected: {e:?}"))?;
+        Some(draft)
+    } else {
+        None
+    };
     let mut queue = DurableIntentJournal::open(Path::new(&path))
         .map_err(|error| format!("journal failed closed: {error:?}"))?;
     match command.as_str() {
@@ -43,18 +61,9 @@ fn run() -> Result<(), String> {
             );
         }
         "enqueue" => {
-            let draft = IntentDraft {
-                node_id: parts[0].clone(),
-                intent_id: parts[1].clone(),
-                workspace_id: parts[2].clone(),
-                activity_id: parts[3].clone(),
-                operation_id: parts[4].clone(),
-                attempt_id: parts[5].clone(),
-                action: parts[6].clone(),
-                canonical_input_digest: parts[7].clone(),
-            };
+            let draft = draft.as_ref().ok_or("missing validated enqueue draft")?;
             let (committed, disposition) = queue
-                .enqueue(&draft)
+                .enqueue(draft)
                 .map_err(|e| format!("queue rejected: {e:?}"))?;
             println!(
                 "{}",

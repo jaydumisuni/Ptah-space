@@ -21,6 +21,28 @@ fn rejected_cli_arguments_do_not_materialize_a_journal() {
         vec!["unknown"],
         vec!["status", "unexpected"],
         vec!["enqueue", "only-node"],
+        vec![
+            "enqueue",
+            "node",
+            "intent",
+            "workspace",
+            "activity",
+            "operation",
+            "attempt",
+            "prepare",
+            "not-a-digest",
+        ],
+        vec![
+            "enqueue",
+            " ",
+            "intent",
+            "workspace",
+            "activity",
+            "operation",
+            "attempt",
+            "prepare",
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ],
     ] {
         let result = Command::new(env!("CARGO_BIN_EXE_ptah-local-queue"))
             .arg(args[0])

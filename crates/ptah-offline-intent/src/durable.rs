@@ -35,6 +35,12 @@ pub struct IntentDraft {
     pub canonical_input_digest: String,
 }
 impl IntentDraft {
+    /// Validate an unsequenced draft before opening any persistent journal.
+    /// Sequence 1 is only a syntax-validation placeholder, never persisted.
+    pub fn validate(&self) -> Result<(), DurableIntentError> {
+        self.candidate(1).map(|_| ())
+    }
+
     fn candidate(&self, sequence: u64) -> Result<QueuedIntent, DurableIntentError> {
         Ok(QueuedIntent::try_new(
             self.intent_id.clone(),

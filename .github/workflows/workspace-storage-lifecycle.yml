@@ -1,0 +1,51 @@
+name: Workspace Storage Lifecycle
+on:
+  pull_request:
+    paths:
+      - 'AGENTS.md'
+      - 'docs/operations/WORKSPACE_STORAGE_LIFECYCLE.md'
+      - 'tools/workspace_storage_guard.py'
+      - 'tools/test_storage_guard.py'
+      - 'tools/workspace_storage_audit_windows.ps1'
+      - '.github/workflows/workspace-storage-lifecycle.yml'
+  push:
+    paths:
+      - 'AGENTS.md'
+      - 'docs/operations/WORKSPACE_STORAGE_LIFECYCLE.md'
+      - 'tools/workspace_storage_guard.py'
+      - 'tools/test_storage_guard.py'
+      - 'tools/workspace_storage_audit_windows.ps1'
+      - '.github/workflows/workspace-storage-lifecycle.yml'
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.11'
+      - name: Compile guard
+        run: python -m py_compile tools/workspace_storage_guard.py
+      - name: Verify fail-closed storage policy
+        run: python -m unittest discover -s tools -p 'test_storage_guard.py' -v
+      - name: Read-only audit and default prune
+        run: |
+          python tools/workspace_storage_guard.py audit --root .
+          python tools/workspace_storage_guard.py prune --root .
+
+  windows-audit:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Read-only audit on runner-selected Windows root
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'ttg-storage-smoke'
+          New-Item -Path $root -ItemType Directory -Force | Out-Null
+          $json = & ./tools/workspace_storage_audit_windows.ps1 -Roots @($root)
+          $report = $json | ConvertFrom-Json
+          if ($report.Mode -ne 'READ_ONLY_NO_DELETION') { throw 'Audit lost read-only invariant' }
+          if ($report.Volumes.Count -lt 1) { throw 'Selected root volume missing' }
+          if ($null -eq $report.FreeGiB) { throw 'Selected root free space missing' }

@@ -59,7 +59,7 @@ impl IntentDraft {
 }
 
 pub struct DurableIntentJournal {
-    db: Connection,
+    pub(crate) db: Connection,
 }
 fn row_intent(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueuedIntent> {
     let node: String = row.get(0)?;
@@ -273,6 +273,15 @@ impl DurableIntentJournal {
                 attempt_id TEXT NOT NULL,action TEXT NOT NULL,digest TEXT NOT NULL,
                 revalidate INTEGER NOT NULL DEFAULT 1 CHECK(revalidate=1),
                 PRIMARY KEY(node,sequence)
+            ) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS reconciliation_findings(
+                node TEXT NOT NULL,
+                sequence TEXT NOT NULL CHECK(length(sequence)=20),
+                intent_id TEXT NOT NULL UNIQUE,
+                finding TEXT NOT NULL,
+                evidence_digest TEXT NOT NULL CHECK(length(evidence_digest)=71),
+                PRIMARY KEY(node,sequence),
+                FOREIGN KEY(node,sequence) REFERENCES queued_intents(node,sequence)
             ) WITHOUT ROWID;",
         )?;
         let store = Self { db };
@@ -332,6 +341,7 @@ impl DurableIntentJournal {
         if seen != last.len() {
             return Err(DurableIntentError::Integrity("journal without cursor"));
         }
+        self.verify_findings()?;
         Ok(())
     }
 

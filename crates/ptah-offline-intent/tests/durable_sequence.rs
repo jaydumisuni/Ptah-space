@@ -570,3 +570,25 @@ fn duplicate_replay_rejects_zero_sequence_hidden_by_matching_count_and_tail() {
     drop(journal);
     clean(&path);
 }
+
+#[test]
+fn invalid_draft_is_rejected_before_acquiring_sqlite_writer_lock() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    let writer = Connection::open(&path).unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let mut invalid = draft("n1", "invalid-before-lock");
+    invalid.canonical_input_digest = "not-a-canonical-digest".into();
+
+    // Invalid inputs must fail at the envelope boundary, not contend for a
+    // SQLite writer lock or obscure validation with a storage-busy error.
+    let result = journal.enqueue(&invalid);
+    writer.execute_batch("ROLLBACK").unwrap();
+    drop(writer);
+    drop(journal);
+    clean(&path);
+    assert!(
+        matches!(result, Err(DurableIntentError::Envelope(_))),
+        "invalid draft should be rejected before writer acquisition: {result:?}"
+    );
+}

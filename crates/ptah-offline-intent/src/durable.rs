@@ -330,6 +330,9 @@ impl DurableIntentJournal {
         &mut self,
         draft: &IntentDraft,
     ) -> Result<(QueuedIntent, ReplayDisposition), DurableIntentError> {
+        // Reject malformed drafts before acquiring a writer lock. Otherwise an
+        // unrelated writer can mask an envelope error as a storage timeout.
+        draft.validate()?;
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;

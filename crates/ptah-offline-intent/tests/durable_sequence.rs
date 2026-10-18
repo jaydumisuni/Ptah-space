@@ -373,6 +373,25 @@ fn unsafe_permissions_and_file_aliases_are_rejected() {
 
 #[cfg(unix)]
 #[test]
+fn symlinked_journal_parent_is_rejected_before_file_creation() {
+    use std::os::unix::fs::symlink;
+    let base = scratch();
+    let real_dir = base.with_extension("real-dir");
+    let alias_dir = base.with_extension("alias-dir");
+    fs::create_dir(&real_dir).unwrap();
+    symlink(&real_dir, &alias_dir).unwrap();
+    let redirected = alias_dir.join("journal.sqlite");
+    assert!(matches!(
+        DurableIntentJournal::open(&redirected),
+        Err(DurableIntentError::Integrity("unsafe journal ancestor"))
+    ));
+    assert!(!real_dir.join("journal.sqlite").exists());
+    fs::remove_file(alias_dir).unwrap();
+    fs::remove_dir(real_dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn unsafe_preexisting_sqlite_sidecar_aliases_are_rejected() {
     use std::os::unix::fs::symlink;
     let path = scratch();

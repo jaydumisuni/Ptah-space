@@ -173,6 +173,22 @@ impl DurableIntentJournal {
         #[cfg(unix)]
         {
             use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+            // A journal beneath a symlinked parent must not be created in the
+            // symlink target. This checks every lexical ancestor before SQLite
+            // opens the path; it does not claim to prevent concurrent renames.
+            let mut parent = path.parent();
+            while let Some(ancestor) = parent {
+                if ancestor.as_os_str().is_empty() {
+                    break;
+                }
+                let metadata = ancestor.symlink_metadata().map_err(|_| {
+                    DurableIntentError::Integrity("journal ancestor metadata failed")
+                })?;
+                if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                    return Err(DurableIntentError::Integrity("unsafe journal ancestor"));
+                }
+                parent = ancestor.parent();
+            }
             match path.symlink_metadata() {
                 Ok(metadata) => {
                     if !metadata.is_file()

@@ -47,6 +47,61 @@ class SharedWorkspaceTests(unittest.TestCase):
         with self.assertRaisesRegex(PtahBoundaryError,"different caller"):
             clients["formula"].readback(receipts["cookpit"])
 
+    def test_mission_bound_clients_share_one_workspace_and_same_agentops_operation(self):
+        mission = "hunter:mission:c3-multitool-proof-20261018"
+        operation = "agentops:operation:hunter-c3-task-123456789"
+        tools = ("hunter", "codeops", "formula", "cookpit", "ttg-simulation")
+        handles = {tool:self.ptah.for_mission(
+            tool, "hunter", mission_ref=mission, operation_ref=operation,
+        ) for tool in tools}
+        receipts = {tool:handle.checkpoint({"phase": "checkpoint-only"})
+                    for tool, handle in handles.items()}
+        self.assertEqual(len(set(x.request_id for x in receipts.values())), 5)
+        self.assertEqual(len(set(x.workspace_id for x in receipts.values())), 1)
+        for tool, handle in handles.items():
+            status = handle.readback(receipts[tool])
+            self.assertEqual(status.caller_context["mission_ref"], mission)
+            self.assertEqual(status.caller_context["operation_ref"], operation)
+            self.assertEqual(status.execution_status,
+                             "not_executed_by_this_control_service")
+        with self.assertRaisesRegex(PtahBoundaryError, "different caller"):
+            self.ptah.for_mission(
+                "codeops", "hunter", mission_ref=mission,
+                operation_ref="agentops:operation:hunter-other-123456789",
+            ).readback(receipts["codeops"])
+        with self.assertRaisesRegex(PtahBoundaryError, "different caller"):
+            handles["formula"].readback(receipts["codeops"])
+
+    def test_mission_identity_cannot_grant_execution_or_acceptance(self):
+        handle = self.ptah.for_mission(
+            "codeops", "hunter",
+            mission_ref="hunter:mission:proof-no-authority-20261018",
+            operation_ref="agentops:operation:hunter-readonly-123456789",
+        )
+        with self.assertRaisesRegex(PtahBoundaryError, "not yet qualified"):
+            handle.run_tool("apply unauthorized patch")
+        self.assertEqual(Handler.submissions, [])
+        with self.assertRaisesRegex(PtahBoundaryError, "approval"):
+            self.ptah.control.submit_control(
+                kind="accept_worker_result",target_id="result-1",
+                payload={"caller_context":handle.caller.context()},
+            )
+        self.assertEqual(Handler.submissions, [])
+
+    def test_mission_reference_input_fails_closed(self):
+        from ptah_shared_workspace import Caller
+        for mission, operation in (
+            ("hunter:mission:valid-12345678", None),
+            (None, "agentops:operation:valid-12345678"),
+            ("../../other", "agentops:operation:valid-12345678"),
+            ("hunter:mission:valid-12345678", "wrong:operation:valid-12345678"),
+            ("hunter:mission:" + "x"*150, "agentops:operation:valid-12345678"),
+            ("hunter:mission:valid-12345678", "agentops:operation:"+"x"*150),
+        ):
+            with self.subTest(mission=mission, operation=operation):
+                with self.assertRaises(PtahBoundaryError):
+                    Caller("hunter", "hunter", mission, operation)
+
     def test_provenance_is_not_an_execution_permission(self):
         tool=self.ptah.for_tool("supervisor","ptah")
         with self.assertRaisesRegex(PtahBoundaryError,"not yet qualified"):

@@ -19,20 +19,38 @@ from ptah_control_client import (
 )
 
 _ID = re.compile(r"[a-z][a-z0-9-]{0,47}\Z")
+_MISSION = re.compile(r"hunter:mission:[A-Za-z0-9][A-Za-z0-9._:-]{7,127}\Z")
+_OPERATION = re.compile(r"agentops:operation:[A-Za-z0-9][A-Za-z0-9._:-]{7,127}\Z")
 
 
 @dataclass(frozen=True)
 class Caller:
     tool: str
     project: str
+    mission_ref: str | None = None
+    operation_ref: str | None = None
 
     def __post_init__(self) -> None:
         if not (_ID.fullmatch(self.tool) and _ID.fullmatch(self.project)):
             raise PtahBoundaryError("caller tool and project require bounded identifiers")
+        if (self.mission_ref is None) != (self.operation_ref is None):
+            raise PtahBoundaryError("mission and AgentOps operation must be bound together")
+        if self.mission_ref is not None and (
+            not isinstance(self.mission_ref, str) or
+            not isinstance(self.operation_ref, str) or
+            not _MISSION.fullmatch(self.mission_ref) or
+            not _OPERATION.fullmatch(self.operation_ref)
+        ):
+            raise PtahBoundaryError("invalid bounded mission or AgentOps operation identity")
 
     def context(self) -> dict[str, str]:
-        return {"schema": "ptah.tool-caller.v1", "tool": self.tool,
-                "project": self.project}
+        result = {"schema": "ptah.tool-caller.v1", "tool": self.tool,
+                  "project": self.project}
+        if self.mission_ref is not None:
+            # Descriptive only; not Ptah principal, AgentOps admission or grant.
+            result["mission_ref"] = self.mission_ref
+            result["operation_ref"] = self.operation_ref
+        return result
 
 
 @dataclass(frozen=True)
@@ -53,6 +71,19 @@ class SharedWorkspace:
 
     def for_tool(self, tool: str, project: str) -> ToolHandle:
         return ToolHandle(self.control, Caller(tool, project))
+
+    def for_mission(
+        self, tool: str, project: str, *,
+        mission_ref: str, operation_ref: str,
+    ) -> ToolHandle:
+        """Reuse Ptah Control with bounded, informational mission provenance.
+
+        The owning tool separately proves AgentOps admission. These labels do
+        not confer Ptah placement, resource leases or execution authority.
+        """
+        return ToolHandle(self.control, Caller(
+            tool, project, mission_ref=mission_ref, operation_ref=operation_ref,
+        ))
 
 
 class ToolHandle:

@@ -890,3 +890,22 @@ fn invisible_word_joiner_is_rejected_in_origin_and_action() {
         Err(IntentValidationError::ControlCharacter("origin.node_id"))
     ));
 }
+
+#[test]
+fn khmer_inherent_vowels_are_rejected_in_queued_authority() {
+    for scalar in ['\u{17B4}', '\u{17B5}'] {
+        let action = format!("prepare{scalar}execute");
+        assert!(matches!(
+            queued(&action, 1, format!("sha256:{}", "a".repeat(64))),
+            Err(IntentValidationError::ControlCharacter("action"))
+        ));
+        let origin = LocalSequence {
+            node_id: format!("node{scalar}1"),
+            value: 1,
+        };
+        assert!(matches!(
+            origin.checkpoint_bytes(),
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        ));
+    }
+}

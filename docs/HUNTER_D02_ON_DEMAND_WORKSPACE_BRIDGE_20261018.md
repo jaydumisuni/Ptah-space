@@ -3,7 +3,7 @@
 Date: 2026-10-18
 Status: local KRATOS proof PASSED; independent release/owner enrollment pending
 
-The bin target `ptah-hunter-workspace` composes **Ptah's existing** A06 WorkspaceStore and D02 HunterAdapter / WorkspaceReader against a real durable A03 SQLite ledger. One bounded JSON request causes one native operation and the binary exits. No new standing service, namespace authority, new scheduler or duplicate filesystem-based workspace manager.
+The separate Ptah-owned adapter crate exposes the bin target `ptah-hunter-workspace` composes **Ptah's existing** A06 WorkspaceStore and D02 HunterAdapter / WorkspaceReader against a real durable A03 SQLite ledger. One bounded JSON request causes one native operation and the binary exits. No new standing service, namespace authority, new scheduler or duplicate filesystem-based workspace manager.
 
 The `provision` action is a local, operator-owned provisioning primitive; **not** a chat command. It requires canonical Ptah owner/authority/policy refs and persists an A06 Workspace. The `inspect` action requires an already-known canonical Workspace ref, denies a different owner and performs exact D02 retrieval and active lifecycle check after A06 authority check. Both report `e02LeaseIssued=false`, `executionDispatched=false`, `localPathMaterialized=false`. No E02 resource reservation, Lease, Fence, Ptah Node execution, CAS file mount or Ptah D02 grant is invented.
 

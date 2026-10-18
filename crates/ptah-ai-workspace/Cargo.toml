@@ -30,7 +30,3 @@ path = "src/lib.rs"
 [[test]]
 name = "d02_acceptance"
 path = "tests/d02_acceptance.rs"
-
-[[test]]
-name = "hunter_bridge_acceptance"
-path = "tests/hunter_bridge_acceptance.rs"

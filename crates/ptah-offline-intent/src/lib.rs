@@ -98,7 +98,7 @@ fn validate_identity_field(name: &'static str, value: &str) -> Result<(), Intent
     if value.trim().is_empty() {
         return Err(IntentValidationError::Empty(name));
     }
-    if value.chars().any(char::is_control) {
+    if value.chars().any(|c| c.is_control() || c == '\u{2060}') {
         return Err(IntentValidationError::ControlCharacter(name));
     }
     if value != value.trim() {

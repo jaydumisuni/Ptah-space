@@ -870,3 +870,23 @@ fn selected_contract_rejects_interleaved_interior_gap_even_when_tail_matches_che
         Err(IntentValidationError::MissingOriginSequence)
     ));
 }
+#[test]
+fn invisible_word_joiner_is_rejected_in_origin_and_action() {
+    let result = queued(
+        &format!("prepare{}execute", char::from_u32(0x2060).unwrap()),
+        1,
+        format!("sha256:{}", "a".repeat(64)),
+    );
+    assert!(matches!(
+        result,
+        Err(IntentValidationError::ControlCharacter("action"))
+    ));
+    let cursor = LocalSequence {
+        node_id: format!("node{}1", char::from_u32(0x2060).unwrap()),
+        value: 1,
+    };
+    assert!(matches!(
+        cursor.checkpoint_bytes(),
+        Err(IntentValidationError::ControlCharacter("origin.node_id"))
+    ));
+}

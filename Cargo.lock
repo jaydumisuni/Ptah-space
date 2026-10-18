@@ -601,17 +601,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ptah-hunter-workspace-bridge"
-version = "0.0.0-phase0c"
-dependencies = [
- "ptah-ai-workspace",
- "ptah-identifiers",
- "ptah-workspace",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "ptah-identifiers"
 version = "0.0.0-phase0c"
 dependencies = [

@@ -40,8 +40,9 @@ descriptive caller/project tag and an immutable Control request identity.
 Control echoes the tag on readback; the handle checks the exact workspace and
 tag after restart. Caller tags are **informational**, not authenticated roles,
 approvals, or grants. Independent tools own task planning, ownership,
-approvals, and result interpretation. Ptah alone owns common workspaces,
-resources, transport, and durable execution receipts once E02/A05 is admitted.
+approvals, and result interpretation. Ptah provides common workspaces, resources, and independently verified
+durable execution evidence once separately admitted. Oracle supplies
+machine transport; Ptah does not replace it or decide project policy.
 
 A canonical workspace-change guard rejects a submission if its Workspace
 changes between initial observation and the pre-submit authority read. The

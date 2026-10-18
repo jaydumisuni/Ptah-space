@@ -62,8 +62,9 @@ class SubmissionStatus:
 class PtahControlClient:
     """Same-host Ptah adapter for Hunter, Supervisor, Formula, COG and others.
 
-    It is not a Node execution broker. Cross-host clients require Ptah's
-    authenticated transport instead of turning this loopback API public.
+    It is not a Node execution broker. Cross-host access is provided by the caller's authorized Oracle host
+    session. This Control API stays loopback-only; a transport connection
+    never confers independent execution or project decision authority.
     """
     def __init__(self, endpoint: str='http://127.0.0.1:7800', timeout: float=4):
         parts = parse.urlsplit(endpoint)

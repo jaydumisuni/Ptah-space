@@ -1,0 +1,58 @@
+name: Ptah Hunter on-demand Workspace bridge exact-head admission
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "adapters/ptah-hunter-workspace/**"
+      - "docs/HUNTER_D02_ON_DEMAND_WORKSPACE_BRIDGE_20261018.md"
+      - ".github/workflows/hunter-ptah-workspace-bridge.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  ptah-hunter-workspace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      PTAH_EXACT_SHA: ${{ github.event.pull_request.head.sha }}
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout immutable proposed source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PTAH_EXACT_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin accepted Ptah toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+      - name: Verify historic Ptah root remains frozen
+        run: |
+          set -euo pipefail
+          python3 tools/check_a01_scaffold.py > /dev/null
+          python3 tools/check_rust_dependency_lock.py > /dev/null
+          python3 tools/check_phase0c_scaffold.py > /dev/null
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+      - name: Verify exact standalone adapter lock and formatting
+        run: |
+          set -euo pipefail
+          cargo +1.97.1 fmt --manifest-path adapters/ptah-hunter-workspace/Cargo.toml -- --check
+          cargo +1.97.1 metadata --manifest-path adapters/ptah-hunter-workspace/Cargo.toml --locked --no-deps > /dev/null
+      - name: Verify native D02 create reopen and wrong-owner denial
+        run: |
+          set -euo pipefail
+          cargo +1.97.1 test --manifest-path adapters/ptah-hunter-workspace/Cargo.toml --locked
+          cargo +1.97.1 clippy --manifest-path adapters/ptah-hunter-workspace/Cargo.toml --all-targets --locked -- -D clippy::all -D clippy::pedantic
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+      - name: Verify no historical D02 or root dependency mutation
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
+          git diff --check "${{ github.event.pull_request.base.sha }}" "$PTAH_EXACT_SHA"
+          test -z "$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "$PTAH_EXACT_SHA" -- Cargo.toml Cargo.lock crates/ptah-ai-workspace)"
+          echo "PTAH_HUNTER_D02_BRIDGE_EXACT_HEAD=PASS"

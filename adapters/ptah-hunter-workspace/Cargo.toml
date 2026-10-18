@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+
+[package]
+name = "ptah-hunter-workspace-bridge"
+version = "0.0.0-phase0c"
+edition = "2024"
+rust-version = "1.97.1"
+publish = false
+autotests = false
+
+[dependencies]
+ptah-ai-workspace = { path = "../../crates/ptah-ai-workspace", version = "=0.0.0-phase0c" }
+ptah-identifiers = { path = "../../crates/ptah-identifiers", version = "=0.0.0-phase0c" }
+ptah-workspace = { path = "../../crates/ptah-workspace", version = "=0.0.0-phase0c" }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = { version = "=1.0.145" }
+
+[[bin]]
+name = "ptah-hunter-workspace"
+path = "src/main.rs"
+
+[[test]]
+name = "bridge_acceptance"
+path = "tests/bridge_acceptance.rs"

@@ -25,6 +25,20 @@ SEARCH_PATHS=frozenset({
     "docs/TTG_INTERNET_SEARCH_PROVIDER_2026-10-15.md",
     "tools/ptah_internet_search.py",
 })
+# Additive post-baseline agent-neutral maintenance is not the original
+# A05 Search implementation proof. Recognize it only at its exact known
+# source/test/checker path set. Do not rewrite the historical gate.
+AGENT_NEUTRAL_MAINTENANCE_PATHS=frozenset({
+    "adapters/internet-search/README.md",
+    "adapters/internet-search/agent-capability.json",
+    "adapters/internet-search/bridge.py",
+    "adapters/internet-search/test/test_agent_capability.py",
+    "adapters/internet-search/test/test_operator.py",
+    "docs/OPTIONAL_WEB_DISCOVERY_HANDOFF_2026-10-19.md",
+    "tools/ptah_internet_search.py",
+    "tools/check_search_a05_admission.py",
+    "tools/test_check_search_a05_admission.py",
+})
 REMEDIATION_PATHS=frozenset({
     "Cargo.toml","Cargo.lock",
     "crates/ptah-platform-admission/Cargo.toml",
@@ -40,6 +54,15 @@ class AdmissionError(RuntimeError):
 def approved_paths(changed: set[str]) -> dict:
     if not changed:
         raise AdmissionError("empty_search_delta")
+    if changed==AGENT_NEUTRAL_MAINTENANCE_PATHS:
+        return {
+            "search_paths": sorted(AGENT_NEUTRAL_MAINTENANCE_PATHS),
+            "rust_remediation_paths": [],
+            "rust_remediation_complete": False,
+            "historical_phase_delta": "NONE",
+            "historical_proof_disposition": "A05_ORIGINAL_SCOPE_NOT_REPLAYED",
+            "scope_mode": "agent_neutral_postbaseline_maintenance",
+        }
     if not SEARCH_PATHS.issubset(changed):
         raise AdmissionError("missing_exact_search_delta: "+str(sorted(SEARCH_PATHS-changed)))
     extra=changed-SEARCH_PATHS

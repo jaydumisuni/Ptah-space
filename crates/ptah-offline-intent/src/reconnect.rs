@@ -24,11 +24,14 @@ pub struct ReconnectObservation<'a> {
     pub operation_id: &'a str,
     pub attempt_id: &'a str,
     pub canonical_input_digest: &'a str,
+    pub created_at: &'a str,
     pub e01_session: Option<&'a str>,
     pub e02_fence: Option<&'a str>,
     pub e03_object_digest: Option<&'a str>,
+    pub e03_object_generation: Option<&'a str>,
     pub e04_checkpoint_digest: Option<&'a str>,
     pub e05_host_profile_digest: Option<&'a str>,
+    pub e05_admission_generation: Option<&'a str>,
     /// A previously uncertain effect must be reviewed, never replayed.
     pub uncertain_prior_effect: bool,
 }
@@ -91,14 +94,44 @@ pub fn check_reconnect(
     if !present(observed.e02_fence) {
         return ReconnectCheck::Rejected(F::MissingE02);
     }
-    if !present_digest(observed.e03_object_digest) {
+    if !present_digest(observed.e03_object_digest) || !present(observed.e03_object_generation) {
         return ReconnectCheck::Rejected(F::MissingE03);
     }
     if !present_digest(observed.e04_checkpoint_digest) {
         return ReconnectCheck::Rejected(F::MissingE04);
     }
-    if !present_digest(observed.e05_host_profile_digest) {
+    if !present_digest(observed.e05_host_profile_digest)
+        || !present(observed.e05_admission_generation)
+    {
         return ReconnectCheck::Rejected(F::MissingE05);
+    }
+    // A fresh observation alone cannot supply history absent from the
+    // durable queue. Compare the observed versions against those recorded
+    // *at original enqueue*, never merely the observer's current claims.
+    let Some(ref saved) = intent.reconnect_dependencies else {
+        return ReconnectCheck::Rejected(F::MissingE01);
+    };
+    if observed.created_at != saved.created_at {
+        return ReconnectCheck::Rejected(F::ConflictingEffect);
+    }
+    if observed.e01_session != saved.e01_session.as_deref() {
+        return ReconnectCheck::Rejected(F::StaleE01);
+    }
+    if observed.e02_fence != saved.e02_fence.as_deref() {
+        return ReconnectCheck::Rejected(F::StaleFence);
+    }
+    if observed.e03_object_digest != saved.e03_object_digest.as_deref()
+        || observed.e03_object_generation != saved.e03_object_generation.as_deref()
+    {
+        return ReconnectCheck::Rejected(F::ChangedObject);
+    }
+    if observed.e04_checkpoint_digest != saved.e04_checkpoint_digest.as_deref() {
+        return ReconnectCheck::Rejected(F::ConflictingEffect);
+    }
+    if observed.e05_host_profile_digest != saved.e05_host_profile_digest.as_deref()
+        || observed.e05_admission_generation != saved.e05_admission_generation.as_deref()
+    {
+        return ReconnectCheck::Rejected(F::ConflictingEffect);
     }
     ReconnectCheck::RequiresExternalOwnerReview
 }

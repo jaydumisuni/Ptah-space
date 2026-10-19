@@ -2,7 +2,7 @@ use ptah_offline_intent::{
     durable::{DurableIntentError, DurableIntentJournal},
     reconciliation::ReconciliationFinding,
     reconnect::{check_reconnect, ReconnectCheck, ReconnectObservation},
-    LocalSequence, QueuedIntent,
+    LocalSequence, QueuedIntent, ReconnectDependencies,
 };
 use std::{
     fs,
@@ -37,6 +37,20 @@ fn intent() -> QueuedIntent {
         digest('a'),
     )
     .unwrap()
+    .with_reconnect_dependencies(dependencies())
+    .unwrap()
+}
+fn dependencies() -> ReconnectDependencies {
+    ReconnectDependencies {
+        created_at: "2026-10-20T00:34:00+02:00".into(),
+        e01_session: Some("unverified-session-ref".into()),
+        e02_fence: Some("unverified-fence-ref".into()),
+        e03_object_digest: Some(digest('b')),
+        e03_object_generation: Some("object-gen-7".into()),
+        e04_checkpoint_digest: Some(digest('c')),
+        e05_host_profile_digest: Some(digest('d')),
+        e05_admission_generation: Some("host-gen-8".into()),
+    }
 }
 fn digest(c: char) -> String {
     format!("sha256:{}", c.to_string().repeat(64))
@@ -51,17 +65,20 @@ fn observation<'a>(digest: &'a str) -> ReconnectObservation<'a> {
         operation_id: "operation-one",
         attempt_id: "attempt-one",
         canonical_input_digest: digest,
+        created_at: "2026-10-20T00:34:00+02:00",
         e01_session: Some("unverified-session-ref"),
         e02_fence: Some("unverified-fence-ref"),
         e03_object_digest: Some(
             "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         ),
+        e03_object_generation: Some("object-gen-7"),
         e04_checkpoint_digest: Some(
             "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
         ),
         e05_host_profile_digest: Some(
             "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
         ),
+        e05_admission_generation: Some("host-gen-8"),
         uncertain_prior_effect: false,
     }
 }
@@ -242,4 +259,77 @@ fn no_observation_even_a_conflict_can_persist_without_external_owner() {
     assert!(journal.findings().unwrap().is_empty());
     drop(journal);
     clean(&p);
+}
+
+#[test]
+fn stale_reconnect_versions_cannot_be_manufactured_from_fresh_observations() {
+    let d = digest('a');
+    let baseline = observation(&d);
+    for mutation in 0..8 {
+        let mut current = baseline.clone();
+        let expected = match mutation {
+            0 => {
+                current.e01_session = Some("new-session");
+                ReconciliationFinding::StaleE01
+            }
+            1 => {
+                current.e02_fence = Some("new-fence");
+                ReconciliationFinding::StaleFence
+            }
+            2 => {
+                current.e03_object_digest =
+                    Some("sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+                ReconciliationFinding::ChangedObject
+            }
+            3 => {
+                current.e03_object_generation = Some("new-object-generation");
+                ReconciliationFinding::ChangedObject
+            }
+            4 => {
+                current.e04_checkpoint_digest =
+                    Some("sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+                ReconciliationFinding::ConflictingEffect
+            }
+            5 => {
+                current.e05_host_profile_digest =
+                    Some("sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+                ReconciliationFinding::ConflictingEffect
+            }
+            6 => {
+                current.e05_admission_generation = Some("new-host-generation");
+                ReconciliationFinding::ConflictingEffect
+            }
+            7 => {
+                current.created_at = "new-timestamp";
+                ReconciliationFinding::ConflictingEffect
+            }
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            check_reconnect(&intent(), &current),
+            ReconnectCheck::Rejected(expected)
+        );
+    }
+}
+#[test]
+fn legacy_unbound_queue_never_accepts_a_fully_populated_observation() {
+    let d = digest('a');
+    let unbound = QueuedIntent::try_new(
+        "id-one".into(),
+        "ws-one".into(),
+        "activity-one".into(),
+        "operation-one".into(),
+        "attempt-one".into(),
+        LocalSequence {
+            node_id: "node-a".into(),
+            value: 1,
+        },
+        "prepare_local".into(),
+        d.clone(),
+    )
+    .unwrap();
+    assert_eq!(
+        check_reconnect(&unbound, &observation(&d)),
+        ReconnectCheck::Rejected(ReconciliationFinding::MissingE01)
+    );
 }

@@ -1,0 +1,110 @@
+{
+  "architecture": {
+    "agent_authority": "external_to_ptah",
+    "machine_transport": "oracle",
+    "native_execution": "disabled_without_production_admission",
+    "ptah_role": "shared_workspace_only"
+  },
+  "phase_gates": {
+    "F01": {
+      "required_proofs": [
+        "signed_package_manifest",
+        "service_dependency_closure",
+        "service_fail_closed"
+      ],
+      "status": "not_admitted"
+    },
+    "F02": {
+      "required_proofs": [
+        "physical_hardware_inventory",
+        "capability_evidence",
+        "device_rule_isolation"
+      ],
+      "status": "not_admitted"
+    },
+    "F03": {
+      "required_proofs": [
+        "vm_isolation",
+        "virtual_disk_recovery",
+        "host_resource_bound"
+      ],
+      "status": "not_admitted"
+    },
+    "F04": {
+      "required_proofs": [
+        "reproducible_image_digest",
+        "offline_install_recovery",
+        "verified_boot_route"
+      ],
+      "status": "not_admitted"
+    },
+    "F05": {
+      "required_proofs": [
+        "atomic_update",
+        "rollback_compatibility",
+        "encrypted_recovery"
+      ],
+      "status": "not_admitted"
+    },
+    "F06": {
+      "required_proofs": [
+        "human_shell_accessibility",
+        "offline_local_shell",
+        "shell_restart"
+      ],
+      "status": "not_admitted"
+    },
+    "F07": {
+      "required_proofs": [
+        "two_host_owner_acceptance",
+        "independent_review",
+        "full_os_recovery"
+      ],
+      "status": "not_admitted"
+    }
+  },
+  "schema": "ptah.os-foundation.profile/1",
+  "scope": "design_only",
+  "services": [
+    {
+      "admission": "not_admitted",
+      "artifact_digest": null,
+      "default_enabled": false,
+      "id": "ptah-control",
+      "provider": "native-process",
+      "required_authorities": [
+        "e01",
+        "e02",
+        "e05",
+        "owner"
+      ]
+    },
+    {
+      "admission": "not_admitted",
+      "artifact_digest": null,
+      "default_enabled": false,
+      "id": "ptah-node",
+      "provider": "native-process",
+      "required_authorities": [
+        "e01",
+        "e02",
+        "e05",
+        "owner"
+      ]
+    }
+  ],
+  "targets": [
+    {
+      "admission": "unverified",
+      "id": "linux-node-candidate",
+      "os": "linux",
+      "physical_proof": null
+    },
+    {
+      "admission": "unverified",
+      "id": "windows-node-candidate",
+      "os": "windows",
+      "physical_proof": null
+    }
+  ]
+}

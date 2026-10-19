@@ -69,7 +69,7 @@ cargo test --offline -p native-process --test a05_ttgs_search_integration
 
 A05 physical qualification uses the actual Process Provider, provider-generation bound Input Lease, and independent exit observation. GitHub CI without KRATOS's external wheel skips the physical-only case; Python unit cases exercise contract and fail-closed behavior.
 
-**Admission boundary:** repository integration and local A05 qualification do not by themselves claim production Provider enrollment or automatically route arbitrary Hunter/agent requests. Deployment still requires the ordinary Ptah authority/placement/lease path. Browser Provider remains unmodified, and no Control-plane endpoint is introduced.
+**Execution boundary:** Search is a caller-selected, on-demand workspace tool. Knights owns security at ingress; Ptah adds no owner enrollment, Grants or second authorization. A05 input lease and Provider generation coordinate the active process and protect against stale input, not grant user permission. Browser is a separate selectable tool. No Control-plane endpoint is introduced.
 
 ## Agent-neutral workspace reuse (Knights owns security)
 

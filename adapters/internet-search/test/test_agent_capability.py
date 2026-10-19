@@ -43,6 +43,14 @@ class AgentNeutralContractTests(unittest.TestCase):
         with self.assertRaisesRegex(bridge.BridgeError,"unexpected_search_fields"):
             bridge.checked_request({**body,"owner_ref":"self-asserted-owner"},19,None)
 
+    def test_legacy_documentation_cannot_reintroduce_ptah_grant_gate(self):
+        readme=(ROOT/"README.md").read_text(encoding="utf-8")
+        self.assertIn("Knights owns security at ingress",readme)
+        self.assertNotIn("Deployment still requires the ordinary Ptah authority",readme)
+        bridge_doc=(ROOT/"bridge.py").read_text(encoding="utf-8").split("from __future__",1)[0]
+        self.assertIn("Knights/trusted ingress owns access",bridge_doc)
+        self.assertNotIn("Ptah's existing admission/caller authority",bridge_doc)
+
     def test_workspace_is_not_a_second_security_department(self):
         architecture=DESCRIPTOR["security_architecture"]
         contract=DESCRIPTOR["calling_contract"]

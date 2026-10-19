@@ -682,3 +682,6 @@ pub mod degraded;
 
 /// Immutable negative reconciliation receipts; never an authorization source.
 pub mod reconciliation;
+
+/// E06-03 reconnect observation: read-only comparison of durable history.
+pub mod reconnect;

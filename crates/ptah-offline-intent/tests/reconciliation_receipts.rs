@@ -246,6 +246,11 @@ fn preexisting_partially_erased_schema_never_gets_reinitialized() {
     }
     let path = scratch();
     fs::write(&path, []).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
     assert!(matches!(
         DurableIntentJournal::open(&path),
         Err(DurableIntentError::Integrity(

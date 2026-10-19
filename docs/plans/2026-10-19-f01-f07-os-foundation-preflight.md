@@ -49,3 +49,28 @@ Expected successful check: execution_authorized=false,
 release_authorized=false, native_e07=NO_GO, os_foundation=NO_GO, with 21 required
 future independent proof categories. A green check only verifies an honest
 non-activating plan; it is not completion of any F phase.
+
+## Bounded F02/F03 physical observation (KRATOS, 19 Oct 2026)
+
+Read-only host snapshot showed x86_64 Linux, KVM accessible, QEMU and qemu-img
+present, with approximately 34 GiB free disk. Host kernel observed as
+7.0.0-38-generic, which is not the historical E05 frozen 6.8.0-136 target;
+do NOT silently equate this with accepted E05 host admission.
+
+An opt-in 96 MiB no-boot KVM process ran briefly without networking and
+was terminated. A disposable 4 MiB QCOW2 passed qemu-img check and was
+removed. This proves a *local substrate smoke* only, not image boot,
+isolated workload behavior, guest restart, Artifact retention or OS-ready
+acceptance. No permanent VM, package, service or credentials were installed.
+
+ATHENA observation: 64-bit Windows, firmware virtualization available, but
+QEMU/VirtualBox command absent and zero resident Ptah services. This is not
+Ptah-native E01 enrollment and does not prevent Oracle-backed workspace use.
+
+Reusable safe observer: python3 tools/probe_os_foundation_host.py
+Optional **explicit** local no-boot smoke:
+python3 tools/probe_os_foundation_host.py --bounded-kvm-smoke
+
+Neither path issues Ptah admission. The default command is passive and the
+optional test is a bounded disposable operation. Tests do not execute KVM
+unless the smoke flag is explicitly supplied.

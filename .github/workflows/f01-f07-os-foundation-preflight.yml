@@ -6,6 +6,8 @@ on:
       - "conformance/os-foundation/**"
       - "tools/check_os_foundation.py"
       - "tools/test_check_os_foundation.py"
+      - "tools/probe_os_foundation_host.py"
+      - "tools/test_probe_os_foundation_host.py"
       - ".github/workflows/f01-f07-os-foundation-preflight.yml"
   push:
     branches:
@@ -14,6 +16,8 @@ on:
       - "conformance/os-foundation/**"
       - "tools/check_os_foundation.py"
       - "tools/test_check_os_foundation.py"
+      - "tools/probe_os_foundation_host.py"
+      - "tools/test_probe_os_foundation_host.py"
       - ".github/workflows/f01-f07-os-foundation-preflight.yml"
 
 permissions:
@@ -37,7 +41,7 @@ jobs:
         env:
           PYTHONPATH: tools
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python3 -m unittest -q tools/test_check_os_foundation.py
+        run: python3 -m unittest -q tools/test_check_os_foundation.py tools/test_probe_os_foundation_host.py
       - name: Verify no false host or runtime admission
         env:
           PYTHONDONTWRITEBYTECODE: "1"

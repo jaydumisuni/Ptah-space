@@ -100,7 +100,7 @@ fn validate_identity_field(name: &'static str, value: &str) -> Result<(), Intent
     }
     if value
         .chars()
-        .any(|c| c.is_control() || c == '\u{2060}' || matches!(c, '\u{17B4}' | '\u{17B5}' | '\u{1D173}'..='\u{1D17A}' | '\u{1BCA0}'..='\u{1BCA3}'))
+        .any(|c| c.is_control() || c == '\u{2060}' || matches!(c, '\u{17B4}' | '\u{17B5}' | '\u{1D173}'..='\u{1D17A}' | '\u{1BCA0}'..='\u{1BCA3}' | '\u{1D185}'..='\u{1D18B}' | '\u{1D1AA}'..='\u{1D1AD}'))
     {
         return Err(IntentValidationError::ControlCharacter(name));
     }

@@ -929,3 +929,23 @@ fn invisible_music_and_shorthand_controls_are_rejected_in_queued_authority() {
         ));
     }
 }
+
+#[test]
+fn musical_combining_marks_are_rejected_in_queued_authority() {
+    for scalar in (0x1D185..=0x1D18B).chain(0x1D1AA..=0x1D1AD) {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        let action = format!("prepare{ch}execute");
+        assert!(matches!(
+            queued(&action, 1, format!("sha256:{}", "a".repeat(64))),
+            Err(IntentValidationError::ControlCharacter("action"))
+        ));
+        let origin = LocalSequence {
+            node_id: format!("node{ch}1"),
+            value: 1,
+        };
+        assert!(matches!(
+            origin.checkpoint_bytes(),
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        ));
+    }
+}

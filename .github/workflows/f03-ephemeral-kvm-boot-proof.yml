@@ -1,0 +1,51 @@
+name: F03 bounded guest boot proof (non-activating)
+on:
+  pull_request:
+    paths:
+      - "tools/f03_ephemeral_guest_boot.py"
+      - "tools/test_f03_ephemeral_guest_boot.py"
+      - "docs/plans/2026-10-19-f03-guest-boot-smoke.md"
+      - ".github/workflows/f03-ephemeral-kvm-boot-proof.yml"
+  push:
+    branches:
+      - "feat/f03-bounded-kvm-boot-proof-20261019"
+    paths:
+      - "tools/f03_ephemeral_guest_boot.py"
+      - "tools/test_f03_ephemeral_guest_boot.py"
+      - ".github/workflows/f03-ephemeral-kvm-boot-proof.yml"
+permissions:
+  contents: read
+jobs:
+  nonactivating-conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Setup pinned Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+      - name: Run deterministic negative and passive conformance tests
+        env:
+          PYTHONPATH: tools
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python3 -m unittest -v \
+            tools/test_f03_ephemeral_guest_boot.py \
+            tools/test_check_os_foundation.py \
+            tools/test_probe_os_foundation_host.py
+      - name: Verify default runner only inspects and never starts a VM
+        run: |
+          python3 tools/f03_ephemeral_guest_boot.py > "$RUNNER_TEMP/f03-status.json"
+          python3 - "$RUNNER_TEMP/f03-status.json" <<'PY'
+          import json,sys
+          state=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert state["execution_requested"] is False
+          assert state["guest_os_booted"] is False
+          assert state["native_ptah_admitted"] is False
+          assert state["prime_os_integrated"] is False
+          PY

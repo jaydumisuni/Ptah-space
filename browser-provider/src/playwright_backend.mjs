@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { chromium } from "playwright";
 import { BrowserProviderError, invariant } from "./errors.mjs";
 import { LOCKED_RUNTIME, SENSITIVE_HEADERS } from "./locks.mjs";
+import { supportedNodeRuntime } from "./runtime_compat.mjs";
 import { BROWSER_SOURCE, lockedOwnedLaunchOptions } from "./owned_chromium.mjs";
 
 const require = createRequire(import.meta.url);
@@ -29,6 +30,38 @@ export class PlaywrightBackend {
   #downloads = new Map();
   #sequence = 0;
 
+  // Exact frozen A11 Node version remains a qualification test baseline,
+  // NOT a machine-wide requirement for ordinary Browser Provider operation.
+  // Playwright 1.60 depends on Node >=18; this provider supports >=22.
+  async assertRuntimeCompatible() {
+    const observed = process.versions.node;
+    invariant(supportedNodeRuntime(observed),
+      "node_runtime_unsupported",
+      "Ptah Browser Provider needs Node >=22, not a frozen patch version");
+    const playwrightPackage = require("playwright/package.json");
+    const corePackage = require("playwright-core/package.json");
+    invariant(playwrightPackage.version === corePackage.version,
+      "playwright_dependency_mismatch", "Playwright and playwright-core must be version-aligned");
+    // The library's version is runtime evidence, not a frozen proof gate.
+    // The underlying owned browser image still has to match the Playwright
+    // manifest; otherwise it is a real executable/dependency mismatch.
+    const corePackagePath = require.resolve("playwright-core/package.json");
+    const manifest = JSON.parse(await readFile(join(dirname(corePackagePath), "browsers.json"), "utf8"));
+    const entry = manifest.browsers.find((item) => item.name === "chromium");
+    invariant(entry && String(entry.revision) === LOCKED_RUNTIME.chromiumRevision
+      && entry.browserVersion === LOCKED_RUNTIME.chromiumVersion,
+      "owned_chromium_bundle_unqualified", "Playwright Chromium does not match the qualified Ptah-owned bundle");
+    return Object.freeze({
+      nodeObserved: observed,
+      nodeQualificationBaseline: LOCKED_RUNTIME.node,
+      exactNodeQualificationMatch: observed === LOCKED_RUNTIME.node,
+      playwright: playwrightPackage.version,
+      chromium: entry.browserVersion,
+      chromiumRevision: String(entry.revision),
+      authorityGranted: false,
+    });
+  }
+
   async assertLockedRuntime() {
     invariant(process.versions.node === LOCKED_RUNTIME.node, "node_lock_mismatch", `Node ${LOCKED_RUNTIME.node} required, observed ${process.versions.node}`);
     const playwrightPackage = require("playwright/package.json");
@@ -45,11 +78,11 @@ export class PlaywrightBackend {
   }
 
   describe() {
-    return { implementation: "playwright", version: LOCKED_RUNTIME.playwright, browser: "chromium", chromiumVersion: LOCKED_RUNTIME.chromiumVersion, chromiumRevision: LOCKED_RUNTIME.chromiumRevision, browserSource: BROWSER_SOURCE, sharesPersonalBrowser: false, dependsOnOracleBrowserControl: false };
+    return { implementation: "playwright", version: require("playwright/package.json").version, playwrightQualificationBaseline: LOCKED_RUNTIME.playwright, browser: "chromium", chromiumVersion: LOCKED_RUNTIME.chromiumVersion, chromiumRevision: LOCKED_RUNTIME.chromiumRevision, browserSource: BROWSER_SOURCE, sharesPersonalBrowser: false, dependsOnOracleBrowserControl: false, nodeObserved: process.versions.node, nodeQualificationBaseline: LOCKED_RUNTIME.node, exactNodeQualificationMatch: process.versions.node === LOCKED_RUNTIME.node };
   }
 
   async launchProcess({ profileMode, userDataDir, readonly, launchOptions }) {
-    await this.assertLockedRuntime();
+    await this.assertRuntimeCompatible();
     const ownedOptions = await lockedOwnedLaunchOptions(launchOptions);
     // launchPersistentContext accepts context-level TLS flags directly.
     // Reject those before any profile is opened, not only in createContext.

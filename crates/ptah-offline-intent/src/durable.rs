@@ -1,5 +1,7 @@
 //! E06-02 atomic per-origin local intent journal. Queueing never grants authority.
-use crate::{IntentValidationError, LocalSequence, QueuedIntent, ReplayDisposition};
+use crate::{
+    IntentValidationError, LocalSequence, QueuedIntent, ReconnectDependencies, ReplayDisposition,
+};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::{path::Path, time::Duration};
 
@@ -72,7 +74,7 @@ fn row_intent(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueuedIntent> {
         return Err(rusqlite::Error::InvalidQuery);
     }
     let value = decode_sequence(&sequence).map_err(|_| rusqlite::Error::InvalidQuery)?;
-    QueuedIntent::try_new(
+    let unbound = QueuedIntent::try_new(
         fields[0].clone(),
         fields[1].clone(),
         fields[2].clone(),
@@ -85,7 +87,20 @@ fn row_intent(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueuedIntent> {
         fields[5].clone(),
         fields[6].clone(),
     )
-    .map_err(|_| rusqlite::Error::InvalidQuery)
+    .map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let raw: String = row.get(10)?;
+    let value: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|_| rusqlite::Error::InvalidQuery)?;
+    if value.is_null() {
+        Ok(unbound)
+    } else {
+        unbound
+            .with_reconnect_dependencies(
+                ReconnectDependencies::from_json(&value)
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
+            )
+            .map_err(|_| rusqlite::Error::InvalidQuery)
+    }
 }
 fn encode_sequence(value: u64) -> String {
     format!("{value:020}")
@@ -136,7 +151,7 @@ fn verify_replay_origin_tail(
         // appends retain their O(1) allocation path.
         let mut stmt = tx.prepare(
             "SELECT node,sequence,intent_id,workspace_id,activity_id,operation_id,
-             attempt_id,action,digest,revalidate FROM queued_intents
+             attempt_id,action,digest,revalidate,dependencies_json FROM queued_intents
              WHERE node=?1 ORDER BY sequence",
         )?;
         let rows = stmt.query_map(params![node], row_intent)?;
@@ -168,6 +183,13 @@ impl DurableIntentJournal {
     /// # Errors
     /// Rejects symlinks, corrupt journal rows/cursors and SQLite errors.
     pub fn open(path: &Path) -> Result<Self, DurableIntentError> {
+        // Only a file freshly created by this call may initialize tables.
+        // Do not silently erase reconciliation history when an existing
+        // journal's receipts table disappears.
+        #[cfg(unix)]
+        let mut newly_created = false;
+        #[cfg(not(unix))]
+        let newly_created = !path.exists();
         // Materialize a new database with private permissions before SQLite
         // opens it. Existing files may not be symlinks or aliased hardlinks.
         #[cfg(unix)]
@@ -206,7 +228,10 @@ impl DurableIntentJournal {
                         .mode(0o600)
                         .open(path);
                     match opened {
-                        Ok(file) => drop(file),
+                        Ok(file) => {
+                            drop(file);
+                            newly_created = true;
+                        }
                         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                             let metadata = path
                                 .symlink_metadata()
@@ -259,6 +284,22 @@ impl DurableIntentJournal {
         }
         let db = Connection::open(path)?;
         db.busy_timeout(Duration::from_secs(10))?;
+        if !newly_created {
+            for table in ["origin_cursor", "queued_intents", "reconciliation_findings"] {
+                let exists: Option<i64> = db
+                    .query_row(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1",
+                        params![table],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                if exists.is_none() {
+                    return Err(DurableIntentError::Integrity(
+                        "existing journal schema incomplete",
+                    ));
+                }
+            }
+        }
         db.execute_batch(
             "PRAGMA journal_mode=WAL;
             PRAGMA synchronous=FULL;
@@ -272,6 +313,7 @@ impl DurableIntentJournal {
                 activity_id TEXT NOT NULL,operation_id TEXT NOT NULL,
                 attempt_id TEXT NOT NULL,action TEXT NOT NULL,digest TEXT NOT NULL,
                 revalidate INTEGER NOT NULL DEFAULT 1 CHECK(revalidate=1),
+                dependencies_json TEXT NOT NULL DEFAULT 'null',
                 PRIMARY KEY(node,sequence)
             ) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS reconciliation_findings(
@@ -284,6 +326,30 @@ impl DurableIntentJournal {
                 FOREIGN KEY(node,sequence) REFERENCES queued_intents(node,sequence)
             ) WITHOUT ROWID;",
         )?;
+        // Non-authorizing additive migration from the local experimental v1
+        // schema. Every old row becomes explicitly unbound (JSON null).
+        let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version > 2 {
+            return Err(DurableIntentError::Integrity(
+                "unknown journal schema version",
+            ));
+        }
+        let has_column = {
+            let mut stmt = db.prepare("PRAGMA table_info(queued_intents)")?;
+            let cols = stmt
+                .query_map([], |r| r.get::<_, String>(1))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            cols.iter().any(|c| c == "dependencies_json")
+        };
+        if !has_column {
+            if version != 0 {
+                return Err(DurableIntentError::Integrity(
+                    "reconnect binding column erased",
+                ));
+            }
+            db.execute_batch("ALTER TABLE queued_intents ADD COLUMN dependencies_json TEXT NOT NULL DEFAULT 'null';")?;
+        }
+        db.execute_batch("PRAGMA user_version=2;")?;
         let store = Self { db };
         store.verify()?;
         Ok(store)
@@ -297,7 +363,7 @@ impl DurableIntentJournal {
     pub fn history(&self) -> Result<Vec<QueuedIntent>, DurableIntentError> {
         let mut stmt = self.db.prepare(
             "SELECT node,sequence,intent_id,workspace_id,activity_id,operation_id,
-             attempt_id,action,digest,revalidate FROM queued_intents ORDER BY node,sequence",
+             attempt_id,action,digest,revalidate,dependencies_json FROM queued_intents ORDER BY node,sequence",
         )?;
         let rows = stmt.query_map([], row_intent)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -356,6 +422,19 @@ impl DurableIntentJournal {
         &mut self,
         draft: &IntentDraft,
     ) -> Result<(QueuedIntent, ReplayDisposition), DurableIntentError> {
+        self.enqueue_with_dependencies(draft, None)
+    }
+
+    /// Append a caller's exact immutable observed reference versions in one
+    /// atomic queue transaction; the references never authorize dispatch.
+    pub fn enqueue_with_dependencies(
+        &mut self,
+        draft: &IntentDraft,
+        dependencies: Option<ReconnectDependencies>,
+    ) -> Result<(QueuedIntent, ReplayDisposition), DurableIntentError> {
+        if let Some(ref deps) = dependencies {
+            deps.validate()?;
+        }
         // Reject malformed drafts before acquiring a writer lock. Otherwise an
         // unrelated writer can mask an envelope error as a storage timeout.
         draft.validate()?;
@@ -365,13 +444,16 @@ impl DurableIntentJournal {
         if let Some(existing) = tx
             .query_row(
                 "SELECT node,sequence,intent_id,workspace_id,activity_id,operation_id,
-             attempt_id,action,digest,revalidate FROM queued_intents WHERE intent_id=?1",
+             attempt_id,action,digest,revalidate,dependencies_json FROM queued_intents WHERE intent_id=?1",
                 params![draft.intent_id],
                 row_intent,
             )
             .optional()?
         {
-            let candidate = draft.candidate(existing.origin.value)?;
+            let mut candidate = draft.candidate(existing.origin.value)?;
+            if let Some(ref deps)=dependencies {
+                candidate=candidate.with_reconnect_dependencies(deps.clone())?;
+            }
             if existing != candidate {
                 return Err(DurableIntentError::Conflict(
                     "reused intent identity changed",
@@ -407,11 +489,17 @@ impl DurableIntentJournal {
                 .ok_or(DurableIntentError::Integrity("sequence exhausted"))?,
             None => 1,
         };
-        let intent = draft.candidate(next)?;
+        let mut intent = draft.candidate(next)?;
+        if let Some(ref deps) = dependencies {
+            intent = intent.with_reconnect_dependencies(deps.clone())?;
+        }
+        let json = dependencies
+            .as_ref()
+            .map_or_else(|| "null".to_owned(), |d| d.to_json().to_string());
         tx.execute(
             "INSERT INTO queued_intents(node,sequence,intent_id,workspace_id,activity_id,
-             operation_id,attempt_id,action,digest,revalidate)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,1)",
+             operation_id,attempt_id,action,digest,revalidate,dependencies_json)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,1,?10)",
             params![
                 &intent.origin.node_id,
                 encode_sequence(next),
@@ -422,6 +510,7 @@ impl DurableIntentJournal {
                 &intent.attempt_id,
                 &intent.action,
                 &intent.canonical_input_digest,
+                &json,
             ],
         )?;
         tx.execute(
@@ -443,7 +532,7 @@ impl DurableIntentJournal {
         intent: &QueuedIntent,
     ) -> Result<ReplayDisposition, DurableIntentError> {
         // Public envelope fields can be mutated after construction; validate all.
-        let validated = QueuedIntent::try_new(
+        let mut validated = QueuedIntent::try_new(
             intent.intent_id.clone(),
             intent.workspace_id.clone(),
             intent.activity_id.clone(),
@@ -453,6 +542,9 @@ impl DurableIntentJournal {
             intent.action.clone(),
             intent.canonical_input_digest.clone(),
         )?;
+        if let Some(ref deps) = intent.reconnect_dependencies {
+            validated = validated.with_reconnect_dependencies(deps.clone())?;
+        }
         if validated != *intent {
             return Err(DurableIntentError::Integrity(
                 "queued intent cannot grant authority",
@@ -478,7 +570,7 @@ impl DurableIntentJournal {
             }
             let stored = tx.query_row(
                 "SELECT node,sequence,intent_id,workspace_id,activity_id,operation_id,
-                 attempt_id,action,digest,revalidate FROM queued_intents WHERE intent_id=?1",
+                 attempt_id,action,digest,revalidate,dependencies_json FROM queued_intents WHERE intent_id=?1",
                 params![intent.intent_id],
                 row_intent,
             )?;
@@ -518,10 +610,14 @@ impl DurableIntentJournal {
         if intent.origin.value != next {
             return Err(DurableIntentError::Integrity("expected atomic successor"));
         }
+        let json = intent
+            .reconnect_dependencies
+            .as_ref()
+            .map_or_else(|| "null".to_owned(), |d| d.to_json().to_string());
         tx.execute(
             "INSERT INTO queued_intents(node,sequence,intent_id,workspace_id,activity_id,
-             operation_id,attempt_id,action,digest,revalidate)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,1)",
+             operation_id,attempt_id,action,digest,revalidate,dependencies_json)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,1,?10)",
             params![
                 intent.origin.node_id,
                 encode_sequence(next),
@@ -531,7 +627,8 @@ impl DurableIntentJournal {
                 intent.operation_id,
                 intent.attempt_id,
                 intent.action,
-                intent.canonical_input_digest
+                intent.canonical_input_digest,
+                json
             ],
         )?;
         tx.execute(

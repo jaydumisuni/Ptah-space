@@ -1,6 +1,6 @@
 use ptah_offline_intent::{
     durable::{DurableIntentError, DurableIntentJournal},
-    LocalSequence, QueuedIntent, ReplayDisposition,
+    LocalSequence, QueuedIntent, ReconnectDependencies, ReplayDisposition,
 };
 use rusqlite::Connection;
 use std::{
@@ -644,4 +644,97 @@ fn invalid_draft_is_rejected_before_acquiring_sqlite_writer_lock() {
         matches!(result, Err(DurableIntentError::Envelope(_))),
         "invalid draft should be rejected before writer acquisition: {result:?}"
     );
+}
+
+fn bindings(session: &str) -> ReconnectDependencies {
+    ReconnectDependencies {
+        created_at: "2026-10-20T00:34:00+02:00".into(),
+        e01_session: Some(session.into()),
+        e02_fence: Some("fence-generation-8".into()),
+        e03_object_digest: Some(format!("sha256:{}", "c".repeat(64))),
+        e03_object_generation: Some("object-8".into()),
+        e04_checkpoint_digest: Some(format!("sha256:{}", "d".repeat(64))),
+        e05_host_profile_digest: Some(format!("sha256:{}", "e".repeat(64))),
+        e05_admission_generation: Some("host-9".into()),
+    }
+}
+#[test]
+fn atomic_bound_intent_reopens_with_same_exact_reconnect_generations() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    let draft = draft("kratos", "bound");
+    let (first, disposition) = journal
+        .enqueue_with_dependencies(&draft, Some(bindings("session-7")))
+        .unwrap();
+    assert_eq!(disposition, ReplayDisposition::Distinct);
+    assert_eq!(first.reconnect_dependencies, Some(bindings("session-7")));
+    assert_eq!(first.origin.value, 1);
+    assert_eq!(
+        journal
+            .enqueue_with_dependencies(&draft, Some(bindings("session-7")))
+            .unwrap()
+            .1,
+        ReplayDisposition::Idempotent
+    );
+    assert!(matches!(
+        journal.enqueue_with_dependencies(&draft, Some(bindings("session-stale"))),
+        Err(DurableIntentError::Conflict(_))
+    ));
+    assert!(
+        matches!(
+            journal.enqueue(&draft),
+            Err(DurableIntentError::Conflict(_))
+        ),
+        "old unbound replay cannot erase immutable generation evidence"
+    );
+    drop(journal);
+    let recovered = DurableIntentJournal::open(&path).unwrap();
+    let history = recovered.history().unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(
+        history[0].reconnect_dependencies,
+        Some(bindings("session-7"))
+    );
+    assert!(history[0].revalidate_required);
+    recovered.verify().unwrap();
+    drop(recovered);
+    clean(&path);
+}
+#[test]
+fn broken_reconnect_json_or_ambiguous_generation_is_never_replayed() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    let draft = draft("kratos", "bound");
+    let mut broken = bindings("session-7");
+    broken.e03_object_generation = None;
+    assert!(journal
+        .enqueue_with_dependencies(&draft, Some(broken))
+        .is_err());
+    assert_eq!(journal.history().unwrap().len(), 0);
+    journal
+        .enqueue_with_dependencies(&draft, Some(bindings("session-7")))
+        .unwrap();
+    drop(journal);
+    let sql = Connection::open(&path).unwrap();
+    sql.execute(
+        "UPDATE queued_intents SET dependencies_json='{}' WHERE intent_id='bound'",
+        [],
+    )
+    .unwrap();
+    drop(sql);
+    assert!(DurableIntentJournal::open(&path).is_err());
+    clean(&path);
+}
+#[test]
+fn unbound_legacy_queue_remains_unbound_after_reopen() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    journal.enqueue(&draft("node", "legacy")).unwrap();
+    drop(journal);
+    let reopened = DurableIntentJournal::open(&path).unwrap();
+    let item = &reopened.history().unwrap()[0];
+    assert_eq!(item.reconnect_dependencies, None);
+    assert!(item.revalidate_required);
+    drop(reopened);
+    clean(&path);
 }

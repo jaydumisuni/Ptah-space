@@ -1,0 +1,93 @@
+{
+  "schema": "ptah.agent-capability.v1",
+  "capability_id": "ptah.public_web_discovery.readonly",
+  "title": "Optional public web discovery",
+  "status": "adapter_available_not_autonomously_enrolled",
+  "agent_neutral": true,
+  "provider": {
+    "name": "ttg-internet-search",
+    "version": "0.7.0a2",
+    "protocol": "ptah.ttg-internet-search.readonly.v1",
+    "execution": "existing_ptah_a05_process_provider",
+    "adapter": "adapters/internet-search/bridge.py",
+    "immutable_wheel_sha256": "eaecd49153225e1b9c2972fa89d24edde69975e6dd15a7b05230c302fd7d65c4"
+  },
+  "calling_contract": {
+    "request_transport": "A05 current controlled PTY input lease",
+    "wire_format": "one UTF-8 JSON object terminated by newline",
+    "process_lifecycle": "one read-only request per process",
+    "base_required_fields": [
+      "operation",
+      "request_id",
+      "expected_provider_generation"
+    ],
+    "request_id_format": "ASCII letters, digits, dot, colon, underscore, hyphen; 1-96 chars",
+    "max_request_bytes": 8192,
+    "identity_and_grants": "Ptah canonical caller/Workspace/Grant/lease admission upstream; never trust a self-declared agent name or owner_ref in search JSON",
+    "on_demand": true,
+    "automatic_enrollment_or_dispatch": false
+  },
+  "operations": [
+    {
+      "name": "search",
+      "required": [
+        "query"
+      ],
+      "optional": [
+        "limit",
+        "require_fresh",
+        "offline"
+      ],
+      "limits": {
+        "query_characters": 250,
+        "results": 10
+      },
+      "example": {
+        "operation": "search",
+        "query": "Godfrey Mountain video",
+        "limit": 5,
+        "require_fresh": false,
+        "offline": false,
+        "request_id": "agent-search-001",
+        "expected_provider_generation": 7
+      }
+    },
+    {
+      "name": "read",
+      "required": [
+        "url"
+      ],
+      "optional": [],
+      "limits": {
+        "url_scheme": "https",
+        "url_characters": 2000
+      },
+      "example": {
+        "operation": "read",
+        "url": "https://example.com/",
+        "request_id": "agent-read-001",
+        "expected_provider_generation": 7
+      }
+    },
+    {
+      "name": "doctor",
+      "required": [],
+      "optional": [],
+      "example": {
+        "operation": "doctor",
+        "request_id": "agent-doctor-001",
+        "expected_provider_generation": 7
+      }
+    }
+  ],
+  "search_truth": "DISCOVERED_NOT_PAGE_VERIFIED",
+  "browser_fallback": "Existing A11 Browser Provider is separate and requires its own authorized invocation; no automatic browser action from these requests.",
+  "constraints": {
+    "read_only": true,
+    "paid_provider_enabled": false,
+    "paid_overflow_enabled": false,
+    "payment_budget_zmw": 0,
+    "no_canonical_source_promotion": true,
+    "no_fabricated_verified_facts": true
+  }
+}

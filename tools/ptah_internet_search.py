@@ -30,7 +30,20 @@ def main(argv=None) -> int:
     reader=sub.add_parser("read")
     reader.add_argument("url")
     sub.add_parser("doctor")
+    sub.add_parser("describe",help="Print agent-neutral capability metadata; no provider launch")
     args=parser.parse_args(argv)
+    if args.operation=="describe":
+        path=Path(__file__).resolve().parents[1]/"adapters/internet-search/agent-capability.json"
+        try:
+            descriptor=json.loads(path.read_text(encoding="utf-8"))
+            if descriptor.get("schema")!="ptah.agent-capability.v1":
+                raise ValueError("unrecognized capability manifest")
+        except (OSError,ValueError,UnicodeError):
+            print(json.dumps({"status":"PTAH_SEARCH_UNAVAILABLE",
+                              "error":"capability_descriptor_unavailable"}))
+            return 2
+        print(json.dumps(descriptor,ensure_ascii=False,indent=2))
+        return 0
     if not args.wheel:
         parser.error("configure --wheel or PTAH_TTG_SEARCH_WHEEL (pinned release)")
     if args.provider_generation<=0:

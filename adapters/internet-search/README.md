@@ -70,3 +70,39 @@ cargo test --offline -p native-process --test a05_ttgs_search_integration
 A05 physical qualification uses the actual Process Provider, provider-generation bound Input Lease, and independent exit observation. GitHub CI without KRATOS's external wheel skips the physical-only case; Python unit cases exercise contract and fail-closed behavior.
 
 **Admission boundary:** repository integration and local A05 qualification do not by themselves claim production Provider enrollment or automatically route arbitrary Hunter/agent requests. Deployment still requires the ordinary Ptah authority/placement/lease path. Browser Provider remains unmodified, and no Control-plane endpoint is introduced.
+
+## Agent-neutral reuse (no duplicate Search implementation)
+
+The existing public-web discovery feature is a shared optional Ptah capability,
+not a Hunter-specific tool. A read-only machine-readable descriptor is available
+at adapters/internet-search/agent-capability.json and through the command:
+  python3 tools/ptah_internet_search.py describe
+
+The descriptor advertises the existing A05 Process Provider and pinned TTG Search
+adapter. Describe only reads local metadata; it does not launch Search, issue a
+Ptah lease, authenticate an agent, enroll a provider or imply production readiness.
+
+Hunter, ChatGPT and other authorized agents use the same
+ptah.ttg-internet-search.readonly.v1 JSON protocol, independently of agent brand.
+The trusted Ptah caller, Workspace, Grant, Activity/Attempt, Provider generation
+and current A05 Input Lease must be established upstream. A caller-chosen name
+or supplied owner_ref is never treated as authorization. A one-line JSON request
+is sent through the active authorized A05 PTY, not to an unauthenticated HTTP
+listener or another search daemon.
+
+Example payload on an authorized A05 PTY with its observed generation:
+  {"operation":"search","query":"Godfrey Mountain full video","limit":5,
+   "request_id":"agent-001","expected_provider_generation":7}
+
+Search snippets remain DISCOVERED_NOT_PAGE_VERIFIED. An authorized caller can
+separately invoke the existing A11 Browser Provider to verify promising pages
+and playback evidence. Search neither selects nor launches Browser itself.
+Local-only tasks make zero public-web calls. All callers share courtesy
+quotas; no paid-provider overflow is enabled.
+
+Current boundary: the shared protocol, pinned provider, operator entry, and
+physical A05 process/lease proof are verified. Real production multi-agent
+owner enrollment, individual Grant checks, automatic A05 dispatch and fallback
+are not qualified by this descriptor. Reuse Ptah's existing authority services;
+never grant production access based on JSON fields, a terminal process or a
+tool manifest.

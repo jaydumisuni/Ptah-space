@@ -412,6 +412,40 @@ fn unsafe_preexisting_sqlite_sidecar_aliases_are_rejected() {
     clean(&path);
 }
 
+#[cfg(unix)]
+#[test]
+fn hardlinked_and_world_readable_sqlite_sidecars_fail_closed() {
+    use std::os::unix::fs::PermissionsExt;
+    let path = scratch();
+    drop(DurableIntentJournal::open(&path).unwrap());
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = PathBuf::from(format!("{}{suffix}", path.display()));
+        let victim = path.with_extension(format!("hardlink-victim-{}", &suffix[1..]));
+        fs::write(&victim, b"unrelated immutable sentinel").unwrap();
+        fs::hard_link(&victim, &sidecar).unwrap();
+        assert!(matches!(
+            DurableIntentJournal::open(&path),
+            Err(DurableIntentError::Integrity("unsafe journal sidecar"))
+        ));
+        assert_eq!(fs::read(&victim).unwrap(), b"unrelated immutable sentinel");
+        fs::remove_file(&sidecar).unwrap();
+        fs::remove_file(&victim).unwrap();
+
+        fs::write(&sidecar, b"world-readable sidecar sentinel").unwrap();
+        fs::set_permissions(&sidecar, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            DurableIntentJournal::open(&path),
+            Err(DurableIntentError::Integrity("unsafe journal sidecar"))
+        ));
+        assert_eq!(
+            fs::read(&sidecar).unwrap(),
+            b"world-readable sidecar sentinel"
+        );
+        fs::remove_file(&sidecar).unwrap();
+    }
+    clean(&path);
+}
+
 #[test]
 fn degraded_views_never_promote_offline_intents_to_authority() {
     use ptah_offline_intent::degraded::{DegradedProjection, DegradedState};

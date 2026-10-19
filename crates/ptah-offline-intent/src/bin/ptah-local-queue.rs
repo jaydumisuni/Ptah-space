@@ -1,6 +1,7 @@
 //! Local-first queue CLI. No network, process execution or authority promotion.
 use ptah_offline_intent::degraded::DegradedProjection;
 use ptah_offline_intent::durable::{DurableIntentJournal, IntentDraft};
+use ptah_offline_intent::ReconnectDependencies;
 use std::{env, path::Path};
 
 fn main() {
@@ -17,9 +18,9 @@ fn run() -> Result<(), String> {
     let parts = args.collect::<Vec<_>>();
     match command.as_str() {
         "status" if !parts.is_empty() => return Err(String::from("unexpected arguments")),
-        "enqueue" if parts.len() != 8 => {
+        "enqueue" if parts.len() != 8 && parts.len() != 9 => {
             return Err(String::from(
-                "enqueue requires NODE INTENT WORKSPACE ACTIVITY OPERATION ATTEMPT ACTION DIGEST",
+                 "enqueue requires NODE INTENT WORKSPACE ACTIVITY OPERATION ATTEMPT ACTION DIGEST [DEPENDENCIES_JSON]",
             ))
         }
         "status" | "enqueue" => {}
@@ -62,8 +63,18 @@ fn run() -> Result<(), String> {
         }
         "enqueue" => {
             let draft = draft.as_ref().ok_or("missing validated enqueue draft")?;
+            let dependencies = if parts.len() == 9 {
+                let json: serde_json::Value = serde_json::from_str(&parts[8])
+                    .map_err(|_| "invalid reconnect dependencies JSON")?;
+                Some(
+                    ReconnectDependencies::from_json(&json)
+                        .map_err(|e| format!("invalid reconnect dependencies: {e:?}"))?,
+                )
+            } else {
+                None
+            };
             let (committed, disposition) = queue
-                .enqueue(draft)
+                .enqueue_with_dependencies(draft, dependencies)
                 .map_err(|e| format!("queue rejected: {e:?}"))?;
             println!(
                 "{}",
@@ -76,6 +87,7 @@ fn run() -> Result<(), String> {
                     "disposition":format!("{disposition:?}"),
                     "authority_granted":false,
                     "revalidate_required":true,
+                    "reconnect_references_stored": committed.reconnect_dependencies.is_some(),
                 })
             );
         }

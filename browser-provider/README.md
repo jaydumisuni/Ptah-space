@@ -140,3 +140,37 @@ The server-side missing intermediate remains the website operator's responsibili
 Ptah repairs this narrow **client rendering** failure; this does **not** make the
 original web server's incomplete TLS chain valid for other software or claim
 universal Internet certificate remediation.
+
+
+## Live runtime compatibility versus frozen qualification
+
+The A11 qualification proof remains exactly Node 24.18.0,
+Playwright/playwright-core 1.60.0 and Chromium revision 1223 / 148.0.7778.96.
+That historical baseline is never rewritten to imply a new qualification.
+
+The package manifest still records Node 24.18.0 because A01 uses it as
+the frozen historical dependency proof; it is not enforced by the browser
+provider at operational launch time. Development installs with Node 22/24.19
+can show an engine warning; this is separate from live runtime support.
+
+A normal Ptah workspace launch instead calls assertRuntimeCompatible(), not
+assertLockedRuntime(). Node >=22 can use the installed Playwright provider;
+the observed Node version and exact-baseline-match are diagnostic evidence,
+not workspace execution permission. Playwright and playwright-core must still
+match, and the installed browser manifest must match Ptah's currently
+qualified **owned** Chromium bundle. New browser bundles need their own
+compatibility qualification. A missing browser executable or a genuinely
+incompatible runtime fails at its relevant step and never falls back to
+the host's personal Chrome, Oracle's browser, an unowned executable or a
+TLS-insecure path.
+
+This compatibility check is not an authorization decision, a substitute for
+a source-owned Agent/Owner action, or proof of browser page readiness.
+Browser Process ownership, lease/fence, user-profile isolation, credential
+redaction, TLS checks and explicit launch confirmation are unchanged.
+
+KRATOS development checks: Node 22.23.2 and 24.19.0 both passed
+Playwright 1.60.0 / Chromium 148 local-data page boot and the new
+assertRuntimeCompatible() check. These checks do not certify every possible
+Node version; newer combinations are admitted by observed compatibility,
+not historical proof inheritance.

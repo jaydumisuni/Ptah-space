@@ -8,6 +8,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from check_e06_dependency_evolution import verified_local_extension
+
 ROOT = Path(__file__).resolve().parents[1]
 LOCKED_BINDING_STATE = "frozen_catalogs_and_bindings_locked_runtime_dependencies_open"
 FROZEN_EXTERNAL_CARGO_UNIVERSE_SHA256 = "06f6b4c9f8f2ad70de76d6d3f79241503414744fdc5b567eb5e5512960dce459"
@@ -180,13 +182,17 @@ if selection_path.is_file():
         # Preserve historical lock fields, but validate the evolved *exact*
         # Cargo.lock and all 13 selected dependencies against current evidence.
         # Cargo-deny advisories remain an independent REQUIRED security gate.
-        if historical_sha != sha256(cargo_lock_path):
-            raise SystemExit("E01-evolved Cargo.lock digest differs from exact selection")
+        try:
+            additive = verified_local_extension(cargo_lock_path, historical_sha)
+        except ValueError as error:
+            raise SystemExit("E01-evolved Cargo.lock differs outside reviewed E06 extension: " + str(error)) from error
+        if additive != int((ROOT / "Cargo.toml").read_text().count('"crates/ptah-offline-intent"') == 1):
+            raise SystemExit("E06 Cargo.lock extension is not bound to workspace member")
         external = external_cargo_universe(cargo_lock_path)
         if cargo_record.get("registry_package_count") != len(external):
             raise SystemExit("E01-evolved external package count mismatch")
         resolved_count = len(tomllib.loads(cargo_lock_path.read_text(encoding="utf-8")).get("package", []))
-        if cargo_record.get("resolved_package_count") != resolved_count:
+        if cargo_record.get("resolved_package_count") != resolved_count - additive:
             raise SystemExit("E01-evolved resolved package count mismatch")
         if any(item["source"].startswith("git+") for item in external):
             raise SystemExit("Git Cargo dependency introduced in E01-evolved graph")

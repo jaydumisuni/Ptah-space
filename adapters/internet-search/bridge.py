@@ -4,7 +4,7 @@
 
 One JSON request on stdin, one JSON reply on stdout. No Browser Provider mutation,
 no authority to create Ptah source/citation identities, no account payments.
-Ptah's existing admission/caller authority is a REQUIRED upstream responsibility.
+Knights/trusted ingress owns access; the adapter validates only request shape, process generation and technical integrity, never individual user or agent permission.
 """
 from __future__ import annotations
 

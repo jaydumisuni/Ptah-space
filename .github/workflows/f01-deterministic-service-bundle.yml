@@ -1,0 +1,36 @@
+name: F01 deterministic unsigned service bundle proof
+
+on:
+  pull_request:
+    paths:
+      - "tools/build_f01_service_bundle.py"
+      - "tools/test_build_f01_service_bundle.py"
+      - ".github/workflows/f01-deterministic-service-bundle.yml"
+  push:
+    branches:
+      - feat/f01-deterministic-service-bundle-20261019
+    paths:
+      - "tools/build_f01_service_bundle.py"
+      - "tools/test_build_f01_service_bundle.py"
+      - ".github/workflows/f01-deterministic-service-bundle.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  reproducible-archive:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact candidate source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Pinned Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+      - name: Verify deterministic archive and adversarial failure conditions
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest -v tools/test_build_f01_service_bundle.py

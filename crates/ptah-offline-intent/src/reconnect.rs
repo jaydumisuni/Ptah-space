@@ -80,13 +80,15 @@ pub fn check_reconnect(
     {
         return ReconnectCheck::Rejected(F::ConflictingEffect);
     }
+    // An attempt may have produced an external effect despite a later input
+    // mismatch. Preserve that uncertainty before any retriable data verdict.
+    if observed.uncertain_prior_effect {
+        return ReconnectCheck::Rejected(F::UnknownOutcome);
+    }
     if !valid_evidence_digest(observed.canonical_input_digest)
         || observed.canonical_input_digest != intent.canonical_input_digest
     {
         return ReconnectCheck::Rejected(F::ChangedObject);
-    }
-    if observed.uncertain_prior_effect {
-        return ReconnectCheck::Rejected(F::UnknownOutcome);
     }
     if !present(observed.e01_session) {
         return ReconnectCheck::Rejected(F::MissingE01);

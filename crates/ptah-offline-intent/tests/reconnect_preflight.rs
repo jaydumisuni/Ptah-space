@@ -333,3 +333,23 @@ fn legacy_unbound_queue_never_accepts_a_fully_populated_observation() {
         ReconnectCheck::Rejected(ReconciliationFinding::MissingE01)
     );
 }
+
+#[test]
+fn unknown_prior_effect_outweighs_changed_or_malformed_input() {
+    for input in [digest('f'), "sha256:NONCANONICAL".to_owned()] {
+        let mut observed = observation(&input);
+        observed.uncertain_prior_effect = true;
+        assert_eq!(
+            check_reconnect(&intent(), &observed),
+            ReconnectCheck::Rejected(ReconciliationFinding::UnknownOutcome)
+        );
+    }
+    let d = digest('a');
+    let mut observed = observation(&d);
+    observed.uncertain_prior_effect = true;
+    observed.e02_fence = Some("fence-stale");
+    assert_eq!(
+        check_reconnect(&intent(), &observed),
+        ReconnectCheck::Rejected(ReconciliationFinding::UnknownOutcome)
+    );
+}

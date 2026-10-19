@@ -61,8 +61,8 @@ class A01ScaffoldValidationTests(unittest.TestCase):
         report = self.validate(self.copy_repository())
         self.assertEqual(report["status"], "a01_scaffold_static_invariants_passed")
         self.assertEqual(report["workspace"]["historical_a01_member_count"], 18)
-        self.assertEqual(report["workspace"]["member_count"], 38)
-        self.assertEqual(report["workspace"]["approved_later_phase_member_count"], 20)
+        self.assertEqual(report["workspace"]["member_count"], 39)
+        self.assertEqual(report["workspace"]["approved_later_phase_member_count"], 21)
         self.assertEqual(report["workspace"]["frozen_contract_sha256"],
                          checker.A01_FROZEN_CONTRACT_SHA256)
         self.assertEqual(report["contracts"]["catalog_count"], 14)

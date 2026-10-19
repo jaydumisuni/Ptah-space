@@ -194,6 +194,67 @@ fn tampered_finding_and_orphaned_identity_fail_closed_on_reopen() {
     clean(&path);
 }
 #[test]
+fn erased_receipt_table_is_corruption_not_an_empty_reconciled_queue() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    journal.append(&intent("node-a", "i1", 1)).unwrap();
+    journal
+        .record_finding("i1", ReconciliationFinding::StaleFence, &digest())
+        .unwrap();
+    assert_eq!(
+        DegradedProjection::from_queue(&journal).unwrap().state,
+        DegradedState::Conflict
+    );
+    drop(journal);
+    let sql = Connection::open(&path).unwrap();
+    sql.execute_batch("DROP TABLE reconciliation_findings")
+        .unwrap();
+    drop(sql);
+    assert!(matches!(
+        DurableIntentJournal::open(&path),
+        Err(DurableIntentError::Integrity(
+            "existing journal schema incomplete"
+        ))
+    ));
+    let sql = Connection::open(&path).unwrap();
+    let count:i64=sql.query_row(
+       "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='reconciliation_findings'",
+       [],|row|row.get(0)).unwrap();
+    assert_eq!(
+        count, 0,
+        "open must never recreate missing receipt evidence"
+    );
+    drop(sql);
+    clean(&path);
+}
+#[test]
+fn preexisting_partially_erased_schema_never_gets_reinitialized() {
+    for name in ["origin_cursor", "queued_intents", "reconciliation_findings"] {
+        let path = scratch();
+        let journal = DurableIntentJournal::open(&path).unwrap();
+        drop(journal);
+        let sql = Connection::open(&path).unwrap();
+        sql.execute_batch(&format!("DROP TABLE {name}")).unwrap();
+        drop(sql);
+        assert!(matches!(
+            DurableIntentJournal::open(&path),
+            Err(DurableIntentError::Integrity(
+                "existing journal schema incomplete"
+            ))
+        ));
+        clean(&path);
+    }
+    let path = scratch();
+    fs::write(&path, []).unwrap();
+    assert!(matches!(
+        DurableIntentJournal::open(&path),
+        Err(DurableIntentError::Integrity(
+            "existing journal schema incomplete"
+        ))
+    ));
+    clean(&path);
+}
+#[test]
 fn every_supported_finding_is_a_negative_closed_vocabulary() {
     let variants = [
         ReconciliationFinding::MissingE01,

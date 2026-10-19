@@ -168,6 +168,13 @@ impl DurableIntentJournal {
     /// # Errors
     /// Rejects symlinks, corrupt journal rows/cursors and SQLite errors.
     pub fn open(path: &Path) -> Result<Self, DurableIntentError> {
+        // Only a file freshly created by this call may initialize tables.
+        // Do not silently erase reconciliation history when an existing
+        // journal's receipts table disappears.
+        #[cfg(unix)]
+        let mut newly_created = false;
+        #[cfg(not(unix))]
+        let newly_created = !path.exists();
         // Materialize a new database with private permissions before SQLite
         // opens it. Existing files may not be symlinks or aliased hardlinks.
         #[cfg(unix)]
@@ -206,7 +213,10 @@ impl DurableIntentJournal {
                         .mode(0o600)
                         .open(path);
                     match opened {
-                        Ok(file) => drop(file),
+                        Ok(file) => {
+                            drop(file);
+                            newly_created = true;
+                        }
                         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                             let metadata = path
                                 .symlink_metadata()
@@ -259,6 +269,22 @@ impl DurableIntentJournal {
         }
         let db = Connection::open(path)?;
         db.busy_timeout(Duration::from_secs(10))?;
+        if !newly_created {
+            for table in ["origin_cursor", "queued_intents", "reconciliation_findings"] {
+                let exists: Option<i64> = db
+                    .query_row(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1",
+                        params![table],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                if exists.is_none() {
+                    return Err(DurableIntentError::Integrity(
+                        "existing journal schema incomplete",
+                    ));
+                }
+            }
+        }
         db.execute_batch(
             "PRAGMA journal_mode=WAL;
             PRAGMA synchronous=FULL;

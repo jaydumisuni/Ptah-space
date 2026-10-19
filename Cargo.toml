@@ -20,6 +20,7 @@ members = [
   "crates/ptah-security-evidence",
   "crates/ptah-application-runtime",
   "crates/ptah-object-store",
+  "crates/ptah-offline-intent",
   "crates/ptah-transfer",
   "crates/ptah-provider-api",
   "crates/ptah-device-runtime",

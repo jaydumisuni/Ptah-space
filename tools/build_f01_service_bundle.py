@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import tempfile
 import tarfile
 
 SCHEMA = "ptah.f01.unsigned-service-bundle/1"
@@ -88,8 +89,10 @@ def create_bundle(inputs: dict[str, Path], source_commit: str, output: Path) -> 
         require(path.resolve()!=output.resolve(),"OUTPUT_OVERLAPS_INPUT")
     manifest=canonical_manifest(inputs,source_commit)
     encoded=manifest_bytes(manifest)
+    created=False
     try:
         with output.open("xb") as handle:
+            created=True
             with tarfile.open(fileobj=handle,mode="w",format=tarfile.PAX_FORMAT) as archive:
                 archive.addfile(header("manifest.json",len(encoded),0o644),io.BytesIO(encoded))
                 for item in manifest["services"]:
@@ -107,7 +110,8 @@ def create_bundle(inputs: dict[str, Path], source_commit: str, output: Path) -> 
         require(result["source_commit"]==source_commit,"WRONG_SOURCE_COMMIT")
         return result
     except (OSError, BundleError, tarfile.TarError):
-        output.unlink(missing_ok=True)
+        if created:
+            output.unlink(missing_ok=True)
         raise
 
 
@@ -127,6 +131,13 @@ def verify_bundle(path: Path) -> dict:
         except (UnicodeError, json.JSONDecodeError) as exc:
             raise BundleError("INVALID_MANIFEST") from exc
         require(type(manifest) is dict and manifest_bytes(manifest)==raw, "NONCANONICAL_MANIFEST")
+        require(set(manifest) == {
+            "schema", "source_commit", "publisher",
+            "oracle_machine_transport", "ptah_role", "services",
+            "signed", "native_execution_admitted", "release_authorized"
+        }, "INVALID_TOP_LEVEL_MANIFEST_KEYS")
+        require(manifest.get("publisher")=="THETECHGUY DIGITAL SOLUTIONS",
+                "INVALID_PUBLISHER")
         require(manifest.get("schema")==SCHEMA and manifest.get("signed") is False
                 and manifest.get("native_execution_admitted") is False
                 and manifest.get("release_authorized") is False
@@ -152,6 +163,25 @@ def verify_bundle(path: Path) -> dict:
             hexdigest,length=digest(stream)
             require(length==entry["size"] and entry["sha256"]=="sha256:"+hexdigest,
                     "UNVERIFIED_SERVICE_HASH")
+    # Python's tarfile intentionally ignores bytes following the first tar
+    # EOF marker. Re-encode the validated members as our canonical tar stream
+    # and compare the ENTIRE input, including padding and trailing blocks.
+    # This rejects concatenated second archives and hidden appended payloads.
+    with tempfile.TemporaryFile(mode="w+b") as canonical:
+        with tarfile.open(fileobj=canonical,mode="w",format=tarfile.PAX_FORMAT) as rebuilt:
+            with tarfile.open(path,mode="r:") as original:
+                for member in original.getmembers():
+                    payload=original.extractfile(member)
+                    require(payload is not None,"MISSING_CANONICAL_CONTENT")
+                    rebuilt.addfile(header(member.name,member.size,member.mode),payload)
+        canonical.seek(0)
+        with path.open("rb") as actual:
+            while True:
+                expected=canonical.read(1024*1024)
+                got=actual.read(1024*1024)
+                require(expected==got,"NONCANONICAL_OR_TRAILING_TAR_DATA")
+                if not expected:
+                    break
     return {"status":"UNSIGNED_SOURCE_BUNDLE_VERIFIED_NO_GO",
             "source_commit":manifest["source_commit"],"services":len(records),
             "signed":False,"native_execution_admitted":False,"release_authorized":False}

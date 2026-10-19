@@ -46,9 +46,21 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
+          # Historical bundled evidence is an example, not proof of HEAD.
+          # Bind the non-authorizing preflight to the exact checked-out SHA.
+          export PTAH_CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          python3 - "$RUNNER_TEMP/ptah-f-bound-evidence.json" <<'PY'
+          import json,os,sys
+          with open("conformance/os-foundation/evidence-index.json",encoding="utf-8") as fd:
+              fixture=json.load(fd)
+          fixture["candidate_commit"]=os.environ["PTAH_CHECKED_OUT_SHA"]
+          with open(sys.argv[1],"x",encoding="utf-8") as fd:
+              json.dump(fixture,fd,sort_keys=True)
+          PY
           python3 tools/check_os_foundation.py \
             --profile conformance/os-foundation/foundation-candidate.json \
-            --evidence conformance/os-foundation/evidence-index.json \
+            --evidence "$RUNNER_TEMP/ptah-f-bound-evidence.json" \
+            --expected-commit "$PTAH_CHECKED_OUT_SHA" \
             > "$RUNNER_TEMP/ptah-f-readonly-report.json"
           python3 - "$RUNNER_TEMP/ptah-f-readonly-report.json" <<'PY'
           import json,sys

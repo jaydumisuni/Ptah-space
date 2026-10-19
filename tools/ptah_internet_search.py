@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Ptah's optional human/agent terminal entry to the read-only Search Provider.
 
-The A05 native Provider path is the authoritative process/lease execution path.
-This CLI is only an ordinary terminal convenience; it grants no Ptah authority.
+The A05 native Provider path is a process/lease execution transport.
+This CLI is an ordinary terminal convenience. Knights is the external
+security boundary; Ptah adds no login, Grant or per-caller admission.
 """
 from __future__ import annotations
 import argparse
@@ -20,7 +21,7 @@ def main(argv=None) -> int:
     parser.add_argument("--wheel",default=os.environ.get("PTAH_TTG_SEARCH_WHEEL"),
                         help="External immutable 0.7.0a2 wheel path")
     parser.add_argument("--provider-generation",type=int,default=1)
-    parser.add_argument("--index-db",help="Operator-authorized Search-owned local index")
+    parser.add_argument("--index-db",help="Search-owned local index path (optional)")
     sub=parser.add_subparsers(dest="operation",required=True)
     search=sub.add_parser("search")
     search.add_argument("query")

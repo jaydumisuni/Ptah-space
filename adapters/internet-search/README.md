@@ -71,38 +71,38 @@ A05 physical qualification uses the actual Process Provider, provider-generation
 
 **Admission boundary:** repository integration and local A05 qualification do not by themselves claim production Provider enrollment or automatically route arbitrary Hunter/agent requests. Deployment still requires the ordinary Ptah authority/placement/lease path. Browser Provider remains unmodified, and no Control-plane endpoint is introduced.
 
-## Agent-neutral reuse (no duplicate Search implementation)
+## Agent-neutral workspace reuse (Knights owns security)
 
 The existing public-web discovery feature is a shared optional Ptah capability,
-not a Hunter-specific tool. A read-only machine-readable descriptor is available
-at adapters/internet-search/agent-capability.json and through the command:
+not a Hunter-specific tool or a second authentication checkpoint. The readable
+descriptor lives in agent-capability.json and is available from:
   python3 tools/ptah_internet_search.py describe
 
-The descriptor advertises the existing A05 Process Provider and pinned TTG Search
-adapter. Describe only reads local metadata; it does not launch Search, issue a
-Ptah lease, authenticate an agent, enroll a provider or imply production readiness.
+**Security and access belong to Knights at ingress.** In the current open
+development stage, Knights' future authentication/cybersecurity systems are
+not a precondition manufactured by Ptah. A person or AI that reaches Ptah
+through the trusted entry is already admitted. Ptah must not request an
+additional login, enroll each AI, demand an owner approval or invent per-tool
+Grants. Hunter, ChatGPT, other AIs and humans can all invoke available tools;
+the caller chooses tasks, browser vs search, and next steps. Oracle transports
+requests to hosts; neither Oracle nor Ptah chooses what the caller may do.
 
-Hunter, ChatGPT and other authorized agents use the same
-ptah.ttg-internet-search.readonly.v1 JSON protocol, independently of agent brand.
-The trusted Ptah caller, Workspace, Grant, Activity/Attempt, Provider generation
-and current A05 Input Lease must be established upstream. A caller-chosen name
-or supplied owner_ref is never treated as authorization. A one-line JSON request
-is sent through the active authorized A05 PTY, not to an unauthenticated HTTP
-listener or another search daemon.
+All callers share the existing
+ptah.ttg-internet-search.readonly.v1 protocol. The CLI can launch one
+read-only Search process directly when the pinned provider is installed.
+The A05 process path supplies its own PTY generations and input-lease
+mechanics to avoid stale/misrouted process input. Those are *technical process
+coordination*, not Ptah-side permission or approval.
 
-Example payload on an authorized A05 PTY with its observed generation:
+One-line protocol example on the active A05 PTY:
   {"operation":"search","query":"Godfrey Mountain full video","limit":5,
    "request_id":"agent-001","expected_provider_generation":7}
 
-Search snippets remain DISCOVERED_NOT_PAGE_VERIFIED. An authorized caller can
-separately invoke the existing A11 Browser Provider to verify promising pages
-and playback evidence. Search neither selects nor launches Browser itself.
-Local-only tasks make zero public-web calls. All callers share courtesy
-quotas; no paid-provider overflow is enabled.
-
-Current boundary: the shared protocol, pinned provider, operator entry, and
-physical A05 process/lease proof are verified. Real production multi-agent
-owner enrollment, individual Grant checks, automatic A05 dispatch and fallback
-are not qualified by this descriptor. Reuse Ptah's existing authority services;
-never grant production access based on JSON fields, a terminal process or a
-tool manifest.
+Search snippets remain DISCOVERED_NOT_PAGE_VERIFIED. The same caller may
+choose A11 Browser to verify pages, with no independent Browser permission.
+The providers report missing executables, expired generations, failed
+processes, unavailable networks, or exhausted budgets as observed technical
+conditions. They do not deny workspace access based on task identity.
+No paid-provider overflow is enabled by this unchanged read-only Search
+adapter; extending capabilities belongs to their own engineering scope.
+The descriptor never grants itself Knights privileges or claims release.

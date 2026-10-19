@@ -30,7 +30,10 @@ class OperatorTests(unittest.TestCase):
         descriptor=json.loads(sink.getvalue())
         self.assertEqual(descriptor["capability_id"],"ptah.public_web_discovery.readonly")
         self.assertEqual(descriptor["provider"]["protocol"],"ptah.ttg-internet-search.readonly.v1")
-        self.assertFalse(descriptor["calling_contract"]["automatic_enrollment_or_dispatch"])
+        self.assertFalse(descriptor["calling_contract"]["additional_ptah_enrollment_required"])
+        self.assertFalse(descriptor["calling_contract"]["additional_ptah_login_required"])
+        self.assertFalse(descriptor["calling_contract"]["additional_ptah_grant_required"])
+        self.assertEqual(descriptor["security_architecture"]["boundary"].split("/")[0],"Knights")
 
     def test_structured_query_not_shell(self):
         with patch.object(op.subprocess,"run",return_value=self.response()) as cmd:

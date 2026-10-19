@@ -2,7 +2,7 @@
   "schema": "ptah.agent-capability.v1",
   "capability_id": "ptah.public_web_discovery.readonly",
   "title": "Optional public web discovery",
-  "status": "adapter_available_not_autonomously_enrolled",
+  "status": "available_to_reaching_workspace_callers",
   "agent_neutral": true,
   "provider": {
     "name": "ttg-internet-search",
@@ -23,9 +23,16 @@
     ],
     "request_id_format": "ASCII letters, digits, dot, colon, underscore, hyphen; 1-96 chars",
     "max_request_bytes": 8192,
-    "identity_and_grants": "Ptah canonical caller/Workspace/Grant/lease admission upstream; never trust a self-declared agent name or owner_ref in search JSON",
     "on_demand": true,
-    "automatic_enrollment_or_dispatch": false
+    "security_department": "Knights at the external ingress boundary; Ptah does not authenticate or re-authorize",
+    "existing_access": "A caller reaching the workspace via the trusted ingress is already admitted",
+    "additional_ptah_login_required": false,
+    "additional_ptah_enrollment_required": false,
+    "additional_ptah_grant_required": false,
+    "caller_selects_tools_and_tasks": true,
+    "ptah_policy_or_task_decision": false,
+    "invocation": "caller-initiated through an available workspace transport; no separate Ptah approval",
+    "technical_errors": "Report missing dependency, unavailable process, stale handle and resource exhaustion as technical states; never frame as an access decision"
   },
   "operations": [
     {
@@ -81,7 +88,7 @@
     }
   ],
   "search_truth": "DISCOVERED_NOT_PAGE_VERIFIED",
-  "browser_fallback": "Existing A11 Browser Provider is separate and requires its own authorized invocation; no automatic browser action from these requests.",
+  "browser_fallback": "An existing caller can choose the separate A11 Browser capability directly. Ptah adds no separate browser approval or browser-specific identity enrollment.",
   "constraints": {
     "read_only": true,
     "paid_provider_enabled": false,
@@ -89,5 +96,14 @@
     "payment_budget_zmw": 0,
     "no_canonical_source_promotion": true,
     "no_fabricated_verified_facts": true
+  },
+  "security_architecture": {
+    "boundary": "Knights/ingress owns future authentication, cyber security and admission",
+    "development_state": "workspace currently open; do not fabricate login/Grant gates while security tooling is unfinished",
+    "ptah_role": "neutral shared workspace and capability execution, never semantic task chooser or policy approver",
+    "oracle_role": "machine transport, not task decider or authorization authority",
+    "caller_role": "human or AI chooses available tools and requested action",
+    "after_ingress": "no second Ptah-side owner login, per-agent enrollment, Grant or deployment admission to use available tools",
+    "technical_limits_not_authority": "runtime failures and resource bounds may still prevent the requested execution and must be reported faithfully"
   }
 }

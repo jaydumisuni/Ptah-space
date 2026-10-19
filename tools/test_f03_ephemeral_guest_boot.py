@@ -60,6 +60,8 @@ class BoundedF03Tests(unittest.TestCase):
 
     def test_no_kvm_refuses_without_compilation(self):
         info=F.inspect_host()
+        # Hold the tool prerequisites constant on runners without as/ld/QEMU.
+        info["required_tools"]={name:True for name in ("as","ld","qemu-system-x86_64")}
         info["kvm_accessible"]=False
         with patch.object(F,"inspect_host",return_value=info):
             with patch.object(F.subprocess,"run",side_effect=AssertionError("no launch")):

@@ -7,11 +7,7 @@ Cargo.lock digest in dependencies/rust-direct-lock.json unchanged.
 
 The current E06 candidate adds exactly one private workspace-only member,
 crates/ptah-offline-intent, immediately before crates/ptah-transfer.
-Cargo.lock adds one exactly specified local package stanza requiring only the
-existing, pinned rusqlite and serde_json crates. Removing that exact stanza
-byte-for-byte reconstructs the historic E01 lock and historical SHA-256.
-Any change outside that one stanza, duplicate stanza, dependency swap,
-extra external package, or unknown workspace member must fail closed.
+Cargo.lock has an exact E06 private package stanza plus the optional native Control dependency extensions in two private packages. The validator reconstructs the immutable E01 lock byte-for-byte after removing only reviewed private additions. External dependency checksums and historical hashes remain unchanged; unreviewed extensions fail closed.
 No historical phase receipt is silently promoted to a current-head pass.
 
 KRATOS exact candidate worktree:

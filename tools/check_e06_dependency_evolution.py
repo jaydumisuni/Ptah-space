@@ -1,8 +1,7 @@
-"""Exact additive E06 Cargo.lock evolution; historical E01 SHA remains immutable.
+"""Strict additive E06/E07 private package lock evolution.
 
-The ONLY allowed extension is the one private workspace package with existing
-pinned dependencies. A new external crate, changed checksum or any other drift
-must fail the original historical proof.
+Reconstruct the historical E01 Cargo.lock byte-for-byte. Never alter frozen
+selection, registry package checksums, external sources, or prior proof hashes.
 """
 from __future__ import annotations
 
@@ -17,19 +16,49 @@ E06_LOCK_STANZA = (b'[[package]]\n'
                    b' "serde_json",\n'
                    b']\n\n')
 
-def verified_local_extension(lock_path: Path, historical_sha256: str) -> int:
-    """Return 0 for exact historic lock, 1 for one exact E06 local addition.
+# Existing pinned dependencies only, all private-local workspace linkages.
+CONTROL_DEPENDENCIES = ("ring", "rusqlite", "sha2", "tokio")
+NODE_DEPENDENCIES = (
+    "ptah-control", "ptah-placement-runtime", "ptah-platform-admission",
+    "ring", "rusqlite", "serde", "serde_json",
+)
 
-    Never rewrite persisted historical evidence or silently bless an altered
-    external dependency graph. Only the canonical Cargo package stanza is
-    permitted, and its removal MUST reconstruct the frozen old byte stream.
+def _strip_selected_local_additions(raw: bytes, package_name: str, additions: tuple[str, ...]) -> tuple[bytes, bool]:
+    prefix = b'[[package]]\nname = "' + package_name.encode("ascii") + b'"\n'
+    if raw.count(prefix) != 1:
+        raise ValueError("missing_or_duplicate_private_package:" + package_name)
+    start = raw.index(prefix)
+    next_package = raw.find(b"[[package]]\n", start + len(prefix))
+    if next_package < 0:
+        next_package = len(raw)
+    previous, package, after = raw[:start], raw[start:next_package], raw[next_package:]
+    lines = [b' "' + x.encode("ascii") + b'",\n' for x in additions]
+    present = [line in package for line in lines]
+    if any(present) and not all(present):
+        raise ValueError("partial_private_package_extension:" + package_name)
+    if all(present):
+        for line in lines:
+            if package.count(line) != 1:
+                raise ValueError("duplicate_private_dependency:" + package_name)
+            package = package.replace(line, b"", 1)
+    return previous + package + after, all(present)
+
+def verified_local_extension(lock_path: Path, historical_sha256: str) -> int:
+    """Return 0 when frozen unchanged, 1 for exact E06 and optional gateway extension.
+
+    The reconstruction check protects every byte of the prior registry universe,
+    historic package ordering, checksum and unmodified package manifests.
     """
     raw = lock_path.read_bytes()
     if hashlib.sha256(raw).hexdigest() == historical_sha256:
         return 0
     if raw.count(E06_LOCK_STANZA) != 1:
         raise ValueError("unreviewed_e06_lock_extension")
-    prior = raw.replace(E06_LOCK_STANZA, b"", 1)
-    if hashlib.sha256(prior).hexdigest() != historical_sha256:
-        raise ValueError("historical_cargo_digest_changed_outside_e06")
+    raw = raw.replace(E06_LOCK_STANZA, b"", 1)
+    raw, control = _strip_selected_local_additions(raw, "ptah-control", CONTROL_DEPENDENCIES)
+    raw, node = _strip_selected_local_additions(raw, "ptah-node", NODE_DEPENDENCIES)
+    if control != node:
+        raise ValueError("partial_gateway_private_dependency_extension")
+    if hashlib.sha256(raw).hexdigest() != historical_sha256:
+        raise ValueError("historical_cargo_digest_changed_outside_e06_e07_private_scope")
     return 1

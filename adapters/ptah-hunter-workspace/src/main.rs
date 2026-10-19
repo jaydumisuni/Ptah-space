@@ -1,4 +1,5 @@
-//! Native on-demand Ptah D02 workspace connection for Hunter.
+//! Native on-demand Ptah D02 workspace connection for any admitted caller.
+//! Knights/trusted ingress owns authentication; Ptah does not re-authorize.
 //! Runs one bounded JSON operation then exits. No daemon, provider or lease.
 use ptah_ai_workspace::{HunterAdapter, RecordClass, RetrievalRequest, WorkspaceReader};
 use ptah_identifiers::EntityRef;
@@ -20,7 +21,8 @@ struct Request {
     workspace_ref: Option<EntityRef>,
     workspace_key: Option<String>,
     title: Option<String>,
-    owner_ref: EntityRef,
+    // Backward-compatible provenance metadata, not a login, Grant or token.
+    owner_ref: Option<EntityRef>,
     authority_ref: Option<EntityRef>,
     policy_ref: Option<EntityRef>,
     observed_at: Option<String>,
@@ -51,10 +53,20 @@ fn inspection(ledger: &Path, req: &Request) -> Result<Value, String> {
         return Err("INSPECT_MUST_NOT_REQUEST_CREATION".into());
     }
     let timestamp = req.observed_at.as_deref().ok_or("CLOCK_REQUIRED")?;
+    // Resolve the workspace from the parent-selected ledger. This is durable
+    // data/provenance lookup, never a second Ptah caller authorization.
+    // Client JSON owner_ref is intentionally NOT used as a credential.
+    let projection = WorkspaceStore::open(ledger, clock(timestamp)?)
+        .map_err(|_| "PTAH_LEDGER_READ_FAILED")?
+        .workspace(reference.entity_id)
+        .map_err(|_| "WORKSPACE_NOT_FOUND_OR_INVALID")?;
+    if projection.workspace_ref != *reference {
+        return Err("WORKSPACE_REFERENCE_MISMATCH".into());
+    }
     let reader =
         WorkspaceReader::open(ledger, clock(timestamp)?).map_err(|_| "PTAH_LEDGER_READ_FAILED")?;
     let request = RetrievalRequest {
-        actor_ref: req.owner_ref.clone(),
+        actor_ref: projection.owner_ref.clone(),
         source_workspace_ref: reference.clone(),
         target_workspace_ref: reference.clone(),
         record_class: RecordClass::Workspace,
@@ -66,18 +78,13 @@ fn inspection(ledger: &Path, req: &Request) -> Result<Value, String> {
     let record = HunterAdapter::new(&reader)
         .retrieve_exact(&request)
         .map_err(|_| "PTAH_D02_EXACT_RETRIEVAL_DENIED")?;
-    // D02's mechanical same-workspace check does not independently bind the
-    // requesting caller to the Workspace owner: enforce this extra boundary.
+    // Verify canonical owner *metadata* is internally consistent with the
+    // projection. Do not compare it to a caller-supplied owner/identity.
     let recorded_owner: EntityRef = serde_json::from_value(
-        record
-            .document
-            .get("owner_ref")
-            .cloned()
-            .ok_or("OWNER_RECORD_MISSING")?,
-    )
-    .map_err(|_| "OWNER_RECORD_INVALID")?;
-    if recorded_owner != req.owner_ref {
-        return Err("WORKSPACE_OWNER_MISMATCH".into());
+        record.document.get("owner_ref").cloned().ok_or("OWNER_RECORD_MISSING")?
+    ).map_err(|_| "OWNER_RECORD_INVALID")?;
+    if recorded_owner != projection.owner_ref {
+        return Err("WORKSPACE_METADATA_INCONSISTENT".into());
     }
     if record
         .document
@@ -90,8 +97,9 @@ fn inspection(ledger: &Path, req: &Request) -> Result<Value, String> {
     }
     Ok(json!({
         "ok":true,"schema":"ptah.hunter-workspace-bridge/1",
-        "state":"existing_authorized_workspace",
-        "workspaceRef":reference,"ownerRef":req.owner_ref,
+        "state":"existing_workspace",
+        "workspaceRef":reference,"ownerRef":projection.owner_ref,
+        "ownerRefIsMetadataOnly":true,"secondAuthorizationPerformed":false,
         "recordRevision":record.record_revision.value(),
         "recordSchema":record.schema_id,
         "d02ExactRead":true,"e02LeaseIssued":false,
@@ -110,16 +118,23 @@ fn process(ledger: &Path, request: Request) -> Result<Value, String> {
                 .as_deref()
                 .ok_or("WORKSPACE_KEY_REQUIRED")?;
             let title = request.title.as_deref().ok_or("TITLE_REQUIRED")?;
-            let authority = request
-                .authority_ref
-                .clone()
-                .ok_or("AUTHORITY_REF_REQUIRED")?;
-            let policy = request.policy_ref.clone().ok_or("POLICY_REF_REQUIRED")?;
-            if authority.entity_kind.as_str() != "authority.owner"
-                || policy.entity_kind.as_str() != "policy.workspace"
-                || request.owner_ref.entity_kind.as_str() != "identity.principal"
+            // Existing ledger contracts require provenance-shaped references,
+            // not authentication tokens. Accept supplied metadata for backward
+            // compatibility, otherwise assign local record provenance without
+            // creating a login, membership, Grant or approval.
+            let owner = request.owner_ref.clone()
+                .map_or_else(|| EntityRef::new("identity.principal"), Ok)
+                .map_err(|_| "WORKSPACE_METADATA_INVALID")?;
+            let authority = request.authority_ref.clone()
+                .map_or_else(|| EntityRef::new("authority.owner"), Ok)
+                .map_err(|_| "WORKSPACE_METADATA_INVALID")?;
+            let policy_refs = request.policy_ref.clone().into_iter().collect();
+            if owner.entity_kind.as_str() != "identity.principal"
+                || authority.entity_kind.as_str() != "authority.owner"
+                || request.policy_ref.as_ref().is_some_and(|policy|
+                    policy.entity_kind.as_str() != "policy.workspace")
             {
-                return Err("OWNER_AUTHORITY_REFERENCE_CLASS_INVALID".into());
+                return Err("WORKSPACE_METADATA_KIND_INVALID".into());
             }
             let now = request.observed_at.as_deref().ok_or("CLOCK_REQUIRED")?;
             let mut store =
@@ -129,10 +144,10 @@ fn process(ledger: &Path, request: Request) -> Result<Value, String> {
                     workspace_key: key.into(),
                     title: title.into(),
                     description: None,
-                    owner_ref: request.owner_ref.clone(),
+                    owner_ref: owner.clone(),
                     authority_ref: authority.clone(),
-                    created_by_ref: request.owner_ref.clone(),
-                    policy_refs: vec![policy],
+                    created_by_ref: owner,
+                    policy_refs,
                 })
                 .map_err(|_| "PTAH_WORKSPACE_CREATE_FAILED")?;
             drop(store);
@@ -143,7 +158,7 @@ fn process(ledger: &Path, request: Request) -> Result<Value, String> {
                     workspace_ref: Some(created.workspace_ref),
                     workspace_key: None,
                     title: None,
-                    owner_ref: request.owner_ref,
+                    owner_ref: None,
                     authority_ref: None,
                     policy_ref: None,
                     observed_at: request.observed_at,
@@ -203,7 +218,7 @@ mod tests {
             workspace_ref: None,
             workspace_key: None,
             title: None,
-            owner_ref: principal,
+            owner_ref: Some(principal),
             authority_ref: None,
             policy_ref: None,
             observed_at: Some("2026-10-18T08:40:00Z".into()),
@@ -211,7 +226,41 @@ mod tests {
         assert!(process(Path::new("/tmp/ptah-no-ledger-file"), req).is_err());
     }
     #[test]
-    fn provision_then_reopen_exact_d02_record_and_refuse_wrong_owner() {
+    fn creates_and_inspects_without_any_owner_or_policy_approval_fields() {
+        let path = std::env::temp_dir().join(format!(
+            "ptah-knights-open-{}.sqlite3",
+            ptah_identifiers::EntityId::new_v7()
+        ));
+        let new_request: Request = serde_json::from_value(json!({
+            "action":"provision",
+            "workspace_key":"shared.all-callers",
+            "title":"Shared Ptah Workspace",
+            "observed_at":"2026-10-19T20:10:00Z"
+        })).expect("no login/owner/grant metadata required");
+        let created=process(&path,new_request).expect("any admitted caller can create");
+        assert_eq!(created["state"], "existing_workspace");
+        assert_eq!(created["ownerRefIsMetadataOnly"], true);
+        assert_eq!(created["secondAuthorizationPerformed"], false);
+        let inspected=process(&path,serde_json::from_value(json!({
+            "action":"inspect",
+            "workspace_ref": created["workspaceRef"],
+            "observed_at":"2026-10-19T20:11:00Z"
+        })).unwrap()).expect("any admitted caller can inspect");
+        assert_eq!(inspected["workspaceRef"],created["workspaceRef"]);
+        assert_eq!(inspected["ownerRef"],created["ownerRef"]);
+        let arbitrary_other=EntityRef::new("identity.principal").unwrap();
+        let repeated=process(&path,serde_json::from_value(json!({
+            "action":"inspect",
+            "workspace_ref": created["workspaceRef"],
+            "owner_ref": arbitrary_other,
+            "observed_at":"2026-10-19T20:11:00Z"
+        })).unwrap()).expect("client-supplied owner identity is not an access control");
+        assert_eq!(repeated["workspaceRef"],created["workspaceRef"]);
+        assert_eq!(repeated["secondAuthorizationPerformed"],false);
+        let _=std::fs::remove_file(&path);
+    }
+    #[test]
+    fn provision_then_reopen_exact_d02_record_for_other_admitted_caller() {
         let path = std::env::temp_dir().join(format!(
             "ptah-hunter-d02-{}.sqlite3",
             ptah_identifiers::EntityId::new_v7()
@@ -224,7 +273,7 @@ mod tests {
                 workspace_ref: None,
                 workspace_key: Some("hunter.test".into()),
                 title: Some("Test Hunter Workspace".into()),
-                owner_ref: owner.clone(),
+                owner_ref: Some(owner.clone()),
                 authority_ref: Some(EntityRef::new("authority.owner").unwrap()),
                 policy_ref: Some(EntityRef::new("policy.workspace").unwrap()),
                 observed_at: Some("2026-10-18T08:45:00Z".into()),
@@ -239,7 +288,7 @@ mod tests {
             workspace_ref: Some(reference.clone()),
             workspace_key: None,
             title: None,
-            owner_ref: actor,
+            owner_ref: Some(actor),
             authority_ref: None,
             policy_ref: None,
             observed_at: Some("2026-10-18T08:46:00Z".into()),
@@ -249,10 +298,11 @@ mod tests {
             recorded["workspaceRef"]
         );
         let wrong = EntityRef::new("identity.principal").unwrap();
-        assert_eq!(
-            process(&path, query(wrong)).unwrap_err(),
-            "WORKSPACE_OWNER_MISMATCH"
-        );
+        let other = process(&path, query(wrong)).expect("other admitted caller");
+        assert_eq!(other["workspaceRef"], recorded["workspaceRef"]);
+        assert_eq!(other["ownerRef"], recorded["ownerRef"]);
+        assert_eq!(other["secondAuthorizationPerformed"], false);
+        assert_eq!(other["ownerRefIsMetadataOnly"], true);
         let _ = std::fs::remove_file(&path);
     }
 }

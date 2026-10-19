@@ -29,11 +29,11 @@ pub struct ActivationRequest {
     pub decided_at: String,
 }
 
-/// Thin activation authority facade over A06.
+/// Mechanical activation reference check after the Knights ingress boundary.
 pub struct ActivationService;
 
 impl ActivationService {
-    /// Validate exact Plugin activation identity, policy and current A06 Grant scope.
+    /// Verify selected Plugin/Workspace records, without secondary Ptah approvals.
     ///
     /// # Errors
     /// Returns [`D05Error::ActivationAuthorityMissing`] when identity, policy, Grant,
@@ -43,20 +43,15 @@ impl ActivationService {
             || request.installation_ref.entity_kind != "plugin.installation"
             || request.workspace_ref.entity_kind != "core.workspace"
             || request.workspace_ref.entity_id != request.target_workspace_id
-            || request.policy_refs.is_empty()
-            || request.grant_ref.is_none()
             || request.decided_at.trim().is_empty()
         {
             return Err(D05Error::ActivationAuthorityMissing);
         }
-        store
-            .authorize_retrieval(
-                &request.actor_ref,
-                request.source_workspace_id,
-                request.target_workspace_id,
-                "plugin.activate",
-                request.grant_ref.as_ref(),
-            )
-            .map_err(|_| D05Error::ActivationAuthorityMissing)
+        for id in [request.source_workspace_id, request.target_workspace_id] {
+            store
+                .workspace(id)
+                .map_err(|_| D05Error::ActivationAuthorityMissing)?;
+        }
+        Ok(())
     }
 }

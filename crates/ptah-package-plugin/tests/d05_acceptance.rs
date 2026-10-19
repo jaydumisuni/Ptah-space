@@ -173,7 +173,7 @@ fn public_discovery_is_not_install_admission() {
 }
 
 #[test]
-fn private_package_requires_exact_workspace_authority() {
+fn private_package_uses_selected_workspace_without_per_user_grant() {
     let (_path, mut store) = workspace_store("private");
     let source = create_workspace(&mut store, "source");
     let target = create_workspace(&mut store, "target");
@@ -183,10 +183,9 @@ fn private_package_requires_exact_workspace_authority() {
         DistributionClass::Private,
         LicenceDecision::Allowed,
     );
-    assert_eq!(
-        AdmissionService::admit(&store, &request),
-        Err(D05Error::WorkspaceAccessDenied)
-    );
+    let admitted = AdmissionService::admit(&store, &request)
+        .expect("Knights/ingress already admitted the caller");
+    assert_eq!(admitted.target_workspace_id, target.entity_id);
     let same = admission_request(
         &target,
         &target,
@@ -194,6 +193,17 @@ fn private_package_requires_exact_workspace_authority() {
         LicenceDecision::Allowed,
     );
     assert!(AdmissionService::admit(&store, &same).is_ok());
+    let mut missing = admission_request(
+        &source,
+        &target,
+        DistributionClass::Private,
+        LicenceDecision::Allowed,
+    );
+    missing.target_workspace_id = r("core.workspace").entity_id;
+    assert_eq!(
+        AdmissionService::admit(&store, &missing),
+        Err(D05Error::WorkspaceAccessDenied)
+    );
 }
 
 #[test]
@@ -523,7 +533,7 @@ fn plugin_installation_does_not_imply_activation() {
 }
 
 #[test]
-fn activation_requires_explicit_policy_and_scoped_a06_grant() {
+fn activation_uses_explicit_caller_choice_without_second_ptah_grant() {
     let (_path, mut store) = workspace_store_with_clock("activate", "2026-09-02T16:00:00Z");
     let source = create_workspace(&mut store, "plugin.source");
     let target = create_workspace(&mut store, "plugin.target");
@@ -559,17 +569,23 @@ fn activation_requires_explicit_policy_and_scoped_a06_grant() {
         .unwrap();
     assert_eq!(activation_ref.entity_kind.as_str(), "plugin.activation");
     let activation_doc = plugin_store.record_document(&activation_ref).unwrap();
-    assert_eq!(activation_doc["decision"], "approved");
+    assert_eq!(activation_doc["decision"], "caller_selected");
     let mut missing_policy = request.clone();
     missing_policy.policy_refs.clear();
-    assert_eq!(
-        ActivationService::authorize(&store, &missing_policy),
-        Err(D05Error::ActivationAuthorityMissing)
-    );
+    missing_policy.grant_ref = None;
+    ActivationService::authorize(&store, &missing_policy)
+        .expect("caller already admitted by Knights, no second Ptah Grant/Policy");
+    let reference = plugin_store
+        .record_activation(&missing_policy, &r("authority.owner"))
+        .expect("persist caller selected activation without invented policy/Grant");
+    let stored = plugin_store.record_document(&reference).unwrap();
+    assert_eq!(stored["decision"], "caller_selected");
+    assert_eq!(stored["grant_refs"], serde_json::json!([]));
+    assert_eq!(stored["policy_refs"], serde_json::json!([]));
 }
 
 #[test]
-fn expired_a06_grant_cannot_authorize_plugin_activation() {
+fn expired_historical_a06_grant_is_not_caller_permission() {
     let (path, mut store) = workspace_store_with_clock("activate-expired", "2026-09-02T16:00:00Z");
     let source = create_workspace(&mut store, "plugin.source");
     let target = create_workspace(&mut store, "plugin.target");
@@ -602,10 +618,7 @@ fn expired_a06_grant_cannot_authorize_plugin_activation() {
         decided_by_ref: r("identity.principal"),
         decided_at: "2026-09-04T16:00:00Z".into(),
     };
-    assert_eq!(
-        ActivationService::authorize(&reopened, &request),
-        Err(D05Error::ActivationAuthorityMissing)
-    );
+    assert!(ActivationService::authorize(&reopened, &request).is_ok());
 }
 
 fn plugin_instance() -> PluginInstanceRecord {

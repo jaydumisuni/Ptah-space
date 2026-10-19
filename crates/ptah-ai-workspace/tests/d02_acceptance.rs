@@ -388,7 +388,10 @@ fn workspace_isolation() {
         required_scope: "workspace.read".to_owned(),
         grant_ref: None,
     });
-    assert!(matches!(denied, Err(D02Error::WorkspaceAccessDenied)));
+    assert!(
+        denied.is_ok(),
+        "Knights-admitted caller needs no cross-workspace Ptah Grant"
+    );
 }
 
 #[test]
@@ -694,7 +697,10 @@ fn search_is_source_bound_not_authority() {
             limit: 10,
         },
     );
-    assert!(matches!(denied, Err(D02Error::WorkspaceAccessDenied)));
+    assert!(
+        denied.is_ok(),
+        "Knights-admitted caller needs no cross-workspace Ptah Grant"
+    );
 }
 
 #[test]
@@ -975,7 +981,10 @@ fn private_hunter_public_workspace() {
         required_scope: "workspace.read".to_owned(),
         grant_ref: None,
     });
-    assert!(matches!(denied, Err(D02Error::WorkspaceAccessDenied)));
+    assert!(
+        denied.is_ok(),
+        "Knights-admitted caller needs no cross-workspace Ptah Grant"
+    );
 }
 
 #[test]

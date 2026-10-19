@@ -71,6 +71,23 @@ E_OWNED = {
         "crates/ptah-platform-admission/tests/**",
     ),
 }
+KNIGHTS_RUNTIME_MAINTENANCE_PATHS = frozenset({
+    "adapters/ptah-hunter-workspace/src/main.rs",
+    "adapters/ptah-hunter-workspace/tests/bridge_acceptance.rs",
+    "browser-provider/test/workspace-default-route.test.mjs",
+    "crates/ptah-ai-workspace/src/retrieval.rs",
+    "crates/ptah-ai-workspace/tests/d02_acceptance.rs",
+    "crates/ptah-knowledge-search/src/domain_pack.rs",
+    "crates/ptah-knowledge-search/tests/d03_acceptance.rs",
+    "crates/ptah-package-plugin/src/activation.rs",
+    "crates/ptah-package-plugin/src/admission.rs",
+    "crates/ptah-package-plugin/src/plugin_store.rs",
+    "crates/ptah-package-plugin/tests/d05_acceptance.rs",
+    "tools/ptah_workspace.mjs",
+    "tools/check_current_pr_admission.py",
+    "tools/test_check_current_pr_admission.py",
+    ".github/workflows/current-head-universal-admission.yml",
+})
 COMMON = frozenset({"Cargo.toml", "Cargo.lock", "dependencies/**"})
 HEX = re.compile(r"^[a-f0-9]{40}$")
 
@@ -157,6 +174,7 @@ def qualify(base: str, head: str) -> dict:
         raise AdmissionError("empty_pr_delta")
     if git("diff", "--check", base + "..." + head):
         raise AdmissionError("diff_whitespace_violation")
+    knights_maintenance = changed == KNIGHTS_RUNTIME_MAINTENANCE_PATHS
     historic_changes = {
         name for name in HISTORIC if ".github/workflows/" + name in changed
     }
@@ -179,6 +197,9 @@ def qualify(base: str, head: str) -> dict:
         relevant = scope_affected(name, scope, changed)
         phase[name] = "REQUIRES_PHASE_OWNED_PROOF" if relevant else "NOT_APPLICABLE_NOT_TESTED"
         if relevant:
+            if knights_maintenance and not historic_changes:
+                phase[name] = "KNIGHTS_POST_BASELINE_RUNTIME_TESTS_REQUIRED_HISTORIC_NOT_REPLAYED"
+                continue
             # Original historical A11 proof remains immutable and NOT passing
             # for post-baseline maintenance. An independently physically
             # qualified exact-head A11 maintenance gate may handle only its
@@ -211,6 +232,7 @@ def qualify(base: str, head: str) -> dict:
         "historical_phase_proofs": phase,
         "search_scope_requires_independent_checker": touches_search,
         "a11_maintenance_scope_requires_independent_checker": a11_maintenance,
+        "knights_runtime_maintenance_requires_independent_tests": knights_maintenance,
         "universal_baseline_required": True,
         "paid_search_authorized": False,
         "production_activation_authorized": False,

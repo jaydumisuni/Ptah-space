@@ -1,0 +1,38 @@
+name: Ptah trusted-base governance integrity
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  ptah-trusted-base-integrity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout trusted immutable base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.BASE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify current-head checks were not rewritten by PR
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          git fetch --no-tags origin "$HEAD_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"
+          python3 - <<'PY'
+          import os,subprocess,sys
+          base,head=os.environ['BASE_SHA'],os.environ['HEAD_SHA']
+          paths=set(subprocess.check_output(['git','diff','--name-only','--diff-filter=ACDMRT',base+'...'+head],text=True).splitlines())
+          frozen={'.github/workflows/ptah-current-head-integration.yml','.github/workflows/ptah-trusted-base-integrity.yml','.github/workflows/a11-governance-integrity.yml','.github/workflows/a11-post-baseline-maintenance.yml','.github/workflows/current-head-universal-admission.yml','tools/check_current_pr_admission.py','tools/check_a11_maintenance_admission.py'}
+          changed=sorted(paths&frozen)
+          if changed:
+            print('PTAH_TRUSTED_BASE_SELF_MODIFICATION_REJECTED: '+', '.join(changed),file=sys.stderr)
+            sys.exit(1)
+          print('PTAH_TRUSTED_BASE_INTEGRITY_PASS; reviewable source paths: '+str(len(paths)))
+          PY

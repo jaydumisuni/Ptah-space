@@ -27,7 +27,7 @@ fn native(ledger: &PathBuf, value: &Value) -> (bool, Value) {
     (result.status.success(), body)
 }
 #[test]
-fn durable_workspace_reopens_via_native_binary_and_wrong_owner_refuses() {
+fn durable_workspace_reopens_for_any_admitted_caller_without_second_owner_gate() {
     let ledger = std::env::temp_dir().join(format!(
         "ptah-hunter-cli-{}.sqlite3",
         ptah_identifiers::EntityId::new_v7()
@@ -56,8 +56,34 @@ fn durable_workspace_reopens_via_native_binary_and_wrong_owner_refuses() {
       "owner_ref":EntityRef::new("identity.principal").unwrap(),
       "observed_at":"2026-10-18T08:41:00Z"});
     let (allowed, body) = native(&ledger, &denied);
-    assert!(!allowed);
-    assert_eq!(body["error"], "WORKSPACE_OWNER_MISMATCH");
+    assert!(allowed, "client-supplied owner metadata is not a permission gate");
+    assert_eq!(body["workspaceRef"],created["workspaceRef"]);
+    assert_eq!(body["secondAuthorizationPerformed"],false);
+    assert_eq!(body["ownerRefIsMetadataOnly"],true);
+    let _ = fs::remove_file(ledger);
+}
+#[test]
+fn native_open_workspace_needs_no_ptah_owner_enrollment_grant_or_policy() {
+    let ledger = std::env::temp_dir().join(format!(
+        "ptah-knights-bridge-{}.sqlite3",
+        ptah_identifiers::EntityId::new_v7()
+    ));
+    let (ok, created) = native(&ledger, &json!({
+        "action":"provision","workspace_key":"shared.knights-open",
+        "title":"Admitted caller shared workspace",
+        "observed_at":"2026-10-19T21:00:00Z"
+    }));
+    assert!(ok, "Ptah must not require a second login, policy or Grant: {created}");
+    assert_eq!(created["secondAuthorizationPerformed"],false);
+    assert_eq!(created["ownerRefIsMetadataOnly"],true);
+    let (ok, repeated) = native(&ledger, &json!({
+        "action":"inspect","workspace_ref":created["workspaceRef"],
+        "observed_at":"2026-10-19T21:01:00Z"
+    }));
+    assert!(ok);
+    assert_eq!(repeated["workspaceRef"],created["workspaceRef"]);
+    assert_eq!(repeated["ownerRef"],created["ownerRef"]);
+    assert_eq!(repeated["d02ExactRead"],true);
     let _ = fs::remove_file(ledger);
 }
 #[test]

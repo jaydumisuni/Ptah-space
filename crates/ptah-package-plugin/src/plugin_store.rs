@@ -272,13 +272,10 @@ impl PluginStore {
         request: &ActivationRequest,
         authority_ref: &EntityRef,
     ) -> Result<EntityRef, D05Error> {
-        let grant_ref = request
-            .grant_ref
-            .as_ref()
-            .ok_or(D05Error::ActivationAuthorityMissing)?;
-        if request.policy_refs.is_empty()
-            || request.plugin_revision_ref.entity_kind != "plugin.revision"
+        if request.plugin_revision_ref.entity_kind != "plugin.revision"
             || request.installation_ref.entity_kind != "plugin.installation"
+            || request.workspace_ref.entity_kind != "core.workspace"
+            || request.decided_at.trim().is_empty()
         {
             return Err(D05Error::ActivationAuthorityMissing);
         }
@@ -290,8 +287,8 @@ impl PluginStore {
             "installation_ref": request.installation_ref,
             "workspace_ref": request.workspace_ref,
             "policy_refs": request.policy_refs,
-            "grant_refs": [grant_ref],
-            "decision": "approved",
+            "grant_refs": request.grant_ref.clone().into_iter().collect::<Vec<_>>(),
+            "decision": "caller_selected",
             "decided_at": request.decided_at,
             "decided_by_ref": request.decided_by_ref,
             "extensions": {}

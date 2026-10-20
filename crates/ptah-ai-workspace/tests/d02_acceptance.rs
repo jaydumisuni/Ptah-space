@@ -379,16 +379,33 @@ fn workspace_isolation() {
     assert_eq!(same_workspace.record_revision.value(), 1);
 
     let denied = reader.retrieve(&RetrievalRequest {
-        actor_ref: actor,
-        source_workspace_ref: workspace_b,
+        actor_ref: actor.clone(),
+        source_workspace_ref: workspace_b.clone(),
         target_workspace_ref: workspace_a,
+        record_class: RecordClass::Session,
+        entity_ref: private_session.clone(),
+        record_revision: None,
+        required_scope: "workspace.read".to_owned(),
+        grant_ref: None,
+    });
+    assert!(
+        denied.is_ok(),
+        "Knights-admitted caller needs no cross-workspace Ptah Grant"
+    );
+    let wrong_target = reader.retrieve(&RetrievalRequest {
+        actor_ref: actor,
+        source_workspace_ref: workspace_b.clone(),
+        target_workspace_ref: workspace_b,
         record_class: RecordClass::Session,
         entity_ref: private_session,
         record_revision: None,
         required_scope: "workspace.read".to_owned(),
         grant_ref: None,
     });
-    assert!(matches!(denied, Err(D02Error::WorkspaceAccessDenied)));
+    assert!(
+        matches!(wrong_target, Err(D02Error::WorkspaceMismatch)),
+        "the explicit target Workspace must own the requested record"
+    );
 }
 
 #[test]
@@ -694,7 +711,10 @@ fn search_is_source_bound_not_authority() {
             limit: 10,
         },
     );
-    assert!(matches!(denied, Err(D02Error::WorkspaceAccessDenied)));
+    assert!(
+        denied.is_ok(),
+        "Knights-admitted caller needs no cross-workspace Ptah Grant"
+    );
 }
 
 #[test]
@@ -975,7 +995,10 @@ fn private_hunter_public_workspace() {
         required_scope: "workspace.read".to_owned(),
         grant_ref: None,
     });
-    assert!(matches!(denied, Err(D02Error::WorkspaceAccessDenied)));
+    assert!(
+        denied.is_ok(),
+        "Knights-admitted caller needs no cross-workspace Ptah Grant"
+    );
 }
 
 #[test]

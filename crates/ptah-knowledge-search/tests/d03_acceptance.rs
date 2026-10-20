@@ -1062,7 +1062,7 @@ fn domain_pack_result() -> KnowledgeResultSet {
 }
 
 #[test]
-fn a06_authority_facade_denies_cross_workspace_before_query_and_allows_same_workspace() {
+fn d03_workspace_resolution_accepts_admitted_cross_workspace_caller_without_grant() {
     let path = workspace_db_path("authority");
     let mut store = WorkspaceStore::open(&path, d03_clock()).expect("open workspace store");
     let source_workspace = create_d03_workspace(&mut store, "d03.source");
@@ -1079,15 +1079,19 @@ fn a06_authority_facade_denies_cross_workspace_before_query_and_allows_same_work
             None,
         )
         .expect("same workspace");
-    assert!(matches!(
-        authority.authorize(
+    authority
+        .authorize(
             &actor,
             &source_workspace,
             &target_workspace,
             "workspace.read",
             None,
-        ),
-        Err(D03Error::WorkspaceAccessDenied)
+        )
+        .expect("Knights admitted caller; no second D03 Grant is needed");
+    let missing = reference("core.workspace");
+    assert!(matches!(
+        authority.authorize(&actor, &source_workspace, &missing, "workspace.read", None),
+        Err(D03Error::WorkspaceAdapter(_))
     ));
     fs::remove_file(path).ok();
 }

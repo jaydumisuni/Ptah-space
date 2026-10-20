@@ -1,11 +1,11 @@
-//! Exact authority-gated D02 canonical record retrieval.
+//! Exact canonical record retrieval; caller access is admitted by Knights ingress.
 
 use crate::D02Error;
 use ptah_activity_runtime::ACTIVITY_SCHEMA_ID;
 use ptah_identifiers::{EntityRef, RecordRevision};
 use ptah_ledger::{CanonicalRecord, EntityRecordRepository, Ledger};
 use ptah_object_store::{ARTIFACT_SCHEMA_ID, OBJECT_SCHEMA_ID};
-use ptah_workspace::{SESSION_SCHEMA_ID, WORKSPACE_SCHEMA_ID, WorkspaceError, WorkspaceStore};
+use ptah_workspace::{SESSION_SCHEMA_ID, WORKSPACE_SCHEMA_ID, WorkspaceStore};
 use serde_json::Value;
 use std::{path::Path, sync::Arc};
 
@@ -42,9 +42,9 @@ pub struct RetrievalRequest {
     pub entity_ref: EntityRef,
     /// Optional exact canonical record revision.
     pub record_revision: Option<RecordRevision>,
-    /// Configured scope A06 must authorize.
+    /// Caller-origin operation scope retained as provenance (not Ptah permission).
     pub required_scope: String,
-    /// Optional exact Secure Grant reference.
+    /// Optional historical Secure Grant metadata, not a new access requirement.
     pub grant_ref: Option<EntityRef>,
 }
 
@@ -80,10 +80,10 @@ impl WorkspaceReader {
         })
     }
 
-    /// Enforce configured A06 access without reading the target canonical document.
+    /// Check chosen Workspace identity before retrieving a canonical document.
     ///
     /// # Errors
-    /// Fails closed when Workspace authority denies access.
+    /// Returns a record/integrity error for missing/mismatched Workspaces.
     pub fn authorize_workspace_access(&self, request: &RetrievalRequest) -> Result<(), D02Error> {
         self.authorize_workspace_scope(
             &request.actor_ref,
@@ -94,10 +94,10 @@ impl WorkspaceReader {
         )
     }
 
-    /// Enforce configured A06 access for a Workspace-scoped operation such as derived search.
+    /// Check Workspace references for caller-selected operations such as search.
     ///
     /// # Errors
-    /// Fails closed when configured A06 authority denies the exact scope.
+    /// Returns a technical error when the selected Workspace does not exist.
     pub fn authorize_workspace_scope(
         &self,
         actor_ref: &EntityRef,
@@ -106,25 +106,25 @@ impl WorkspaceReader {
         required_scope: &str,
         grant_ref: Option<&EntityRef>,
     ) -> Result<(), D02Error> {
-        match self.workspace.authorize_retrieval(
-            actor_ref,
-            source_workspace_ref.entity_id,
-            target_workspace_ref.entity_id,
-            required_scope,
-            grant_ref,
-        ) {
-            Ok(()) => Ok(()),
-            Err(WorkspaceError::CrossWorkspaceDenied | WorkspaceError::InvalidGrant) => {
-                Err(D02Error::WorkspaceAccessDenied)
+        // Upstream Knights decides admission once. Ptah does not recheck
+        // actor, Grant or scope; those legacy fields are provenance only.
+        let _ = (actor_ref, required_scope, grant_ref);
+        for reference in [source_workspace_ref, target_workspace_ref] {
+            if reference.entity_kind.as_str() != "core.workspace" {
+                return Err(D02Error::WorkspaceMismatch);
             }
-            Err(error) => Err(D02Error::Workspace(error)),
+            let record = self.workspace.workspace(reference.entity_id)?;
+            if record.workspace_ref != *reference {
+                return Err(D02Error::WorkspaceMismatch);
+            }
         }
+        Ok(())
     }
 
-    /// Retrieve one exact/latest canonical record after A06 authority validation.
+    /// Retrieve exact canonical records after integrity and Workspace routing checks.
     ///
     /// # Errors
-    /// Fails closed for denied access, missing/mismatched record class, or Workspace mismatch.
+    /// Fails closed for missing/mismatched record class or wrong Workspace routing.
     pub fn retrieve(&self, request: &RetrievalRequest) -> Result<RetrievedRecord, D02Error> {
         self.authorize_workspace_access(request)?;
         let record = match request.record_revision {

@@ -72,11 +72,11 @@ pub struct PackageAdmission {
 pub struct AdmissionService;
 
 impl AdmissionService {
-    /// Validate trust/licence and private Workspace authority.
+    /// Validate package evidence and selected Workspace identity, not caller access.
     ///
     /// # Errors
     ///
-    /// Returns a D05 policy/authority error when trust, licence, or Workspace access fails.
+    /// Returns a D05 evidence/licence error or missing Workspace record error.
     pub fn admit(
         store: &WorkspaceStore,
         request: &PackageAdmissionRequest,
@@ -93,15 +93,12 @@ impl AdmissionService {
             LicenceDecision::ReviewRequired => return Err(D05Error::LicenceReviewRequired),
             LicenceDecision::Allowed => {}
         }
-        if request.distribution == DistributionClass::Private {
+        // Knights/ingress already admitted the caller. Workspace scope is
+        // selected by the caller; checking that both requested records exist
+        // prevents misrouting without issuing a second Ptah Grant/approval.
+        for id in [request.source_workspace_id, request.target_workspace_id] {
             store
-                .authorize_retrieval(
-                    &request.actor_ref,
-                    request.source_workspace_id,
-                    request.target_workspace_id,
-                    "plugin.package.install",
-                    request.grant_ref.as_ref(),
-                )
+                .workspace(id)
                 .map_err(|_| D05Error::WorkspaceAccessDenied)?;
         }
         Ok(PackageAdmission {

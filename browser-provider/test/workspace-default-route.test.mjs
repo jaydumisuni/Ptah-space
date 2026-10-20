@@ -26,12 +26,15 @@ test("rejects Oracle shared, arbitrary shell, and credentialed URLs",()=>{
     assert.throws(()=>routeWorkspaceBrowser(argv));
   }
 });
-test("headed desktop view is opt-in and never silently takes user screen",()=>{
+test("headed desktop view is caller-selected, without second Ptah permission",()=>{
   const before=process.env.PTAH_WORKSPACE_ALLOW_HEADED;
   delete process.env.PTAH_WORKSPACE_ALLOW_HEADED;
-  try{assert.throws(()=>routeWorkspaceBrowser(["browser","read","https://example.com/","--headed"]),
-    /explicit_permission/);}
-  finally{
+  try{
+    const explicit=routeWorkspaceBrowser(["browser","read","https://example.com/","--headed"]);
+    assert.ok(explicit.options.includes("--headed"));
+    const normal=routeWorkspaceBrowser(["browser","read","https://example.com/"]);
+    assert.equal(normal.options.includes("--headed"),false);
+  }finally{
     if(before===undefined)delete process.env.PTAH_WORKSPACE_ALLOW_HEADED;
     else process.env.PTAH_WORKSPACE_ALLOW_HEADED=before;
   }

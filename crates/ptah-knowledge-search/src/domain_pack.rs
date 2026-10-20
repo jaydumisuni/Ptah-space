@@ -3,51 +3,55 @@ use crate::{
     KnowledgeSourceRevision,
 };
 use ptah_identifiers::EntityRef;
-use ptah_workspace::{WorkspaceError, WorkspaceStore};
+use ptah_workspace::WorkspaceStore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-/// Thin A06 authority facade for D03 query/retrieval composition.
+/// Workspace-reference resolution for caller-selected D03 queries.
+/// Knights/trusted ingress owns admission, not Ptah's query provider.
 pub struct KnowledgeQueryAuthority<'a> {
     workspace: &'a WorkspaceStore,
 }
 
 impl<'a> KnowledgeQueryAuthority<'a> {
-    /// Bind D03 authority checks to one existing A06 Workspace store.
+    /// Bind D03 workspace integrity checks to one existing A06 store.
     #[must_use]
     pub fn new(workspace: &'a WorkspaceStore) -> Self {
         Self { workspace }
     }
 
-    /// Delegate the exact Workspace/source boundary to A06 before query execution.
+    /// Resolve explicit Workspace identities without demanding a second Ptah
+    /// owner membership, cross-workspace Grant, or per-tool approval.
+    /// Caller-selected scope and actor fields are compatibility metadata only.
     ///
     /// # Errors
-    /// Returns [`D03Error::WorkspaceAccessDenied`] for A06 denial/invalid-Grant outcomes and a
-    /// mechanical adapter error for other A06 failures.
+    /// Returns a mechanical error for invalid or missing Workspace records.
     pub fn authorize(
         &self,
-        actor_ref: &EntityRef,
+        _actor_ref: &EntityRef,
         source_workspace_ref: &EntityRef,
         target_workspace_ref: &EntityRef,
-        required_scope: &str,
-        grant_ref: Option<&EntityRef>,
+        _required_scope: &str,
+        _grant_ref: Option<&EntityRef>,
     ) -> Result<(), D03Error> {
         if source_workspace_ref.entity_kind.as_str() != "core.workspace"
             || target_workspace_ref.entity_kind.as_str() != "core.workspace"
         {
             return Err(D03Error::WorkspaceAdapter(
-                "authority boundary requires core.workspace references".to_owned(),
+                "workspace references must use core.workspace kind".to_owned(),
             ));
         }
-        self.workspace
-            .authorize_retrieval(
-                actor_ref,
-                source_workspace_ref.entity_id,
-                target_workspace_ref.entity_id,
-                required_scope,
-                grant_ref,
-            )
-            .map_err(map_workspace_error)
+        for reference in [source_workspace_ref, target_workspace_ref] {
+            let found = self.workspace.workspace(reference.entity_id).map_err(|_| {
+                D03Error::WorkspaceAdapter("workspace not found or invalid".to_owned())
+            })?;
+            if found.workspace_ref != *reference {
+                return Err(D03Error::WorkspaceAdapter(
+                    "workspace reference inconsistent with durable record".to_owned(),
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -252,14 +256,5 @@ fn csv_cell(value: &CellValue) -> Result<String, D03Error> {
             Ok(value.clone())
         }
         CellValue::BytesDigest { sha256, size } => Ok(format!("sha256:{sha256}:{size}")),
-    }
-}
-
-fn map_workspace_error(error: WorkspaceError) -> D03Error {
-    match error {
-        WorkspaceError::CrossWorkspaceDenied | WorkspaceError::InvalidGrant => {
-            D03Error::WorkspaceAccessDenied
-        }
-        other => D03Error::WorkspaceAdapter(other.to_string()),
     }
 }

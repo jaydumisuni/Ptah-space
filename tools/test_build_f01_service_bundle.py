@@ -58,3 +58,38 @@ class BundleProof(unittest.TestCase):
  def test_archive_never_executes(self):
   with patch("subprocess.run",side_effect=AssertionError("execute denied")):
    self.build()
+
+ def test_hidden_second_tar_and_trailing_bytes_rejected(self):
+  self.build()
+  orig=self.p/"candidate.tar"
+  for payload in [b"ATTACKER_APPENDED_BYTES",orig.read_bytes()]:
+   dst=self.p/("append"+str(len(payload))+".tar")
+   dst.write_bytes(orig.read_bytes()+payload)
+   with self.assertRaisesRegex(B.BundleError,"NONCANONICAL_OR_TRAILING_TAR_DATA"):
+    B.verify_bundle(dst)
+ def test_forged_publisher_and_added_manifest_approval_rejected(self):
+  self.build()
+  src=self.p/"candidate.tar"
+  for field,value in [("publisher","untrusted"),("admitted",True),("signature","trusted")]:
+   dst=self.p/(field+".tar")
+   with tarfile.open(src) as a,tarfile.open(dst,"w") as b:
+    for info in a.getmembers():
+     data=a.extractfile(info).read()
+     if info.name=="manifest.json":
+      obj=json.loads(data);obj[field]=value
+      data=B.manifest_bytes(obj);info.size=len(data)
+     b.addfile(info,io.BytesIO(data))
+   with self.assertRaisesRegex(B.BundleError,"INVALID_(TOP_LEVEL_MANIFEST_KEYS|PUBLISHER)"):
+    B.verify_bundle(dst)
+ def test_parallel_file_creation_survives_output_race(self):
+  dst=self.p/"candidate.tar"
+  actual=Path.open
+  def race(path,mode="r",*args,**kw):
+   if path==dst and mode=="xb":
+    dst.write_bytes(b"another writers data")
+    raise FileExistsError("parallel creation")
+   return actual(path,mode,*args,**kw)
+  with patch.object(Path,"open",race):
+   with self.assertRaises(FileExistsError):
+    self.build()
+  self.assertEqual(dst.read_bytes(),b"another writers data")

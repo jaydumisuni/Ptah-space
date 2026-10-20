@@ -125,10 +125,8 @@ impl SessionRegistry {
             .retain(|_, binding| &binding.credential_fingerprint != fingerprint);
     }
 
-    /// Return the current accepted session for one stable Node identity.
-    #[must_use]
     /// Expire a disconnected session only when it is still the current binding.
-    /// A late disconnect from an older epoch cannot revoke a successor.
+    /// A late disconnect from an older epoch cannot revoke its successor.
     pub fn end_if_current(&mut self, binding: &SessionBinding) -> bool {
         if self.current.get(&binding.node_id) != Some(binding) {
             return false;

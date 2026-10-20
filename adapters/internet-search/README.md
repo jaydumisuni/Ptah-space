@@ -69,4 +69,40 @@ cargo test --offline -p native-process --test a05_ttgs_search_integration
 
 A05 physical qualification uses the actual Process Provider, provider-generation bound Input Lease, and independent exit observation. GitHub CI without KRATOS's external wheel skips the physical-only case; Python unit cases exercise contract and fail-closed behavior.
 
-**Admission boundary:** repository integration and local A05 qualification do not by themselves claim production Provider enrollment or automatically route arbitrary Hunter/agent requests. Deployment still requires the ordinary Ptah authority/placement/lease path. Browser Provider remains unmodified, and no Control-plane endpoint is introduced.
+**Execution boundary:** Search is a caller-selected, on-demand workspace tool. Knights owns security at ingress; Ptah adds no owner enrollment, Grants or second authorization. A05 input lease and Provider generation coordinate the active process and protect against stale input, not grant user permission. Browser is a separate selectable tool. No Control-plane endpoint is introduced.
+
+## Agent-neutral workspace reuse (Knights owns security)
+
+The existing public-web discovery feature is a shared optional Ptah capability,
+not a Hunter-specific tool or a second authentication checkpoint. The readable
+descriptor lives in agent-capability.json and is available from:
+  python3 tools/ptah_internet_search.py describe
+
+**Security and access belong to Knights at ingress.** In the current open
+development stage, Knights' future authentication/cybersecurity systems are
+not a precondition manufactured by Ptah. A person or AI that reaches Ptah
+through the trusted entry is already admitted. Ptah must not request an
+additional login, enroll each AI, demand an owner approval or invent per-tool
+Grants. Hunter, ChatGPT, other AIs and humans can all invoke available tools;
+the caller chooses tasks, browser vs search, and next steps. Oracle transports
+requests to hosts; neither Oracle nor Ptah chooses what the caller may do.
+
+All callers share the existing
+ptah.ttg-internet-search.readonly.v1 protocol. The CLI can launch one
+read-only Search process directly when the pinned provider is installed.
+The A05 process path supplies its own PTY generations and input-lease
+mechanics to avoid stale/misrouted process input. Those are *technical process
+coordination*, not Ptah-side permission or approval.
+
+One-line protocol example on the active A05 PTY:
+  {"operation":"search","query":"Godfrey Mountain full video","limit":5,
+   "request_id":"agent-001","expected_provider_generation":7}
+
+Search snippets remain DISCOVERED_NOT_PAGE_VERIFIED. The same caller may
+choose A11 Browser to verify pages, with no independent Browser permission.
+The providers report missing executables, expired generations, failed
+processes, unavailable networks, or exhausted budgets as observed technical
+conditions. They do not deny workspace access based on task identity.
+No paid-provider overflow is enabled by this unchanged read-only Search
+adapter; extending capabilities belongs to their own engineering scope.
+The descriptor never grants itself Knights privileges or claims release.

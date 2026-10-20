@@ -7,7 +7,11 @@ Cargo.lock digest in dependencies/rust-direct-lock.json unchanged.
 
 The current E06 candidate adds exactly one private workspace-only member,
 crates/ptah-offline-intent, immediately before crates/ptah-transfer.
-Cargo.lock has an exact E06 private package stanza plus the optional native Control dependency extensions in two private packages. The validator reconstructs the immutable E01 lock byte-for-byte after removing only reviewed private additions. External dependency checksums and historical hashes remain unchanged; unreviewed extensions fail closed.
+Cargo.lock adds one exactly specified local package stanza requiring only the
+existing, pinned rusqlite and serde_json crates. Removing that exact stanza
+byte-for-byte reconstructs the historic E01 lock and historical SHA-256.
+Any change outside that one stanza, duplicate stanza, dependency swap,
+extra external package, or unknown workspace member must fail closed.
 No historical phase receipt is silently promoted to a current-head pass.
 
 KRATOS exact candidate worktree:
@@ -23,3 +27,21 @@ KRATOS exact candidate worktree:
 This is not E06-03 live authenticated reconnect, E06-07 release,
 or E07 native two-Node production acceptance. E01-E05 package proofs,
 production keys, owner decisions and reviewer signoff remain separately owned.
+
+
+## E06 reconnect reference evidence — October 20 implementation
+
+The E06 envelope can now atomically persist a versioned optional
+ReconnectDependencies record with exact creation timestamp, observed E01
+session, E02 fence, E03 object digest/generation, E04 checkpoint digest and
+E05 host-profile digest/admission generation. The origin Node and monotonic
+sequence already persist as ordering evidence. Replayed intent identity
+includes all supplied references, so mismatched/replaced references are
+never idempotent. Older unbound queued intents remain explicitly unbound
+and cannot become trusted simply because a new observer supplies values.
+The SQLite schema upgrade adds the new column with JSON null defaults:
+it never invents missing reference evidence. No credentials or executable
+permissions are encoded. Follow-up reconnect checks must compare current
+genuine observations against this immutable saved evidence; raw references
+never grant a Ptah task permission. The caller decides the work and Oracle
+only transports the workspace access. No Knights code is involved.

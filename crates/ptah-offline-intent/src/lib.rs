@@ -214,6 +214,108 @@ impl LocalSequence {
     }
 }
 
+/// Reconnect facts saved with an intent as immutable comparison evidence.
+/// These are NOT credentials and never authorize execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReconnectDependencies {
+    pub created_at: String,
+    pub e01_session: Option<String>,
+    pub e02_fence: Option<String>,
+    pub e03_object_digest: Option<String>,
+    pub e03_object_generation: Option<String>,
+    pub e04_checkpoint_digest: Option<String>,
+    pub e05_host_profile_digest: Option<String>,
+    pub e05_admission_generation: Option<String>,
+}
+impl ReconnectDependencies {
+    pub fn validate(&self) -> Result<(), IntentValidationError> {
+        validate_identity_field("created_at", &self.created_at)?;
+        for (name, value) in [
+            ("e01_session", &self.e01_session),
+            ("e02_fence", &self.e02_fence),
+            ("e03_object_generation", &self.e03_object_generation),
+            ("e05_admission_generation", &self.e05_admission_generation),
+        ] {
+            if let Some(value) = value {
+                validate_identity_field(name, value)?;
+            }
+        }
+        for value in [
+            &self.e03_object_digest,
+            &self.e04_checkpoint_digest,
+            &self.e05_host_profile_digest,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let body = value
+                .strip_prefix("sha256:")
+                .ok_or(IntentValidationError::InvalidDigest)?;
+            if body.len() != 64
+                || !body
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            {
+                return Err(IntentValidationError::InvalidDigest);
+            }
+        }
+        if self.e03_object_digest.is_some() != self.e03_object_generation.is_some()
+            || self.e05_host_profile_digest.is_some() != self.e05_admission_generation.is_some()
+        {
+            return Err(IntentValidationError::InvalidReplayState);
+        }
+        Ok(())
+    }
+    /// Persist exactly named facts; no invented generations or defaults.
+    #[must_use]
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+          "schema":"ptah.e06.reconnect-dependencies.v1",
+          "created_at":self.created_at,
+          "e01_session":self.e01_session,
+          "e02_fence":self.e02_fence,
+          "e03_object_digest":self.e03_object_digest,
+          "e03_object_generation":self.e03_object_generation,
+          "e04_checkpoint_digest":self.e04_checkpoint_digest,
+          "e05_host_profile_digest":self.e05_host_profile_digest,
+          "e05_admission_generation":self.e05_admission_generation,
+        })
+    }
+    pub fn from_json(value: &serde_json::Value) -> Result<Self, IntentValidationError> {
+        let obj = value
+            .as_object()
+            .ok_or(IntentValidationError::InvalidReplayState)?;
+        if obj.len() != 9
+            || obj.get("schema").and_then(|v| v.as_str())
+                != Some("ptah.e06.reconnect-dependencies.v1")
+        {
+            return Err(IntentValidationError::InvalidReplayState);
+        }
+        let optional = |key: &str| -> Result<Option<String>, IntentValidationError> {
+            match obj.get(key) {
+                Some(serde_json::Value::Null) => Ok(None),
+                Some(serde_json::Value::String(s)) => Ok(Some(s.clone())),
+                _ => Err(IntentValidationError::InvalidReplayState),
+            }
+        };
+        let result = Self {
+            created_at: obj
+                .get("created_at")
+                .and_then(|v| v.as_str())
+                .ok_or(IntentValidationError::InvalidReplayState)?
+                .to_owned(),
+            e01_session: optional("e01_session")?,
+            e02_fence: optional("e02_fence")?,
+            e03_object_digest: optional("e03_object_digest")?,
+            e03_object_generation: optional("e03_object_generation")?,
+            e04_checkpoint_digest: optional("e04_checkpoint_digest")?,
+            e05_host_profile_digest: optional("e05_host_profile_digest")?,
+            e05_admission_generation: optional("e05_admission_generation")?,
+        };
+        result.validate()?;
+        Ok(result)
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueuedIntent {
     pub intent_id: String,
@@ -224,6 +326,8 @@ pub struct QueuedIntent {
     pub origin: LocalSequence,
     pub action: String,
     pub canonical_input_digest: String,
+    /// None means legacy/local-only; it NEVER implies fresh reconnect evidence.
+    pub reconnect_dependencies: Option<ReconnectDependencies>,
     pub revalidate_required: bool,
 }
 
@@ -234,7 +338,7 @@ impl QueuedIntent {
         if !self.revalidate_required {
             return Err(IntentValidationError::InvalidReplayState);
         }
-        Self::try_new(
+        let candidate = Self::try_new(
             self.intent_id.clone(),
             self.workspace_id.clone(),
             self.activity_id.clone(),
@@ -244,7 +348,25 @@ impl QueuedIntent {
             self.action.clone(),
             self.canonical_input_digest.clone(),
         )?;
+        let candidate = match self.reconnect_dependencies.clone() {
+            Some(bindings) => candidate.with_reconnect_dependencies(bindings)?,
+            None => candidate,
+        };
+        if candidate != *self {
+            return Err(IntentValidationError::InvalidReplayState);
+        }
         Ok(())
+    }
+
+    /// Bind revalidation facts immutably to this intent's replay identity.
+    /// Cannot authorize its execution.
+    pub fn with_reconnect_dependencies(
+        mut self,
+        dependencies: ReconnectDependencies,
+    ) -> Result<Self, IntentValidationError> {
+        dependencies.validate()?;
+        self.reconnect_dependencies = Some(dependencies);
+        Ok(self)
     }
 
     // E06-02 pre-append guard: bind the mutable intent to the exact successor
@@ -449,6 +571,7 @@ impl QueuedIntent {
             origin,
             action,
             canonical_input_digest,
+            reconnect_dependencies: None,
             revalidate_required: true,
         })
     }
@@ -559,3 +682,6 @@ pub mod degraded;
 
 /// Immutable negative reconciliation receipts; never an authorization source.
 pub mod reconciliation;
+
+/// E06-03 reconnect observation: read-only comparison of durable history.
+pub mod reconnect;

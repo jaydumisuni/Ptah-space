@@ -21,6 +21,20 @@ class OperatorTests(unittest.TestCase):
             "stdout":json.dumps({"protocol":"ptah.ttg-internet-search.readonly.v1",
                                  "completed":True,"outcome":{"results":[]}}).encode(),
             "stderr":b""})()
+    def test_agent_descriptor_needs_no_wheel_and_launches_no_provider(self):
+        with patch.dict(op.os.environ,{"PTAH_TTG_SEARCH_WHEEL":""}):
+            with patch.object(op.subprocess,"run",side_effect=AssertionError("no search process expected")):
+                with contextlib.redirect_stdout(io.StringIO()) as sink:
+                    rc=op.main(["describe"])
+        self.assertEqual(rc,0)
+        descriptor=json.loads(sink.getvalue())
+        self.assertEqual(descriptor["capability_id"],"ptah.public_web_discovery.readonly")
+        self.assertEqual(descriptor["provider"]["protocol"],"ptah.ttg-internet-search.readonly.v1")
+        self.assertFalse(descriptor["calling_contract"]["additional_ptah_enrollment_required"])
+        self.assertFalse(descriptor["calling_contract"]["additional_ptah_login_required"])
+        self.assertFalse(descriptor["calling_contract"]["additional_ptah_grant_required"])
+        self.assertEqual(descriptor["security_architecture"]["boundary"].split("/")[0],"Knights")
+
     def test_structured_query_not_shell(self):
         with patch.object(op.subprocess,"run",return_value=self.response()) as cmd:
             with contextlib.redirect_stdout(io.StringIO()):

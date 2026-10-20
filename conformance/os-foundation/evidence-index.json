@@ -1,0 +1,20 @@
+{
+  "candidate_commit": "e03feb709e99f1024af2b932e83828c0d36ee39d",
+  "external_reviews": [],
+  "native_e07": {
+    "owner_signoff": false,
+    "production_enrollment": false,
+    "two_host_mtls": false
+  },
+  "phase_proofs": {
+    "F01": [],
+    "F02": [],
+    "F03": [],
+    "F04": [],
+    "F05": [],
+    "F06": [],
+    "F07": []
+  },
+  "schema": "ptah.os-foundation.evidence-index/1",
+  "status": "not_admitted"
+}

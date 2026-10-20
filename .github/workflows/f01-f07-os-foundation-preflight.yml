@@ -1,0 +1,73 @@
+name: Programme F OS foundation candidate (non-activating)
+
+on:
+  pull_request:
+    paths:
+      - "conformance/os-foundation/**"
+      - "tools/check_os_foundation.py"
+      - "tools/test_check_os_foundation.py"
+      - "tools/probe_os_foundation_host.py"
+      - "tools/test_probe_os_foundation_host.py"
+      - ".github/workflows/f01-f07-os-foundation-preflight.yml"
+  push:
+    branches:
+      - "feature/f01-f07-os-foundation-preflight-20261019"
+    paths:
+      - "conformance/os-foundation/**"
+      - "tools/check_os_foundation.py"
+      - "tools/test_check_os_foundation.py"
+      - "tools/probe_os_foundation_host.py"
+      - "tools/test_probe_os_foundation_host.py"
+      - ".github/workflows/f01-f07-os-foundation-preflight.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  candidate-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact candidate commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Set up pinned Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+      - name: Verify positive and adversarial preflight
+        env:
+          PYTHONPATH: tools
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest -q tools/test_check_os_foundation.py tools/test_probe_os_foundation_host.py
+      - name: Verify no false host or runtime admission
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          # Historical bundled evidence is an example, not proof of HEAD.
+          # Bind the non-authorizing preflight to the exact checked-out SHA.
+          export PTAH_CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          python3 - "$RUNNER_TEMP/ptah-f-bound-evidence.json" <<'PY'
+          import json,os,sys
+          with open("conformance/os-foundation/evidence-index.json",encoding="utf-8") as fd:
+              fixture=json.load(fd)
+          fixture["candidate_commit"]=os.environ["PTAH_CHECKED_OUT_SHA"]
+          with open(sys.argv[1],"x",encoding="utf-8") as fd:
+              json.dump(fixture,fd,sort_keys=True)
+          PY
+          python3 tools/check_os_foundation.py \
+            --profile conformance/os-foundation/foundation-candidate.json \
+            --evidence "$RUNNER_TEMP/ptah-f-bound-evidence.json" \
+            --expected-commit "$PTAH_CHECKED_OUT_SHA" \
+            > "$RUNNER_TEMP/ptah-f-readonly-report.json"
+          python3 - "$RUNNER_TEMP/ptah-f-readonly-report.json" <<'PY'
+          import json,sys
+          report=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert report["execution_authorized"] is False
+          assert report["release_authorized"] is False
+          assert report["evidence"]["native_e07"] == "NO_GO"
+          assert report["evidence"]["os_foundation"] == "NO_GO"
+          assert len(report["evidence"]["outstanding"]) == 21
+          PY

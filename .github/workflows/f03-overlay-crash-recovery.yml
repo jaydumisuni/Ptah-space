@@ -1,0 +1,52 @@
+name: F03 crash overlay recovery (non-activating)
+on:
+  pull_request:
+    paths:
+      - "tools/f03_cow_crash_recovery.py"
+      - "tools/test_f03_cow_crash_recovery.py"
+      - ".github/workflows/f03-overlay-crash-recovery.yml"
+  push:
+    branches:
+      - "feat/f03-overlay-crash-recovery-20261019"
+    paths:
+      - "tools/f03_cow_crash_recovery.py"
+      - "tools/test_f03_cow_crash_recovery.py"
+      - ".github/workflows/f03-overlay-crash-recovery.yml"
+permissions:
+  contents: read
+jobs:
+  non-activating-crash-recovery-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Python 3.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+      - name: Fail-closed and passive conformance
+        env:
+          PYTHONPATH: tools
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python3 -m unittest -q \
+            tools/test_f03_cow_crash_recovery.py \
+            tools/test_f03_ephemeral_guest_boot.py \
+            tools/test_check_os_foundation.py \
+            tools/test_probe_os_foundation_host.py
+      - name: Confirm default CLI never boots a guest
+        run: |
+          python3 tools/f03_cow_crash_recovery.py > "$RUNNER_TEMP/recovery-status.json"
+          python3 - "$RUNNER_TEMP/recovery-status.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert r["execution_requested"] is False
+          assert r["phase_accepted"] is False
+          assert r["guest_os_qualified"] is False
+          assert r["physical_power_loss_tested"] is False
+          assert r["prime_os_integrated"] is False
+          PY

@@ -44,10 +44,27 @@ _E07_CONTROL_AFTER = (b'[[package]]\nname = "ptah-control"\nversion = "0.0.0-pha
     b' "ptah-provider-api",\n "ptah-transfer",\n "ring",\n "rusqlite",\n'
     b' "serde",\n "serde_json",\n "sha2",\n "tokio",\n]\n\n')
 
+# E07 Windows native Node uses rusqlite's SQLite C bundling rather than
+# depending on an uninstalled ATHENA system SQLite development library.
+# The added 'cc' edge belongs to EXISTING libsqlite3-sys 0.35.0 with
+# unchanged registry checksum; it is not permission to change crates.
+_E07_SQLITE_BUNDLE_AFTER = (b'[[package]]\nname = "libsqlite3-sys"\n'
+    b'version = "0.35.0"\n'
+    b'source = "registry+https://github.com/rust-lang/crates.io-index"\n'
+    b'checksum = "133c182a6a2c87864fe97778797e46c7e999672690dc9fa3ee8e241aa4a9c13f"\n'
+    b'dependencies = [\n "cc",\n "pkg-config",\n "vcpkg",\n]\n\n')
+_E07_SQLITE_BUNDLE_BEFORE = _E07_SQLITE_BUNDLE_AFTER.replace(
+    b' "cc",\n', b'', 1)
+
 def strip_exact_e07_local_service_extension(raw: bytes) -> bytes:
     """Remove E07's two exact local dep stanzas (not arbitrary edits)."""
     if raw.count(_E07_CONTROL_AFTER) != 1 or raw.count(_E07_NODE_AFTER) != 1:
         raise ValueError("unreviewed_e07_lock_extension")
+    # Windows SQLite bundling is admitted only together with E07's exact
+    # local Control/Node service dependencies, never by itself.
+    if raw.count(_E07_SQLITE_BUNDLE_AFTER) == 1:
+        raw = raw.replace(_E07_SQLITE_BUNDLE_AFTER,
+                          _E07_SQLITE_BUNDLE_BEFORE, 1)
     return raw.replace(_E07_CONTROL_AFTER,_E07_CONTROL_BEFORE,1).replace(
         _E07_NODE_AFTER,_E07_NODE_BEFORE,1)
 

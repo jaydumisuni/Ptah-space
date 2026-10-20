@@ -951,6 +951,28 @@ fn musical_combining_marks_are_rejected_in_queued_authority() {
 }
 
 #[test]
+fn additional_directional_format_controls_are_rejected_in_queued_authority() {
+    // Arabic Letter Mark, LRM/RLM and deprecated directional controls
+    // must not create visually ambiguous persisted queue identities.
+    for scalar in [0x061C, 0x200E, 0x200F].into_iter().chain(0x206A..=0x206F) {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        let action = format!("prepare{ch}execute");
+        assert!(matches!(
+            queued(&action, 1, format!("sha256:{}", "a".repeat(64))),
+            Err(IntentValidationError::ControlCharacter("action"))
+        ));
+        let origin = LocalSequence {
+            node_id: format!("node{ch}1"),
+            value: 1,
+        };
+        assert!(matches!(
+            origin.checkpoint_bytes(),
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        ));
+    }
+}
+
+#[test]
 fn bidirectional_format_controls_are_rejected_in_queued_authority() {
     for scalar in (0x202A..=0x202E).chain(0x2066..=0x2069) {
         let ch = char::from_u32(scalar).expect("valid Unicode scalar");

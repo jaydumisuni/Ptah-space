@@ -15,6 +15,8 @@ import stat
 import subprocess
 import sys
 import tempfile
+import shutil
+from contextlib import contextmanager
 
 import build_f01_service_bundle as archive
 
@@ -61,10 +63,39 @@ def openssl(*args: str) -> bytes:
 
 def public_key_fingerprint(path: Path) -> str:
     regular_file(path,limit=16384)
-    der=openssl("pkey","-pubin","-in",str(path),"-pubout","-outform","DER")
+    with tempfile.TemporaryDirectory(prefix="ptah-f01-key-snapshot-") as folder:
+        snapshot=Path(folder)/"public-key.pem"
+        # Snapshot the *opened* key bytes once. OpenSSL never reads an
+        # untrusted mutable original after fingerprinting.
+        with path.open("rb") as source, snapshot.open("xb") as output:
+            raw=source.read(16385)
+            require(len(raw)<=16384,"FILE_TOO_LARGE")
+            output.write(raw)
+        return _public_key_fingerprint_snapshot(snapshot)
+
+
+def _public_key_fingerprint_snapshot(snapshot: Path) -> str:
+    der=openssl("pkey","-pubin","-in",str(snapshot),"-pubout","-outform","DER")
     require(0<len(der)<16384,"INVALID_PUBLIC_KEY")
-    # Binding deliberately derived from independently supplied key bytes.
     return "sha256:"+hashlib.sha256(der).hexdigest()
+
+
+@contextmanager
+def source_snapshots(bundle:Path,public_key:Path):
+    """One immutable private snapshot per operation for metadata, digest, key."""
+    regular_file(bundle,limit=2*archive.MAX_BYTES+65536)
+    regular_file(public_key,limit=16384)
+    with tempfile.TemporaryDirectory(prefix="ptah-f01-immutable-inputs-") as folder:
+        snapshot_bundle=Path(folder)/"service.tar"
+        snapshot_key=Path(folder)/"key.pem"
+        # file descriptors remain bound to the same file even on rename
+        with bundle.open("rb") as source, snapshot_bundle.open("xb") as output:
+            shutil.copyfileobj(source,output,1024*1024)
+        with public_key.open("rb") as source, snapshot_key.open("xb") as output:
+            data=source.read(16385)
+            require(len(data)<=16384,"FILE_TOO_LARGE")
+            output.write(data)
+        yield snapshot_bundle,snapshot_key
 
 
 def message_bytes(statement: dict) -> bytes:
@@ -105,8 +136,17 @@ def verified_statement(bundle: Path, trusted_key: Path,
     require(type(expected_fingerprint) is str
             and FINGERPRINT.fullmatch(expected_fingerprint) is not None,
             "EXTERNAL_TRUST_FINGERPRINT_REQUIRED")
+    with source_snapshots(bundle,trusted_key) as (saved_bundle,saved_key):
+        return _statement_from_snapshots(saved_bundle,saved_key,expected_fingerprint)
+
+
+def _statement_from_snapshots(bundle: Path, trusted_key: Path,
+                              expected_fingerprint: str) -> dict:
+    require(type(expected_fingerprint) is str
+            and FINGERPRINT.fullmatch(expected_fingerprint) is not None,
+            "EXTERNAL_TRUST_FINGERPRINT_REQUIRED")
     archive_result=archive.verify_bundle(bundle)
-    fingerprint=public_key_fingerprint(trusted_key)
+    fingerprint=_public_key_fingerprint_snapshot(trusted_key)
     require(fingerprint==expected_fingerprint,"EXTERNAL_TRUST_ANCHOR_MISMATCH")
     statement={
         "schema":SCHEMA,
@@ -130,18 +170,20 @@ def sign(bundle: Path, private_key: Path, public_key: Path,
             "PRIVATE_KEY_PERMISSIONS_UNSAFE")
     for inp in (bundle,private_key,public_key):
         require(inp.resolve()!=output.resolve(),"OUTPUT_OVERLAPS_INPUT")
-    statement=verified_statement(bundle,public_key,expected_fingerprint)
-    with tempfile.TemporaryDirectory(prefix="ptah-f01-sig-proof-") as folder:
-        message=Path(folder)/"message"
-        signature=Path(folder)/"signature"
-        message.write_bytes(message_bytes(statement))
-        openssl("pkeyutl","-sign","-inkey",str(private_key),"-rawin",
-                "-in",str(message),"-out",str(signature))
-        signature_bytes=signature.read_bytes()
-        require(len(signature_bytes)==64,"UNEXPECTED_SIGNATURE_SIZE")
-        # Immediately verify the candidate's private/public key pair.
-        openssl("pkeyutl","-verify","-pubin","-inkey",str(public_key),
-                "-rawin","-in",str(message),"-sigfile",str(signature))
+    # Keep the same opened archive/key snapshots throughout hashing,
+    # signature creation and immediate public-key verification.
+    with source_snapshots(bundle,public_key) as (snap_bundle,snap_pub):
+        statement=_statement_from_snapshots(snap_bundle,snap_pub,expected_fingerprint)
+        with tempfile.TemporaryDirectory(prefix="ptah-f01-sig-proof-") as folder:
+            message=Path(folder)/"message"
+            signature=Path(folder)/"signature"
+            message.write_bytes(message_bytes(statement))
+            openssl("pkeyutl","-sign","-inkey",str(private_key),"-rawin",
+                    "-in",str(message),"-out",str(signature))
+            signature_bytes=signature.read_bytes()
+            require(len(signature_bytes)==64,"UNEXPECTED_SIGNATURE_SIZE")
+            openssl("pkeyutl","-verify","-pubin","-inkey",str(snap_pub),
+                    "-rawin","-in",str(message),"-sigfile",str(signature))
     record={"statement":statement,"signature_ed25519_hex":signature_bytes.hex()}
     data=message_bytes(record)
     require(len(data)<=MAX_SIDECAR_BYTES,"SIDECAR_TOO_LARGE")
@@ -175,14 +217,15 @@ def verify(bundle: Path, sidecar: Path, public_key: Path,
     validate_statement(statement)
     sig=doc["signature_ed25519_hex"]
     require(type(sig) is str and SIGNATURE.fullmatch(sig) is not None,"INVALID_SIGNATURE")
-    expected=verified_statement(bundle,public_key,expected_fingerprint)
-    require(statement==expected,"ARTIFACT_OR_SOURCE_COMMIT_MISMATCH")
-    with tempfile.TemporaryDirectory(prefix="ptah-f01-verify-") as folder:
-        message=Path(folder)/"message";signature=Path(folder)/"signature"
-        message.write_bytes(message_bytes(statement))
-        signature.write_bytes(bytes.fromhex(sig))
-        openssl("pkeyutl","-verify","-pubin","-inkey",str(public_key),
-                "-rawin","-in",str(message),"-sigfile",str(signature))
+    with source_snapshots(bundle,public_key) as (snap_bundle,snap_pub):
+        expected=_statement_from_snapshots(snap_bundle,snap_pub,expected_fingerprint)
+        require(statement==expected,"ARTIFACT_OR_SOURCE_COMMIT_MISMATCH")
+        with tempfile.TemporaryDirectory(prefix="ptah-f01-verify-") as folder:
+            message=Path(folder)/"message";signature=Path(folder)/"signature"
+            message.write_bytes(message_bytes(statement))
+            signature.write_bytes(bytes.fromhex(sig))
+            openssl("pkeyutl","-verify","-pubin","-inkey",str(snap_pub),
+                    "-rawin","-in",str(message),"-sigfile",str(signature))
     return {"status":"SIGNED_ARTIFACT_INTEGRITY_VERIFIED_NOT_ADMITTED",
             "source_commit":statement["source_commit"],
             "signer_fingerprint":expected_fingerprint,

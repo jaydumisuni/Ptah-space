@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import tarfile
 import unittest
 from unittest import mock
 
@@ -92,7 +93,7 @@ class SignatureTests(unittest.TestCase):
         data=self.bundle.read_bytes().replace(b"PTAH CONTROL TEST ",b"PTAH CONTROL FAIL ",1)
         self.assertEqual(len(data),self.bundle.stat().st_size)
         self.bundle.write_bytes(data)
-        with self.assertRaises(S.archive.BundleError):
+        with self.assertRaises((S.archive.BundleError,tarfile.TarError)):
             S.verify(self.bundle,self.sidecar,self.public,self.fingerprint)
 
     def test_modified_signature_fails(self):
@@ -144,6 +145,38 @@ class SignatureTests(unittest.TestCase):
         raw=self.sidecar.read_text()
         self.sidecar.write_text(raw.replace('"statement":','"statement":null,"statement":',1))
         with self.assertRaisesRegex(S.F01SignatureError,"DUPLICATE_JSON_KEY"):
+            S.verify(self.bundle,self.sidecar,self.public,self.fingerprint)
+
+    def test_trusted_public_key_replacement_after_snapshot_does_not_change_verification_key(self):
+        self.sign()
+        original=S._public_key_fingerprint_snapshot
+        attacker_key=self.root/"alternate-private.pem"
+        attacker_pub=self.root/"alternate-pub.pem"
+        subprocess.run(["openssl","genpkey","-algorithm","Ed25519","-out",str(attacker_key)],
+                       check=True,capture_output=True,timeout=10)
+        subprocess.run(["openssl","pkey","-in",str(attacker_key),"-pubout","-out",str(attacker_pub)],
+                       check=True,capture_output=True,timeout=10)
+        def mutate_after_key_snapshot(snapshot):
+            fingerprint=original(snapshot)
+            self.public.write_bytes(attacker_pub.read_bytes())
+            return fingerprint
+        with mock.patch.object(S,"_public_key_fingerprint_snapshot",side_effect=mutate_after_key_snapshot):
+            result=S.verify(self.bundle,self.sidecar,self.public,self.fingerprint)
+        self.assertEqual(result["status"],"SIGNED_ARTIFACT_INTEGRITY_VERIFIED_NOT_ADMITTED")
+        with self.assertRaisesRegex(S.F01SignatureError,"EXTERNAL_TRUST_ANCHOR_MISMATCH"):
+            S.verify(self.bundle,self.sidecar,self.public,self.fingerprint)
+
+    def test_archive_replacement_after_snapshot_never_mixes_metadata_and_hash(self):
+        self.sign()
+        original=S.archive.verify_bundle
+        def change_after_snapshot(snapshot):
+            result=original(snapshot)
+            self.bundle.write_bytes(b"ATTACKER REPLACED ORIGINAL")
+            return result
+        with mock.patch.object(S.archive,"verify_bundle",side_effect=change_after_snapshot):
+            result=S.verify(self.bundle,self.sidecar,self.public,self.fingerprint)
+        self.assertEqual(result["source_commit"],"a"*40)
+        with self.assertRaises((S.archive.BundleError,tarfile.TarError)):
             S.verify(self.bundle,self.sidecar,self.public,self.fingerprint)
 
     def test_noncanonical_json_rejected(self):

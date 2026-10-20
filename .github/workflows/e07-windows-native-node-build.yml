@@ -1,0 +1,44 @@
+name: E07 native Windows Node executable proof
+on:
+  push:
+    branches: [qualification/e07-native-remote-proof-20261020]
+    paths:
+      - services/ptah-node/src/bin/ptah-e07-node-worker.rs
+      - services/ptah-node/Cargo.toml
+      - .github/workflows/e07-windows-native-node-build.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-native-node:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact source commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Record Windows Rust toolchain
+        shell: pwsh
+        run: |
+          rustc --version
+          cargo --version
+      - name: Build native Ptah E07 Node
+        shell: pwsh
+        run: |
+          cargo build -p ptah-node --bin ptah-e07-node-worker --release --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify executable and SHA256
+        shell: pwsh
+        run: |
+          $p = "target/release/ptah-e07-node-worker.exe"
+          if (!(Test-Path $p)) { throw "native executable missing" }
+          Get-Item $p | Select-Object Name,Length
+          Get-FileHash $p -Algorithm SHA256 | Format-List
+      - name: Export native Windows executable
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: e07-windows-native-node
+          path: target/release/ptah-e07-node-worker.exe
+          if-no-files-found: error
+          retention-days: 3

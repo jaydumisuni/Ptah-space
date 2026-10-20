@@ -4,7 +4,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from check_e06_dependency_evolution import E06_LOCK_STANZA, verified_local_extension, strip_exact_e07_local_service_extension, _E07_NODE_AFTER, _E07_CONTROL_AFTER
+from check_e06_dependency_evolution import (
+    E06_LOCK_STANZA, verified_local_extension,
+    strip_exact_e07_local_service_extension, _E07_NODE_AFTER, _E07_NODE_BEFORE, _E07_CONTROL_AFTER,
+    _E07_SQLITE_BUNDLE_AFTER, _E07_SQLITE_BUNDLE_BEFORE
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -51,6 +55,34 @@ class ExactAdditiveE06GraphTests(unittest.TestCase):
                 destination.write_bytes(bad)
                 with self.assertRaises(ValueError):
                     verified_local_extension(destination,historic)
+
+    def test_exact_e07_windows_sqlite_native_bundle_is_evidence_not_lock_drift(self):
+        original=(ROOT/"Cargo.lock").read_bytes()
+        # Validate exact proposed Windows extension even on current main
+        # before the bundled SQLite edge is merged.
+        raw=(original if _E07_SQLITE_BUNDLE_AFTER in original else
+             original.replace(_E07_SQLITE_BUNDLE_BEFORE,_E07_SQLITE_BUNDLE_AFTER,1))
+        self.assertEqual(raw.count(_E07_SQLITE_BUNDLE_AFTER),1)
+        base=strip_exact_e07_local_service_extension(raw)
+        self.assertEqual(base.count(_E07_SQLITE_BUNDLE_BEFORE),1)
+        original=hashlib.sha256(base.replace(E06_LOCK_STANZA,b"",1)).hexdigest()
+        with tempfile.TemporaryDirectory() as temporary:
+            candidate=Path(temporary)/"Cargo.lock";candidate.write_bytes(raw)
+            self.assertEqual(verified_local_extension(candidate,original),1)
+        for forged in [
+            raw.replace(_E07_SQLITE_BUNDLE_AFTER,
+                        _E07_SQLITE_BUNDLE_AFTER.replace(b' "cc",',b' "evil",')),
+            raw.replace(_E07_SQLITE_BUNDLE_AFTER,
+                        _E07_SQLITE_BUNDLE_AFTER.replace(b"0.35.0",b"0.35.1")),
+            raw.replace(_E07_SQLITE_BUNDLE_AFTER,
+                        _E07_SQLITE_BUNDLE_AFTER.replace(b"133c182a",b"abcabcab")),
+            raw.replace(_E07_NODE_AFTER,_E07_NODE_BEFORE),
+        ]:
+            with self.subTest(digest=hashlib.sha256(forged).hexdigest()):
+                with tempfile.TemporaryDirectory() as folder:
+                    f=Path(folder)/"Cargo.lock";f.write_bytes(forged)
+                    with self.assertRaises(ValueError):
+                        verified_local_extension(f,original)
 
     def test_other_historical_digest_cannot_be_substituted(self):
         with self.assertRaises(ValueError):

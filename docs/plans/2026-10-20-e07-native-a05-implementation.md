@@ -25,3 +25,18 @@ not an independent witnessed external-effect proof. Persistent ATHENA
 Windows service and two-host native A05 execution are not yet claimed.
 No startup or firewall changes and no Ptah user permission layer added.
 Prime OS integration remains last.
+
+
+## Persistent native remote Node — October 20 2026
+
+The Node --serve-config option keeps the native A05 capability alive
+across caller-initiated Control dispatches. The caller chooses each task.
+Technical disconnects retry with bounded backoff (16 to 120 seconds),
+without disabling unrelated Ptah workspace tools. Stored Node identity,
+session generation and E02 fences continue to be validated. No
+second Ptah login, Grant or user authorization is added.
+
+A Windows user-owned Scheduled Task can start this native executable
+at login without installing Rust or replacing Oracle transport.
+Control currently dispatches one caller-selected action per invocation;
+persistent Node availability does NOT autonomously dispatch tasks.

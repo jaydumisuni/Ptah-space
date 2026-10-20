@@ -245,6 +245,48 @@ async fn run(config: WorkerConfig) -> Result<(), String> {
     );
     Ok(())
 }
+/// Keep caller-selected Ptah Node capability alive across disconnected Control
+/// sessions. Normal workspace tools do not depend on this optional service.
+async fn serve_config(config_path: &Path) -> Result<(), String> {
+    let mut consecutive_failures: u32 = 0;
+    println!(
+        "{}",
+        serde_json::json!({
+            "event": "ptah.native_e07.node_worker_started",
+            "persistent": true,
+            "task_selection_by_ptah": false,
+            "second_ptah_user_approval": false
+        })
+    );
+    loop {
+        let outcome = fs::read(config_path)
+            .map_err(|e| format!("read worker config: {e}"))
+            .and_then(|raw| {
+                serde_json::from_slice::<WorkerConfig>(&raw)
+                    .map_err(|e| format!("invalid worker config: {e}"))
+            });
+        let result = match outcome {
+            Ok(config) => run(config).await,
+            Err(error) => Err(error),
+        };
+        let delay = match result {
+            Ok(()) => {
+                consecutive_failures = 0;
+                Duration::from_secs(4)
+            }
+            Err(error) => {
+                consecutive_failures = consecutive_failures.saturating_add(1);
+                eprintln!("ptah-e07-node-worker: capability error: {error}");
+                Duration::from_secs(
+                    (8_u64)
+                        .saturating_mul(1_u64 << consecutive_failures.min(4))
+                        .min(120),
+                )
+            }
+        };
+        tokio::time::sleep(delay).await;
+    }
+}
 #[tokio::main]
 async fn main() {
     let args: Vec<_> = env::args().collect();
@@ -268,12 +310,19 @@ async fn main() {
             }
         }
     }
+    if args.len() == 3 && args[1] == "--serve-config" {
+        if let Err(error) = serve_config(Path::new(&args[2])).await {
+            eprintln!("ptah-e07-node-worker service: {error}");
+            std::process::exit(2);
+        }
+        return;
+    }
     let result = if args.len() == 3 && args[1] == "--config" {
         fs::read(&args[2])
             .map_err(|e| e.to_string())
             .and_then(|raw| serde_json::from_slice::<WorkerConfig>(&raw).map_err(|e| e.to_string()))
     } else {
-        Err("usage: ptah-e07-node-worker --config <caller-owned.json>".into())
+        Err("usage: ptah-e07-node-worker --config <caller-owned.json> | --serve-config <caller-owned.json> | --init <seed.sqlite3>".into())
     };
     let outcome = match result {
         Ok(config) => run(config).await,
@@ -282,5 +331,46 @@ async fn main() {
     if let Err(error) = outcome {
         eprintln!("ptah-e07-node-worker: {error}");
         std::process::exit(2);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn persistent_node_identity_advances_before_every_new_connection() {
+        let file = std::env::temp_dir().join(format!(
+            "ptah-e07-node-seed-{}.sqlite3",
+            ptah_identifiers::EntityId::new_v7()
+        ));
+        let first = durable_node(&file).expect("bootstrap durable seed");
+        let second = durable_node(&file).expect("new connection advances generation");
+        let third = durable_node(&file).expect("subsequent reconnect advances again");
+        assert_eq!(first.node_id(), second.node_id());
+        assert_eq!(second.node_id(), third.node_id());
+        assert_eq!(second.generation(), first.generation().next().unwrap());
+        assert_eq!(third.generation(), second.generation().next().unwrap());
+        assert_eq!(
+            second.connection_epoch(),
+            first.connection_epoch().next().unwrap()
+        );
+        let db = rusqlite::Connection::open(&file).unwrap();
+        let integrity: String = db
+            .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(integrity, "ok");
+        drop(db);
+        let _ = fs::remove_file(&file);
+    }
+    #[test]
+    fn invalid_existing_seed_never_creates_new_identity() {
+        let file = std::env::temp_dir().join(format!(
+            "ptah-e07-corrupt-seed-{}.sqlite3",
+            ptah_identifiers::EntityId::new_v7()
+        ));
+        fs::write(&file, b"not-a-sqlite-database").unwrap();
+        assert!(durable_node(&file).is_err());
+        assert_eq!(fs::read(&file).unwrap(), b"not-a-sqlite-database");
+        let _ = fs::remove_file(&file);
     }
 }

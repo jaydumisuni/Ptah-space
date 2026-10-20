@@ -1,0 +1,60 @@
+name: Ptah current-head integration and regression
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  ptah-current-head-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: tools
+    steps:
+      - name: Checkout requested immutable PR head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact head, base ancestry and whitespace
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA"
+          git diff --check "$BASE_SHA...$HEAD_SHA"
+      - name: Install exact Rust toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.97.1
+      - name: Verify baseline and frozen phase contracts
+        run: |
+          set -euo pipefail
+          python3 tools/check_a01_scaffold.py
+          python3 tools/check_phase0c_scaffold.py
+          python3 tools/check_rust_dependency_lock.py
+          python3 -m unittest tools/test_check_a11_maintenance_admission.py tools/test_check_current_pr_admission.py tools/test_check_search_a05_admission.py -q
+      - name: Run all Rust workspace tests and format
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test --workspace --locked
+      - name: Validate native control, workspace and provider components
+        run: |
+          set -euo pipefail
+          cargo clippy --locked --all-targets -p ptah-control -p ptah-node -p ptah-node-link -p ptah-ai-workspace -p ptah-knowledge-search -p ptah-package-plugin -- -D warnings
+          cargo test --manifest-path adapters/ptah-hunter-workspace/Cargo.toml --locked
+      - name: Run current-head Python and browser routing acceptance
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s clients/python -p 'test_*.py' -q
+          node --test browser-provider/test/workspace-default-route.test.mjs
+      - name: Verify exact commit at completion
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"

@@ -7,6 +7,7 @@ production enrollment authority, native Ptah dispatcher or release approver.
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import re
 import sys
@@ -133,7 +134,7 @@ def validate_profile(p: dict[str, Any]) -> dict[str, Any]:
             "targets": len(targets), "services": len(services), "phases": len(PHASES)}
 
 
-def validate_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
+def validate_evidence(evidence: dict[str, Any], expected_commit: str | None = None) -> dict[str, Any]:
     keys(evidence, {"schema", "candidate_commit", "status", "external_reviews",
                     "phase_proofs", "native_e07"}, "EVIDENCE")
     scrub(evidence)
@@ -142,6 +143,11 @@ def validate_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
     require(type(evidence["candidate_commit"]) is str
             and re.fullmatch(r"[a-f0-9]{40}", evidence["candidate_commit"]),
             "INVALID_COMMIT_ID")
+    if expected_commit is not None:
+        require(re.fullmatch(r"[a-f0-9]{40}",expected_commit) is not None,
+                "INVALID_EXPECTED_COMMIT")
+        require(evidence["candidate_commit"]==expected_commit,
+                "STALE_EVIDENCE_COMMIT")
     require(type(evidence["external_reviews"]) is list and evidence["external_reviews"] == [], "UNVERIFIED_EXTERNAL_REVIEW_CLAIM")
     keys(evidence["phase_proofs"], set(PHASES), "EVIDENCE_PHASES")
     for phase in PHASES:
@@ -159,12 +165,14 @@ def main() -> int:
     cli.add_argument("--profile", type=Path, required=True)
     cli.add_argument("--evidence", type=Path, required=True)
     cli.add_argument("--output", type=Path)
+    cli.add_argument("--expected-commit", type=str)
     args = cli.parse_args()
     try:
         result = {
             "schema": "ptah.os-foundation.preflight/1",
             "profile": validate_profile(read_json(args.profile)),
-            "evidence": validate_evidence(read_json(args.evidence)),
+            "evidence": validate_evidence(read_json(args.evidence),args.expected_commit),
+            "candidate_commit_bound_to_checkout": args.expected_commit is not None,
             "execution_authorized": False,
             "release_authorized": False,
         }
@@ -173,10 +181,19 @@ def main() -> int:
         return 2
     report = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:
-        if args.output in (args.profile, args.evidence):
-            print("F_PRECHECK_REJECTED:OUTPUT_MUST_NOT_OVERWRITE_SOURCE", file=sys.stderr)
+        # Existing paths (including hard links and dangling symlinks) must
+        # remain untouched, as must source paths. Exclusive file creation
+        # closes the check-to-write race for all output aliases.
+        for source in (args.profile,args.evidence):
+            if args.output == source or args.output.resolve()==source.resolve():
+                print("F_PRECHECK_REJECTED:OUTPUT_MUST_NOT_OVERWRITE_SOURCE",file=sys.stderr)
+                return 2
+        try:
+            with args.output.open("x", encoding="utf-8") as stream:
+                stream.write(report)
+        except FileExistsError:
+            print("F_PRECHECK_REJECTED:OUTPUT_ALREADY_EXISTS",file=sys.stderr)
             return 2
-        args.output.write_text(report, encoding="utf-8")
     print(report, end="")
     return 0
 

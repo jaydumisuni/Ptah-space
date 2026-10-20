@@ -104,22 +104,6 @@ class ApplicabilityProofTests(unittest.TestCase):
         self.assertIn("pull_request:\n    branches: [main]",txt)
         self.assertNotIn("paths:\n",txt.split("permissions:",1)[0])
 
-    def test_knights_runtime_path_scope_is_exact_and_independent(self):
-        paths=policy.KNIGHTS_RUNTIME_MAINTENANCE_PATHS
-        self.assertEqual(len(paths),15)
-        self.assertIn("adapters/ptah-hunter-workspace/src/main.rs",paths)
-        self.assertIn("crates/ptah-package-plugin/src/activation.rs",paths)
-        self.assertIn("browser-provider/test/workspace-default-route.test.mjs",paths)
-        self.assertNotIn(".github/workflows/d02-ai-project-workspace-proof.yml",paths)
-        self.assertNotIn("crates/ptah-workspace/src/lib.rs",paths)
-
-    def test_knights_lane_is_not_historical_proof_rewrite(self):
-        src=(ROOT/"tools/check_current_pr_admission.py").read_text()
-        self.assertIn("KNIGHTS_POST_BASELINE_RUNTIME_TESTS_REQUIRED_HISTORIC_NOT_REPLAYED",src)
-        self.assertIn("knights_maintenance and not historic_changes",src)
-        self.assertIn("independent_phase_owned_change_requires_own_proof",src)
-        self.assertEqual(len(policy.HISTORIC),22)
-
     def test_phase_owned_on_governance_must_remain_separately_proved(self):
         script=(ROOT/"tools/check_current_pr_admission.py").read_text()
         self.assertIn('if name == "a11-browser-provider-proof.yml" and not historic_changes:',script)

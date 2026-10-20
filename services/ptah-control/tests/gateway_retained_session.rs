@@ -146,3 +146,59 @@ async fn non_heartbeat_message_is_rejected_and_fenced() {
 async fn idle_session_times_out_and_is_fenced() {
     assert_eq!(exchange(3).await, (false, true));
 }
+
+#[tokio::test]
+async fn expired_enrollment_after_tls_does_not_reuse_preaccept_clock() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let agent = NodeAgent::bootstrap().unwrap();
+    let enrolled = EntityRef::new("core.node_enrollment").unwrap();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let expired = now.saturating_sub(2);
+    let projection = ApprovedNodeEnrollment::new(
+        enrolled.clone(),
+        agent.node_id(),
+        EnrollmentLifecycle::Approved,
+        vec!["node.connect".to_owned()],
+        vec![CredentialFingerprint::from_der(CLIENT)],
+        Some(expired),
+    )
+    .unwrap();
+    let owner = Arc::new(Mutex::new(PlacementAuthorityOwner::new(
+        NodeLinkControl::new(ProtocolVersion { major: 1, minor: 0 }, vec![projection]),
+    )));
+    let (tls, client_tls) = config();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.unwrap();
+        // Inject an *old* captured time. Admission must use the actual
+        // clock after TLS and Hello, not this stale earlier value.
+        gateway_session::establish(socket, &tls, &owner, expired.saturating_sub(100)).await
+    });
+    let socket = TcpStream::connect(addr).await.unwrap();
+    let mut client = connect_tls(socket, "localhost", &client_tls).await.unwrap();
+    write_frame(
+        client.stream_mut(),
+        &LinkMessage::Hello(Box::new(NodeHello {
+            supported_major: 1,
+            minimum_minor: 0,
+            maximum_minor: 0,
+            node_id: agent.node_id(),
+            node_generation: agent.generation(),
+            connection_epoch: agent.connection_epoch(),
+            enrollment_ref: enrolled,
+            agent_revision: "post-handshake-expiry-proof".into(),
+            capability_snapshot_ref: None,
+        })),
+    )
+    .await
+    .unwrap();
+    let result = server.await.unwrap();
+    assert!(
+        result.is_err(),
+        "an expired optional E07 enrollment cannot be accepted"
+    );
+}

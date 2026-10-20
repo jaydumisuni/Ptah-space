@@ -4,7 +4,10 @@ use ptah_node_link::{
     AuthenticatedServerStream, Heartbeat, HelloAck, LinkError, LinkMessage, SessionBinding,
     TlsServerConfig, accept_tls, read_frame, write_frame,
 };
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use tokio::{net::TcpStream, sync::Mutex};
 
 const HANDSHAKE_LIMIT: Duration = Duration::from_secs(5);
@@ -32,10 +35,15 @@ pub async fn establish(
     let LinkMessage::Hello(hello) = hello else {
         return Err(LinkError::MalformedFrame("E01 expects Hello".into()));
     };
-    let binding = owner
-        .lock()
-        .await
-        .accept_hello(&hello, stream.peer_fingerprint(), now)?;
+    // Re-evaluate time *after* TLS, Hello and waiting for the owner lock.
+    // A client whose enrollment expires during negotiation is not admitted.
+    let mut current = owner.lock().await;
+    let actual_now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| LinkError::Io("invalid system time".into()))?
+        .as_secs();
+    let binding = current.accept_hello(&hello, stream.peer_fingerprint(), now.max(actual_now))?;
+    drop(current);
     let ack = LinkMessage::HelloAck(HelloAck {
         selected_version: binding.negotiated_protocol,
         node_id: binding.node_id,

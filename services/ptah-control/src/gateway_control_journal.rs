@@ -88,15 +88,39 @@ impl ControlDispatchJournal {
         {
             return Err(ControlJournalError::Invalid("lock symlink"));
         }
-        let lock = OpenOptions::new()
+        let mut lock_options = OpenOptions::new();
+        lock_options
             .read(true)
             .write(true)
             .create(true)
-            .truncate(false)
+            .truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            lock_options.mode(0o600);
+        }
+        let lock = lock_options
             .open(&lockpath)
             .map_err(|_| ControlJournalError::Invalid("lock unavailable"))?;
         lock.try_lock()
             .map_err(|_| ControlJournalError::Conflict("Control journal already owned"))?;
+        // SQLite's default creation honors umask 022 and can yield mode
+        // 0644. Open the file privately *before* SQLite sees it, so the
+        // independently verified readback accepts newly created journals.
+        let mut db_options = OpenOptions::new();
+        db_options
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            db_options.mode(0o600);
+        }
+        let _db_file = db_options
+            .open(path)
+            .map_err(|_| ControlJournalError::Invalid("journal file unavailable"))?;
         let db = Connection::open(path)?;
         db.busy_timeout(Duration::from_secs(3))?;
         db.execute_batch(

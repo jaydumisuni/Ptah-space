@@ -73,6 +73,8 @@ pub struct RetainedAttempt {
     pub exit_code: Option<i32>,
     /// SHA-256 of actual untruncated A05 stdout.
     pub stdout_digest: Option<String>,
+    /// Spawned process identity; never infer from another attempt.
+    pub process_ref: Option<String>,
 }
 
 /// An unresolved durable dispatch requiring owner-mediated effect reconciliation.
@@ -169,9 +171,22 @@ impl GatewayJournal {
                phase TEXT NOT NULL CHECK(phase IN ('in_flight','needs_reconciliation','completed')),
                exit_code INTEGER,
                stdout_digest TEXT,
+               process_ref TEXT,
                UNIQUE(attempt, fence)
              ) WITHOUT ROWID;",
         )?;
+        // Existing candidates remain without a process identity; a schema
+        // migration must not invent proof that a past attempt completed.
+        let has_process_ref = {
+            let mut stmt = db.prepare("PRAGMA table_info(ptah_gateway_attempts)")?;
+            let fields = stmt
+                .query_map([], |r| r.get::<_, String>(1))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            fields.iter().any(|field| field == "process_ref")
+        };
+        if !has_process_ref {
+            db.execute_batch("ALTER TABLE ptah_gateway_attempts ADD COLUMN process_ref TEXT;")?;
+        }
         db.execute(
             "UPDATE ptah_gateway_attempts SET phase='needs_reconciliation'
              WHERE phase='in_flight'",
@@ -282,8 +297,26 @@ impl GatewayJournal {
         if self.stage(agent, guard, frame, now, digest)? != StageResult::StagedNew {
             return Err(JournalError::Conflict("attempt already registered"));
         }
-        spawn_native_process_if_authorized(guard, agent, frame, now, provider, expected, spec)
-            .map_err(JournalError::Dispatch)
+        let process =
+            spawn_native_process_if_authorized(guard, agent, frame, now, provider, expected, spec)
+                .map_err(JournalError::Dispatch)?;
+        // Stage was durable *before* spawn. A failed binding never permits
+        // retrying the same Attempt; the outcome remains uncertain.
+        let dispatch = identity(&frame.dispatch_ref)?;
+        let attempt = identity(&frame.attempt_ref)?;
+        let process_ref = identity(&process)?;
+        let updated = self.db.execute(
+            "UPDATE ptah_gateway_attempts SET process_ref=?1
+             WHERE dispatch=?2 AND attempt=?3 AND phase='in_flight'
+             AND process_ref IS NULL",
+            params![process_ref, dispatch, attempt],
+        )?;
+        if updated != 1 {
+            return Err(JournalError::Conflict(
+                "spawned A05 process not bound to Attempt",
+            ));
+        }
+        Ok(process)
     }
 
     /// Read back one immutable dispatch identity.
@@ -298,7 +331,7 @@ impl GatewayJournal {
         let id = identity(&frame.dispatch_ref)?;
         self.db
             .query_row(
-                "SELECT attempt,node,generation,epoch,digest,phase,fence,exit_code,stdout_digest
+                "SELECT attempt,node,generation,epoch,digest,phase,fence,exit_code,stdout_digest,process_ref
              FROM ptah_gateway_attempts WHERE dispatch=?1",
                 params![id],
                 |r| {
@@ -317,6 +350,7 @@ impl GatewayJournal {
                         fence: u64::try_from(fence).map_err(|_| rusqlite::Error::InvalidQuery)?,
                         exit_code: r.get(7)?,
                         stdout_digest: r.get(8)?,
+                        process_ref: r.get(9)?,
                     })
                 },
             )
@@ -371,6 +405,22 @@ impl GatewayJournal {
         provider: &NativeProcessProvider,
         process_id: EntityId,
     ) -> Result<String, JournalError> {
+        let dispatch_identity = identity(&frame.dispatch_ref)?;
+        let attempt_identity = identity(&frame.attempt_ref)?;
+        let exact_process = identity(&process_id)?;
+        let saved: Option<(String, Option<String>)> = self
+            .db
+            .query_row(
+                "SELECT attempt,process_ref FROM ptah_gateway_attempts WHERE dispatch=?1",
+                params![&dispatch_identity],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        if saved != Some((attempt_identity.clone(), Some(exact_process.clone()))) {
+            return Err(JournalError::Conflict(
+                "wrong process for persisted Attempt",
+            ));
+        }
         let snapshot = provider
             .snapshot(process_id)
             .map_err(|_| JournalError::Invalid("A05 snapshot unavailable"))?;
@@ -405,7 +455,8 @@ impl GatewayJournal {
             "UPDATE ptah_gateway_attempts
              SET phase='completed',exit_code=?1,stdout_digest=?2
              WHERE dispatch=?3 AND digest=?4 AND node=?5 AND generation=?6
-             AND epoch=?7 AND fence=?8 AND phase='in_flight'",
+             AND epoch=?7 AND fence=?8 AND phase='in_flight'
+              AND attempt=?9 AND process_ref=?10",
             params![
                 exit.exit_code,
                 &digest,
@@ -414,7 +465,9 @@ impl GatewayJournal {
                 node,
                 generation,
                 epoch,
-                fence
+                fence,
+                attempt_identity,
+                exact_process
             ],
         )?;
         if updated != 1 {

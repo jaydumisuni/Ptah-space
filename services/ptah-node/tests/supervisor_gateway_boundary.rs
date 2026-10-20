@@ -642,7 +642,7 @@ fn gateway_journal_preserves_pre_effect_state_and_never_replays_on_restart() {
 #[cfg(unix)]
 #[test]
 fn gateway_journal_retains_actual_a05_completion_and_rejects_second_completion() {
-    use ptah_node::gateway_journal::{GatewayJournal, StageResult};
+    use ptah_node::gateway_journal::GatewayJournal;
     use sha2::Digest as _;
     let path = temporary_gateway_database();
     let mut fixture = Fixture::new();
@@ -656,17 +656,25 @@ fn gateway_journal_retains_actual_a05_completion_and_rejects_second_completion()
         .expect("lease");
     let digest = format!("sha256:{}", "c".repeat(64));
     let mut journal = GatewayJournal::open(&path).expect("journal");
-    assert_eq!(
-        journal
-            .stage(&fixture.node, &guard, &frames.request, now(), &digest)
-            .expect("stage"),
-        StageResult::StagedNew
-    );
     let provider = provider(&fixture.node);
     let expected = provider
         .attempt_context(1, entity("runtime.facility"))
         .expect("context");
-    let id = spawn_native_process_if_authorized(
+    let id = journal
+        .spawn_once(
+            &fixture.node,
+            &guard,
+            &frames.request,
+            now(),
+            &digest,
+            &provider,
+            &expected,
+            process_spec("/bin/true"),
+        )
+        .expect("journaled A05 spawn");
+    // A different real process in this same provider/Node generation
+    // can never complete this journaled Attempt.
+    let other = spawn_native_process_if_authorized(
         &guard,
         &fixture.node,
         &frames.request,
@@ -675,7 +683,16 @@ fn gateway_journal_retains_actual_a05_completion_and_rejects_second_completion()
         &expected,
         process_spec("/bin/true"),
     )
-    .expect("actual A05 spawn");
+    .expect("second independent test process");
+    provider
+        .wait_for_exit(other, Duration::from_secs(3))
+        .expect("other exited");
+    assert!(
+        journal
+            .complete_from_process(&fixture.node, &frames.request, &digest, &provider, other)
+            .is_err(),
+        "unbound process completion must not corrupt retained evidence"
+    );
     provider
         .wait_for_exit(id, Duration::from_secs(3))
         .expect("observed exit");
@@ -695,6 +712,10 @@ fn gateway_journal_retains_actual_a05_completion_and_rejects_second_completion()
         .expect("read")
         .expect("durable result");
     assert_eq!(record.phase, "completed");
+    assert_eq!(
+        record.process_ref.as_deref(),
+        Some(serde_json::to_string(&id).unwrap().as_str())
+    );
     assert_eq!(record.exit_code, Some(0));
     assert_eq!(record.stdout_digest.as_deref(), Some(observed.as_str()));
     drop(reopened);

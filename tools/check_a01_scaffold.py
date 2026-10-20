@@ -9,6 +9,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from check_e06_dependency_evolution import verified_local_extension
+
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "a01/scaffold-contract.json"
 ACTION_PIN = re.compile(r"^[0-9a-f]{40}$")
@@ -19,6 +21,13 @@ A01_EXTERNAL_CARGO_PACKAGE_COUNT = 81
 # Unrecognized or reordered members fail closed. This is not an A01 freeze rewrite.
 A01_FROZEN_CONTRACT_SHA256 = "3f61aa231134f23cc6c7b78d037bb9980d1d4150ebe9a4ac4b706e25c638be69"
 APPROVED_EVOLVED_WORKSPACE_MEMBERS = ['crates/ptah-contracts', 'crates/ptah-identifiers', 'crates/ptah-ledger', 'crates/ptah-events', 'crates/ptah-receipts', 'crates/ptah-node-agent', 'crates/ptah-node-link', 'crates/ptah-node-transfer', 'crates/ptah-placement-runtime', 'crates/ptah-activity-runtime', 'crates/ptah-workspace', 'crates/ptah-ai-workspace', 'crates/ptah-knowledge-search', 'crates/ptah-recipe-registry', 'crates/ptah-package-plugin', 'crates/ptah-provenance', 'crates/ptah-security-evidence', 'crates/ptah-application-runtime', 'crates/ptah-object-store', 'crates/ptah-transfer', 'crates/ptah-provider-api', 'crates/ptah-device-runtime', 'crates/ptah-android-runtime', 'crates/ptah-browser-runtime', 'crates/ptah-checkpoint', 'crates/ptah-platform-admission', 'crates/ptah-workspace-movement', 'crates/ptah-archive-decomposition', 'services/ptah-node', 'services/ptah-control', 'adapters/container-oci', 'adapters/git-cli', 'adapters/decomposition-libarchive', 'adapters/database-sqlite', 'adapters/native-process', 'adapters/ttg-device-xray', 'adapters/ttg-device-workloads', 'evidence/rust-dependency-lock']
+# Separate post-E05 E06 exception: do not mutate or relabel frozen A01 lineage.
+APPROVED_E06_WORKSPACE_MEMBERS = APPROVED_EVOLVED_WORKSPACE_MEMBERS.copy()
+APPROVED_E06_WORKSPACE_MEMBERS.insert(
+    APPROVED_E06_WORKSPACE_MEMBERS.index("crates/ptah-transfer"),
+    "crates/ptah-offline-intent",
+)
+
 
 
 class ValidationError(RuntimeError):
@@ -49,7 +58,7 @@ def validate_workspace(contract: dict[str, Any]) -> dict[str, Any]:
     expected = contract["required_workspace_members"]
     require(sha256(CONTRACT_PATH) == A01_FROZEN_CONTRACT_SHA256,
             "historical A01 contract digest drifted")
-    require(members in (expected, APPROVED_EVOLVED_WORKSPACE_MEMBERS),
+    require(members in (expected, APPROVED_EVOLVED_WORKSPACE_MEMBERS, APPROVED_E06_WORKSPACE_MEMBERS),
             "Rust workspace member order/content lacks approved later-phase scope")
     require([member for member in members if member in expected] == expected,
             "historical A01 workspace members were modified or reordered")
@@ -168,12 +177,16 @@ def validate_dependency_lock(contract: dict[str, Any]) -> dict[str, Any]:
     if evolved:
         # E01 succeeded A01. The historical 81-package signature is not
         # relabelled as a digest for today's evolving Cargo graph.
-        require(historical_sha == sha256(ROOT / "Cargo.lock"),
-                "E01-evolved exact Cargo.lock SHA does not match current selection")
+        try:
+            additive = verified_local_extension(ROOT / "Cargo.lock", historical_sha)
+        except ValueError as error:
+            raise ValidationError("E01-evolved exact Cargo.lock changed beyond admitted E06: " + str(error)) from error
+        require(additive == int((ROOT / "Cargo.toml").read_text().count('"crates/ptah-offline-intent"') == 1),
+                "E06 Cargo.lock workspace identity mismatch")
         require(record.get("cargo_lock",{}).get("registry_package_count") == len(external),
                 "E01-evolved registry package count differs from immutable lock selection")
         require(record.get("cargo_lock",{}).get("resolved_package_count") ==
-                len(tomllib.loads((ROOT/"Cargo.lock").read_text(encoding="utf-8")).get("package",[])),
+                len(tomllib.loads((ROOT/"Cargo.lock").read_text(encoding="utf-8")).get("package",[])) - additive,
                 "E01-evolved package graph count mismatch")
         require(record.get("selection_policy",{}).get("git_dependencies_allowed") is False,
                 "E01-evolved Git dependencies allowed unexpectedly")

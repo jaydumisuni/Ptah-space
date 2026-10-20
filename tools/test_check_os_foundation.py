@@ -109,6 +109,32 @@ class FoundationConformance(unittest.TestCase):
             with self.assertRaises(GATE.ProfileError):
                 GATE.read_json(f)
 
+    def test_exact_checkout_commit_binding_rejects_stale_evidence(self):
+        expected="b"*40
+        with self.assertRaisesRegex(GATE.ProfileError,"STALE_EVIDENCE_COMMIT"):
+            GATE.validate_evidence(self.evidence,expected)
+        refreshed=copy.deepcopy(self.evidence)
+        refreshed["candidate_commit"]=expected
+        self.assertTrue(GATE.validate_evidence(refreshed,expected)["evidence_valid"])
+
+    def test_output_aliases_and_existing_file_are_never_overwritten(self):
+        with tempfile.TemporaryDirectory() as folder:
+            profile=Path(folder)/"profile.json";evidence=Path(folder)/"evidence.json"
+            profile.write_text(json.dumps(self.profile))
+            evidence.write_text(json.dumps(self.evidence))
+            for name in ["symlink","hardlink","exists"]:
+                out=Path(folder)/name
+                if name=="symlink":out.symlink_to(profile)
+                elif name=="hardlink":os.link(profile,out)
+                else:out.write_text("PRESERVE")
+                before=profile.read_bytes()
+                result=subprocess.run([sys.executable,str(SCRIPT),"--profile",str(profile),
+                    "--evidence",str(evidence),"--output",str(out)],
+                    capture_output=True,text=True,timeout=10)
+                self.assertEqual(result.returncode,2)
+                self.assertEqual(profile.read_bytes(),before)
+                if name=="exists":self.assertEqual(out.read_text(),"PRESERVE")
+
     def test_bounded_cli_returns_explicit_nonauthority(self):
         result=subprocess.run([sys.executable,str(SCRIPT),
              "--profile",str(DATA/"foundation-candidate.json"),

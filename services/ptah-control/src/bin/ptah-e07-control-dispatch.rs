@@ -197,7 +197,9 @@ async fn serve(config: Config) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
     eprintln!("ptah-e07-control-dispatch: listening on {}", config.listen);
-    let (socket, _) = tokio::time::timeout(Duration::from_mins(1), listener.accept())
+    // ATHENA's persistent worker backs off up to 120 seconds. Wait longer
+    // than that before treating a missing Node as an endpoint failure.
+    let (socket, _) = tokio::time::timeout(Duration::from_mins(4), listener.accept())
         .await
         .map_err(|_| "waiting for Node timed out")?
         .map_err(|e| e.to_string())?;

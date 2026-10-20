@@ -1,0 +1,42 @@
+name: F01 detached Ed25519 artifact evidence (non-activating)
+on:
+  pull_request:
+    paths:
+      - "tools/f01_signed_artifact_evidence.py"
+      - "tools/test_f01_signed_artifact_evidence.py"
+      - ".github/workflows/f01-signed-artifact-evidence.yml"
+  push:
+    branches:
+      - "feat/f01-signature-verification-20261019"
+    paths:
+      - "tools/f01_signed_artifact_evidence.py"
+      - "tools/test_f01_signed_artifact_evidence.py"
+      - ".github/workflows/f01-signed-artifact-evidence.yml"
+permissions:
+  contents: read
+jobs:
+  signature-integrity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact PR candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Set pinned Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.13"
+      - name: Check OpenSSL capabilities
+        run: openssl version
+      - name: Run signing and adversarial evidence tests
+        env:
+          PYTHONPATH: tools
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python3 -m unittest -v \
+            tools/test_f01_signed_artifact_evidence.py \
+            tools/test_build_f01_service_bundle.py \
+            tools/test_check_os_foundation.py \
+            tools/test_probe_os_foundation_host.py

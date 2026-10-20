@@ -86,6 +86,17 @@ class ApplicabilityProofTests(unittest.TestCase):
         self.assertTrue(policy.scope_affected(name,policy.pull_paths(after),
                     {"crates/ptah-platform-admission/src/lib.rs"}))
 
+    def test_e07_native_exact_delta_does_not_replay_historical_phase_proofs(self):
+        scope=policy.E07_NATIVE_INTEGRATION_PATHS
+        self.assertTrue(scope)
+        self.assertIn("services/ptah-control/src/gateway_session.rs",scope)
+        self.assertIn("services/ptah-node/src/gateway_journal.rs",scope)
+        self.assertIn("tools/check_current_pr_admission.py",scope)
+        self.assertNotIn("services/ptah-control/src/unaudited.rs",scope)
+        self.assertTrue(policy.scope_affected("a14-human-alpha-control-proof.yml",
+            policy.pull_paths(self.history["a14-human-alpha-control-proof.yml"][1]),
+            set(scope)))
+
     def test_nonexistent_phase_name_fails_closed(self):
         with self.assertRaisesRegex(policy.AdmissionError,"unreviewed_phase_workflow"):
             policy.approved_phase_scope("evil.yml","on:\n","on:\n")

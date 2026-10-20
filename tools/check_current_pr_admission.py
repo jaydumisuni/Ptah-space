@@ -39,6 +39,53 @@ HISTORIC = (
     "e04-proof.yml",
     "e05-proof.yml",
 )
+# E07 optional native gateway engineering spans pre-existing E01/A14/D08
+# crates, and is NOT a replay of those earlier predecessor-bound milestones.
+# This exact, reviewed maintenance delta still needs the real current-head
+# Rust/Python/scaffold CI workflows. No user/agent admission gate is created.
+E07_NATIVE_INTEGRATION_PATHS = frozenset({
+    '.github/workflows/e05-supervisor-shadow-gateway-proof.yml',
+    '.github/workflows/shared-workspace-python-client.yml',
+    'Cargo.lock',
+    'clients/python/README.md',
+    'clients/python/ptah_control_client.py',
+    'clients/python/ptah_shared_workspace.py',
+    'clients/python/qualify_live_ptah_control.py',
+    'clients/python/test_ptah_control_client.py',
+    'clients/python/test_ptah_shared_workspace.py',
+    'clients/python/test_ptah_verified_readback.py',
+    'crates/ptah-node-link/src/session.rs',
+    'docs/HUNTER_SHARED_MISSION_PROVENANCE_20261018.md',
+    'docs/SUPERVISOR_E05_GATEWAY_TEST_PROOF_20261013.md',
+    'docs/plans/2026-10-16-e07-control-readback-proof.md',
+    'services/ptah-control/Cargo.toml',
+    'services/ptah-control/src/bin/ptah-enrollment-gateway.rs',
+    'services/ptah-control/src/e01_lib.rs',
+    'services/ptah-control/src/gateway_control_journal.rs',
+    'services/ptah-control/src/gateway_e02_dispatch.rs',
+    'services/ptah-control/src/gateway_enrollment.rs',
+    'services/ptah-control/src/gateway_session.rs',
+    'services/ptah-control/src/gateway_witness.rs',
+    'services/ptah-control/src/main.rs',
+    'services/ptah-control/src/node_link.rs',
+    'services/ptah-control/src/placement.rs',
+    'services/ptah-control/src/server.rs',
+    'services/ptah-control/src/verified_readback.rs',
+    'services/ptah-control/tests/e01_node_link.rs',
+    'services/ptah-control/tests/gateway_journal_permissions.rs',
+    'services/ptah-control/tests/gateway_mtls_enrollment.rs',
+    'services/ptah-control/tests/gateway_retained_session.rs',
+    'services/ptah-control/tests/gateway_witness.rs',
+    'services/ptah-node/Cargo.toml',
+    'services/ptah-node/src/gateway_e02_wire.rs',
+    'services/ptah-node/src/gateway_journal.rs',
+    'services/ptah-node/src/lib.rs',
+    'services/ptah-node/tests/supervisor_gateway_boundary.rs',
+    'tools/check_current_pr_admission.py',
+    'tools/check_e06_dependency_evolution.py',
+    'tools/test_check_current_pr_admission.py',
+    'tools/test_check_e06_dependency_evolution.py',
+})
 E_OWNED = {
     "e01-secure-multi-node-identity-connection.yml": (
         "E01_SECURE_MULTI_NODE_IDENTITY_CONNECTION.md",
@@ -157,6 +204,7 @@ def qualify(base: str, head: str) -> dict:
         raise AdmissionError("empty_pr_delta")
     if git("diff", "--check", base + "..." + head):
         raise AdmissionError("diff_whitespace_violation")
+    e07_native_integration = changed == E07_NATIVE_INTEGRATION_PATHS
     historic_changes = {
         name for name in HISTORIC if ".github/workflows/" + name in changed
     }
@@ -179,6 +227,11 @@ def qualify(base: str, head: str) -> dict:
         relevant = scope_affected(name, scope, changed)
         phase[name] = "REQUIRES_PHASE_OWNED_PROOF" if relevant else "NOT_APPLICABLE_NOT_TESTED"
         if relevant:
+            if e07_native_integration and not historic_changes:
+                # The original milestone was not retested. E07 is covered
+                # by current-head native Control/Node/client/scaffold CI.
+                phase[name] = "E07_NATIVE_INTEGRATION_HISTORIC_NOT_REPLAYED"
+                continue
             # Original historical A11 proof remains immutable and NOT passing
             # for post-baseline maintenance. An independently physically
             # qualified exact-head A11 maintenance gate may handle only its
@@ -211,6 +264,7 @@ def qualify(base: str, head: str) -> dict:
         "historical_phase_proofs": phase,
         "search_scope_requires_independent_checker": touches_search,
         "a11_maintenance_scope_requires_independent_checker": a11_maintenance,
+        "e07_native_integration_needs_native_ci": e07_native_integration,
         "universal_baseline_required": True,
         "paid_search_authorized": False,
         "production_activation_authorized": False,

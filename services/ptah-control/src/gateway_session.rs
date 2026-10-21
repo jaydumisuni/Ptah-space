@@ -23,13 +23,30 @@ pub async fn establish(
     owner: &Arc<Mutex<PlacementAuthorityOwner>>,
     now: u64,
 ) -> Result<(SessionBinding, AuthenticatedServerStream), LinkError> {
-    let mut stream = tokio::time::timeout(HANDSHAKE_LIMIT, accept_tls(socket, tls))
+    establish_with_timeout(socket, tls, owner, now, HANDSHAKE_LIMIT).await
+}
+
+/// E01 session with a bounded, caller-selected *transport* timeout.
+/// Only callers using slow external byte-pumps should override the default.
+/// Peer certificate, enrollment and generation checks remain unchanged.
+///
+/// # Errors
+/// Rejects failed TLS, invalid peer identity, expired enrollment, stale
+/// session generation or bounded handshake transport timeouts.
+pub async fn establish_with_timeout(
+    socket: TcpStream,
+    tls: &TlsServerConfig,
+    owner: &Arc<Mutex<PlacementAuthorityOwner>>,
+    now: u64,
+    handshake_timeout: Duration,
+) -> Result<(SessionBinding, AuthenticatedServerStream), LinkError> {
+    let mut stream = tokio::time::timeout(handshake_timeout, accept_tls(socket, tls))
         .await
         .map_err(|_| LinkError::Io("E01 TLS timeout".into()))??;
     if !stream.is_tls13() {
         return Err(LinkError::TlsHandshake("TLS 1.3 required".into()));
     }
-    let hello = tokio::time::timeout(HANDSHAKE_LIMIT, read_frame(stream.stream_mut()))
+    let hello = tokio::time::timeout(handshake_timeout, read_frame(stream.stream_mut()))
         .await
         .map_err(|_| LinkError::Io("E01 Hello timeout".into()))??;
     let LinkMessage::Hello(hello) = hello else {
@@ -50,7 +67,7 @@ pub async fn establish(
         node_generation: binding.node_generation,
         connection_epoch: binding.connection_epoch,
     });
-    let sent = tokio::time::timeout(HANDSHAKE_LIMIT, write_frame(stream.stream_mut(), &ack))
+    let sent = tokio::time::timeout(handshake_timeout, write_frame(stream.stream_mut(), &ack))
         .await
         .map_err(|_| LinkError::Io("E01 Ack timeout".into()));
     match sent {

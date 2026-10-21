@@ -5,7 +5,7 @@
 #![forbid(unsafe_code)]
 
 use ptah_control::gateway_control_journal::ControlDispatchJournal;
-use ptah_control::gateway_session::establish;
+use ptah_control::gateway_session::{establish, establish_with_timeout};
 use ptah_control::node_link::DispatchAuthorityFrames;
 use ptah_control::node_link::NodeLinkControl;
 use ptah_control::placement::PlacementAuthorityOwner;
@@ -39,6 +39,7 @@ struct AdmissionRow {
 }
 struct Config {
     listen: SocketAddr,
+    oracle_loopback: bool,
     server_cert: PathBuf,
     server_key: PathBuf,
     client_ca: PathBuf,
@@ -66,9 +67,17 @@ fn allowed_bind(ip: IpAddr, allow_private: bool) -> bool {
 }
 fn config_from_iter(args: impl IntoIterator<Item = String>) -> Result<Config, String> {
     let mut allow_private = false;
+    let mut oracle_loopback = false;
     let mut entries = std::collections::BTreeMap::new();
     let mut it = args.into_iter();
     while let Some(key) = it.next() {
+        if key == "--oracle-loopback-carrier" {
+            if oracle_loopback {
+                return Err("duplicate loopback carrier mode".into());
+            }
+            oracle_loopback = true;
+            continue;
+        }
         if key == "--allow-private-lan" {
             if allow_private {
                 return Err("duplicate private-LAN option".into());
@@ -107,8 +116,12 @@ fn config_from_iter(args: impl IntoIterator<Item = String>) -> Result<Config, St
             "listener must be loopback, or explicit private RFC1918 address with --allow-private-lan",
         ));
     }
+    if oracle_loopback && !listen.ip().is_loopback() {
+        return Err("external Oracle carrier may only use local loopback".into());
+    }
     let config = Config {
         listen,
+        oracle_loopback,
         server_cert: PathBuf::from(val("--server-cert")?),
         server_key: PathBuf::from(val("--server-key")?),
         client_ca: PathBuf::from(val("--client-ca")?),
@@ -174,6 +187,23 @@ fn canonical_enrollments(input: &[u8]) -> Result<Vec<ApprovedNodeEnrollment>, St
         })
         .collect()
 }
+/// Compute bounded E02 TTL using fresh post-handshake issuance time.
+/// A transport timeout is never treated as extra caller permission.
+fn dispatch_expirations(issued_at: u64, oracle_loopback: bool) -> Result<(u64, u64), String> {
+    let (reservation_secs, lease_secs) = if oracle_loopback {
+        (240_u64, 210_u64)
+    } else {
+        (90_u64, 75_u64)
+    };
+    let reservation = issued_at
+        .checked_add(reservation_secs)
+        .ok_or("reservation time overflow")?;
+    let lease = issued_at
+        .checked_add(lease_secs)
+        .ok_or("lease time overflow")?;
+    Ok((reservation, lease))
+}
+
 /// Caller-selected single dispatch. No autonomous retries, access decisions
 /// or remote executable selection. The Node binds its own local A05 profile.
 // The single-dispatch path is deliberately linear: TLS establishment,
@@ -207,9 +237,21 @@ async fn serve(config: Config) -> Result<(), String> {
         .duration_since(UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_secs();
-    let (binding, mut stream) = establish(socket, &tls, &owner, now)
-        .await
-        .map_err(|e| format!("E01 handshake: {e:?}"))?;
+    let (binding, mut stream) = if config.oracle_loopback {
+        establish_with_timeout(socket, &tls, &owner, now, Duration::from_mins(3)).await
+    } else {
+        establish(socket, &tls, &owner, now).await
+    }
+    .map_err(|e| format!("E01 handshake: {e:?}"))?;
+    // E01 can be slower over the existing Oracle-carried terminal RPC.
+    // Dispatch leases start when the caller actually issues E02, NOT when
+    // the original Control socket was accepted before TLS negotiation.
+    let issued_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
+    let (reservation_expiry, lease_expiry) =
+        dispatch_expirations(issued_at, config.oracle_loopback)?;
     // The peer identity and epoch are taken exclusively from the authenticated
     // current session. Fresh dispatch references are Control-created.
     let mut journal = ControlDispatchJournal::open(&config.journal_path)
@@ -236,7 +278,7 @@ async fn serve(config: Config) -> Result<(), String> {
             node_id: binding.node_id,
             node_generation: binding.node_generation,
             connection_epoch: binding.connection_epoch,
-            expires_at_unix_seconds: now + 90,
+            expires_at_unix_seconds: reservation_expiry,
         },
         lease: DispatchLeaseFrame {
             lease_ref: lease.clone(),
@@ -246,7 +288,7 @@ async fn serve(config: Config) -> Result<(), String> {
             node_generation: binding.node_generation,
             connection_epoch: binding.connection_epoch,
             fence: next_fence,
-            expires_at_unix_seconds: now + 75,
+            expires_at_unix_seconds: lease_expiry,
         },
         request: DispatchRequestFrame {
             dispatch_ref: EntityRef::new("runtime.dispatch").map_err(|e| format!("{e:?}"))?,
@@ -279,10 +321,13 @@ async fn serve(config: Config) -> Result<(), String> {
     journal
         .mark_sent(&frame)
         .map_err(|e| format!("dispatch sent: {e:?}"))?;
-    let ack = tokio::time::timeout(Duration::from_secs(45), read_frame(stream.stream_mut()))
-        .await
-        .map_err(|_| "Node completion acknowledgement timeout")?
-        .map_err(|e| format!("Node response: {e:?}"))?;
+    let ack = tokio::time::timeout(
+        Duration::from_secs(if config.oracle_loopback { 180 } else { 45 }),
+        read_frame(stream.stream_mut()),
+    )
+    .await
+    .map_err(|_| "Node completion acknowledgement timeout")?
+    .map_err(|e| format!("Node response: {e:?}"))?;
     if !matches!(ack,LinkMessage::Ack(ref ack) if ack.message_id==1) {
         return Err("Node did not acknowledge observed local completion".into());
     }
@@ -312,5 +357,62 @@ async fn main() {
     if let Err(error) = result {
         eprintln!("ptah-e07-control-dispatch: {error}");
         std::process::exit(2);
+    }
+}
+
+#[cfg(test)]
+mod oracle_loopback_tests {
+    use super::*;
+    #[test]
+    fn carrier_mode_never_binds_a_private_or_public_network_interface() {
+        let args = vec![
+            "--oracle-loopback-carrier",
+            "--allow-private-lan",
+            "--listen",
+            "192.168.238.52:48251",
+        ];
+        let failure = config_from_iter(args.into_iter().map(String::from))
+            .err()
+            .expect("only loopback accepted");
+        assert!(failure.contains("only use local loopback"));
+    }
+    #[test]
+    fn dispatcher_issues_fresh_bounded_leases_after_tls_handshake() {
+        let old_tls_socket_time = 1_000_u64;
+        let after_slow_tls = old_tls_socket_time + 175;
+        let (slow_reservation, slow_lease) = dispatch_expirations(after_slow_tls, true).unwrap();
+        assert_eq!(slow_reservation, after_slow_tls + 240);
+        assert_eq!(slow_lease, after_slow_tls + 210);
+        assert!(slow_lease > after_slow_tls);
+        let (direct_reservation, direct_lease) =
+            dispatch_expirations(after_slow_tls, false).unwrap();
+        assert_eq!(direct_reservation, after_slow_tls + 90);
+        assert_eq!(direct_lease, after_slow_tls + 75);
+        assert!(dispatch_expirations(u64::MAX, true).is_err());
+    }
+
+    #[test]
+    fn carrier_is_a_transport_choice_not_an_access_grant() {
+        let args = vec![
+            "--oracle-loopback-carrier",
+            "--listen",
+            "127.0.0.1:48251",
+            "--server-cert",
+            "server.pem",
+            "--server-key",
+            "server.key",
+            "--client-ca",
+            "ca.pem",
+            "--enrollments",
+            "enrollments.json",
+            "--journal",
+            "local.sqlite",
+            "--request-digest",
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ];
+        let parsed =
+            config_from_iter(args.into_iter().map(String::from)).expect("caller-selected loopback");
+        assert!(parsed.oracle_loopback);
+        assert!(parsed.listen.ip().is_loopback());
     }
 }

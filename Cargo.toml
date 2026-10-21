@@ -37,6 +37,7 @@ members = [
   "adapters/decomposition-libarchive",
   "adapters/database-sqlite",
   "adapters/native-process",
+  "adapters/formula-workcells",
   "adapters/ttg-device-xray",
   "adapters/ttg-device-workloads",
   "evidence/rust-dependency-lock",

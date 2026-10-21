@@ -28,6 +28,14 @@ APPROVED_E06_WORKSPACE_MEMBERS.insert(
     "crates/ptah-offline-intent",
 )
 
+# Post-E06 P13 integration adds only the Formula-owned transport adapter;
+# the historical A01 and E06 exact lists remain frozen and independently valid.
+APPROVED_P13_WORKSPACE_MEMBERS = APPROVED_E06_WORKSPACE_MEMBERS.copy()
+APPROVED_P13_WORKSPACE_MEMBERS.insert(
+    APPROVED_P13_WORKSPACE_MEMBERS.index("adapters/ttg-device-xray"),
+    "adapters/formula-workcells",
+)
+
 
 
 class ValidationError(RuntimeError):
@@ -58,7 +66,7 @@ def validate_workspace(contract: dict[str, Any]) -> dict[str, Any]:
     expected = contract["required_workspace_members"]
     require(sha256(CONTRACT_PATH) == A01_FROZEN_CONTRACT_SHA256,
             "historical A01 contract digest drifted")
-    require(members in (expected, APPROVED_EVOLVED_WORKSPACE_MEMBERS, APPROVED_E06_WORKSPACE_MEMBERS),
+    require(members in (expected, APPROVED_EVOLVED_WORKSPACE_MEMBERS, APPROVED_E06_WORKSPACE_MEMBERS, APPROVED_P13_WORKSPACE_MEMBERS),
             "Rust workspace member order/content lacks approved later-phase scope")
     require([member for member in members if member in expected] == expected,
             "historical A01 workspace members were modified or reordered")
@@ -181,7 +189,7 @@ def validate_dependency_lock(contract: dict[str, Any]) -> dict[str, Any]:
             additive = verified_local_extension(ROOT / "Cargo.lock", historical_sha)
         except ValueError as error:
             raise ValidationError("E01-evolved exact Cargo.lock changed beyond admitted E06: " + str(error)) from error
-        require(additive == int((ROOT / "Cargo.toml").read_text().count('"crates/ptah-offline-intent"') == 1),
+        require(additive == (int((ROOT / "Cargo.toml").read_text().count('"crates/ptah-offline-intent"') == 1) + int((ROOT / "Cargo.toml").read_text().count('"adapters/formula-workcells"') == 1)),
                 "E06 Cargo.lock workspace identity mismatch")
         require(record.get("cargo_lock",{}).get("registry_package_count") == len(external),
                 "E01-evolved registry package count differs from immutable lock selection")

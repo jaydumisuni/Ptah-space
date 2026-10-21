@@ -8,6 +8,7 @@ The carrier is loopback-only and retains byte order across interrupted polls.
 It cannot execute unattended without an external Oracle tool invoker.
 """
 import argparse
+from contextlib import contextmanager
 import base64
 import hashlib
 import json
@@ -36,6 +37,16 @@ def dbconnect(state):
     conn.commit()
     return conn
 
+@contextmanager
+def dbtransaction(state):
+    """Commit or roll back each operation and always release its SQLite handle."""
+    conn = dbconnect(state)
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
+
 def prepare(state):
     p = Path(state)
     if p.exists():
@@ -46,14 +57,14 @@ def prepare(state):
     print(json.dumps({"state":str(p),"new":True,"listener":"loopback_only"}))
 
 def publish(state, table, payload):
-    with dbconnect(state) as conn:
+    with dbtransaction(state) as conn:
         row = conn.execute(f"SELECT coalesce(sum(length(content)),0), coalesce(max(seq),0) FROM {table}").fetchone()
         if row[0]+len(payload)>MAX_TOTAL:
             raise RuntimeError("bounded carrier byte quota exhausted")
         conn.execute(f"INSERT INTO {table}(seq,content) VALUES (?,?)",(row[1]+1,payload))
 
 def pull(state, table, after, limit):
-    with dbconnect(state) as conn:
+    with dbtransaction(state) as conn:
         rows = conn.execute(f"SELECT seq,content FROM {table} WHERE seq>? ORDER BY seq LIMIT ?",(after,limit)).fetchall()
     return [{"seq":seq,"b64":base64.b64encode(buf).decode("ascii")} for seq,buf in rows]
 
@@ -65,7 +76,7 @@ def deliver(state, document):
     rows=json.loads(document)
     if not isinstance(rows,list) or len(rows)>MAX_BATCH:
         raise ValueError("invalid packet batch")
-    with dbconnect(state) as conn:
+    with dbtransaction(state) as conn:
         latest=conn.execute("SELECT coalesce(max(seq),0) FROM inbound").fetchone()[0]
         total=conn.execute("SELECT coalesce(sum(length(content)),0) FROM inbound").fetchone()[0]
         for row in rows:
@@ -207,7 +218,7 @@ def main():
         snapshot(a.state,a.after)
     elif a.command=="serve": serve(a.state,a.mode,a.port)
     elif a.command=="status":
-        with dbconnect(a.state) as db:
+        with dbtransaction(a.state) as db:
             n1=db.execute("SELECT count(*),coalesce(sum(length(content)),0) FROM outbound").fetchone()
             n2=db.execute("SELECT count(*),coalesce(sum(length(content)),0) FROM inbound").fetchone()
         print(json.dumps({"outbound":n1,"inbound":n2,"ready":(Path(a.state)/"ready.json").exists(),"ended":(Path(a.state)/"ended.json").exists()}))

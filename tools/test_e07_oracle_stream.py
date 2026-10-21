@@ -91,6 +91,27 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertIn("E07_CARRIER_PUMP_FAILED:writer",caught[0])
         self.assertFalse(json.loads((Path(self.b)/"ended.json").read_text())["finished"])
 
+    def test_database_handles_are_closed_after_carrier_operations(self):
+        import sqlite3
+        from unittest.mock import patch
+        opened = []
+        original = C.dbconnect
+
+        def tracked(state):
+            connection = original(state)
+            opened.append(connection)
+            return connection
+
+        with patch.object(C, "dbconnect", side_effect=tracked):
+            C.publish(self.a, "outbound", b"opaque")
+            C.pull(self.a, "outbound", 0, 1)
+            C.deliver(self.b, '[{"seq":1,"b64":"b3BhcXVl"}]')
+            C.pull(self.b, "inbound", 0, 1)
+        self.assertEqual(len(opened), 4)
+        for connection in opened:
+            with self.assertRaises(sqlite3.ProgrammingError):
+                connection.execute("SELECT 1")
+
     def test_endpoint_is_loopback_only_and_never_decides_tasks(self):
         listener=socket.socket()
         listener.bind(("127.0.0.1",0));port=listener.getsockname()[1]

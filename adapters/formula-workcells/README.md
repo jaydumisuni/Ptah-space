@@ -25,3 +25,7 @@ Only the canonical P9 count work-cell local-vs-Ptah equivalence has been qualifi
 
 - validate_handoff returns InspectedFormulaWorkCell, a structurally inspected but UNTRUSTED value that cannot be passed to candidate_only_receipt.
 - preflight_with_custody returns the distinct ValidatedFormulaWorkCell with private construction after checking the caller-owned expected manifest, work cell and authority identities. Only the custody-approved type can emit candidate receipts or be used as approved dispatch work.
+
+### Exact additive Ptah workspace admission
+
+Historical A01 (18 workspace members), E06 and E07 lock bytes remain immutable. The P13 adapter adds one reviewed local workspace member and exact Control/Node Cargo.lock dependencies; tools/check_e06_dependency_evolution.py reverses only these allowlisted byte sequences, after which the original historic checksum must still match. A01, retained Phase 0C and all 20 A01/E06/P13 negative tests pass. The new GitHub workflow uses the repository-approved immutable checkout action pin.

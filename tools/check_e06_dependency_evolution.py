@@ -56,6 +56,32 @@ _E07_SQLITE_BUNDLE_AFTER = (b'[[package]]\nname = "libsqlite3-sys"\n'
 _E07_SQLITE_BUNDLE_BEFORE = _E07_SQLITE_BUNDLE_AFTER.replace(
     b' "cc",\n', b'', 1)
 
+# Post-E07 P13: one INTERNAL Formula adapter and two exact local edges.
+# Never admit new external crates, loosen historical E01/E06, or rewrite hashes.
+_P13_WORKCELL_STANZA = (b'[[package]]\nname = "ptah-formula-work-cells"\n'
+    b'version = "0.0.0-phase0c"\ndependencies = [\n'
+    b' "serde",\n "serde_json",\n "sha2",\n "thiserror 2.0.17",\n]\n\n')
+_P13_CONTROL_AFTER = _E07_CONTROL_AFTER.replace(
+    b' "ptah-device-runtime",\n',
+    b' "ptah-device-runtime",\n "ptah-formula-work-cells",\n', 1)
+_P13_NODE_AFTER = _E07_NODE_AFTER.replace(
+    b' "ptah-control",\n',
+    b' "ptah-control",\n "ptah-formula-work-cells",\n', 1)
+
+def strip_exact_p13_local_extension(raw: bytes) -> bytes:
+    """Undo only the approved P13 local package and exact Control/Node edges."""
+    if all(marker not in raw for marker in (
+            b'name = "ptah-formula-work-cells"',
+            b' "ptah-formula-work-cells",\n')):
+        return raw
+    if (raw.count(_P13_WORKCELL_STANZA) != 1
+            or raw.count(_P13_CONTROL_AFTER) != 1
+            or raw.count(_P13_NODE_AFTER) != 1):
+        raise ValueError("unreviewed_p13_lock_extension")
+    return (raw.replace(_P13_CONTROL_AFTER, _E07_CONTROL_AFTER, 1)
+               .replace(_P13_NODE_AFTER, _E07_NODE_AFTER, 1)
+               .replace(_P13_WORKCELL_STANZA, b"", 1))
+
 def strip_exact_e07_local_service_extension(raw: bytes) -> bytes:
     """Remove E07's two exact local dep stanzas (not arbitrary edits)."""
     if raw.count(_E07_CONTROL_AFTER) != 1 or raw.count(_E07_NODE_AFTER) != 1:
@@ -76,6 +102,8 @@ def verified_local_extension(lock_path: Path, historical_sha256: str) -> int:
     permitted, and its removal MUST reconstruct the frozen old byte stream.
     """
     raw = lock_path.read_bytes()
+    has_p13 = b'name = "ptah-formula-work-cells"' in raw
+    raw = strip_exact_p13_local_extension(raw)
     if hashlib.sha256(raw).hexdigest() == historical_sha256:
         return 0
     if _E07_CONTROL_AFTER in raw or _E07_NODE_AFTER in raw:
@@ -85,4 +113,4 @@ def verified_local_extension(lock_path: Path, historical_sha256: str) -> int:
     prior = raw.replace(E06_LOCK_STANZA, b"", 1)
     if hashlib.sha256(prior).hexdigest() != historical_sha256:
         raise ValueError("historical_cargo_digest_changed_outside_e06")
-    return 1
+    return 1 + int(has_p13)

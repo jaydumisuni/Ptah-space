@@ -53,3 +53,39 @@ fn incorrect_mathematical_authority_denied_before_launch() {
     assert_eq!(denied.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&denied.stderr).contains("Formula custody denied"));
 }
+
+#[test]
+fn symlink_handoff_fails_before_launch() {
+    use std::{ffi::OsString, fs, os::unix::fs::symlink};
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/formula-generated-handoff.json");
+    let link = std::env::temp_dir().join(format!("p13-link-{}", std::process::id()));
+    symlink(&source, &link).unwrap();
+    let base = command("/usr/bin/true", AUTH);
+    let mut args: Vec<OsString> = base.get_args().map(OsString::from).collect();
+    let index = args.iter().position(|a| a == "--formula-handoff").unwrap();
+    args[index + 1] = link.as_os_str().to_os_string();
+    let result = Command::new(env!("CARGO_BIN_EXE_ptah-formula-control"))
+        .args(args)
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(2));
+    fs::remove_file(link).unwrap();
+}
+
+#[test]
+fn oversized_handoff_is_rejected_without_unbounded_allocation() {
+    use std::{ffi::OsString, fs};
+    let path = std::env::temp_dir().join(format!("p13-large-{}", std::process::id()));
+    fs::write(&path, vec![b'X'; 1_048_577]).unwrap();
+    let base = command("/usr/bin/true", AUTH);
+    let mut args: Vec<OsString> = base.get_args().map(OsString::from).collect();
+    let index = args.iter().position(|a| a == "--formula-handoff").unwrap();
+    args[index + 1] = path.as_os_str().to_os_string();
+    let result = Command::new(env!("CARGO_BIN_EXE_ptah-formula-control"))
+        .args(args)
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(2));
+    fs::remove_file(path).unwrap();
+}

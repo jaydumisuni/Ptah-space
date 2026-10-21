@@ -25,3 +25,6 @@ ptah-placement-runtime = { path = "../../crates/ptah-placement-runtime" }
 ptah-platform-admission = { path = "../../crates/ptah-platform-admission" }
 ptah-provider-api = { path = "../../crates/ptah-provider-api" }
 tokio.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.189"

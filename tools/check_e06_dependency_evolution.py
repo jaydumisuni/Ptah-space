@@ -58,7 +58,7 @@ _E07_SQLITE_BUNDLE_BEFORE = _E07_SQLITE_BUNDLE_AFTER.replace(
 
 # Post-E07 P13: one INTERNAL Formula adapter and two exact local edges.
 # Never admit new external crates, loosen historical E01/E06, or rewrite hashes.
-_P13_WORKCELL_STANZA = b'[[package]]\nname = "ptah-formula-work-cells"\nversion = "0.0.0-phase0c"\ndependencies = [\n "native-process",\n "ptah-control",\n "ptah-identifiers",\n "ptah-node",\n "ptah-node-agent",\n "ptah-node-link",\n "ptah-placement-runtime",\n "ptah-platform-admission",\n "ptah-provider-api",\n "serde",\n "serde_json",\n "sha2",\n "thiserror 2.0.17",\n "tokio",\n]\n\n'
+_P13_WORKCELL_STANZA = b'[[package]]\nname = "ptah-formula-work-cells"\nversion = "0.0.0-phase0c"\ndependencies = [\n "libc",\n "native-process",\n "ptah-control",\n "ptah-identifiers",\n "ptah-node",\n "ptah-node-agent",\n "ptah-node-link",\n "ptah-placement-runtime",\n "ptah-platform-admission",\n "ptah-provider-api",\n "serde",\n "serde_json",\n "sha2",\n "thiserror 2.0.17",\n "tokio",\n]\n\n'
 
 def strip_exact_p13_local_extension(raw: bytes) -> bytes:
     """Undo ONLY the approved independent P13 adapter stanza."""

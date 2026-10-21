@@ -3,10 +3,46 @@
 use ptah_formula_work_cells::{FormulaDispatchCustody, preflight_with_custody};
 use std::{
     collections::BTreeMap,
-    env, fs,
+    env,
+    fs::OpenOptions,
+    io::Read,
     path::Path,
     process::{Command, ExitCode},
 };
+
+/// Open once without following a final symlink and read at most one byte
+/// beyond the policy ceiling. Inode identity cannot change between checks.
+fn read_bounded_packet(path: &Path) -> Result<Vec<u8>, String> {
+    #[cfg(unix)]
+    use std::os::unix::fs::OpenOptionsExt;
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt;
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    #[cfg(windows)]
+    options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+    #[cfg(not(any(unix, windows)))]
+    return Err("unsupported host: no secure no-follow open".into());
+    let file = options
+        .open(path)
+        .map_err(|e| format!("handoff open: {e}"))?;
+    let md = file
+        .metadata()
+        .map_err(|e| format!("handoff metadata: {e}"))?;
+    if !md.is_file() || !(1..=1_048_576).contains(&md.len()) {
+        return Err("handoff must be a nonempty regular file under 1 MiB".into());
+    }
+    let mut content = Vec::new();
+    file.take(1_048_577)
+        .read_to_end(&mut content)
+        .map_err(|e| format!("handoff read: {e}"))?;
+    if content.is_empty() || content.len() > 1_048_576 {
+        return Err("handoff size changed or exceeds 1 MiB".into());
+    }
+    Ok(content)
+}
 
 fn execute() -> Result<i32, String> {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -52,11 +88,7 @@ fn execute() -> Result<i32, String> {
             .ok_or_else(|| format!("missing required option: {key}"))
     };
     let handoff = Path::new(val("--formula-handoff")?);
-    let md = fs::symlink_metadata(handoff).map_err(|e| format!("packet metadata: {e}"))?;
-    if !md.file_type().is_file() || !(1..=1_048_576).contains(&md.len()) {
-        return Err("packet must be a bounded regular file, not a symlink".into());
-    }
-    let packet = fs::read(handoff).map_err(|e| format!("packet read: {e}"))?;
+    let packet = read_bounded_packet(handoff)?;
     let custody = FormulaDispatchCustody {
         manifest_digest: val("--request-digest")?.clone(),
         work_cell_digest: val("--formula-work-cell")?.clone(),

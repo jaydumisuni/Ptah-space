@@ -44,6 +44,8 @@ struct Wire {
     schema: String,
     manifest_digest: String,
     manifest_json: String,
+    query_digest: String,
+    query_json: String,
     work_cell_digest: String,
     work_cell_json: String,
     obligation_digest: String,
@@ -84,6 +86,12 @@ struct FormulaCell {
 pub struct ValidatedFormulaWorkCell {
     /// Exact Formula Director manifest identity.
     pub manifest_digest: String,
+    /// Exact Formula `QueryIR` digest.
+    pub query_digest: String,
+    /// Formula requested result class.
+    pub requested_result_class: String,
+    /// Bound source input artifact digests.
+    pub known_input_digests: Vec<String>,
     /// Exact Formula `WorkCellPlan` digest.
     pub work_cell_digest: String,
     /// Formula obligation identity; not mutable by Ptah.
@@ -196,6 +204,7 @@ fn parse_budget(input: &str) -> Result<(u64, u64, u64), FormulaWorkCellError> {
 /// # Errors
 /// Rejects malformed identity, noncanonical bytes, unsafe effect policies and
 /// invalid budget/stop contract. Failing validation cannot start execution.
+#[allow(clippy::too_many_lines)]
 pub fn validate_handoff(bytes: &[u8]) -> Result<ValidatedFormulaWorkCell, FormulaWorkCellError> {
     canonical_json(bytes)?;
     let wire: Wire =
@@ -204,13 +213,24 @@ pub fn validate_handoff(bytes: &[u8]) -> Result<ValidatedFormulaWorkCell, Formul
         return Err(FormulaWorkCellError::IdentityMismatch);
     }
     check_digest(&wire.manifest_digest, wire.manifest_json.as_bytes())?;
+    check_digest(&wire.query_digest, wire.query_json.as_bytes())?;
     check_digest(&wire.work_cell_digest, wire.work_cell_json.as_bytes())?;
     canonical_json(wire.manifest_json.as_bytes())?;
+    let query = canonical_json(wire.query_json.as_bytes())?;
     canonical_json(wire.work_cell_json.as_bytes())?;
     let manifest: FormulaManifest =
         serde_json::from_str(&wire.manifest_json).map_err(|_| FormulaWorkCellError::InvalidJson)?;
     let cell: FormulaCell = serde_json::from_str(&wire.work_cell_json)
         .map_err(|_| FormulaWorkCellError::InvalidJson)?;
+    if manifest.query != wire.query_digest
+        || query["schema"] != "formula-query-ir-v1"
+        || query["authority_contract"] != wire.required_authority
+        || query["side_effect_policy"]["allow_authority_write"] != false
+        || query["side_effect_policy"]["allow_local_process"] != false
+        || query["side_effect_policy"]["allow_network"] != false
+    {
+        return Err(FormulaWorkCellError::IdentityMismatch);
+    }
     if manifest.schema != MANIFEST_SCHEMA || cell.schema != CELL_SCHEMA {
         return Err(FormulaWorkCellError::IdentityMismatch);
     }
@@ -253,8 +273,33 @@ pub fn validate_handoff(bytes: &[u8]) -> Result<ValidatedFormulaWorkCell, Formul
         return Err(FormulaWorkCellError::InvalidResourceContract);
     }
     let (work, memory, time) = parse_budget(&cell.resource_budget)?;
+    let requested = query["targets"]
+        .as_array()
+        .and_then(|t| t.first())
+        .and_then(|t| t["result_class"].as_str())
+        .ok_or(FormulaWorkCellError::IdentityMismatch)?;
+    if !["COUNT", "WITNESS", "DECISION", "OPTIMUM", "BOUND"].contains(&requested) {
+        return Err(FormulaWorkCellError::IdentityMismatch);
+    }
+    let inputs = query["known_bindings"]
+        .as_array()
+        .ok_or(FormulaWorkCellError::IdentityMismatch)?
+        .iter()
+        .map(|entry| entry["artifact"].as_str().unwrap_or("").to_string())
+        .collect::<Vec<_>>();
+    ensure_digest_list(&inputs)?;
+    let limits = &query["resource_contract"];
+    if limits["max_work_units"].as_str() != Some(work.to_string().as_str())
+        || limits["max_memory_bytes"].as_str() != Some(memory.to_string().as_str())
+        || limits["wall_clock_millis"].as_str() != Some(time.to_string().as_str())
+    {
+        return Err(FormulaWorkCellError::InvalidResourceContract);
+    }
     Ok(ValidatedFormulaWorkCell {
         manifest_digest: wire.manifest_digest,
+        query_digest: wire.query_digest,
+        requested_result_class: requested.to_string(),
+        known_input_digests: inputs,
         work_cell_digest: wire.work_cell_digest,
         obligation_digest: wire.obligation_digest,
         required_authority: wire.required_authority,

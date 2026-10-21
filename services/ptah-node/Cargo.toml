@@ -20,6 +20,7 @@ serde_json.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
+ptah-formula-work-cells = { path = "../../adapters/formula-workcells", version = "=0.0.0-phase0c" }
 ring = "=0.17.14"
 ptah-control = { path = "../ptah-control", version = "=0.0.0-phase0c" }
 ptah-placement-runtime = { path = "../../crates/ptah-placement-runtime", version = "=0.0.0-phase0c" }

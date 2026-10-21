@@ -41,8 +41,10 @@ fn real_formula_generated_packet_is_accepted_structurally() {
     let data = validate_handoff(&fixture()).unwrap();
     assert_eq!(
         data.work_cell_digest,
-        "sha256:a91e7d4b283df3921c7b8fd7bcb1bc915854d0f85ea4c3d7ff3815a72e8048e2"
+        "sha256:d156d75e30f1da5b7fc32e1a5f55fec0f126c0b11ae0cd361ea1b925071a8d09"
     );
+    assert_eq!(data.requested_result_class, "COUNT");
+    assert_eq!(data.known_input_digests.len(), 1);
     assert_eq!(data.max_work_units, 100);
     assert_eq!(data.max_memory_bytes, 1024);
     assert_eq!(data.wall_clock_millis, 50);

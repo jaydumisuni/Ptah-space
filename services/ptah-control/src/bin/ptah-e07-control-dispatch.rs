@@ -9,6 +9,7 @@ use ptah_control::gateway_session::establish;
 use ptah_control::node_link::DispatchAuthorityFrames;
 use ptah_control::node_link::NodeLinkControl;
 use ptah_control::placement::PlacementAuthorityOwner;
+use ptah_formula_work_cells::{FormulaDispatchCustody, preflight_with_custody};
 use ptah_identifiers::{EntityRef, NodeId};
 use ptah_node_link::{
     ApprovedNodeEnrollment, CredentialFingerprint, DispatchLeaseFrame, DispatchRequestFrame,
@@ -45,6 +46,9 @@ struct Config {
     enrollment_path: PathBuf,
     journal_path: PathBuf,
     request_digest: String,
+    formula_handoff: Option<PathBuf>,
+    formula_work_cell: Option<String>,
+    formula_authority: Option<String>,
 }
 fn config_from_args() -> Result<Config, String> {
     config_from_iter(env::args().skip(1))
@@ -84,6 +88,9 @@ fn config_from_iter(args: impl IntoIterator<Item = String>) -> Result<Config, St
             "--enrollments",
             "--journal",
             "--request-digest",
+            "--formula-handoff",
+            "--formula-work-cell",
+            "--formula-authority",
         ]
         .contains(&key.as_str())
         {
@@ -115,7 +122,16 @@ fn config_from_iter(args: impl IntoIterator<Item = String>) -> Result<Config, St
         enrollment_path: PathBuf::from(val("--enrollments")?),
         journal_path: PathBuf::from(val("--journal")?),
         request_digest: val("--request-digest")?,
+        formula_handoff: entries.remove("--formula-handoff").map(PathBuf::from),
+        formula_work_cell: entries.remove("--formula-work-cell"),
+        formula_authority: entries.remove("--formula-authority"),
     };
+    let count = usize::from(config.formula_handoff.is_some())
+        + usize::from(config.formula_work_cell.is_some())
+        + usize::from(config.formula_authority.is_some());
+    if count != 0 && count != 3 {
+        return Err("Formula handoff, work cell, authority must all be specified".into());
+    }
     Ok(config)
 }
 fn read_owned(path: &PathBuf, sensitive: bool) -> Result<Vec<u8>, String> {
@@ -174,12 +190,38 @@ fn canonical_enrollments(input: &[u8]) -> Result<Vec<ApprovedNodeEnrollment>, St
         })
         .collect()
 }
-/// Caller-selected single dispatch. No autonomous retries, access decisions
-/// or remote executable selection. The Node binds its own local A05 profile.
-// The single-dispatch path is deliberately linear: TLS establishment,
-// durable stage, wire send, advisory acknowledgement. No implicit retry.
+/// Verify exact Formula-owned custody before network admission.
+fn preflight_formula(config: &Config) -> Result<bool, String> {
+    let Some(path) = &config.formula_handoff else {
+        return Ok(false);
+    };
+    let size = path
+        .symlink_metadata()
+        .map_err(|e| format!("Formula packet metadata: {e}"))?
+        .len();
+    if size == 0 || size > 1_048_576 {
+        return Err("Formula packet size out of bounds".into());
+    }
+    let bytes = read_owned(path, true)?;
+    let expected = FormulaDispatchCustody {
+        manifest_digest: config.request_digest.clone(),
+        work_cell_digest: config
+            .formula_work_cell
+            .clone()
+            .ok_or("missing Formula work cell")?,
+        required_authority: config
+            .formula_authority
+            .clone()
+            .ok_or("missing Formula authority")?,
+    };
+    preflight_with_custody(&bytes, &expected)
+        .map_err(|error| format!("Formula work-cell custody rejected: {error}"))?;
+    Ok(true)
+}
+/// Caller-selected single dispatch. No autonomous retries or remote executable selection.
 #[allow(clippy::too_many_lines)]
 async fn serve(config: Config) -> Result<(), String> {
+    let formula_handoff_bound = preflight_formula(&config)?;
     let cert = read_owned(&config.server_cert, false)?;
     let key = read_owned(&config.server_key, true)?;
     let ca = read_owned(&config.client_ca, false)?;
@@ -297,6 +339,7 @@ async fn serve(config: Config) -> Result<(), String> {
             "dispatch":frame.request.dispatch_ref,
             "control_journal_phase":"sent_unconfirmed",
             "independent_effect_witness":false,
+            "formula_handoff_bound":formula_handoff_bound,
             "second_ptah_user_approval":false
         })
     );
@@ -312,5 +355,55 @@ async fn main() {
     if let Err(error) = result {
         eprintln!("ptah-e07-control-dispatch: {error}");
         std::process::exit(2);
+    }
+}
+
+#[cfg(test)]
+mod formula_p13_tests {
+    use super::*;
+    fn args() -> Vec<String> {
+        [
+            "--listen",
+            "127.0.0.1:47826",
+            "--server-cert",
+            "server.pem",
+            "--server-key",
+            "server.key",
+            "--client-ca",
+            "ca.pem",
+            "--enrollments",
+            "enrollments.json",
+            "--journal",
+            "journal.db",
+            "--request-digest",
+            "sha256:example",
+        ]
+        .iter()
+        .map(|value| value.to_string())
+        .collect()
+    }
+    #[test]
+    fn legacy_e07_without_formula_packet_remains_unchanged() {
+        let cfg = config_from_iter(args()).unwrap();
+        assert!(cfg.formula_handoff.is_none());
+    }
+    #[test]
+    fn incomplete_formula_custody_cannot_start_listener() {
+        let mut incomplete = args();
+        incomplete.extend(["--formula-handoff", "packet.json"].map(str::to_string));
+        assert!(config_from_iter(incomplete).is_err());
+        let mut accepted = args();
+        accepted.extend(
+            [
+                "--formula-handoff",
+                "packet.json",
+                "--formula-work-cell",
+                "sha256:work",
+                "--formula-authority",
+                "sha256:authority",
+            ]
+            .map(str::to_string),
+        );
+        assert!(config_from_iter(accepted).is_ok());
     }
 }

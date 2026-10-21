@@ -8,3 +8,15 @@ Consumes exactly versioned Formula-owned director envelopes. Pure validation of 
 - P13 is not qualified by envelope acceptance. Canonical P13 requires an actual Ptah workload and equivalent independent Formula-checked mathematical results versus the local path.
 
 Test: cargo test --locked --offline -p ptah-formula-work-cells
+
+## P13 canonical implementation (2026-10-21)
+
+The actual Formula-owned QueryIR for the canonical P9 COUNT target is embedded in the canonical work-cell handoff with its digest and known input digest. Ptah validates query identity, side effects and finite resource contract before offering work to existing Ptah E01/E02/A05 facilities.
+
+Control's optional Formula preflight is built into the existing ptah-e07-control-dispatch binary. Its three independent inputs must be supplied together: --formula-handoff, --formula-work-cell and --formula-authority. A malformed or unauthorized packet is rejected before binding a listener. The non-Formula E07 control path is unaffected.
+
+Tests: cargo test --locked -p ptah-formula-work-cells; cargo test --locked -p ptah-node --test formula_p13_e07; cargo test --locked -p ptah-control --bin ptah-e07-control-dispatch.
+
+Physical KRATOS-to-ATHENA one-shot E01/E02/A05 with Formula Control preflight passed with durable physical Node exit 0 and output digest sha256:2e6d31a5983a91251bfae5aefa1c0a19d8ba3cf601d0e8a706b4cfa9661a6b8a. The persistent ATHENA Ptah worker was untouched. The physical ack is NOT an independent signed effect witness and does not transfer arbitrary result bytes; the Node durable journal supplies corroborating output digest.
+
+Only the canonical P9 count work-cell local-vs-Ptah equivalence has been qualified here. Formula, not Ptah, runs the independent semantic checker, and neither Ptah process success nor its manifest hash can promote mathematical authority. See Formula's existing docs/integration/2026-10-21-mathematical-director-ptah-boundary.md for exact evidence and limitations.

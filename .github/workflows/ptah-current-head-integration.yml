@@ -38,6 +38,38 @@ jobs:
           python3 tools/check_phase0c_scaffold.py
           python3 tools/check_rust_dependency_lock.py
           python3 -m unittest tools/test_check_a11_maintenance_admission.py tools/test_check_current_pr_admission.py tools/test_check_search_a05_admission.py -q
+      - name: Qualify new P13 scope without re-labelling frozen phase proofs
+        run: |
+          set -euo pipefail
+          python3 tools/check_current_pr_admission.py --base "$BASE_SHA" --head "$HEAD_SHA" --output /tmp/current-head-admission.json
+          python3 - <<'PY'
+          import json
+          result=json.load(open("/tmp/current-head-admission.json"))
+          if result["p13_independent_exact_head_proof_required"]:
+              assert all(
+                  result["historical_phase_proofs"][name]
+                  == "P13_DISTINCT_QUALIFICATION_REQUIRED_NOT_HISTORICAL_PROOF"
+                  for name in (
+                      "a14-human-alpha-control-proof.yml",
+                      "d08-application-platform-expansion-proof.yml",
+                      "e01-secure-multi-node-identity-connection.yml",
+                  )
+              )
+          PY
+      - name: Independently exercise P13 custody and real TLS execution
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          result=json.load(open("/tmp/current-head-admission.json"))
+          with open("/tmp/p13-required","w") as out:
+              out.write("yes" if result["p13_independent_exact_head_proof_required"] else "no")
+          PY
+          if [ "$(cat /tmp/p13-required)" = yes ]; then
+            cargo test --locked -p ptah-formula-work-cells
+            cargo test --locked -p ptah-control --bin ptah-e07-control-dispatch
+            cargo test --locked -p ptah-node --test formula_p13_e07
+          fi
       - name: Run all Rust workspace tests and format
         run: |
           set -euo pipefail

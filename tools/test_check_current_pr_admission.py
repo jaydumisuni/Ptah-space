@@ -86,6 +86,24 @@ class ApplicabilityProofTests(unittest.TestCase):
         self.assertTrue(policy.scope_affected(name,policy.pull_paths(after),
                     {"crates/ptah-platform-admission/src/lib.rs"}))
 
+    def test_p13_director_is_independently_qualified_not_historical(self):
+        p13 = set(policy.P13_REQUIRED)
+        p13.update({"Cargo.lock", "Cargo.toml",
+                    "services/ptah-control/Cargo.toml",
+                    "services/ptah-node/Cargo.toml"})
+        self.assertTrue(policy.p13_independent_qualified_scope(p13))
+        self.assertTrue({"a14-human-alpha-control-proof.yml",
+                         "e01-secure-multi-node-identity-connection.yml",
+                         "d08-application-platform-expansion-proof.yml"}
+                        == policy.P13_PRESERVED_PHASES)
+        # Merely calling code "P13" cannot excuse unrelated historic edits.
+        self.assertFalse(policy.p13_independent_qualified_scope(
+            p13 - {"services/ptah-node/tests/formula_p13_e07.rs"}))
+        self.assertFalse(policy.p13_independent_qualified_scope(
+            p13 | {"services/ptah-node/src/gateway_e02_wire.rs"}))
+        self.assertFalse(policy.p13_independent_qualified_scope(
+            p13 | {"crates/ptah-node-link/src/tls.rs"}))
+
     def test_nonexistent_phase_name_fails_closed(self):
         with self.assertRaisesRegex(policy.AdmissionError,"unreviewed_phase_workflow"):
             policy.approved_phase_scope("evil.yml","on:\n","on:\n")

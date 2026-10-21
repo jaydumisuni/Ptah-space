@@ -29,3 +29,9 @@ Only the canonical P9 count work-cell local-vs-Ptah equivalence has been qualifi
 ### Exact additive Ptah workspace admission
 
 Historical A01 (18 workspace members), E06 and E07 lock bytes remain immutable. The P13 adapter adds one reviewed local workspace member and exact Control/Node Cargo.lock dependencies; tools/check_e06_dependency_evolution.py reverses only these allowlisted byte sequences, after which the original historic checksum must still match. A01, retained Phase 0C and all 20 A01/E06/P13 negative tests pass. The new GitHub workflow uses the repository-approved immutable checkout action pin.
+
+### P13 current-head admission and TLS vulnerability repair
+
+The current-head admission classifier requires the exact Formula WorkCell interface, custody-bound Control binary and real E02/A05 regression tests. It identifies historical A14, D08 and E01 proofs as **not rerun** and instead requires P13-owned proof plus the universal exact-head workspace tests. Changes beyond the declared P13 paths continue to fail closed.
+
+RUSTSEC-2026-0382: the already-present transitive rustls-webpki dependency was upgraded from 0.103.15 to 0.103.16. The Cargo.lock inverse checker accepts exactly the reviewed version/checksum pair while reconstructing the pre-P13 frozen E07/E06 byte stream. No external dependency was added and no historical checkpoint was rewritten.

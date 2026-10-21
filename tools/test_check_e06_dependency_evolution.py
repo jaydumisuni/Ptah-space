@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from check_e06_dependency_evolution import (
     E06_LOCK_STANZA, verified_local_extension,
-    strip_exact_e07_local_service_extension, strip_exact_p13_local_extension, _E07_NODE_AFTER, _E07_NODE_BEFORE, _E07_CONTROL_AFTER,
+    strip_exact_e07_local_service_extension, strip_exact_p13_local_extension, strip_exact_webpki_security_patch, _E07_NODE_AFTER, _E07_NODE_BEFORE, _E07_CONTROL_AFTER,
     _E07_SQLITE_BUNDLE_AFTER, _E07_SQLITE_BUNDLE_BEFORE
 )
 
@@ -18,7 +18,7 @@ class ExactAdditiveE06GraphTests(unittest.TestCase):
         self.assertEqual(verified_local_extension(ROOT/"Cargo.lock", historical),2)
 
     def test_modified_or_second_e06_stanza_and_extra_registry_package_fail(self):
-        raw = strip_exact_p13_local_extension((ROOT/"Cargo.lock").read_bytes())
+        raw = strip_exact_p13_local_extension(strip_exact_webpki_security_patch((ROOT/"Cargo.lock").read_bytes()))
         historical = hashlib.sha256(raw.replace(E06_LOCK_STANZA, b"", 1)).hexdigest()
         mutations = [
             raw.replace(b'"rusqlite",', b'"not-rusqlite",', 1),
@@ -39,7 +39,7 @@ class ExactAdditiveE06GraphTests(unittest.TestCase):
                             verified_local_extension(target,historical)
 
     def test_e07_local_dependency_changes_are_exact_not_any_lock_waiver(self):
-        raw=strip_exact_p13_local_extension((ROOT/"Cargo.lock").read_bytes())
+        raw=strip_exact_p13_local_extension(strip_exact_webpki_security_patch((ROOT/"Cargo.lock").read_bytes()))
         base=strip_exact_e07_local_service_extension(raw)
         historic=hashlib.sha256(base.replace(E06_LOCK_STANZA,b"",1)).hexdigest()
         self.assertEqual(verified_local_extension(ROOT/"Cargo.lock",historic),2)
@@ -57,7 +57,7 @@ class ExactAdditiveE06GraphTests(unittest.TestCase):
                     verified_local_extension(destination,historic)
 
     def test_exact_e07_windows_sqlite_native_bundle_is_evidence_not_lock_drift(self):
-        original=strip_exact_p13_local_extension((ROOT/"Cargo.lock").read_bytes())
+        original=strip_exact_p13_local_extension(strip_exact_webpki_security_patch((ROOT/"Cargo.lock").read_bytes()))
         # Validate exact proposed Windows extension even on current main
         # before the bundled SQLite edge is merged.
         raw=(original if _E07_SQLITE_BUNDLE_AFTER in original else
@@ -100,6 +100,17 @@ class ExactAdditiveE06GraphTests(unittest.TestCase):
                     path.write_bytes(candidate)
                     with self.assertRaises(ValueError):
                         verified_local_extension(path, historic)
+
+    def test_webpki_security_patch_keeps_historical_lock_recoverable(self):
+        historical = json.loads((ROOT/"dependencies/rust-direct-lock.json").read_text())["cargo_lock"]["sha256"]
+        self.assertEqual(verified_local_extension(ROOT/"Cargo.lock", historical), 2)
+        current = (ROOT/"Cargo.lock").read_bytes()
+        self.assertIn(b'version = "0.103.16"', current)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "Cargo.lock"
+            path.write_bytes(current.replace(b'version = "0.103.16"', b'version = "0.103.14"', 1))
+            with self.assertRaises(ValueError):
+                verified_local_extension(path, historical)
 
     def test_other_historical_digest_cannot_be_substituted(self):
         with self.assertRaises(ValueError):

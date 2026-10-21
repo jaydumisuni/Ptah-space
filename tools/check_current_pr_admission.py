@@ -72,6 +72,47 @@ E_OWNED = {
     ),
 }
 COMMON = frozenset({"Cargo.toml", "Cargo.lock", "dependencies/**"})
+
+# P13 is independently owned: do not treat additive Formula E07 adapter work
+# as a rerun or a success of the immutable A14, D08 or E01 freeze proofs.
+P13_PRESERVED_PHASES = frozenset({
+    "a14-human-alpha-control-proof.yml",
+    "d08-application-platform-expansion-proof.yml",
+    "e01-secure-multi-node-identity-connection.yml",
+})
+P13_REQUIRED = frozenset({
+    "adapters/formula-workcells/src/lib.rs",
+    "adapters/formula-workcells/tests/workcell_contract.rs",
+    "adapters/formula-workcells/tests/fixtures/formula-generated-handoff.json",
+    "services/ptah-control/src/bin/ptah-e07-control-dispatch.rs",
+    "services/ptah-node/tests/formula_p13_e07.rs",
+    ".github/workflows/formula-workcell-adapter.yml",
+})
+P13_EXACT_SHARED = frozenset({
+    "Cargo.toml", "Cargo.lock",
+    "services/ptah-control/Cargo.toml",
+    "services/ptah-node/Cargo.toml",
+    "tools/check_a01_scaffold.py",
+    "tools/check_e06_dependency_evolution.py",
+    "tools/check_phase0c_scaffold.py",
+    "tools/test_check_a01_scaffold.py",
+    "tools/test_check_e06_dependency_evolution.py",
+    "tools/check_current_pr_admission.py",
+    "tools/test_check_current_pr_admission.py",
+    ".github/workflows/ptah-current-head-integration.yml",
+    ".github/workflows/formula-workcell-adapter.yml",
+})
+
+def p13_independent_qualified_scope(changed: set[str]) -> bool:
+    # The exact phase-owned work-cell and Control proof must be present.
+    if not P13_REQUIRED.issubset(changed):
+        return False
+    return all(
+        path in P13_EXACT_SHARED or path in P13_REQUIRED or path.startswith("adapters/formula-workcells/")
+        for path in changed
+    )
+
+
 HEX = re.compile(r"^[a-f0-9]{40}$")
 
 
@@ -192,7 +233,12 @@ def qualify(base: str, head: str) -> dict:
                 phase[name] = "A11_POST_BASELINE_PHYSICAL_PROOF_REQUIRED"
                 a11_maintenance=True
             else:
-                raise AdmissionError("independent_phase_owned_change_requires_own_proof: " + name)
+                if name in P13_PRESERVED_PHASES and p13_independent_qualified_scope(changed):
+                    # The P13 owned CI and universal workspace gates are
+                    # REQUIRED; historic phase proof is NOT marked passing.
+                    phase[name] = "P13_DISTINCT_QUALIFICATION_REQUIRED_NOT_HISTORICAL_PROOF"
+                else:
+                    raise AdmissionError("independent_phase_owned_change_requires_own_proof: " + name)
     search_paths = {
         "README.md", "adapters/internet-search/README.md",
         "adapters/internet-search/bridge.py",
@@ -211,6 +257,7 @@ def qualify(base: str, head: str) -> dict:
         "historical_phase_proofs": phase,
         "search_scope_requires_independent_checker": touches_search,
         "a11_maintenance_scope_requires_independent_checker": a11_maintenance,
+        "p13_independent_exact_head_proof_required": p13_independent_qualified_scope(changed),
         "universal_baseline_required": True,
         "paid_search_authorized": False,
         "production_activation_authorized": False,

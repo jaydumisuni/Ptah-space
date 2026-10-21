@@ -82,6 +82,30 @@ def strip_exact_p13_local_extension(raw: bytes) -> bytes:
                .replace(_P13_NODE_AFTER, _E07_NODE_AFTER, 1)
                .replace(_P13_WORKCELL_STANZA, b"", 1))
 
+# 2026-10-21 security progression for RustSec RUSTSEC-2026-0382.
+# This patch upgrades one already-selected transitive crate; the original E01
+# checksum remains the historical authority after exact inverse normalization.
+_WEBPKI_FROZEN_STANZA = (
+    b'[[package]]\nname = "rustls-webpki"\nversion = "0.103.15"\n'
+    b'source = "registry+https://github.com/rust-lang/crates.io-index"\n'
+    b'checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"\n'
+    b'dependencies = [\n "ring",\n "rustls-pki-types",\n "untrusted",\n]\n\n'
+)
+_WEBPKI_PATCHED_STANZA = _WEBPKI_FROZEN_STANZA.replace(
+    b'version = "0.103.15"', b'version = "0.103.16"', 1
+).replace(
+    b'f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2',
+    b'4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281', 1
+)
+
+def strip_exact_webpki_security_patch(raw: bytes) -> bytes:
+    """Remove only the approved vulnerability repair; forbid other lock drift."""
+    if raw.count(_WEBPKI_PATCHED_STANZA) == 1:
+        return raw.replace(_WEBPKI_PATCHED_STANZA, _WEBPKI_FROZEN_STANZA, 1)
+    if raw.count(_WEBPKI_FROZEN_STANZA) != 1:
+        raise ValueError("unreviewed_webpki_dependency_change")
+    return raw
+
 def strip_exact_e07_local_service_extension(raw: bytes) -> bytes:
     """Remove E07's two exact local dep stanzas (not arbitrary edits)."""
     if raw.count(_E07_CONTROL_AFTER) != 1 or raw.count(_E07_NODE_AFTER) != 1:
@@ -101,7 +125,7 @@ def verified_local_extension(lock_path: Path, historical_sha256: str) -> int:
     external dependency graph. Only the canonical Cargo package stanza is
     permitted, and its removal MUST reconstruct the frozen old byte stream.
     """
-    raw = lock_path.read_bytes()
+    raw = strip_exact_webpki_security_patch(lock_path.read_bytes())
     has_p13 = b'name = "ptah-formula-work-cells"' in raw
     raw = strip_exact_p13_local_extension(raw)
     if hashlib.sha256(raw).hexdigest() == historical_sha256:

@@ -21,7 +21,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Install pinned Ptah Rust components
-        run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt clippy
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup component add --toolchain 1.97.1 rustfmt clippy
       - name: Check formatting
         run: cargo fmt --package ptah-formula-work-cells -- --check
       - name: Validate real Formula fixture

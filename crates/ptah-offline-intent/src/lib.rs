@@ -100,7 +100,7 @@ fn validate_identity_field(name: &'static str, value: &str) -> Result<(), Intent
     }
     if value
         .chars()
-        .any(|c| c.is_control() || matches!(c, '\u{034F}' | '\u{180E}' | '\u{200B}'..='\u{200D}' | '\u{2060}' | '\u{FEFF}' | '\u{061C}' | '\u{200E}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{206F}' | '\u{17B4}' | '\u{17B5}' | '\u{1D173}'..='\u{1D17A}' | '\u{1BCA0}'..='\u{1BCA3}' | '\u{1D185}'..='\u{1D18B}' | '\u{1D1AA}'..='\u{1D1AD}'))
+        .any(|c| c.is_control() || matches!(c, '\u{00AD}' | '\u{034F}' | '\u{180E}' | '\u{200B}'..='\u{200D}' | '\u{2060}' | '\u{FE00}'..='\u{FE0F}' | '\u{FEFF}' | '\u{E0100}'..='\u{E01EF}' | '\u{061C}' | '\u{200E}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{206F}' | '\u{17B4}' | '\u{17B5}' | '\u{1D173}'..='\u{1D17A}' | '\u{1BCA0}'..='\u{1BCA3}' | '\u{1D185}'..='\u{1D18B}' | '\u{1D1AA}'..='\u{1D1AD}'))
     {
         return Err(IntentValidationError::ControlCharacter(name));
     }

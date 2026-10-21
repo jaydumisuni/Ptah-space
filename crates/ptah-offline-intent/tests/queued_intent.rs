@@ -952,8 +952,11 @@ fn musical_combining_marks_are_rejected_in_queued_authority() {
 
 #[test]
 fn invisible_joiners_and_bom_are_rejected_in_queued_authority() {
-    // Invisible format and grapheme controls must not alias persisted identities.
-    for scalar in [0x034F, 0x180E, 0x200B, 0x200C, 0x200D, 0xFEFF] {
+    // Invisible format, soft hyphen and variation selectors must not alias identities.
+    for scalar in [
+        0x00AD, 0x034F, 0x180E, 0x200B, 0x200C, 0x200D, 0xFE00, 0xFE0E, 0xFE0F, 0xFEFF, 0xE0100,
+        0xE01EF,
+    ] {
         let ch = char::from_u32(scalar).expect("valid Unicode scalar");
         let action = format!("prepare{ch}execute");
         assert!(matches!(

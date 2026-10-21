@@ -1,0 +1,53 @@
+name: E07 Oracle-carried loopback native artifacts
+on:
+  pull_request:
+    paths:
+      - 'services/ptah-control/src/gateway_session.rs'
+      - 'services/ptah-control/src/bin/ptah-e07-control-dispatch.rs'
+      - 'services/ptah-node/src/gateway_e02_wire.rs'
+      - 'services/ptah-node/src/bin/ptah-e07-node-worker.rs'
+      - 'tools/e07_oracle_stream.py'
+      - 'tools/test_e07_oracle_stream.py'
+      - '.github/workflows/e07-oracle-carried-native-artifacts.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux-carrier-control:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Python byte-pump contract tests
+        run: python3 -B -m unittest -q tools/test_e07_oracle_stream.py
+      - name: E07 native interface tests
+        run: cargo test --locked -p ptah-control -p ptah-node --bins
+      - name: Build Linux native Control
+        run: cargo build --locked --release -p ptah-control --bin ptah-e07-control-dispatch
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ptah-e07-oracle-control-linux
+          path: target/release/ptah-e07-control-dispatch
+          retention-days: 1
+          if-no-files-found: error
+  windows-loopback-node:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Check native A05 worker
+        shell: pwsh
+        run: cargo test -p ptah-node --bin ptah-e07-node-worker --locked
+      - name: Build Windows Node
+        shell: pwsh
+        run: cargo build -p ptah-node --bin ptah-e07-node-worker --release --locked
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ptah-e07-oracle-node-windows
+          path: target/release/ptah-e07-node-worker.exe
+          retention-days: 1
+          if-no-files-found: error

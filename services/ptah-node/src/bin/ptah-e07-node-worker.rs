@@ -6,7 +6,8 @@ use native_process::{
 };
 use ptah_identifiers::EntityRef;
 use ptah_node::{
-    NodeLinkClientConfig, connect_node_link, gateway_e02_wire::receive_one,
+    NodeLinkClientConfig, connect_node_link,
+    gateway_e02_wire::{receive_one, receive_one_with_timeout},
     gateway_journal::GatewayJournal,
 };
 use ptah_node_agent::{NodeAgent, NodeRestartSeed};
@@ -31,6 +32,8 @@ use std::{
 #[serde(deny_unknown_fields)]
 struct WorkerConfig {
     control: SocketAddr,
+    #[serde(default)]
+    oracle_loopback: bool,
     server_name: String,
     ca_pem: PathBuf,
     node_cert_pem: PathBuf,
@@ -150,6 +153,9 @@ fn provider(agent: &NodeAgent) -> Result<NativeProcessProvider, String> {
 }
 
 async fn run(config: WorkerConfig) -> Result<(), String> {
+    if config.oracle_loopback && !config.control.ip().is_loopback() {
+        return Err("Oracle-carried E07 is only usable over loopback".into());
+    }
     let agent = durable_node(&config.node_seed)?;
     let key = fs::read(&config.node_key_pem).map_err(|e| e.to_string())?;
     let cert = fs::read(&config.node_cert_pem).map_err(|e| e.to_string())?;
@@ -168,15 +174,18 @@ async fn run(config: WorkerConfig) -> Result<(), String> {
         ProtocolVersion { major: 1, minor: 0 },
     );
     let (_, mut stream) = tokio::time::timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(if config.oracle_loopback { 180 } else { 10 }),
         connect_node_link(&agent, &connection),
     )
     .await
     .map_err(|_| "remote E01 timeout".to_string())?
     .map_err(|e| format!("remote E01: {e:?}"))?;
-    let (guard, dispatch) = receive_one(&agent, &mut stream)
-        .await
-        .map_err(|e| format!("remote E02: {e:?}"))?;
+    let (guard, dispatch) = if config.oracle_loopback {
+        receive_one_with_timeout(&agent, &mut stream, Duration::from_mins(3)).await
+    } else {
+        receive_one(&agent, &mut stream).await
+    }
+    .map_err(|e| format!("remote E02: {e:?}"))?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| e.to_string())?

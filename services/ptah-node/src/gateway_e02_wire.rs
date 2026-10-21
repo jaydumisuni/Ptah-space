@@ -41,9 +41,23 @@ pub async fn receive_one(
     agent: &NodeAgent,
     stream: &mut AuthenticatedClientStream,
 ) -> Result<(NodeDispatchGuard, DispatchRequestFrame), E02WireError> {
+    receive_one_with_timeout(agent, stream, Duration::from_secs(5)).await
+}
+
+/// Read the same E02 reservation, lease and request on a slower external
+/// byte-pump; Node identity/fence/expiry checks remain completely unchanged.
+///
+/// # Errors
+/// Returns the original E02 wire/protocol/expiry errors; it never relaxes
+/// the Node dispatch guard or treats external transport as authority.
+pub async fn receive_one_with_timeout(
+    agent: &NodeAgent,
+    stream: &mut AuthenticatedClientStream,
+    frame_timeout: Duration,
+) -> Result<(NodeDispatchGuard, DispatchRequestFrame), E02WireError> {
     let mut guard = NodeDispatchGuard::for_agent(agent);
     for phase in 0..3_u8 {
-        let msg = tokio::time::timeout(Duration::from_secs(5), read_frame(stream.stream_mut()))
+        let msg = tokio::time::timeout(frame_timeout, read_frame(stream.stream_mut()))
             .await
             .map_err(|_| E02WireError::Protocol("E02 frame timeout"))??;
         let now = SystemTime::now()

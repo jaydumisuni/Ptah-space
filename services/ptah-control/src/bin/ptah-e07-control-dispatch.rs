@@ -187,6 +187,23 @@ fn canonical_enrollments(input: &[u8]) -> Result<Vec<ApprovedNodeEnrollment>, St
         })
         .collect()
 }
+/// Compute bounded E02 TTL using fresh post-handshake issuance time.
+/// A transport timeout is never treated as extra caller permission.
+fn dispatch_expirations(issued_at: u64, oracle_loopback: bool) -> Result<(u64, u64), String> {
+    let (reservation_secs, lease_secs) = if oracle_loopback {
+        (240_u64, 210_u64)
+    } else {
+        (90_u64, 75_u64)
+    };
+    let reservation = issued_at
+        .checked_add(reservation_secs)
+        .ok_or("reservation time overflow")?;
+    let lease = issued_at
+        .checked_add(lease_secs)
+        .ok_or("lease time overflow")?;
+    Ok((reservation, lease))
+}
+
 /// Caller-selected single dispatch. No autonomous retries, access decisions
 /// or remote executable selection. The Node binds its own local A05 profile.
 // The single-dispatch path is deliberately linear: TLS establishment,
@@ -226,6 +243,15 @@ async fn serve(config: Config) -> Result<(), String> {
         establish(socket, &tls, &owner, now).await
     }
     .map_err(|e| format!("E01 handshake: {e:?}"))?;
+    // E01 can be slower over the existing Oracle-carried terminal RPC.
+    // Dispatch leases start when the caller actually issues E02, NOT when
+    // the original Control socket was accepted before TLS negotiation.
+    let issued_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
+    let (reservation_expiry, lease_expiry) =
+        dispatch_expirations(issued_at, config.oracle_loopback)?;
     // The peer identity and epoch are taken exclusively from the authenticated
     // current session. Fresh dispatch references are Control-created.
     let mut journal = ControlDispatchJournal::open(&config.journal_path)
@@ -252,7 +278,7 @@ async fn serve(config: Config) -> Result<(), String> {
             node_id: binding.node_id,
             node_generation: binding.node_generation,
             connection_epoch: binding.connection_epoch,
-            expires_at_unix_seconds: now + 90,
+            expires_at_unix_seconds: reservation_expiry,
         },
         lease: DispatchLeaseFrame {
             lease_ref: lease.clone(),
@@ -262,7 +288,7 @@ async fn serve(config: Config) -> Result<(), String> {
             node_generation: binding.node_generation,
             connection_epoch: binding.connection_epoch,
             fence: next_fence,
-            expires_at_unix_seconds: now + 75,
+            expires_at_unix_seconds: lease_expiry,
         },
         request: DispatchRequestFrame {
             dispatch_ref: EntityRef::new("runtime.dispatch").map_err(|e| format!("{e:?}"))?,
@@ -350,6 +376,21 @@ mod oracle_loopback_tests {
             .expect("only loopback accepted");
         assert!(failure.contains("only use local loopback"));
     }
+    #[test]
+    fn dispatcher_issues_fresh_bounded_leases_after_tls_handshake() {
+        let old_tls_socket_time = 1_000_u64;
+        let after_slow_tls = old_tls_socket_time + 175;
+        let (slow_reservation, slow_lease) = dispatch_expirations(after_slow_tls, true).unwrap();
+        assert_eq!(slow_reservation, after_slow_tls + 240);
+        assert_eq!(slow_lease, after_slow_tls + 210);
+        assert!(slow_lease > after_slow_tls);
+        let (direct_reservation, direct_lease) =
+            dispatch_expirations(after_slow_tls, false).unwrap();
+        assert_eq!(direct_reservation, after_slow_tls + 90);
+        assert_eq!(direct_lease, after_slow_tls + 75);
+        assert!(dispatch_expirations(u64::MAX, true).is_err());
+    }
+
     #[test]
     fn carrier_is_a_transport_choice_not_an_access_grant() {
         let args = vec![

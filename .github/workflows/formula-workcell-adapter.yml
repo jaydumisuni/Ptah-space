@@ -1,0 +1,34 @@
+name: Formula Ptah WorkCell adapter
+on:
+  pull_request:
+    paths:
+      - 'adapters/formula-workcells/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/formula-workcell-adapter.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  formula-adapter:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact PR source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Install pinned Ptah Rust components
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup component add --toolchain 1.97.1 rustfmt clippy
+      - name: Check formatting
+        run: cargo fmt --package ptah-formula-work-cells --package ptah-control --package ptah-node -- --check
+      - name: Validate real Formula fixture
+        run: cargo test --locked -p ptah-formula-work-cells
+      - name: Verify custody-bound launcher and actual E01/E02/A05 workcell execution
+        run: cargo test --locked -p ptah-formula-work-cells
+      - name: Strict Ptah adapter lint
+        run: cargo clippy --locked -p ptah-formula-work-cells --tests -- -D warnings

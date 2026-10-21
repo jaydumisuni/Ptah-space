@@ -186,7 +186,7 @@ if selection_path.is_file():
             additive = verified_local_extension(cargo_lock_path, historical_sha)
         except ValueError as error:
             raise SystemExit("E01-evolved Cargo.lock differs outside reviewed E06 extension: " + str(error)) from error
-        if additive != int((ROOT / "Cargo.toml").read_text().count('"crates/ptah-offline-intent"') == 1):
+        if additive != (int((ROOT / "Cargo.toml").read_text().count('"crates/ptah-offline-intent"') == 1) + int((ROOT / "Cargo.toml").read_text().count('"adapters/formula-workcells"') == 1)):
             raise SystemExit("E06 Cargo.lock extension is not bound to workspace member")
         external = external_cargo_universe(cargo_lock_path)
         if cargo_record.get("registry_package_count") != len(external):

@@ -34,6 +34,63 @@ class OracleCarrierContract(unittest.TestCase):
             C.deliver(self.b,'[{"seq":3,"b64":"YWJj"}]')
         with self.assertRaisesRegex(ValueError,"non-idempotent"):
             C.deliver(self.b,'[{"seq":1,"b64":"YWJk"}]')
+    def test_reader_sqlite_or_quota_failure_is_propagated_not_marked_finished(self):
+        listener=socket.socket()
+        listener.bind(("127.0.0.1",0));port=listener.getsockname()[1]
+        listener.close()
+        caught=[]
+        original=C.publish
+        def rejected(*args,**kwargs):
+            raise RuntimeError("bounded carrier byte quota exhausted")
+        def run():
+            try:
+                C.serve(self.b,"accept",port)
+            except Exception as error:
+                caught.append(str(error))
+        from unittest.mock import patch
+        with patch.object(C,"publish",side_effect=rejected):
+            thread=threading.Thread(target=run)
+            thread.start()
+            deadline=time.monotonic()+3
+            while not (Path(self.b)/"ready.json").exists() and time.monotonic()<deadline:
+                time.sleep(.01)
+            with socket.create_connection(("127.0.0.1",port),timeout=2) as sock:
+                sock.sendall(b"force-reader-error")
+            thread.join(timeout=4)
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(caught)
+        self.assertIn("E07_CARRIER_PUMP_FAILED:reader",caught[0])
+        status=json.loads((Path(self.b)/"ended.json").read_text())
+        self.assertFalse(status["finished"])
+        self.assertTrue(status["failed"])
+
+    def test_writer_read_failure_is_propagated(self):
+        listener=socket.socket()
+        listener.bind(("127.0.0.1",0));port=listener.getsockname()[1]
+        listener.close()
+        caught=[]
+        original=C.pull
+        def broken(state,table,after,limit):
+            if table=="inbound":
+                raise OSError("synthetic local storage I/O failure")
+            return original(state,table,after,limit)
+        def run():
+            try:C.serve(self.b,"accept",port)
+            except Exception as error:caught.append(str(error))
+        from unittest.mock import patch
+        with patch.object(C,"pull",side_effect=broken):
+            thread=threading.Thread(target=run)
+            thread.start()
+            deadline=time.monotonic()+3
+            while not (Path(self.b)/"ready.json").exists() and time.monotonic()<deadline:
+                time.sleep(.01)
+            with socket.create_connection(("127.0.0.1",port),timeout=2):
+                thread.join(timeout=4)
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(caught)
+        self.assertIn("E07_CARRIER_PUMP_FAILED:writer",caught[0])
+        self.assertFalse(json.loads((Path(self.b)/"ended.json").read_text())["finished"])
+
     def test_endpoint_is_loopback_only_and_never_decides_tasks(self):
         listener=socket.socket()
         listener.bind(("127.0.0.1",0));port=listener.getsockname()[1]

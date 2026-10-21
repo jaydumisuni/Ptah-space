@@ -123,6 +123,12 @@ def serve(state, mode, port):
             raise RuntimeError("local Control unavailable")
     sock.settimeout(.1)
     completed=threading.Event()
+    failures=[]
+    failure_lock=threading.Lock()
+    def record_failure(role,exc):
+        with failure_lock:
+            failures.append((role,type(exc).__name__,str(exc)))
+        completed.set()
     def reader():
         try:
             while not completed.is_set() and time.monotonic()-started<MAX_RUNTIME:
@@ -133,6 +139,8 @@ def serve(state, mode, port):
                 if not chunk:
                     break
                 publish(state,"outbound",chunk)
+        except Exception as error:
+            record_failure("reader",error)
         finally:
             completed.set()
     def writer():
@@ -144,6 +152,8 @@ def serve(state, mode, port):
                     sock.sendall(base64.b64decode(p["b64"]))
                     cursor=p["seq"]
                 time.sleep(.015)
+        except Exception as error:
+            record_failure("writer",error)
         finally:
             completed.set()
     a=threading.Thread(target=reader,daemon=True)
@@ -160,7 +170,15 @@ def serve(state, mode, port):
     sock.close()
     if listener is not None:
         listener.close()
-    (root/"ended.json").write_text(json.dumps({"pid":os.getpid(),"finished":True}))
+    a.join(timeout=3)
+    b.join(timeout=3)
+    if a.is_alive() or b.is_alive():
+        record_failure("shutdown",RuntimeError("carrier byte pump did not terminate"))
+    status={"pid":os.getpid(),"finished":not failures,"failed":bool(failures)}
+    (root/"ended.json").write_text(json.dumps(status))
+    if failures:
+        first=failures[0]
+        raise RuntimeError("E07_CARRIER_PUMP_FAILED:"+first[0]+":"+first[1]+":"+first[2])
 
 def main():
     parser=argparse.ArgumentParser()

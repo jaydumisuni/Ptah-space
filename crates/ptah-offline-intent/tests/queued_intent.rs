@@ -951,6 +951,27 @@ fn musical_combining_marks_are_rejected_in_queued_authority() {
 }
 
 #[test]
+fn invisible_joiners_and_bom_are_rejected_in_queued_authority() {
+    // Invisible format and grapheme controls must not alias persisted identities.
+    for scalar in [0x034F, 0x180E, 0x200B, 0x200C, 0x200D, 0xFEFF] {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        let action = format!("prepare{ch}execute");
+        assert!(matches!(
+            queued(&action, 1, format!("sha256:{}", "a".repeat(64))),
+            Err(IntentValidationError::ControlCharacter("action"))
+        ));
+        let origin = LocalSequence {
+            node_id: format!("node{ch}1"),
+            value: 1,
+        };
+        assert!(matches!(
+            origin.checkpoint_bytes(),
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        ));
+    }
+}
+
+#[test]
 fn additional_directional_format_controls_are_rejected_in_queued_authority() {
     // Arabic Letter Mark, LRM/RLM and deprecated directional controls
     // must not create visually ambiguous persisted queue identities.

@@ -20,3 +20,8 @@ Tests: cargo test --locked -p ptah-formula-work-cells; cargo test --locked -p pt
 Physical KRATOS-to-ATHENA one-shot E01/E02/A05 with Formula Control preflight passed with durable physical Node exit 0 and output digest sha256:2e6d31a5983a91251bfae5aefa1c0a19d8ba3cf601d0e8a706b4cfa9661a6b8a. The persistent ATHENA Ptah worker was untouched. The physical ack is NOT an independent signed effect witness and does not transfer arbitrary result bytes; the Node durable journal supplies corroborating output digest.
 
 Only the canonical P9 count work-cell local-vs-Ptah equivalence has been qualified here. Formula, not Ptah, runs the independent semantic checker, and neither Ptah process success nor its manifest hash can promote mathematical authority. See Formula's existing docs/integration/2026-10-21-mathematical-director-ptah-boundary.md for exact evidence and limitations.
+
+### Post-review P1 type separation
+
+- validate_handoff returns InspectedFormulaWorkCell, a structurally inspected but UNTRUSTED value that cannot be passed to candidate_only_receipt.
+- preflight_with_custody returns the distinct ValidatedFormulaWorkCell with private construction after checking the caller-owned expected manifest, work cell and authority identities. Only the custody-approved type can emit candidate receipts or be used as approved dispatch work.

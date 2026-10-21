@@ -80,10 +80,10 @@ struct FormulaCell {
     stop_conditions: Vec<String>,
 }
 
-/// An executable work item with bounded, Formula-declared limits. Its presence
-/// only confirms transport validation, not execution authorization.
+/// Inspected, untrusted Formula work cell; structural integrity alone is not
+/// authorization to dispatch, stage or issue a candidate receipt.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValidatedFormulaWorkCell {
+pub struct InspectedFormulaWorkCell {
     /// Exact Formula Director manifest identity.
     pub manifest_digest: String,
     /// Exact Formula `QueryIR` digest.
@@ -104,6 +104,19 @@ pub struct ValidatedFormulaWorkCell {
     pub max_memory_bytes: u64,
     /// Wall-clock ceiling in milliseconds.
     pub wall_clock_millis: u64,
+}
+
+/// Dispatch-capable work: obtainable ONLY after independent A04 custody
+/// preflight. Unlike syntax inspection this type cannot be assembled by callers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidatedFormulaWorkCell {
+    inspected: InspectedFormulaWorkCell,
+}
+impl std::ops::Deref for ValidatedFormulaWorkCell {
+    type Target = InspectedFormulaWorkCell;
+    fn deref(&self) -> &Self::Target {
+        &self.inspected
+    }
 }
 
 /// Caller-owned expected Formula identities from the admitted A04 operation
@@ -205,7 +218,7 @@ fn parse_budget(input: &str) -> Result<(u64, u64, u64), FormulaWorkCellError> {
 /// Rejects malformed identity, noncanonical bytes, unsafe effect policies and
 /// invalid budget/stop contract. Failing validation cannot start execution.
 #[allow(clippy::too_many_lines)]
-pub fn validate_handoff(bytes: &[u8]) -> Result<ValidatedFormulaWorkCell, FormulaWorkCellError> {
+pub fn validate_handoff(bytes: &[u8]) -> Result<InspectedFormulaWorkCell, FormulaWorkCellError> {
     canonical_json(bytes)?;
     let wire: Wire =
         serde_json::from_slice(bytes).map_err(|_| FormulaWorkCellError::InvalidJson)?;
@@ -295,7 +308,7 @@ pub fn validate_handoff(bytes: &[u8]) -> Result<ValidatedFormulaWorkCell, Formul
     {
         return Err(FormulaWorkCellError::InvalidResourceContract);
     }
-    Ok(ValidatedFormulaWorkCell {
+    Ok(InspectedFormulaWorkCell {
         manifest_digest: wire.manifest_digest,
         query_digest: wire.query_digest,
         requested_result_class: requested.to_string(),
@@ -352,5 +365,5 @@ pub fn preflight_with_custody(
     {
         return Err(FormulaWorkCellError::IdentityMismatch);
     }
-    Ok(work)
+    Ok(ValidatedFormulaWorkCell { inspected: work })
 }

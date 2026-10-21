@@ -11,6 +11,17 @@ fn fixture() -> Vec<u8> {
         .trim_ascii_end()
         .to_vec()
 }
+fn approved_fixture() -> ptah_formula_work_cells::ValidatedFormulaWorkCell {
+    let expected = FormulaDispatchCustody {
+        manifest_digest: "sha256:778e11206defae987198ad7174606ab063a64855a4d0775a10bce66087e2ec07"
+            .into(),
+        work_cell_digest: "sha256:d156d75e30f1da5b7fc32e1a5f55fec0f126c0b11ae0cd361ea1b925071a8d09"
+            .into(),
+        required_authority:
+            "sha256:f849d67325facf04177bc663b2dc544051831c589ef581d412f2eba44834e77c".into(),
+    };
+    preflight_with_custody(&fixture(), &expected).unwrap()
+}
 fn digest(v: &[u8]) -> String {
     format!("sha256:{:x}", Sha256::digest(v))
 }
@@ -48,7 +59,8 @@ fn real_formula_generated_packet_is_accepted_structurally() {
     assert_eq!(data.max_work_units, 100);
     assert_eq!(data.max_memory_bytes, 1024);
     assert_eq!(data.wall_clock_millis, 50);
-    let candidate = candidate_only_receipt(&data, b"candidate-only".to_vec()).unwrap();
+    let approved = approved_fixture();
+    let candidate = candidate_only_receipt(&approved, b"candidate-only".to_vec()).unwrap();
     assert_eq!(candidate.claimed_digest, digest(&candidate.bytes));
     assert_eq!(candidate.work_cell_digest, data.work_cell_digest);
     assert_eq!(candidate.manifest_digest, data.manifest_digest);
@@ -108,7 +120,7 @@ fn unbounded_or_missing_work_does_not_claim_success() {
         validate_handoff(&missing_budget),
         Err(FormulaWorkCellError::InvalidResourceContract)
     );
-    let work = validate_handoff(&fixture()).unwrap();
+    let work = approved_fixture();
     assert_eq!(
         candidate_only_receipt(&work, vec![]),
         Err(FormulaWorkCellError::EmptyCandidate)
@@ -123,10 +135,8 @@ fn custody_binds_formula_origin_outside_self_consistent_packet() {
         work_cell_digest: valid.work_cell_digest.clone(),
         required_authority: valid.required_authority.clone(),
     };
-    assert_eq!(
-        preflight_with_custody(&fixture(), &expected),
-        Ok(valid.clone())
-    );
+    let approved = preflight_with_custody(&fixture(), &expected).unwrap();
+    assert_eq!(&*approved, &valid);
     let stale = FormulaDispatchCustody {
         manifest_digest: digest(b"earlier-campaign"),
         ..expected.clone()

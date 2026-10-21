@@ -26,3 +26,7 @@ pub use tls::{
 pub const PROTOCOL_ID: &str = "ptah.node.link.v1";
 /// Maximum serialized E01 frame size.
 pub const MAX_FRAME_BYTES: usize = 1_048_576;
+
+/// Outbound E07 relay rendezvous. Neither peer identity nor Ptah permissions
+/// are supplied by the relay; both remain the existing end-to-end E01 stream.
+pub mod roaming;

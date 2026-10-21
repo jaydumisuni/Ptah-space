@@ -404,6 +404,20 @@ pub async fn connect_node_link(
     config: &NodeLinkClientConfig,
 ) -> Result<(HelloAck, AuthenticatedClientStream), LinkError> {
     let tcp = TcpStream::connect(config.endpoint).await?;
+    connect_node_link_over_stream(agent, config, tcp).await
+}
+
+/// Establish the exact existing E01 mutual TLS session over a caller-selected
+/// outbound stream (direct LAN or untrusted roaming relay). The relay cannot
+/// alter peer identity, session generation, fence or task selection.
+///
+/// # Errors
+/// Rejects invalid TLS identity, `HelloAck` or stale protocol/session binding.
+pub async fn connect_node_link_over_stream(
+    agent: &NodeAgent,
+    config: &NodeLinkClientConfig,
+    tcp: TcpStream,
+) -> Result<(HelloAck, AuthenticatedClientStream), LinkError> {
     let mut tls = connect_tls(tcp, &config.server_name, &config.tls).await?;
     let hello = config.hello(agent);
     write_frame(

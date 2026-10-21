@@ -13,7 +13,9 @@ use ptah_identifiers::{EntityRef, NodeId};
 use ptah_node_link::{
     ApprovedNodeEnrollment, CredentialFingerprint, DispatchLeaseFrame, DispatchRequestFrame,
     DispatchReservationFrame, EnrollmentLifecycle, LinkMessage, ProtocolVersion, TlsIdentity,
-    TlsServerConfig, TlsTrustRoots, read_frame, write_frame,
+    TlsServerConfig, TlsTrustRoots, read_frame,
+    roaming::{self, RelayRole},
+    write_frame,
 };
 use serde::Deserialize;
 use std::sync::Arc;
@@ -38,7 +40,8 @@ struct AdmissionRow {
     expires_at_epoch_seconds: Option<u64>,
 }
 struct Config {
-    listen: SocketAddr,
+    listen: Option<SocketAddr>,
+    relay: Option<(SocketAddr, String)>,
     server_cert: PathBuf,
     server_key: PathBuf,
     client_ca: PathBuf,
@@ -84,6 +87,8 @@ fn config_from_iter(args: impl IntoIterator<Item = String>) -> Result<Config, St
             "--enrollments",
             "--journal",
             "--request-digest",
+            "--relay",
+            "--relay-route",
         ]
         .contains(&key.as_str())
         {
@@ -94,21 +99,36 @@ fn config_from_iter(args: impl IntoIterator<Item = String>) -> Result<Config, St
             return Err(format!("repeated option: {key}"));
         }
     }
+    let relay = match (entries.remove("--relay"), entries.remove("--relay-route")) {
+        (Some(endpoint), Some(route)) => {
+            let addr: SocketAddr = endpoint.parse().map_err(|_| "invalid relay address")?;
+            if !roaming::valid_route_id(&route) {
+                return Err("invalid relay route".into());
+            }
+            Some((addr, route))
+        }
+        (None, None) => None,
+        _ => return Err("relay and relay-route must be supplied together".into()),
+    };
+    let listen = match (entries.remove("--listen"), relay.as_ref()) {
+        (Some(ip), None) => {
+            let bind: SocketAddr = ip.parse().map_err(|_| "invalid bind address")?;
+            if !allowed_bind(bind.ip(), allow_private) {
+                return Err("listen must be loopback or explicitly allowed private LAN".into());
+            }
+            Some(bind)
+        }
+        (None, Some(_)) => None,
+        _ => return Err("select exactly one: --listen or --relay and --relay-route".into()),
+    };
     let mut val = |key: &str| {
         entries
             .remove(key)
             .ok_or_else(|| format!("missing required {key}"))
     };
-    let listen: SocketAddr = val("--listen")?
-        .parse()
-        .map_err(|_| "invalid bind address")?;
-    if !allowed_bind(listen.ip(), allow_private) {
-        return Err(String::from(
-            "listener must be loopback, or explicit private RFC1918 address with --allow-private-lan",
-        ));
-    }
     let config = Config {
         listen,
+        relay,
         server_cert: PathBuf::from(val("--server-cert")?),
         server_key: PathBuf::from(val("--server-key")?),
         client_ca: PathBuf::from(val("--client-ca")?),
@@ -193,16 +213,27 @@ async fn serve(config: Config) -> Result<(), String> {
     let owner = Arc::new(Mutex::new(PlacementAuthorityOwner::new(
         NodeLinkControl::new(ProtocolVersion { major: 1, minor: 0 }, approved),
     )));
-    let listener = TcpListener::bind(config.listen)
-        .await
-        .map_err(|e| e.to_string())?;
-    eprintln!("ptah-e07-control-dispatch: listening on {}", config.listen);
-    // ATHENA's persistent worker backs off up to 120 seconds. Wait longer
-    // than that before treating a missing Node as an endpoint failure.
-    let (socket, _) = tokio::time::timeout(Duration::from_mins(4), listener.accept())
-        .await
-        .map_err(|_| "waiting for Node timed out")?
-        .map_err(|e| e.to_string())?;
+    // Both route types produce one unmodified TCP byte stream for the
+    // existing E01 mutual TLS server. No relay identity or grant is trusted.
+    let socket = if let Some((address, route)) = config.relay.as_ref() {
+        roaming::connect(*address, RelayRole::Control, route)
+            .await
+            .map_err(|e| format!("outbound roaming relay: {e}"))?
+    } else {
+        let listener = TcpListener::bind(config.listen.ok_or("missing listener")?)
+            .await
+            .map_err(|e| e.to_string())?;
+        eprintln!(
+            "ptah-e07-control-dispatch: listening on {}",
+            listener.local_addr().map_err(|e| e.to_string())?
+        );
+        // Node worker normally retries within 120 seconds.
+        tokio::time::timeout(Duration::from_mins(4), listener.accept())
+            .await
+            .map_err(|_| "waiting for Node timed out")?
+            .map_err(|e| e.to_string())?
+            .0
+    };
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| e.to_string())?

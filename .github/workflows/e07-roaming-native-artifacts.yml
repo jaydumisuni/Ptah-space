@@ -1,0 +1,57 @@
+name: E07 roaming cross-platform native transport
+on:
+  pull_request:
+    paths:
+      - 'services/ptah-control/src/bin/ptah-e07-relay.rs'
+      - 'services/ptah-control/src/bin/ptah-e07-control-dispatch.rs'
+      - 'services/ptah-node/src/bin/ptah-e07-node-worker.rs'
+      - 'services/ptah-node/src/lib.rs'
+      - 'crates/ptah-node-link/src/roaming.rs'
+      - 'crates/ptah-node-link/src/lib.rs'
+      - '.github/workflows/e07-roaming-native-artifacts.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux-native-roaming:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout precise source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Test opaque pairing and authenticated E01 over relay
+        run: cargo test --locked -p ptah-control --bin ptah-e07-relay
+      - name: Build relay and native Control
+        run: cargo build --release --locked -p ptah-control --bin ptah-e07-relay --bin ptah-e07-control-dispatch
+      - name: Export Linux native Ptah transport executables
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: e07-roaming-linux
+          path: |
+            target/release/ptah-e07-relay
+            target/release/ptah-e07-control-dispatch
+          retention-days: 1
+          if-no-files-found: error
+  windows-native-roaming:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Checkout precise source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Verify backward compatible Windows Node config
+        shell: pwsh
+        run: cargo test -p ptah-node --bin ptah-e07-node-worker --locked
+      - name: Build native Windows E07 roaming worker
+        shell: pwsh
+        run: cargo build -p ptah-node --bin ptah-e07-node-worker --release --locked
+      - name: Export Windows native worker
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: e07-roaming-windows
+          path: target/release/ptah-e07-node-worker.exe
+          retention-days: 1
+          if-no-files-found: error

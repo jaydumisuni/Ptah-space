@@ -6,12 +6,14 @@ use native_process::{
 };
 use ptah_identifiers::EntityRef;
 use ptah_node::{
-    NodeLinkClientConfig, connect_node_link, gateway_e02_wire::receive_one,
-    gateway_journal::GatewayJournal,
+    NodeLinkClientConfig, connect_node_link, connect_node_link_over_stream,
+    gateway_e02_wire::receive_one, gateway_journal::GatewayJournal,
 };
 use ptah_node_agent::{NodeAgent, NodeRestartSeed};
 use ptah_node_link::{
-    LinkAck, LinkMessage, ProtocolVersion, TlsClientConfig, TlsIdentity, TlsTrustRoots, write_frame,
+    LinkAck, LinkMessage, ProtocolVersion, TlsClientConfig, TlsIdentity, TlsTrustRoots,
+    roaming::{self, RelayRole},
+    write_frame,
 };
 use ptah_provider_api::{
     ProviderGeneration, ProviderHealth, ProviderInstance, ProviderKind, ProviderReachability,
@@ -30,7 +32,14 @@ use std::{
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WorkerConfig {
-    control: SocketAddr,
+    #[serde(default)]
+    control: Option<SocketAddr>,
+    /// Optional publicly reachable relay socket; both peers dial outbound.
+    #[serde(default)]
+    relay: Option<SocketAddr>,
+    /// 256-bit opaque rendezvous ID, not a Ptah login or task authority.
+    #[serde(default)]
+    relay_route: Option<String>,
     server_name: String,
     ca_pem: PathBuf,
     node_cert_pem: PathBuf,
@@ -149,7 +158,64 @@ fn provider(agent: &NodeAgent) -> Result<NativeProcessProvider, String> {
     .map_err(|e| format!("native process provider: {e:?}"))
 }
 
+async fn connect_e01_for_worker(
+    agent: &NodeAgent,
+    connection: &NodeLinkClientConfig,
+    relay: Option<SocketAddr>,
+    relay_route: Option<&str>,
+) -> Result<
+    (
+        ptah_node_link::HelloAck,
+        ptah_node_link::AuthenticatedClientStream,
+    ),
+    String,
+> {
+    let connected = if let (Some(endpoint), Some(route)) = (relay, relay_route) {
+        let tcp = roaming::connect(endpoint, RelayRole::Node, route)
+            .await
+            .map_err(|e| format!("roaming relay: {e}"))?;
+        tokio::time::timeout(
+            Duration::from_secs(12),
+            connect_node_link_over_stream(agent, connection, tcp),
+        )
+        .await
+        .map_err(|_| "remote E01 via relay timeout".to_owned())?
+        .map_err(|e| format!("remote E01 via relay: {e:?}"))?
+    } else {
+        if relay.is_some() || relay_route.is_some() {
+            return Err("relay and relay_route must be configured together".into());
+        }
+        tokio::time::timeout(
+            Duration::from_secs(12),
+            connect_node_link(agent, connection),
+        )
+        .await
+        .map_err(|_| "remote E01 timeout".to_owned())?
+        .map_err(|e| format!("remote E01: {e:?}"))?
+    };
+    Ok(connected)
+}
+
+fn validated_endpoint(config: &WorkerConfig) -> Result<SocketAddr, String> {
+    if config.relay.is_some() != config.relay_route.is_some() {
+        return Err("relay and relay_route must be configured together".into());
+    }
+    if let Some(route) = config.relay_route.as_deref()
+        && !roaming::valid_route_id(route)
+    {
+        return Err("invalid roaming route ID".into());
+    }
+    // No LAN address is necessary for a relay-only worker configuration.
+    let remote_endpoint = match (config.relay, config.control) {
+        (Some(relay), _) => relay,
+        (None, Some(control)) => control,
+        (None, None) => return Err("missing E07 control or relay endpoint".into()),
+    };
+    Ok(remote_endpoint)
+}
+
 async fn run(config: WorkerConfig) -> Result<(), String> {
+    let remote_endpoint = validated_endpoint(&config)?;
     let agent = durable_node(&config.node_seed)?;
     let key = fs::read(&config.node_key_pem).map_err(|e| e.to_string())?;
     let cert = fs::read(&config.node_cert_pem).map_err(|e| e.to_string())?;
@@ -160,20 +226,20 @@ async fn run(config: WorkerConfig) -> Result<(), String> {
     )
     .map_err(|e| format!("{e:?}"))?;
     let connection = NodeLinkClientConfig::new(
-        config.control,
+        remote_endpoint,
         config.server_name,
         tls,
         config.enrollment_ref,
         "e07-native-worker-v1".into(),
         ProtocolVersion { major: 1, minor: 0 },
     );
-    let (_, mut stream) = tokio::time::timeout(
-        Duration::from_secs(10),
-        connect_node_link(&agent, &connection),
+    let (_, mut stream) = connect_e01_for_worker(
+        &agent,
+        &connection,
+        config.relay,
+        config.relay_route.as_deref(),
     )
-    .await
-    .map_err(|_| "remote E01 timeout".to_string())?
-    .map_err(|e| format!("remote E01: {e:?}"))?;
+    .await?;
     let (guard, dispatch) = receive_one(&agent, &mut stream)
         .await
         .map_err(|e| format!("remote E02: {e:?}"))?;
@@ -337,6 +403,35 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn worker_transport_requires_no_lan_address_in_relay_mode() {
+        let v = serde_json::json!({
+            "relay":"127.0.0.1:4433",
+            "relay_route":"ab".repeat(32),
+            "server_name":"localhost",
+            "ca_pem":"ca.pem","node_cert_pem":"cert.pem","node_key_pem":"key.pem",
+            "enrollment_ref":EntityRef::new("core.node_enrollment").unwrap(),
+            "node_seed":"seed.db","node_journal":"journal.db",
+            "program":"cmd.exe","args":["/C","echo","safe"],"request_sha256":format!("sha256:{}", "a".repeat(64))
+        });
+        let cfg: WorkerConfig = serde_json::from_value(v).unwrap();
+        assert_eq!(validated_endpoint(&cfg).unwrap().port(), 4433);
+        assert!(cfg.control.is_none());
+    }
+    #[test]
+    fn direct_worker_mode_still_parses_without_relay() {
+        let v = serde_json::json!({
+            "control":"127.0.0.1:32100",
+            "server_name":"localhost",
+            "ca_pem":"ca.pem","node_cert_pem":"cert.pem","node_key_pem":"key.pem",
+            "enrollment_ref":EntityRef::new("core.node_enrollment").unwrap(),
+            "node_seed":"seed.db","node_journal":"journal.db",
+            "program":"cmd.exe","args":[],"request_sha256":format!("sha256:{}", "a".repeat(64))
+        });
+        let cfg: WorkerConfig = serde_json::from_value(v).unwrap();
+        assert_eq!(validated_endpoint(&cfg).unwrap().port(), 32100);
+        assert!(cfg.relay.is_none());
+    }
     #[test]
     fn persistent_node_identity_advances_before_every_new_connection() {
         let file = std::env::temp_dir().join(format!(

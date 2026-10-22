@@ -38,6 +38,12 @@ jobs:
         run: cargo test --locked -p ptah-control --lib
       - name: Verify existing E03 TLS and resumed range transfers
         run: cargo test --locked -p ptah-node-transfer --test direct_tls
+      - name: Verify ticket-authorized E03 candidate ranges and signed Formula readback
+        run: cargo test --locked -p ptah-node --test p13_native_candidate_roundtrip
+      - name: Strict E03 ticket-range and combined native acceptance lint
+        run: |
+          cargo clippy --locked -p ptah-node-transfer --test direct_tls -- -D warnings
+          cargo clippy --locked -p ptah-node --test p13_native_candidate_roundtrip -- -D warnings
       - name: Strict readback lint
         run: cargo clippy --locked -p ptah-control --lib -- -D warnings
       - name: Test durable exact Formula candidate source for E03
@@ -69,6 +75,11 @@ jobs:
         shell: pwsh
         run: |
           cargo test --locked -p ptah-node --bin ptah-e07-node-worker
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify complete Windows native candidate custody and E03 integration
+        shell: pwsh
+        run: |
+          cargo test --locked -p ptah-node --test p13_native_candidate_roundtrip
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Strict Windows native candidate source lint
         shell: pwsh

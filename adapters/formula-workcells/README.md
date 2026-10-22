@@ -72,3 +72,22 @@ authority, or autonomous cross-Node dependency was created. This supports
 an actual E03 byte source; full physical KRATOS/ATHENA transfer and
 independent external-witness deployment still require distinct observed
 receipts before general P13 physical acceptance can be marked complete.
+
+### Current E03 geometry and candidate-to-witness acceptance
+
+A native Ptah P13 regression now exercises the full **hermetic** chain:
+E01 current-session identities, Control-issued E03 ticket, both Node
+ticket guards, the durable original A05 candidate file, authenticated
+TLS 1.3 transfer interrupted between two exact authorized byte ranges,
+resumed cursor verification, whole-file SHA-256 and the existing signed
+Control readback. It rejects changed signatures and revoked tickets.
+Native E03 now enforces each ticket's exact range geometry at both peers
+instead of silently using the global byte ceiling. The pre-existing E03
+TLS tests were corrected to declare their previously assumed MAX_RANGE_BYTES
+ticket geometry.
+
+**Qualification boundary:** this integration test uses two distinct
+in-process Ptah NodeAgents and a fixture-owned Ed25519 key, all on the
+same test host. It does NOT claim physical KRATOS-to-ATHENA E03 data
+transfer or an independently operated witness service. Native workload
+math promotion still belongs only to Formula.

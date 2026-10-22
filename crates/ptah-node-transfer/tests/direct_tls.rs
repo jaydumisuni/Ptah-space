@@ -71,7 +71,9 @@ fn ticket(bytes: &[u8]) -> TransferTicket {
         None,
         bytes.len() as u64,
         format!("{:x}", Sha256::digest(bytes)),
-        1024,
+        // The fixtures below explicitly expect MAX_RANGE_BYTES chunks.
+        // The production engine now enforces each ticket's range geometry.
+        MAX_RANGE_BYTES as u64,
         vec![TransferRouteCandidate {
             kind: TransferRouteKind::Direct,
             endpoint: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7443),

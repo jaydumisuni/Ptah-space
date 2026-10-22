@@ -191,7 +191,7 @@ impl DirectSourceSession {
             if request.ticket_ref != *ticket.ticket_ref() {
                 return Err(DirectSessionError::TicketMismatch);
             }
-            validate_request(&request, ticket.expected_size())?;
+            validate_request(&request, ticket)?;
 
             let payload = source
                 .read_exact_range(request.start, request.len)
@@ -303,6 +303,9 @@ impl DirectTargetSession {
         .await
     }
 
+    // The pre-existing E03 bounded asynchronous state machine exceeds the
+    // default length threshold. Preserve its established failure/replay flow.
+    #[allow(clippy::too_many_lines)]
     async fn pull_missing_ranges_inner<S>(
         stream: &mut S,
         ticket: &TransferTicket,
@@ -324,13 +327,21 @@ impl DirectTargetSession {
             return Ok(direct_transfer_report(0));
         }
 
-        let (_, resumed_ranges) =
-            first_missing_range(partial_path, cursor, ticket.expected_size())?;
+        let (_, resumed_ranges) = first_missing_range(
+            partial_path,
+            cursor,
+            ticket.expected_size(),
+            ticket.range_size(),
+        )?;
         let mut report = direct_transfer_report(resumed_ranges);
 
         for _ in 0..range_limit {
-            let (next_range, _) =
-                first_missing_range(partial_path, cursor, ticket.expected_size())?;
+            let (next_range, _) = first_missing_range(
+                partial_path,
+                cursor,
+                ticket.expected_size(),
+                ticket.range_size(),
+            )?;
             let Some((start, len)) = next_range else {
                 write_control_frame(
                     stream,
@@ -411,9 +422,14 @@ impl DirectTargetSession {
                 .ok_or(DirectSessionError::RangeMismatch)?;
         }
 
-        if first_missing_range(partial_path, cursor, ticket.expected_size())?
-            .0
-            .is_none()
+        if first_missing_range(
+            partial_path,
+            cursor,
+            ticket.expected_size(),
+            ticket.range_size(),
+        )?
+        .0
+        .is_none()
         {
             report.whole_sha256 = Some(sha256_file(partial_path, ticket.expected_size())?);
         }
@@ -501,6 +517,7 @@ fn first_missing_range(
     partial_path: &Path,
     cursor: &DownloadCursor,
     expected_size: u64,
+    ticket_range_size: u64,
 ) -> Result<(Option<(u64, u64)>, usize), DirectSessionError> {
     let mut retained = match File::open(partial_path) {
         Ok(file) => Some(file),
@@ -511,7 +528,7 @@ fn first_missing_range(
     let mut resumed_ranges = 0_usize;
 
     while start < expected_size {
-        let len = (expected_size - start).min(MAX_RANGE_BYTES as u64);
+        let len = (expected_size - start).min(ticket_range_size.min(MAX_RANGE_BYTES as u64));
         let len_usize = usize::try_from(len)
             .map_err(|error| DirectSessionError::PartialRead(error.to_string()))?;
         let mut reusable = false;
@@ -548,15 +565,16 @@ fn first_missing_range(
     Ok((None, resumed_ranges))
 }
 
-fn validate_request(request: &RangeRequest, expected_size: u64) -> Result<(), DirectSessionError> {
-    if request.len == 0 || request.len > MAX_RANGE_BYTES as u64 {
-        return Err(DirectSessionError::RangeMismatch);
-    }
-    let end = request
-        .start
-        .checked_add(request.len)
-        .ok_or(DirectSessionError::RangeMismatch)?;
-    if end > expected_size {
+fn validate_request(
+    request: &RangeRequest,
+    ticket: &TransferTicket,
+) -> Result<(), DirectSessionError> {
+    let authorized_range = ticket.range_size().min(MAX_RANGE_BYTES as u64);
+    if authorized_range == 0
+        || !request.start.is_multiple_of(authorized_range)
+        || request.start >= ticket.expected_size()
+        || request.len != (ticket.expected_size() - request.start).min(authorized_range)
+    {
         return Err(DirectSessionError::RangeMismatch);
     }
     Ok(())

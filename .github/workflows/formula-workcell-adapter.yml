@@ -40,9 +40,38 @@ jobs:
         run: cargo test --locked -p ptah-node-transfer --test direct_tls
       - name: Strict readback lint
         run: cargo clippy --locked -p ptah-control --lib -- -D warnings
+      - name: Test durable exact Formula candidate source for E03
+        run: cargo test --locked -p ptah-node --bin ptah-e07-node-worker
+      - name: Strict native candidate source lint
+        run: cargo clippy --locked -p ptah-node --bin ptah-e07-node-worker -- -D warnings
       - name: Strict Ptah adapter lint
         run: cargo clippy --locked -p ptah-formula-work-cells --tests -- -D warnings
       - name: Strict Ptah Node and Control integration lint
         run: |
           cargo clippy --locked -p ptah-node --test formula_p13_e07 -- -D warnings
           cargo clippy --locked -p ptah-control --bin ptah-e07-control-dispatch -- -D warnings
+
+
+  windows-candidate-source:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - name: Checkout pinned source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Install pinned Ptah Rust components
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup component add --toolchain 1.97.1 rustfmt clippy
+      - name: Qualify Windows candidate crash-safe persistence
+        shell: pwsh
+        run: |
+          cargo test --locked -p ptah-node --bin ptah-e07-node-worker
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Strict Windows native candidate source lint
+        shell: pwsh
+        run: |
+          cargo clippy --locked -p ptah-node --bin ptah-e07-node-worker -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

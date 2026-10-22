@@ -51,3 +51,24 @@ existing native E03 TLS full/range-resume suite. This is a structural/local
 integration qualification, not a new physical two-machine transfer or a
 live external-witness deployment. E03 current-ticket issuance and recovery
 remain native Ptah transport responsibility.
+
+
+### Optional durable Node candidate for E03 (2026-10-22)
+
+The existing native E07 Node worker now accepts an optional caller-owned
+existing `candidate_dir`. When supplied, only a zero-exit process with
+complete (not truncated) A05 stdout produces a bounded (16 KiB maximum),
+atomically created, attempt-and-digest-named candidate file. Persisting and
+opening this source occurs before journal completion; the exact resulting
+SHA-256 must match the journal output. Byte-equivalent retries reuse the
+same artifact; conflicts, truncation, altered data, unsafe directories,
+or nonzero exits fail closed. The old worker configuration is unchanged
+when `candidate_dir` is omitted.
+
+`DurableCandidateSource` implements Ptah's original E03
+`ExactRangeSource` using the persisted file, with readback SHA-256 and
+bounded ranges. No alternate transfer engine, dispatch permission, math
+authority, or autonomous cross-Node dependency was created. This supports
+an actual E03 byte source; full physical KRATOS/ATHENA transfer and
+independent external-witness deployment still require distinct observed
+receipts before general P13 physical acceptance can be marked complete.

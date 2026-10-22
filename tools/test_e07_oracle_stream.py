@@ -28,6 +28,16 @@ class OracleCarrierContract(unittest.TestCase):
         C.deliver(self.b,json.dumps(rows))
         received=C.pull(self.b,"inbound",0,32)
         self.assertEqual(received,rows)
+    def test_oversized_or_non_string_ciphertext_is_rejected_before_decode(self):
+        # Oracle packet batches must reject oversized frames and malformed types.
+        import base64
+        too_large = base64.b64encode(b"x" * (C.MAX_CHUNK + 1)).decode("ascii")
+        with self.assertRaisesRegex(ValueError, "invalid packet size"):
+            C.deliver(self.b, json.dumps([{"seq": 1, "b64": too_large}]))
+        with self.assertRaisesRegex(ValueError, "invalid packet schema"):
+            C.deliver(self.b, '[{"seq":1,"b64":123}]')
+        self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
+
     def test_gap_and_conflicting_replay_rejected(self):
         C.deliver(self.b,'[{"seq":1,"b64":"YWJj"}]')
         with self.assertRaisesRegex(ValueError,"out-of-order"):

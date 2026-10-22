@@ -10,6 +10,7 @@ It cannot execute unattended without an external Oracle tool invoker.
 import argparse
 from contextlib import contextmanager
 import base64
+import binascii
 import hashlib
 import json
 import os
@@ -21,6 +22,7 @@ import threading
 import time
 
 MAX_CHUNK = 32768
+MAX_ENCODED_CHUNK = 4 * ((MAX_CHUNK + 2) // 3)
 MAX_BATCH = 32
 MAX_TOTAL = 8 * 1024 * 1024
 MAX_RUNTIME = 300
@@ -73,6 +75,9 @@ def snapshot(state, after):
     print(json.dumps({"packets":rows,"count":len(rows),"latest":rows[-1]["seq"] if rows else after},separators=(",",":")))
 
 def deliver(state, document):
+    # Reject oversized RPC envelopes before parsing or decoding attacker-supplied bytes.
+    if not isinstance(document, str) or len(document) > MAX_BATCH * (MAX_ENCODED_CHUNK + 64) + 2:
+        raise ValueError("invalid packet batch")
     rows=json.loads(document)
     if not isinstance(rows,list) or len(rows)>MAX_BATCH:
         raise ValueError("invalid packet batch")
@@ -80,9 +85,15 @@ def deliver(state, document):
         latest=conn.execute("SELECT coalesce(max(seq),0) FROM inbound").fetchone()[0]
         total=conn.execute("SELECT coalesce(sum(length(content)),0) FROM inbound").fetchone()[0]
         for row in rows:
-            if not isinstance(row,dict) or set(row)!={"seq","b64"} or type(row["seq"]) is not int:
+            if (not isinstance(row,dict) or set(row)!={"seq","b64"}
+                    or type(row["seq"]) is not int or not isinstance(row["b64"],str)):
                 raise ValueError("invalid packet schema")
-            packet=base64.b64decode(row["b64"],validate=True)
+            if len(row["b64"]) > MAX_ENCODED_CHUNK:
+                raise ValueError("invalid packet size")
+            try:
+                packet=base64.b64decode(row["b64"],validate=True)
+            except (binascii.Error, ValueError) as error:
+                raise ValueError("invalid packet encoding") from error
             if not packet or len(packet)>MAX_CHUNK:
                 raise ValueError("invalid packet size")
             seq=row["seq"]

@@ -104,6 +104,27 @@ class ApplicabilityProofTests(unittest.TestCase):
         self.assertFalse(policy.p13_independent_qualified_scope(
             p13 | {"crates/ptah-node-link/src/tls.rs"}))
 
+    def test_p13_native_candidate_postfreeze_scope_requires_full_integrated_proof(self):
+        required=set(policy.P13_NATIVE_CANDIDATE_REQUIRED)
+        allowed=set(policy.P13_NATIVE_CANDIDATE_ALLOWED)
+        self.assertTrue(policy.p13_independent_qualified_scope(required))
+        self.assertTrue(policy.p13_independent_qualified_scope(allowed))
+        for missing in required:
+            with self.subTest(missing=missing):
+                self.assertFalse(policy.p13_independent_qualified_scope(
+                    allowed - {missing}))
+        for unreviewed in (
+            "services/ptah-node/src/gateway_e02_wire.rs",
+            "services/ptah-control/src/transfer.rs",
+            "crates/ptah-node-link/src/tls.rs",
+            "adapters/native-process/src/lib.rs",
+            ".github/workflows/e01-secure-multi-node-identity-connection.yml",
+        ):
+            with self.subTest(unreviewed=unreviewed):
+                self.assertFalse(policy.p13_independent_qualified_scope(
+                    required | {unreviewed}))
+        self.assertNotIn("Cargo.lock", policy.P13_NATIVE_CANDIDATE_ALLOWED)
+
     def test_nonexistent_phase_name_fails_closed(self):
         with self.assertRaisesRegex(policy.AdmissionError,"unreviewed_phase_workflow"):
             policy.approved_phase_scope("evil.yml","on:\n","on:\n")

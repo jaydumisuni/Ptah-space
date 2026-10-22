@@ -103,14 +103,34 @@ P13_EXACT_SHARED = frozenset({
     ".github/workflows/formula-workcell-adapter.yml",
 })
 
+# A separate *post-freeze P13* maintenance candidate may add only the
+# integrated native candidate/E03 range regression, its exact compatibility
+# change, and owned CI proof. It does NOT reopen E01, mint E03 issuance,
+# change A05 execution policy, or admit arbitrary Node implementation edits.
+P13_NATIVE_CANDIDATE_REQUIRED = frozenset({
+    "crates/ptah-node-transfer/src/direct.rs",
+    "crates/ptah-node-transfer/tests/direct_tls.rs",
+    "services/ptah-node/tests/p13_native_candidate_roundtrip.rs",
+    ".github/workflows/formula-workcell-adapter.yml",
+})
+P13_NATIVE_CANDIDATE_ALLOWED = P13_NATIVE_CANDIDATE_REQUIRED | frozenset({
+    "adapters/formula-workcells/README.md",
+    "tools/check_current_pr_admission.py",
+    "tools/test_check_current_pr_admission.py",
+})
+
 def p13_independent_qualified_scope(changed: set[str]) -> bool:
-    # The exact phase-owned work-cell and Control proof must be present.
-    if not P13_REQUIRED.issubset(changed):
-        return False
-    return all(
-        path in P13_EXACT_SHARED or path in P13_REQUIRED or path.startswith("adapters/formula-workcells/")
-        for path in changed
-    )
+    # The original P13 intake path keeps its exact immutable ownership.
+    if P13_REQUIRED.issubset(changed):
+        return all(
+            path in P13_EXACT_SHARED or path in P13_REQUIRED or path.startswith("adapters/formula-workcells/")
+            for path in changed
+        )
+    # A new exact, independent maintenance obligation: actual E01/E03/TLS
+    # /candidate/witness integration and ticket geometry, all required
+    # together. The base E01 proof is NOT relabelled as passing.
+    return (P13_NATIVE_CANDIDATE_REQUIRED.issubset(changed)
+            and changed.issubset(P13_NATIVE_CANDIDATE_ALLOWED))
 
 
 HEX = re.compile(r"^[a-f0-9]{40}$")

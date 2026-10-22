@@ -35,3 +35,19 @@ Historical A01 (18 workspace members), E06 and E07 lock bytes remain immutable. 
 The current-head admission classifier requires the exact Formula WorkCell interface, custody-bound Control binary and real E02/A05 regression tests. It identifies historical A14, D08 and E01 proofs as **not rerun** and instead requires P13-owned proof plus the universal exact-head workspace tests. Changes beyond the declared P13 paths continue to fail closed.
 
 RUSTSEC-2026-0382: the already-present transitive rustls-webpki dependency was upgraded from 0.103.15 to 0.103.16. The Cargo.lock inverse checker accepts exactly the reviewed version/checksum pair while reconstructing the pre-P13 frozen E07/E06 byte stream. No external dependency was added and no historical checkpoint was rewritten.
+
+### Native signed candidate-readback gate
+
+Ptah Control now combines the existing A04-custody-approved Formula WorkCell,
+completed E03 candidate bytes/full SHA-256, durable E02/A05 Node completion
+and the existing Ed25519 independent-effect witness verifier. Conflicting
+attempts, forged signatures, changed result bytes, failed exits and altered
+request digests are rejected. The returned receipt remains candidate-only
+and Formula must independently check its mathematics.
+
+The exact current readback implementation and negative tests are in
+services/ptah-control/src/formula_readback.rs. CI also exercises the
+existing native E03 TLS full/range-resume suite. This is a structural/local
+integration qualification, not a new physical two-machine transfer or a
+live external-witness deployment. E03 current-ticket issuance and recovery
+remain native Ptah transport responsibility.

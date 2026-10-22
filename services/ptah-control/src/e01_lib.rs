@@ -27,3 +27,6 @@ pub mod gateway_control_journal;
 
 /// Independent external-effect attestation verification; no dispatch authority.
 pub mod gateway_witness;
+
+/// Verified effect plus exact E03 candidate readback, still candidate-only.
+pub mod formula_readback;

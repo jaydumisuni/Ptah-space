@@ -1,6 +1,9 @@
 //! Optional native E07 Node worker: TLS E01 -> E02 -> durable A05 once.
 //! Local process specification is provided by the caller on this Node.
 //! This executable never approves a user and never accepts a program from the wire.
+#[path = "../e07_candidate.rs"]
+mod e07_candidate;
+
 use native_process::{
     DisconnectPolicy, NativeProcessProvider, NativeProcessProviderConfig, ProcessMode, ProcessSpec,
 };
@@ -41,6 +44,8 @@ struct WorkerConfig {
     program: String,
     args: Vec<String>,
     request_sha256: String,
+    #[serde(default)]
+    candidate_dir: Option<PathBuf>,
 }
 
 fn entity(kind: &str) -> Result<EntityRef, String> {
@@ -149,6 +154,56 @@ fn provider(agent: &NodeAgent) -> Result<NativeProcessProvider, String> {
     .map_err(|e| format!("native process provider: {e:?}"))
 }
 
+/// Local, optional candidate preservation before irreversible journal completion.
+/// No remote executable, Ptah transport ticket or Formula truth is created.
+fn retain_exact_candidate(
+    dir: Option<&Path>,
+    provider: &NativeProcessProvider,
+    pid: ptah_identifiers::EntityId,
+    attempt: &str,
+) -> Result<Option<(PathBuf, String)>, String> {
+    let Some(dir) = dir else {
+        return Ok(None);
+    };
+    let snapshot = provider
+        .snapshot(pid)
+        .map_err(|e| format!("candidate process snapshot: {e:?}"))?;
+    if snapshot.record.exit.as_ref().and_then(|e| e.exit_code) != Some(0) {
+        return Err("candidate process did not exit successfully".into());
+    }
+    let stdout = snapshot.stdout.ok_or("missing candidate stdout")?;
+    if stdout.truncated_bytes != 0
+        || stdout.retained_bytes != stdout.bytes.len()
+        || stdout.total_bytes != stdout.bytes.len() as u64
+    {
+        return Err("incomplete A05 stdout; cannot preserve candidate".into());
+    }
+    let (path, digest) = e07_candidate::persist_candidate_once(dir, attempt, &stdout.bytes)?;
+    // Exact source opens against the durable file, not in-memory process data.
+    // E03 still independently requires Control-issued/current ticket and TLS.
+    let _source = e07_candidate::DurableCandidateSource::open(&path, &digest)?;
+    Ok(Some((path, digest)))
+}
+
+fn validate_request_digest(digest: &str) -> Result<(), String> {
+    if digest.len() != 71
+        || !digest.starts_with("sha256:")
+        || !digest[7..]
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    {
+        return Err("invalid configured request digest".into());
+    }
+    Ok(())
+}
+
+fn unix_time() -> Result<u64, String> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs())
+}
+
 async fn run(config: WorkerConfig) -> Result<(), String> {
     let agent = durable_node(&config.node_seed)?;
     let key = fs::read(&config.node_key_pem).map_err(|e| e.to_string())?;
@@ -177,19 +232,9 @@ async fn run(config: WorkerConfig) -> Result<(), String> {
     let (guard, dispatch) = receive_one(&agent, &mut stream)
         .await
         .map_err(|e| format!("remote E02: {e:?}"))?;
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_secs();
+    let now = unix_time()?;
     let digest = config.request_sha256;
-    if digest.len() != 71
-        || !digest.starts_with("sha256:")
-        || !digest[7..]
-            .bytes()
-            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-    {
-        return Err("invalid configured request digest".into());
-    }
+    validate_request_digest(&digest)?;
     let provider = provider(&agent)?;
     let expected = provider
         .attempt_context(1, entity("runtime.facility")?)
@@ -214,9 +259,21 @@ async fn run(config: WorkerConfig) -> Result<(), String> {
     let _ = provider
         .wait_for_exit(pid, Duration::from_secs(30))
         .map_err(|e| format!("A05 exit: {e:?}"))?;
+    let candidate_output = retain_exact_candidate(
+        config.candidate_dir.as_deref(),
+        &provider,
+        pid,
+        &dispatch.attempt_ref.entity_id.to_string(),
+    )?;
     let output_digest = journal
         .complete_from_process(&agent, &dispatch, &digest, &provider, pid)
         .map_err(|e| format!("A05 durable exit: {e:?}"))?;
+    if candidate_output
+        .as_ref()
+        .is_some_and(|(_, hash)| hash != &output_digest)
+    {
+        return Err("candidate durable file differs from Node journal output hash".into());
+    }
     let record = journal
         .get(&dispatch)
         .map_err(|e| format!("{e:?}"))?
@@ -239,7 +296,9 @@ async fn run(config: WorkerConfig) -> Result<(), String> {
             "dispatch":dispatch.dispatch_ref,
             "attempt":dispatch.attempt_ref,
             "phase":record.phase,"exit_code":record.exit_code,
-            "stdout_sha256":output_digest,"remote_tls_e02":true,
+            "stdout_sha256":output_digest,
+            "candidate_file":candidate_output.as_ref().map(|(p,_)|p.to_string_lossy().to_string()),
+            "remote_tls_e02":true,
             "additional_ptah_user_approval":false
         })
     );

@@ -13,6 +13,7 @@ ptah-node-agent = { path = "../../crates/ptah-node-agent", version = "=0.0.0-pha
 ptah-node-link = { path = "../../crates/ptah-node-link", version = "=0.0.0-phase0c" }
 ptah-provider-api = { path = "../../crates/ptah-provider-api", version = "=0.0.0-phase0c" }
 ptah-transfer = { path = "../../crates/ptah-transfer", version = "=0.0.0-phase0c" }
+ptah-node-transfer = { path = "../../crates/ptah-node-transfer", version = "=0.0.0-phase0c" }
 tokio.workspace = true
 rusqlite = { workspace = true, features = ["bundled"] }
 serde.workspace = true
@@ -25,7 +26,6 @@ ring = "=0.17.14"
 ptah-control = { path = "../ptah-control", version = "=0.0.0-phase0c" }
 ptah-placement-runtime = { path = "../../crates/ptah-placement-runtime", version = "=0.0.0-phase0c" }
 ptah-platform-admission = { path = "../../crates/ptah-platform-admission", version = "=0.1.0" }
-ptah-node-transfer = { path = "../../crates/ptah-node-transfer", version = "=0.0.0-phase0c" }
 
 [lints]
 workspace = true

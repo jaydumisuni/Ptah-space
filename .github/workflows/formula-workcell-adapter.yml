@@ -38,6 +38,10 @@ jobs:
         run: cargo test --locked -p ptah-control --lib
       - name: Verify existing E03 TLS and resumed range transfers
         run: cargo test --locked -p ptah-node-transfer --test direct_tls
+      - name: Verify integrated native E03 candidate transfer and interrupted resume
+        run: cargo test --locked -p ptah-control --test formula_e03_readback
+      - name: Strict integrated E03 witness checks
+        run: cargo clippy --locked -p ptah-control --test formula_e03_readback -- -D warnings
       - name: Strict readback lint
         run: cargo clippy --locked -p ptah-control --lib -- -D warnings
       - name: Strict Ptah adapter lint

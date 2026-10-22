@@ -22,6 +22,7 @@ sha2.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+ptah-node-transfer = { path = "../../crates/ptah-node-transfer", version = "=0.0.0-phase0c" }
 ptah-android-runtime = { path = "../../crates/ptah-android-runtime", version = "=0.0.0-phase0c" }
 ptah-device-runtime = { path = "../../crates/ptah-device-runtime", version = "=0.0.0-phase0c" }
 ptah-provider-api = { path = "../../crates/ptah-provider-api", version = "=0.0.0-phase0c" }

@@ -68,8 +68,17 @@ _P13_NODE_AFTER = _E07_NODE_AFTER.replace(
     b' "ptah-control",\n',
     b' "ptah-control",\n "ptah-formula-work-cells",\n', 1)
 
+# Later P13 integration test reuses the existing internal E03 crate through
+# one exact dev-dependency of Ptah Control. Do not waive registry drift.
+_P13_CONTROL_E03_TEST = _P13_CONTROL_AFTER.replace(
+    b' "ptah-node-link",\n',
+    b' "ptah-node-link",\n "ptah-node-transfer",\n', 1)
+
+
 def strip_exact_p13_local_extension(raw: bytes) -> bytes:
     """Undo only the approved P13 local package and exact Control/Node edges."""
+    if raw.count(_P13_CONTROL_E03_TEST) == 1:
+        raw = raw.replace(_P13_CONTROL_E03_TEST, _P13_CONTROL_AFTER, 1)
     if all(marker not in raw for marker in (
             b'name = "ptah-formula-work-cells"',
             b' "ptah-formula-work-cells",\n')):

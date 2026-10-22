@@ -49,7 +49,8 @@ pub struct WitnessedFormulaCandidate {
 }
 
 /// Called after E03 has completed an exact-byte destination readback.
-/// The whole SHA-256 is the E03 completed-file digest, not a wire ack.
+/// The whole SHA-256 is the native E03 64-character lowercase hex digest,
+/// NOT the prefixed Node stdout digest and not a dispatch acknowledgement.
 /// Validity of E03 route/ticket/lease remains the transport owner's duty.
 ///
 /// # Errors
@@ -78,11 +79,15 @@ pub fn witness_candidate(
     if returned_bytes.len() as u64 != e03_expected_size {
         return Err(FormulaReadbackError::IncorrectByteLength);
     }
-    let sha = format!("sha256:{:x}", Sha256::digest(&returned_bytes));
-    if e03_whole_sha256 != sha {
+    // Native E03 tickets and DirectTransferReport use raw lowercase hex.
+    // The independently signed E07 Node stdout digest uses sha256: prefix.
+    // These are distinct wire contracts; never conflate them.
+    let e03_hex = format!("{:x}", Sha256::digest(&returned_bytes));
+    if e03_whole_sha256 != e03_hex {
         return Err(FormulaReadbackError::IncorrectTransferDigest);
     }
-    if node.stdout_digest.as_deref() != Some(sha.as_str()) {
+    let stdout_sha = format!("sha256:{e03_hex}");
+    if node.stdout_digest.as_deref() != Some(stdout_sha.as_str()) {
         return Err(FormulaReadbackError::IncorrectOutputDigest);
     }
     let verified =
@@ -178,7 +183,7 @@ mod tests {
             witness_id: "separately-provisioned-test-witness",
             ed25519_public_key: &pubkey,
         };
-        let sha = format!("sha256:{:x}", Sha256::digest(b"9\n"));
+        let sha = format!("{:x}", Sha256::digest(b"9\n"));
         let result = witness_candidate(
             &work,
             &control,
@@ -205,7 +210,7 @@ mod tests {
             witness_id: "separately-provisioned-test-witness",
             ed25519_public_key: &pubkey,
         };
-        let sha = format!("sha256:{:x}", Sha256::digest(b"9\n"));
+        let sha = format!("{:x}", Sha256::digest(b"9\n"));
         assert_eq!(
             witness_candidate(
                 &work,
@@ -233,6 +238,21 @@ mod tests {
             )
             .unwrap_err(),
             FormulaReadbackError::IncorrectTransferDigest
+        );
+        assert_eq!(
+            witness_candidate(
+                &work,
+                &control,
+                &node,
+                &signed,
+                &trust,
+                &format!("sha256:{sha}"),
+                2,
+                b"9\n".to_vec()
+            )
+            .unwrap_err(),
+            FormulaReadbackError::IncorrectTransferDigest,
+            "E07-prefixed Node digest cannot impersonate E03's raw digest"
         );
         let mut corrupt = signed.clone();
         corrupt.observation.process_identity.push('x');

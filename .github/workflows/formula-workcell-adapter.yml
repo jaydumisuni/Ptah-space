@@ -34,6 +34,12 @@ jobs:
         run: cargo test --locked -p ptah-node --test formula_p13_e07
       - name: Control validates Formula before physical dispatch
         run: cargo test --locked -p ptah-control --bin ptah-e07-control-dispatch
+      - name: Validate signed candidate readback
+        run: cargo test --locked -p ptah-control --lib
+      - name: Verify existing E03 TLS and resumed range transfers
+        run: cargo test --locked -p ptah-node-transfer --test direct_tls
+      - name: Strict readback lint
+        run: cargo clippy --locked -p ptah-control --lib -- -D warnings
       - name: Strict Ptah adapter lint
         run: cargo clippy --locked -p ptah-formula-work-cells --tests -- -D warnings
       - name: Strict Ptah Node and Control integration lint

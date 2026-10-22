@@ -91,6 +91,23 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertIn("E07_CARRIER_PUMP_FAILED:writer",caught[0])
         self.assertFalse(json.loads((Path(self.b)/"ended.json").read_text())["finished"])
 
+    def test_spent_carrier_state_cannot_reopen_a_socket_and_replay_tls_bytes(self):
+        # The same SQLite queue must never be attached to a second TLS session.
+        C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
+        (Path(self.b) / "ended.json").write_text('{"finished":true}')
+        from unittest.mock import patch
+        with patch.object(C.socket, "socket", side_effect=AssertionError("reopened spent carrier")):
+            with self.assertRaisesRegex(ValueError, "newly prepared carrier state"):
+                C.serve(self.b, "accept", 41321)
+
+    def test_claimed_carrier_cannot_start_a_second_socket(self):
+        # The exclusive claim survives a crash before ready.json is published.
+        (Path(self.b) / "serve.claim").write_text("")
+        from unittest.mock import patch
+        with patch.object(C.socket, "socket", side_effect=AssertionError("reopened claimed carrier")):
+            with self.assertRaisesRegex(ValueError, "newly prepared carrier state"):
+                C.serve(self.b, "accept", 41321)
+
     def test_database_handles_are_closed_after_carrier_operations(self):
         import sqlite3
         from unittest.mock import patch

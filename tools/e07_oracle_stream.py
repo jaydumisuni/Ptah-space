@@ -110,6 +110,16 @@ def serve(state, mode, port):
     if mode not in ("accept","dial") or not 1024<=port<=65535:
         raise ValueError("invalid endpoint")
     root=Path(state)
+    # A prepared carrier belongs to exactly one TLS socket lifetime.
+    # The exclusive claim also rejects concurrent attempts before opening a socket.
+    if not root.is_dir() or root.is_symlink() or (root/"ready.json").exists() or (root/"ended.json").exists():
+        raise ValueError("newly prepared carrier state required")
+    try:
+        claim_fd=os.open(root/"serve.claim", os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        raise ValueError("newly prepared carrier state required") from None
+    else:
+        os.close(claim_fd)
     marker=root/"ready.json"
     sock=None
     listener=None

@@ -563,6 +563,7 @@ dependencies = [
  "ptah-identifiers",
  "ptah-node-agent",
  "ptah-node-link",
+ "ptah-node-transfer",
  "ptah-placement-runtime",
  "ptah-platform-admission",
  "ptah-provider-api",

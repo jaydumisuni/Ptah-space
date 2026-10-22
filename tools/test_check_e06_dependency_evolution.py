@@ -101,6 +101,23 @@ class ExactAdditiveE06GraphTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         verified_local_extension(path, historic)
 
+    def test_p13_e03_test_only_local_edge_is_exact_and_no_new_crate_allowed(self):
+        historic = json.loads((ROOT/"dependencies/rust-direct-lock.json").read_text())["cargo_lock"]["sha256"]
+        current = (ROOT/"Cargo.lock").read_bytes()
+        self.assertEqual(verified_local_extension(ROOT/"Cargo.lock",historic),2)
+        block = b' "ptah-node-transfer",\n'
+        beginning = current.index(b'name = "ptah-control"')
+        ending = current.index(b'\n\n',beginning)
+        stanza = current[beginning:ending]
+        self.assertEqual(stanza.count(block),1)
+        forged = current[:beginning] + stanza.replace(
+            block, block+b' "unreviewed-external",\n',1
+        ) + current[ending:]
+        with tempfile.TemporaryDirectory() as folder:
+            f=Path(folder)/"Cargo.lock";f.write_bytes(forged)
+            with self.assertRaises(ValueError):
+                verified_local_extension(f,historic)
+
     def test_webpki_security_patch_keeps_historical_lock_recoverable(self):
         historical = json.loads((ROOT/"dependencies/rust-direct-lock.json").read_text())["cargo_lock"]["sha256"]
         self.assertEqual(verified_local_extension(ROOT/"Cargo.lock", historical), 2)

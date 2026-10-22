@@ -51,3 +51,16 @@ existing native E03 TLS full/range-resume suite. This is a structural/local
 integration qualification, not a new physical two-machine transfer or a
 live external-witness deployment. E03 current-ticket issuance and recovery
 remain native Ptah transport responsibility.
+
+### End-to-end local candidate and recovery proof
+
+The Formula adapter integration test now runs native mutually authenticated
+E03 TLS, retains and resumes a partially transferred candidate artifact,
+verifies its whole-file SHA-256, and binds the final bytes to the existing
+Ed25519 external-effect verifier and Formula candidate-only receipt. Positive
+and negative tests use isolated test-only certificates and signing keys.
+The test never authorizes deployment or mathematical promotion.
+
+This is an actual local E03 transfer/recovery exercise. A separate
+independent witness deployment and fresh physical KRATOS-to-ATHENA E03
+candidate return are still distinct acceptance events, not inferred.

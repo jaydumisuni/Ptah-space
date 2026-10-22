@@ -74,11 +74,23 @@ def snapshot(state, after):
     rows=pull(state,"outbound",after,MAX_BATCH)
     print(json.dumps({"packets":rows,"count":len(rows),"latest":rows[-1]["seq"] if rows else after},separators=(",",":")))
 
+def decode_packet_batch(document):
+    if not isinstance(document, str) or len(document) > MAX_BATCH * (MAX_ENCODED_CHUNK + 64) + 2:
+        raise ValueError("invalid packet batch")
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate packet key")
+            result[key] = value
+        return result
+    return json.loads(document, object_pairs_hook=unique)
+
 def deliver(state, document):
     # Reject oversized RPC envelopes before parsing or decoding attacker-supplied bytes.
     if not isinstance(document, str) or len(document) > MAX_BATCH * (MAX_ENCODED_CHUNK + 64) + 2:
         raise ValueError("invalid packet batch")
-    rows=json.loads(document)
+    rows=decode_packet_batch(document)
     if not isinstance(rows,list) or len(rows)>MAX_BATCH:
         raise ValueError("invalid packet batch")
     with dbtransaction(state) as conn:
@@ -233,7 +245,7 @@ def main():
         # Single authenticated Oracle invocation both commits inbound and
         # obtains outbound. Reduces per-cycle latency for E01 TLS timeouts.
         # Do not print input ciphertext again or mistake it for commands.
-        data=json.loads(a.packets)
+        data=decode_packet_batch(a.packets)
         if data: deliver_quiet(a.state,data)
         time.sleep(.04)
         snapshot(a.state,a.after)

@@ -38,6 +38,27 @@ class OracleCarrierContract(unittest.TestCase):
             C.deliver(self.b, '[{"seq":1,"b64":123}]')
         self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
 
+    def test_duplicate_json_packet_keys_are_rejected_without_committing_bytes(self):
+        # Different JSON decoders must not disagree on packet identity or content.
+        samples = (
+            '[{"seq":1,"seq":2,"b64":"YWJj"}]',
+            '[{"seq":1,"b64":"YWJj","b64":"YWJk"}]',
+        )
+        for sample in samples:
+            with self.subTest(sample=sample):
+                with self.assertRaisesRegex(ValueError, "duplicate packet key"):
+                    C.deliver(self.b, sample)
+                self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
+
+    def test_exchange_rejects_duplicate_packet_keys_before_snapshot(self):
+        from unittest.mock import patch
+        with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                "--state", self.b, "--packets",
+                                '[{"seq":1,"b64":"YWJj","b64":"YWJk"}]']):
+            with self.assertRaisesRegex(ValueError, "duplicate packet key"):
+                C.main()
+        self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
+
     def test_gap_and_conflicting_replay_rejected(self):
         C.deliver(self.b,'[{"seq":1,"b64":"YWJj"}]')
         with self.assertRaisesRegex(ValueError,"out-of-order"):

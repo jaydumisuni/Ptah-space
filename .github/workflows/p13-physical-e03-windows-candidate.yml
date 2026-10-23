@@ -1,0 +1,39 @@
+name: P13 physical E03 Windows test-worker build
+on:
+  pull_request:
+    branches: [integration/formula-ptah-workcell-20261021]
+    paths:
+      - services/ptah-node/tests/p13_physical_e03_crossnode.rs
+      - .github/workflows/p13-physical-e03-windows-candidate.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-native-e03:
+    runs-on: windows-2025
+    timeout-minutes: 50
+    steps:
+      - name: Checkout reviewed Ptah source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Compile native Ptah E03 test worker
+        shell: pwsh
+        run: |
+          cargo test -p ptah-node --test p13_physical_e03_crossnode --no-run --release --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Export short-lived Windows test executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          $candidate = Get-ChildItem target/release/deps -Filter 'p13_physical_e03_crossnode-*.exe' | Select-Object -First 1
+          if (-not $candidate) { throw 'native E03 test worker absent' }
+          Copy-Item -LiteralPath $candidate.FullName -Destination artifacts/ptah-p13-physical-e03.exe
+          Get-FileHash artifacts/ptah-p13-physical-e03.exe -Algorithm SHA256 | Format-List
+      - name: Share only disposable native test binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: p13-physical-e03-windows-one-time
+          path: artifacts/ptah-p13-physical-e03.exe
+          if-no-files-found: error
+          retention-days: 1

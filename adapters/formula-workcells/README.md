@@ -91,3 +91,22 @@ in-process Ptah NodeAgents and a fixture-owned Ed25519 key, all on the
 same test host. It does NOT claim physical KRATOS-to-ATHENA E03 data
 transfer or an independently operated witness service. Native workload
 math promotion still belongs only to Formula.
+
+### Isolated two-host E03 validation runner (2026-10-23)
+
+The opt-in `p13_physical_e03_crossnode` native test runner (never a
+production service) executes the unmodified DirectSourceSession and
+DirectTargetSession over TCP/mTLS and verifies a genuine one-range
+interruption followed by exact-byte resume. Formula canonical candidate
+`9\n` is used; a Control-issued short-lived E03 ticket is created
+under fresh **test-owned** E01 identities. The runner can be compiled on
+Windows by the one-day GitHub CI artifact. This test intentionally embeds
+only the repository's public **test fixture** mTLS certificates; its
+results are proof of physical wire interoperability, not authorization
+to admit that PKI to the production Control plane.
+
+No standing remote dispatch, shared development machine dependency,
+firewall change or new transfer protocol is introduced. A subsequently
+separate independent witness verification is required to claim a fully
+witnessed cross-host Formula execution. The runner's test artifacts
+must be cleaned when the qualification is complete.

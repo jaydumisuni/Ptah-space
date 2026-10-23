@@ -109,6 +109,28 @@ class OracleCarrierContract(unittest.TestCase):
                 external.rename(database)
         self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
 
+    def test_shared_writable_carrier_state_is_rejected_before_database_access(self):
+        import os
+        state = Path(self.b)
+        original_mode = state.stat().st_mode & 0o777
+        try:
+            os.chmod(state, 0o770)
+            with self.assertRaisesRegex(ValueError, "private carrier state directory required"):
+                C.pull(self.b, "inbound", 0, 1)
+        finally:
+            os.chmod(state, original_mode)
+
+    def test_shared_writable_carrier_database_is_rejected_before_sqlite_open(self):
+        import os
+        database = Path(self.b) / "carrier.sqlite3"
+        original_mode = database.stat().st_mode & 0o777
+        try:
+            os.chmod(database, 0o660)
+            with self.assertRaisesRegex(ValueError, "private carrier database required"):
+                C.pull(self.b, "inbound", 0, 1)
+        finally:
+            os.chmod(database, original_mode)
+
     def test_gap_and_conflicting_replay_rejected(self):
         C.deliver(self.b,'[{"seq":1,"b64":"YWJj"}]')
         with self.assertRaisesRegex(ValueError,"out-of-order"):

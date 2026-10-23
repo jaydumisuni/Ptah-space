@@ -32,6 +32,8 @@ def dbconnect(state, create=False):
     root = Path(state)
     if not root.is_dir() or root.is_symlink():
         raise ValueError("existing real state directory required")
+    if stat.S_IMODE(root.stat().st_mode) & 0o077:
+        raise ValueError("private carrier state directory required")
     db_path = root / "carrier.sqlite3"
     if create:
         # Only prepare may create a database, and never over an existing alias.
@@ -43,6 +45,8 @@ def dbconnect(state, create=False):
         raise ValueError("prepared carrier database required") from None
     if not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1:
         raise ValueError("real unaliased carrier database required")
+    if stat.S_IMODE(identity.st_mode) & 0o077:
+        raise ValueError("private carrier database required")
     conn = sqlite3.connect(str(db_path), timeout=7)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=7000")

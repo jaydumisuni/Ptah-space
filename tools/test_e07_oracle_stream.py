@@ -59,6 +59,18 @@ class OracleCarrierContract(unittest.TestCase):
                 C.main()
         self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
 
+    def test_exchange_rejects_non_array_or_oversized_batch_before_snapshot(self):
+        from unittest.mock import patch
+        invalid = ("{}", "null", "false", "0",
+                   json.dumps([None] * (C.MAX_BATCH + 1)))
+        for packets in invalid:
+            with self.subTest(packets=packets):
+                with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                        "--state", self.b, "--packets", packets]):
+                    with self.assertRaisesRegex(ValueError, "invalid packet batch"):
+                        C.main()
+                self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
+
     def test_gap_and_conflicting_replay_rejected(self):
         C.deliver(self.b,'[{"seq":1,"b64":"YWJj"}]')
         with self.assertRaisesRegex(ValueError,"out-of-order"):

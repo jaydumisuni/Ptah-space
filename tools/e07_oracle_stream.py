@@ -165,16 +165,29 @@ def deliver_quiet(state, packets):
     with redirect_stdout(StringIO()):
         deliver(state,json.dumps(packets,separators=(",",":")))
 
+def write_exclusive_marker(path, document):
+    """Create a private lifecycle marker without following or replacing aliases."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as file:
+        json.dump(document, file, separators=(",", ":"))
+        file.flush()
+        os.fsync(file.fileno())
+
 def serve(state, mode, port):
     if mode not in ("accept","dial") or not 1024<=port<=65535:
         raise ValueError("invalid endpoint")
     root=require_unaliased_state_path(state)
     # A prepared carrier belongs to exactly one TLS socket lifetime.
     # The exclusive claim also rejects concurrent attempts before opening a socket.
-    if not root.is_dir() or root.is_symlink() or (root/"ready.json").exists() or (root/"ended.json").exists():
+    if (not root.is_dir() or root.is_symlink()
+            or any(os.path.lexists(root / name) for name in ("ready.json", "ended.json"))):
         raise ValueError("newly prepared carrier state required")
+    # Never claim a TLS socket for an unprepared or non-private state. Reuse
+    # the same SQLite custody checks as snapshot/deliver before any side effect.
+    with dbtransaction(root):
+        pass
     try:
-        claim_fd=os.open(root/"serve.claim", os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        claim_fd=os.open(root/"serve.claim", os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
     except FileExistsError:
         raise ValueError("newly prepared carrier state required") from None
     else:
@@ -189,10 +202,10 @@ def serve(state, mode, port):
         listener.bind(("127.0.0.1",port))
         listener.listen(1)
         listener.settimeout(120)
-        marker.write_text(json.dumps({"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"}))
+        write_exclusive_marker(marker, {"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"})
         sock,_=listener.accept()
     else:
-        marker.write_text(json.dumps({"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"}))
+        write_exclusive_marker(marker, {"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"})
         while time.monotonic()-started<120:
             try:
                 sock=socket.create_connection(("127.0.0.1",port),timeout=3)
@@ -255,7 +268,7 @@ def serve(state, mode, port):
     if a.is_alive() or b.is_alive():
         record_failure("shutdown",RuntimeError("carrier byte pump did not terminate"))
     status={"pid":os.getpid(),"finished":not failures,"failed":bool(failures)}
-    (root/"ended.json").write_text(json.dumps(status))
+    write_exclusive_marker(root/"ended.json", status)
     if failures:
         first=failures[0]
         raise RuntimeError("E07_CARRIER_PUMP_FAILED:"+first[0]+":"+first[1]+":"+first[2])

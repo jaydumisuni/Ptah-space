@@ -263,6 +263,56 @@ class OracleCarrierContract(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "newly prepared carrier state"):
                 C.serve(self.b, "accept", 41321)
 
+    def test_serve_requires_prepared_private_state_before_claiming_socket(self):
+        from unittest.mock import patch
+        import os
+        unprepared = Path(self.temp.name) / "unprepared-serve"
+        unprepared.mkdir(mode=0o700)
+        with patch.object(C.socket, "socket", side_effect=AssertionError("socket opened without database")):
+            with self.assertRaisesRegex(ValueError, "prepared carrier database required"):
+                C.serve(str(unprepared), "accept", 41321)
+        self.assertFalse((unprepared / "serve.claim").exists())
+
+        original = os.stat(self.b).st_mode & 0o777
+        try:
+            os.chmod(self.b, 0o777)
+            with patch.object(C.socket, "socket", side_effect=AssertionError("socket opened on unsafe state")):
+                with self.assertRaisesRegex(ValueError, "private carrier state directory required"):
+                    C.serve(self.b, "accept", 41321)
+            self.assertFalse((Path(self.b) / "serve.claim").exists())
+        finally:
+            os.chmod(self.b, original)
+
+    def test_serve_rejects_dangling_lifecycle_marker_aliases(self):
+        from unittest.mock import patch
+        outside = Path(self.temp.name) / "outside-lifecycle"
+        for name in ("ready.json", "ended.json"):
+            with self.subTest(marker=name):
+                marker = Path(self.b) / name
+                marker.symlink_to(outside)
+                try:
+                    with patch.object(C.socket, "socket", side_effect=AssertionError("socket opened with marker alias")):
+                        with self.assertRaisesRegex(ValueError, "newly prepared carrier state"):
+                            C.serve(self.b, "accept", 41321)
+                    self.assertFalse(outside.exists())
+                    self.assertFalse((Path(self.b) / "serve.claim").exists())
+                finally:
+                    marker.unlink()
+
+    def test_lifecycle_marker_write_cannot_replace_existing_alias(self):
+        outside = Path(self.temp.name) / "marker-target"
+        for name in ("ready.json", "ended.json"):
+            with self.subTest(marker=name):
+                marker = Path(self.b) / name
+                marker.symlink_to(outside)
+                try:
+                    with self.assertRaises(FileExistsError):
+                        C.write_exclusive_marker(marker, {"finished": True})
+                    self.assertFalse(outside.exists())
+                    self.assertTrue(marker.is_symlink())
+                finally:
+                    marker.unlink()
+
     def test_database_handles_are_closed_after_carrier_operations(self):
         import sqlite3
         from unittest.mock import patch

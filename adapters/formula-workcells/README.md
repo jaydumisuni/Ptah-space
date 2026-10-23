@@ -110,3 +110,18 @@ firewall change or new transfer protocol is introduced. A subsequently
 separate independent witness verification is required to claim a fully
 witnessed cross-host Formula execution. The runner's test artifacts
 must be cleaned when the qualification is complete.
+
+### Physical native E03 and separately signed test observation — October 23, 2026
+
+**Observed physical execution, not inferred from CI:**
+
+- KRATOS Control issued a **test-owned** E03 ticket bound to two fixture Node identities, TLS 1.3 and exact one-byte ticket ranges.
+- The KRATOS source accepted two connections from ATHENA. ATHENA ran the **native Windows Ptah E03** test worker built in GitHub run 39935056583 from commit 4fc71fa. The worker SHA-256 was a47582381ef3e51be4e71310fd5b0368f1ff18f0bfe5125c23da0a631fd0b8bd.
+- The first pull persisted 1 byte and was incomplete. A **new TLS connection** recovered the remaining byte while reusing the first verified range. ATHENA's resulting 2 bytes had SHA-256 2e6d31a5983a91251bfae5aefa1c0a19d8ba3cf601d0e8a706b4cfa9661a6b8a. Source and target evidence were read separately through Oracle.
+- A separate ATHENA process reread the candidate and range evidence, generated a fresh Ed25519 observation key (separate from TLS PKI), signed Ptah's domain-separated message and erased the test private key.
+- KRATOS pinned the observer's **public** key independently via owner-authorized Oracle before importing signed evidence. Native Ptah Control accepted the signature and candidate, still **untrusted as mathematics**. Tampered signature, modified bytes and incomplete-attempt negative controls all failed closed. Signed message SHA-256: deb67a9ab46c840d15c1b240628eabeb07c7258770faf44c25eab2509b86126b.
+- Bounded receipts and the test public key reside in KRATOS's existing Formula Cookpit evidence directory. No archived duplicate build tree is retained.
+
+**Scope and release boundary:** This closes **physical E03 test-PKI transfer, interruption/recovery and separate-process signed-witness interoperability**. The physical test's E01 identities, fence, Node-completion facts and signing trust are **test-owned**, not production enrollments or an independently deployed production witness service. No mathematics is promoted. High-trust production admission requires real current production sessions, Node journal completion, externally provisioned witness trust, and separate real provider acceptance; ordinary Formula/ Ptah local execution remains available without that distributed release gate.
+
+The opt-in physical verification Rust test is explicitly ignored during ordinary CI and requires P13_PHYSICAL_EVIDENCE_DIR, P13_PHYSICAL_PLAN and P13_PHYSICAL_SOURCE_EVIDENCE pointing to real on-Node observed files. CI test fixtures must never be relabeled as physical admission.

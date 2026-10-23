@@ -67,6 +67,8 @@ def dbconnect(state, create=False):
             continue
         if not stat.S_ISREG(sidecar_identity.st_mode) or sidecar_identity.st_nlink != 1:
             raise ValueError("real unaliased carrier sidecar required")
+        if stat.S_IMODE(sidecar_identity.st_mode) & 0o077:
+            raise ValueError("private carrier sidecar required")
     conn = sqlite3.connect(str(db_path), timeout=7)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=7000")

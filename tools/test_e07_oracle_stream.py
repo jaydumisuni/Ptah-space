@@ -161,6 +161,25 @@ class OracleCarrierContract(unittest.TestCase):
                 finally:
                     alias.unlink()
 
+    def test_sqlite_sidecar_shared_permissions_are_rejected_before_open(self):
+        # SQLite can read or modify pre-existing WAL/SHM/journal files.
+        # Sidecars must not admit readers or writers outside the carrier owner.
+        import os
+        from unittest.mock import patch
+        for suffix in ("-wal", "-shm", "-journal"):
+            for mode in (0o644, 0o666):
+                with self.subTest(suffix=suffix, mode=oct(mode)):
+                    sidecar = Path(self.b) / ("carrier.sqlite3" + suffix)
+                    sidecar.write_bytes(b"untrusted sidecar")
+                    os.chmod(sidecar, mode)
+                    try:
+                        with patch.object(C.sqlite3, "connect", side_effect=AssertionError("SQLite opened shared sidecar")):
+                            with self.assertRaisesRegex(ValueError, "private carrier sidecar required"):
+                                C.pull(self.b, "inbound", 0, 1)
+                        self.assertEqual(sidecar.read_bytes(), b"untrusted sidecar")
+                    finally:
+                        sidecar.unlink()
+
     def test_shared_writable_carrier_state_is_rejected_before_database_access(self):
         import os
         state = Path(self.b)

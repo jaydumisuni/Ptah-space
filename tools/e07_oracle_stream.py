@@ -246,6 +246,8 @@ def main():
         # obtains outbound. Reduces per-cycle latency for E01 TLS timeouts.
         # Do not print input ciphertext again or mistake it for commands.
         data=decode_packet_batch(a.packets)
+        if not isinstance(data, list) or len(data) > MAX_BATCH:
+            raise ValueError("invalid packet batch")
         if data: deliver_quiet(a.state,data)
         time.sleep(.04)
         snapshot(a.state,a.after)

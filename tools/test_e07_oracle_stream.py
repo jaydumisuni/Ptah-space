@@ -59,6 +59,28 @@ class OracleCarrierContract(unittest.TestCase):
                 C.main()
         self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
 
+    def test_exchange_rejects_non_array_envelopes_without_mutating_inbound(self):
+        from unittest.mock import patch
+        for sample in ('{}', 'null', 'false', '0', '""', '{"packets":[]}'):
+            with self.subTest(sample=sample):
+                with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                        "--state", self.b, "--packets", sample]):
+                    with self.assertRaisesRegex(ValueError, "invalid packet batch"):
+                        C.main()
+                self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
+
+    def test_exchange_empty_array_remains_valid_snapshot_poll(self):
+        from unittest.mock import patch
+        from contextlib import redirect_stdout
+        from io import StringIO
+        output = StringIO()
+        with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                "--state", self.b, "--packets", "[]"]):
+            with redirect_stdout(output):
+                C.main()
+        self.assertEqual(json.loads(output.getvalue())["packets"], [])
+        self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
+
     def test_gap_and_conflicting_replay_rejected(self):
         C.deliver(self.b,'[{"seq":1,"b64":"YWJj"}]')
         with self.assertRaisesRegex(ValueError,"out-of-order"):

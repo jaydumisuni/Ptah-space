@@ -28,8 +28,17 @@ MAX_BATCH = 32
 MAX_TOTAL = 8 * 1024 * 1024
 MAX_RUNTIME = 300
 
-def dbconnect(state, create=False):
+def require_unaliased_state_path(state):
+    # Preserve lexical path identity: resolving first would hide symlink parents.
     root = Path(state)
+    if ".." in root.parts:
+        raise ValueError("carrier state parent traversal prohibited")
+    if any(parent.is_symlink() for parent in root.parents):
+        raise ValueError("symlinked carrier state ancestor prohibited")
+    return root
+
+def dbconnect(state, create=False):
+    root = require_unaliased_state_path(state)
     if not root.is_dir() or root.is_symlink():
         raise ValueError("existing real state directory required")
     if stat.S_IMODE(root.stat().st_mode) & 0o077:
@@ -66,7 +75,7 @@ def dbtransaction(state):
         conn.close()
 
 def prepare(state):
-    p = Path(state)
+    p = require_unaliased_state_path(state)
     if p.exists():
         raise ValueError("state must be newly created; cannot reuse production paths")
     p.mkdir(parents=True, mode=0o700)
@@ -148,7 +157,7 @@ def deliver_quiet(state, packets):
 def serve(state, mode, port):
     if mode not in ("accept","dial") or not 1024<=port<=65535:
         raise ValueError("invalid endpoint")
-    root=Path(state)
+    root=require_unaliased_state_path(state)
     # A prepared carrier belongs to exactly one TLS socket lifetime.
     # The exclusive claim also rejects concurrent attempts before opening a socket.
     if not root.is_dir() or root.is_symlink() or (root/"ready.json").exists() or (root/"ended.json").exists():

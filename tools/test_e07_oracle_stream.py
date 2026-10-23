@@ -109,6 +109,23 @@ class OracleCarrierContract(unittest.TestCase):
                 external.rename(database)
         self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
 
+    def test_symlinked_state_ancestor_cannot_read_or_create_carrier_database(self):
+        real = Path(self.temp.name) / "real-parent"
+        real.mkdir(mode=0o700)
+        alias = Path(self.temp.name) / "alias-parent"
+        alias.symlink_to(real, target_is_directory=True)
+        C.prepare(str(real / "prepared"))
+        with self.assertRaisesRegex(ValueError, "symlinked carrier state ancestor"):
+            C.pull(str(alias / "prepared"), "inbound", 0, 1)
+        with self.assertRaisesRegex(ValueError, "symlinked carrier state ancestor"):
+            C.prepare(str(alias / "new-state"))
+        self.assertFalse((real / "new-state").exists())
+
+    def test_parent_traversal_state_path_rejected_before_sqlite_open(self):
+        state = str(Path(self.b) / ".." / "athena")
+        with self.assertRaisesRegex(ValueError, "carrier state parent traversal"):
+            C.pull(state, "inbound", 0, 1)
+
     def test_shared_writable_carrier_state_is_rejected_before_database_access(self):
         import os
         state = Path(self.b)

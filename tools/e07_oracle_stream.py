@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import socket
 import sqlite3
+import stat
 import sys
 import threading
 import time
@@ -27,11 +28,22 @@ MAX_BATCH = 32
 MAX_TOTAL = 8 * 1024 * 1024
 MAX_RUNTIME = 300
 
-def dbconnect(state):
+def dbconnect(state, create=False):
     root = Path(state)
     if not root.is_dir() or root.is_symlink():
         raise ValueError("existing real state directory required")
-    conn = sqlite3.connect(str(root / "carrier.sqlite3"), timeout=7)
+    db_path = root / "carrier.sqlite3"
+    if create:
+        # Only prepare may create a database, and never over an existing alias.
+        fd = os.open(db_path, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        os.close(fd)
+    try:
+        identity = db_path.lstat()
+    except FileNotFoundError:
+        raise ValueError("prepared carrier database required") from None
+    if not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1:
+        raise ValueError("real unaliased carrier database required")
+    conn = sqlite3.connect(str(db_path), timeout=7)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=7000")
     conn.execute("CREATE TABLE IF NOT EXISTS outbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
@@ -54,7 +66,7 @@ def prepare(state):
     if p.exists():
         raise ValueError("state must be newly created; cannot reuse production paths")
     p.mkdir(parents=True, mode=0o700)
-    conn = dbconnect(p)
+    conn = dbconnect(p, create=True)
     conn.close()
     print(json.dumps({"state":str(p),"new":True,"listener":"loopback_only"}))
 

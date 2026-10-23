@@ -81,6 +81,34 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["packets"], [])
         self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
 
+    def test_unprepared_state_cannot_create_database_on_read(self):
+        empty = Path(self.temp.name) / "unprepared"
+        empty.mkdir(mode=0o700)
+        with self.assertRaisesRegex(ValueError, "prepared carrier database required"):
+            C.pull(str(empty), "outbound", 0, 1)
+        self.assertFalse((empty / "carrier.sqlite3").exists())
+
+    def test_database_symlink_and_hardlink_aliases_are_rejected(self):
+        import os
+        database = Path(self.b) / "carrier.sqlite3"
+        external = Path(self.temp.name) / "external.sqlite3"
+        database.rename(external)
+        try:
+            database.symlink_to(external)
+            with self.assertRaisesRegex(ValueError, "unaliased carrier database"):
+                C.pull(self.b, "inbound", 0, 1)
+            database.unlink()
+            os.link(external, database)
+            with self.assertRaisesRegex(ValueError, "unaliased carrier database"):
+                C.deliver(self.b, '[{"seq":1,"b64":"YWJj"}]')
+            database.unlink()
+        finally:
+            if database.is_symlink():
+                database.unlink()
+            if not database.exists() and external.exists():
+                external.rename(database)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
     def test_gap_and_conflicting_replay_rejected(self):
         C.deliver(self.b,'[{"seq":1,"b64":"YWJj"}]')
         with self.assertRaisesRegex(ValueError,"out-of-order"):

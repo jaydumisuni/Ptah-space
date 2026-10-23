@@ -56,6 +56,17 @@ def dbconnect(state, create=False):
         raise ValueError("real unaliased carrier database required")
     if stat.S_IMODE(identity.st_mode) & 0o077:
         raise ValueError("private carrier database required")
+    # SQLite may open these companion files implicitly. Reject pre-existing
+    # aliases before giving SQLite the path; this is not a race-free dirfd
+    # custody proof and does not replace independent E07 qualification.
+    for suffix in ("-wal", "-shm", "-journal"):
+        sidecar = db_path.with_name(db_path.name + suffix)
+        try:
+            sidecar_identity = sidecar.lstat()
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(sidecar_identity.st_mode) or sidecar_identity.st_nlink != 1:
+            raise ValueError("real unaliased carrier sidecar required")
     conn = sqlite3.connect(str(db_path), timeout=7)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=7000")

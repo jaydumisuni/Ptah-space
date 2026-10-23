@@ -126,6 +126,41 @@ class OracleCarrierContract(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "carrier state parent traversal"):
             C.pull(state, "inbound", 0, 1)
 
+    def test_sqlite_sidecar_symlink_aliases_are_rejected_before_open(self):
+        from unittest.mock import patch
+        external = Path(self.temp.name) / "external-journal"
+        external.write_bytes(b"outside carrier state")
+        for suffix in ("-wal", "-shm", "-journal"):
+            with self.subTest(suffix=suffix):
+                alias = Path(self.b) / ("carrier.sqlite3" + suffix)
+                self.assertFalse(alias.exists() or alias.is_symlink())
+                alias.symlink_to(external)
+                try:
+                    with patch.object(C.sqlite3, "connect", side_effect=AssertionError("SQLite opened untrusted sidecar")):
+                        with self.assertRaisesRegex(ValueError, "unaliased carrier sidecar"):
+                            C.pull(self.b, "inbound", 0, 1)
+                    self.assertEqual(external.read_bytes(), b"outside carrier state")
+                finally:
+                    alias.unlink()
+
+    def test_sqlite_sidecar_hardlink_aliases_are_rejected_before_open(self):
+        import os
+        from unittest.mock import patch
+        external = Path(self.temp.name) / "external-hardlinked-journal"
+        external.write_bytes(b"outside carrier state")
+        for suffix in ("-wal", "-shm", "-journal"):
+            with self.subTest(suffix=suffix):
+                alias = Path(self.b) / ("carrier.sqlite3" + suffix)
+                self.assertFalse(alias.exists() or alias.is_symlink())
+                os.link(external, alias)
+                try:
+                    with patch.object(C.sqlite3, "connect", side_effect=AssertionError("SQLite opened untrusted sidecar")):
+                        with self.assertRaisesRegex(ValueError, "unaliased carrier sidecar"):
+                            C.pull(self.b, "inbound", 0, 1)
+                    self.assertEqual(external.read_bytes(), b"outside carrier state")
+                finally:
+                    alias.unlink()
+
     def test_shared_writable_carrier_state_is_rejected_before_database_access(self):
         import os
         state = Path(self.b)

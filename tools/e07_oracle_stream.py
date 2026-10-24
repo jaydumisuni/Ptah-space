@@ -31,6 +31,7 @@ if os.name == "nt":
     _win_module = importlib.util.module_from_spec(_win_spec)
     _win_spec.loader.exec_module(_win_module)
     windows_private_acl = _win_module.validate_private_windows
+    windows_claim_new_owner = _win_module.claim_new_windows_owner
 
 MAX_CHUNK = 32768
 MAX_ENCODED_CHUNK = 4 * ((MAX_CHUNK + 2) // 3)
@@ -90,6 +91,8 @@ def dbconnect(state, create=False):
         # Only prepare may create a database, and never over an existing alias.
         fd = os.open(db_path, exclusive_open_flags(os.O_RDWR), 0o600)
         os.close(fd)
+        if os.name == "nt":
+            windows_claim_new_owner(db_path)
     try:
         identity = db_path.lstat()
     except FileNotFoundError:
@@ -100,11 +103,13 @@ def dbconnect(state, create=False):
     # SQLite may open these companion files implicitly. Reject pre-existing
     # aliases before giving SQLite the path; this is not a race-free dirfd
     # custody proof and does not replace independent E07 qualification.
+    missing_sidecars = []
     for suffix in ("-wal", "-shm", "-journal"):
         sidecar = db_path.with_name(db_path.name + suffix)
         try:
             sidecar_identity = sidecar.lstat()
         except FileNotFoundError:
+            missing_sidecars.append(sidecar)
             continue
         if (not stat.S_ISREG(sidecar_identity.st_mode) or sidecar_identity.st_nlink != 1
                 or is_path_alias(sidecar)):
@@ -116,6 +121,23 @@ def dbconnect(state, create=False):
     conn.execute("CREATE TABLE IF NOT EXISTS outbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
     conn.execute("CREATE TABLE IF NOT EXISTS inbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
     conn.commit()
+    if os.name == "nt":
+        try:
+            # SQLite may create WAL/SHM files after the pre-open check.
+            # Only freshly created sidecars may be assigned TokenUser;
+            # existing foreign-owned sidecars must remain rejected.
+            for sidecar in missing_sidecars:
+                if not os.path.lexists(sidecar):
+                    continue
+                identity = sidecar.lstat()
+                if (not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1
+                        or is_path_alias(sidecar)):
+                    raise ValueError("real unaliased carrier sidecar required")
+                windows_claim_new_owner(sidecar)
+                require_private_custody(sidecar, sidecar.lstat(), "sidecar")
+        except Exception:
+            conn.close()
+            raise
     return conn
 
 @contextmanager
@@ -133,6 +155,8 @@ def prepare(state):
     if p.exists():
         raise ValueError("state must be newly created; cannot reuse production paths")
     p.mkdir(parents=True, mode=0o700)
+    if os.name == "nt":
+        windows_claim_new_owner(p)
     conn = dbconnect(p, create=True)
     conn.close()
     print(json.dumps({"state":str(p),"new":True,"listener":"loopback_only"}))

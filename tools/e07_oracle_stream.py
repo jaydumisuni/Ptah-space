@@ -31,6 +31,8 @@ MAX_RUNTIME = 300
 def require_unaliased_state_path(state):
     # Preserve lexical path identity: resolving first would hide symlink parents.
     root = Path(state)
+    if not root.is_absolute():
+        raise ValueError("absolute carrier state path required")
     if ".." in root.parts:
         raise ValueError("carrier state parent traversal prohibited")
     if any(parent.is_symlink() for parent in root.parents):

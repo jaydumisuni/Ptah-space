@@ -68,6 +68,20 @@ fn trusted_journal_ancestor(mode: u32, owner_uid: u32, effective_uid: u32) -> bo
     (owner_uid == 0 || owner_uid == effective_uid) && ((mode & 0o022) == 0 || (mode & 0o1000) != 0)
 }
 
+// Resolve a relative journal once. Preflight, creation, sidecar checks and
+// SQLite must all use the same anchored pathname even if another thread
+// changes the process working directory during this call.
+#[cfg(unix)]
+fn anchor_journal_path(path: &Path) -> Result<std::path::PathBuf, DurableIntentError> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()
+            .map_err(|_| DurableIntentError::Integrity("journal cwd unavailable"))?
+            .join(path))
+    }
+}
+
 pub struct DurableIntentJournal {
     pub(crate) db: Connection,
 }
@@ -191,6 +205,10 @@ impl DurableIntentJournal {
     /// # Errors
     /// Rejects symlinks, corrupt journal rows/cursors and SQLite errors.
     pub fn open(path: &Path) -> Result<Self, DurableIntentError> {
+        #[cfg(unix)]
+        let anchored_path = anchor_journal_path(path)?;
+        #[cfg(unix)]
+        let path = anchored_path.as_path();
         // Only a file freshly created by this call may initialize tables.
         // Do not silently erase reconciliation history when an existing
         // journal's receipts table disappears.
@@ -206,17 +224,10 @@ impl DurableIntentJournal {
             // A journal beneath a symlinked parent must not be created in the
             // symlink target. This checks every lexical ancestor before SQLite
             // opens the path; it does not claim to prevent concurrent renames.
-            // A bare relative filename has an empty lexical parent. Anchor
-            // it to the real current directory before checking ancestry.
-            let absolute_path = if path.is_absolute() {
-                path.to_path_buf()
-            } else {
-                std::env::current_dir()
-                    .map_err(|_| DurableIntentError::Integrity("journal cwd unavailable"))?
-                    .join(path)
-            };
+            // Relative paths have already been anchored for every operation,
+            // including the SQLite open, not just the ancestor preflight.
             let effective_uid = nix::unistd::geteuid().as_raw();
-            let mut parent = absolute_path.parent();
+            let mut parent = path.parent();
             while let Some(ancestor) = parent {
                 if ancestor.as_os_str().is_empty() {
                     break;
@@ -685,7 +696,18 @@ mod sequence_codec_tests {
 
 #[cfg(all(test, unix))]
 mod ancestor_custody_tests {
-    use super::trusted_journal_ancestor;
+    use super::{anchor_journal_path, trusted_journal_ancestor};
+    use std::path::Path;
+
+    #[test]
+    fn relative_journal_name_is_anchored_for_preflight_and_sqlite() {
+        let relative = Path::new("ptah-relative-journal.sqlite");
+        let expected = std::env::current_dir().unwrap().join(relative);
+        let anchored = anchor_journal_path(relative).unwrap();
+        assert!(anchored.is_absolute());
+        assert_eq!(anchored, expected);
+        assert_eq!(anchor_journal_path(&anchored).unwrap(), anchored);
+    }
 
     #[test]
     fn foreign_owner_cannot_control_journal_ancestry() {

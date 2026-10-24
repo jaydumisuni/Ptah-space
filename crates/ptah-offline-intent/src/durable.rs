@@ -65,8 +65,7 @@ impl IntentDraft {
 // Sticky writable directories are safe only when owned by that trusted set.
 #[cfg(unix)]
 fn trusted_journal_ancestor(mode: u32, owner_uid: u32, effective_uid: u32) -> bool {
-    (owner_uid == 0 || owner_uid == effective_uid)
-        && ((mode & 0o022) == 0 || (mode & 0o1000) != 0)
+    (owner_uid == 0 || owner_uid == effective_uid) && ((mode & 0o022) == 0 || (mode & 0o1000) != 0)
 }
 
 pub struct DurableIntentJournal {

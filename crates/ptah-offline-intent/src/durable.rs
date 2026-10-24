@@ -60,6 +60,28 @@ impl IntentDraft {
     }
 }
 
+// A foreign directory owner can rename journal descendants even when the
+// directory has mode 0755. Only our own or root-owned ancestors are trusted.
+// Sticky writable directories are safe only when owned by that trusted set.
+#[cfg(unix)]
+fn trusted_journal_ancestor(mode: u32, owner_uid: u32, effective_uid: u32) -> bool {
+    (owner_uid == 0 || owner_uid == effective_uid) && ((mode & 0o022) == 0 || (mode & 0o1000) != 0)
+}
+
+// Resolve a relative journal once. Preflight, creation, sidecar checks and
+// SQLite must all use the same anchored pathname even if another thread
+// changes the process working directory during this call.
+#[cfg(unix)]
+fn anchor_journal_path(path: &Path) -> Result<std::path::PathBuf, DurableIntentError> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()
+            .map_err(|_| DurableIntentError::Integrity("journal cwd unavailable"))?
+            .join(path))
+    }
+}
+
 pub struct DurableIntentJournal {
     pub(crate) db: Connection,
 }
@@ -183,6 +205,10 @@ impl DurableIntentJournal {
     /// # Errors
     /// Rejects symlinks, corrupt journal rows/cursors and SQLite errors.
     pub fn open(path: &Path) -> Result<Self, DurableIntentError> {
+        #[cfg(unix)]
+        let anchored_path = anchor_journal_path(path)?;
+        #[cfg(unix)]
+        let path = anchored_path.as_path();
         // Only a file freshly created by this call may initialize tables.
         // Do not silently erase reconciliation history when an existing
         // journal's receipts table disappears.
@@ -198,6 +224,9 @@ impl DurableIntentJournal {
             // A journal beneath a symlinked parent must not be created in the
             // symlink target. This checks every lexical ancestor before SQLite
             // opens the path; it does not claim to prevent concurrent renames.
+            // Relative paths have already been anchored for every operation,
+            // including the SQLite open, not just the ancestor preflight.
+            let effective_uid = nix::unistd::geteuid().as_raw();
             let mut parent = path.parent();
             while let Some(ancestor) = parent {
                 if ancestor.as_os_str().is_empty() {
@@ -206,7 +235,11 @@ impl DurableIntentJournal {
                 let metadata = ancestor.symlink_metadata().map_err(|_| {
                     DurableIntentError::Integrity("journal ancestor metadata failed")
                 })?;
-                if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                let mode = metadata.permissions().mode();
+                if metadata.file_type().is_symlink()
+                    || !metadata.is_dir()
+                    || !trusted_journal_ancestor(mode, metadata.uid(), effective_uid)
+                {
                     return Err(DurableIntentError::Integrity("unsafe journal ancestor"));
                 }
                 parent = ancestor.parent();
@@ -658,5 +691,39 @@ mod sequence_codec_tests {
         assert!(decode_sequence("00000000000000000000").is_err());
         assert!(decode_sequence("1").is_err());
         assert!(decode_sequence("18446744073709551616").is_err());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod ancestor_custody_tests {
+    use super::{anchor_journal_path, trusted_journal_ancestor};
+    use std::path::Path;
+
+    #[test]
+    fn relative_journal_name_is_anchored_for_preflight_and_sqlite() {
+        let relative = Path::new("ptah-relative-journal.sqlite");
+        let expected = std::env::current_dir().unwrap().join(relative);
+        let anchored = anchor_journal_path(relative).unwrap();
+        assert!(anchored.is_absolute());
+        assert_eq!(anchored, expected);
+        assert_eq!(anchor_journal_path(&anchored).unwrap(), anchored);
+    }
+
+    #[test]
+    fn foreign_owner_cannot_control_journal_ancestry() {
+        // Mode 0755 does not prevent the directory owner from renaming
+        // children. A foreign sticky directory is not a trusted exception.
+        assert!(!trusted_journal_ancestor(0o755, 1002, 1001));
+        assert!(!trusted_journal_ancestor(0o1777, 1002, 1001));
+        assert!(!trusted_journal_ancestor(0o777, 1002, 1001));
+    }
+
+    #[test]
+    fn trusted_private_and_root_sticky_ancestors_remain_usable() {
+        assert!(trusted_journal_ancestor(0o700, 1001, 1001));
+        assert!(trusted_journal_ancestor(0o755, 0, 1001));
+        assert!(trusted_journal_ancestor(0o1777, 0, 1001));
+        assert!(!trusted_journal_ancestor(0o777, 0, 1001));
+        assert!(!trusted_journal_ancestor(0o775, 1001, 1001));
     }
 }

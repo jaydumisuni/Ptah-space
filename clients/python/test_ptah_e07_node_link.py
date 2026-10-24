@@ -57,5 +57,111 @@ class NodeLinkProtocolTests(unittest.TestCase):
         self.assertIn("ptah_second_user_login",source)
 
 
+    def test_join_rejects_noncanonical_hello_counters_before_transport(self):
+        from unittest.mock import patch
+        good = {"node_id": "test-node", "node_generation": 1, "connection_epoch": 2}
+        for field, bad in (("node_generation", True), ("connection_epoch", -1),
+                           ("node_generation", 1 << 64), ("connection_epoch", "2")):
+            with self.subTest(field=field, bad=bad):
+                hello = dict(good, **{field: bad})
+                with patch.object(link.socket, "create_connection",
+                                  side_effect=AssertionError("untrusted Hello reached transport")):
+                    with self.assertRaisesRegex(link.LinkFailure, "invalid_node_hello"):
+                        link.join("localhost", 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello, expected_node_id="test-node")
+
+    def test_join_rejects_missing_identity_fields_before_transport(self):
+        from unittest.mock import patch
+        for missing in ("node_generation", "connection_epoch"):
+            with self.subTest(missing=missing):
+                hello = {"node_id": "test-node", "node_generation": 1,
+                         "connection_epoch": 2}
+                hello.pop(missing)
+                with patch.object(link.socket, "create_connection",
+                                  side_effect=AssertionError("untrusted Hello reached transport")):
+                    with self.assertRaisesRegex(link.LinkFailure, "invalid_node_hello"):
+                        link.join("localhost", 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello, expected_node_id="test-node")
+
+    def test_join_rejects_boolean_ack_counter_alias_before_heartbeat(self):
+        from unittest.mock import patch
+        from contextlib import nullcontext
+
+        class FakeTLS(MemorySocket):
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def settimeout(self, value):
+                pass
+            def version(self):
+                return "TLSv1.3"
+
+        class FakeContext:
+            def __init__(self, *args):
+                pass
+            def load_verify_locations(self, **kwargs):
+                pass
+            def load_cert_chain(self, **kwargs):
+                pass
+            def wrap_socket(self, sock, **kwargs):
+                return sock
+
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        for field, bad in (("node_generation", True), ("connection_epoch", 2.0),
+                           ("node_generation", 1.0)):
+            with self.subTest(field=field, bad=bad):
+                ack = {"kind": "hello_ack", "payload": {
+                    "node_id": "test-node", "node_generation": 1,
+                    "connection_epoch": 2, "selected_version": {"major": 1, "minor": 0}}}
+                ack["payload"][field] = bad
+                payload = json.dumps(ack).encode("utf-8")
+                tls = FakeTLS(struct.pack(">I", len(payload)) + payload)
+                with patch.object(link.ssl, "SSLContext", FakeContext), patch.object(
+                    link.socket, "create_connection", return_value=nullcontext(tls)):
+                    with self.assertRaisesRegex(link.LinkFailure, "mismatched_" + field):
+                        link.join("localhost", 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello, expected_node_id="test-node")
+                raw = bytes(tls.sent)
+                self.assertEqual(len(raw), 4 + struct.unpack(">I", raw[:4])[0],
+                                 "no heartbeat or Close may follow a malformed HelloAck")
+
+        for invalid_version in ({"major": True, "minor": 0},
+                                {"major": 1, "minor": 0.0}):
+            with self.subTest(version=invalid_version):
+                ack = {"kind": "hello_ack", "payload": {
+                    "node_id": "test-node", "node_generation": 1,
+                    "connection_epoch": 2, "selected_version": invalid_version}}
+                payload = json.dumps(ack).encode("utf-8")
+                tls = FakeTLS(struct.pack(">I", len(payload)) + payload)
+                with patch.object(link.ssl, "SSLContext", FakeContext), patch.object(
+                    link.socket, "create_connection", return_value=nullcontext(tls)):
+                    with self.assertRaisesRegex(link.LinkFailure, "wrong_e01_version"):
+                        link.join("localhost", 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello, expected_node_id="test-node")
+                raw = bytes(tls.sent)
+                self.assertEqual(len(raw), 4 + struct.unpack(">I", raw[:4])[0])
+
+        valid = {"kind": "hello_ack", "payload": {
+            "node_id": "test-node", "node_generation": 1,
+            "connection_epoch": 2, "selected_version": {"major": 1, "minor": 0}}}
+        payload = json.dumps(valid).encode("utf-8")
+        tls = FakeTLS(struct.pack(">I", len(payload)) + payload)
+        with patch.object(link.ssl, "SSLContext", FakeContext), patch.object(
+            link.socket, "create_connection", return_value=nullcontext(tls)):
+            result = link.join("localhost", 2345, Path("ca"), Path("cert"),
+                               Path("key"), hello=hello, expected_node_id="test-node")
+        self.assertEqual(result["heartbeats_sent"], 2)
+        self.assertFalse(result["remote_execution_claimed"])
+        kinds = []
+        sent = memoryview(tls.sent)
+        while sent:
+            size = struct.unpack(">I", sent[:4])[0]
+            kinds.append(json.loads(bytes(sent[4:4+size]))["kind"])
+            sent = sent[4+size:]
+        self.assertEqual(kinds, ["hello", "heartbeat", "heartbeat", "close"])
+
+
 if __name__=="__main__":
     unittest.main()

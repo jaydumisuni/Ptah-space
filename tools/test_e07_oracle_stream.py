@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import socket
 import tempfile
 import threading
@@ -19,6 +20,32 @@ class OracleCarrierContract(unittest.TestCase):
         self.b=str(Path(self.temp.name)/"athena")
         C.prepare(self.a)
         C.prepare(self.b)
+    @unittest.skipUnless(os.name == "nt", "Windows ACL integration")
+    def test_windows_real_acl_custody_allows_fresh_private_carrier(self):
+        # Real native owner/DACL admission is exercised, not mocked.
+        C.windows_private_acl(Path(self.a))
+        C.windows_private_acl(Path(self.a) / "carrier.sqlite3")
+        C.publish(self.a, "outbound", b"windows-private-carrier")
+        self.assertEqual(len(C.pull(self.a, "outbound", 0, 1)), 1)
+
+    @unittest.skipUnless(os.name == "nt", "Windows ACL integration")
+    def test_windows_acl_rejection_precedes_sqlite_access(self):
+        from unittest.mock import patch
+        with patch.object(C, "windows_private_acl",
+                          side_effect=ValueError("private carrier Windows ACL grants other principals")):
+            with patch.object(C.sqlite3, "connect",
+                              side_effect=AssertionError("SQLite opened untrusted Windows ACL")):
+                with self.assertRaisesRegex(ValueError, "Windows ACL grants other principals"):
+                    C.pull(self.b, "inbound", 0, 1)
+
+    @unittest.skipUnless(os.name == "nt", "Windows exclusive-create integration")
+    def test_windows_exclusive_creation_does_not_replace_existing_marker(self):
+        marker = Path(self.b) / "ready.json"
+        marker.write_text("existing", encoding="utf-8")
+        with self.assertRaises(FileExistsError):
+            C.write_exclusive_marker(marker, {"ready": True})
+        self.assertEqual(marker.read_text(encoding="utf-8"), "existing")
+
     def test_relative_carrier_state_rejected_before_filesystem_or_sqlite_use(self):
         from unittest.mock import patch
         for state in ("relative-carrier", "./relative-carrier"):
@@ -98,6 +125,7 @@ class OracleCarrierContract(unittest.TestCase):
             C.pull(str(empty), "outbound", 0, 1)
         self.assertFalse((empty / "carrier.sqlite3").exists())
 
+    @unittest.skipIf(os.name == "nt", "POSIX modes or privileged symlinks")
     def test_database_symlink_and_hardlink_aliases_are_rejected(self):
         import os
         database = Path(self.b) / "carrier.sqlite3"
@@ -119,6 +147,7 @@ class OracleCarrierContract(unittest.TestCase):
                 external.rename(database)
         self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
 
+    @unittest.skipIf(os.name == "nt", "POSIX modes or privileged symlinks")
     def test_symlinked_state_ancestor_cannot_read_or_create_carrier_database(self):
         real = Path(self.temp.name) / "real-parent"
         real.mkdir(mode=0o700)
@@ -136,6 +165,7 @@ class OracleCarrierContract(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "carrier state parent traversal"):
             C.pull(state, "inbound", 0, 1)
 
+    @unittest.skipIf(os.name == "nt", "POSIX modes or privileged symlinks")
     def test_sqlite_sidecar_symlink_aliases_are_rejected_before_open(self):
         from unittest.mock import patch
         external = Path(self.temp.name) / "external-journal"
@@ -171,6 +201,7 @@ class OracleCarrierContract(unittest.TestCase):
                 finally:
                     alias.unlink()
 
+    @unittest.skipIf(os.name == "nt", "POSIX modes or privileged symlinks")
     def test_sqlite_sidecar_shared_permissions_are_rejected_before_open(self):
         # SQLite can read or modify pre-existing WAL/SHM/journal files.
         # Sidecars must not admit readers or writers outside the carrier owner.
@@ -190,6 +221,7 @@ class OracleCarrierContract(unittest.TestCase):
                     finally:
                         sidecar.unlink()
 
+    @unittest.skipIf(os.name == "nt", "POSIX modes or privileged symlinks")
     def test_shared_writable_carrier_state_is_rejected_before_database_access(self):
         import os
         state = Path(self.b)
@@ -201,6 +233,7 @@ class OracleCarrierContract(unittest.TestCase):
         finally:
             os.chmod(state, original_mode)
 
+    @unittest.skipIf(os.name == "nt", "POSIX modes or privileged symlinks")
     def test_shared_writable_carrier_database_is_rejected_before_sqlite_open(self):
         import os
         database = Path(self.b) / "carrier.sqlite3"
@@ -212,6 +245,7 @@ class OracleCarrierContract(unittest.TestCase):
         finally:
             os.chmod(database, original_mode)
 
+    @unittest.skipIf(os.name == "nt", "POSIX modes or privileged symlinks")
     def test_foreign_owned_carrier_state_is_rejected_before_sqlite_open(self):
         import os
         from unittest.mock import patch
@@ -220,6 +254,7 @@ class OracleCarrierContract(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "carrier state owner"):
                     C.pull(self.b, "inbound", 0, 1)
 
+    @unittest.skipIf(os.name == "nt", "POSIX modes or privileged symlinks")
     def test_foreign_owned_database_is_rejected_before_sqlite_open(self):
         from types import SimpleNamespace
         from unittest.mock import patch
@@ -238,6 +273,7 @@ class OracleCarrierContract(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "carrier database owner"):
                     C.pull(self.b, "inbound", 0, 1)
 
+    @unittest.skipIf(os.name == "nt", "POSIX modes or privileged symlinks")
     def test_foreign_owned_sqlite_sidecars_are_rejected_before_open(self):
         from types import SimpleNamespace
         from unittest.mock import patch
@@ -340,6 +376,7 @@ class OracleCarrierContract(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "newly prepared carrier state"):
                 C.serve(self.b, "accept", 41321)
 
+    @unittest.skipIf(os.name == "nt", "POSIX modes or privileged symlinks")
     def test_serve_requires_prepared_private_state_before_claiming_socket(self):
         from unittest.mock import patch
         import os
@@ -360,6 +397,7 @@ class OracleCarrierContract(unittest.TestCase):
         finally:
             os.chmod(self.b, original)
 
+    @unittest.skipIf(os.name == "nt", "POSIX modes or privileged symlinks")
     def test_serve_rejects_dangling_lifecycle_marker_aliases(self):
         from unittest.mock import patch
         outside = Path(self.temp.name) / "outside-lifecycle"
@@ -376,6 +414,7 @@ class OracleCarrierContract(unittest.TestCase):
                 finally:
                     marker.unlink()
 
+    @unittest.skipIf(os.name == "nt", "POSIX modes or privileged symlinks")
     def test_lifecycle_marker_write_cannot_replace_existing_alias(self):
         outside = Path(self.temp.name) / "marker-target"
         for name in ("ready.json", "ended.json"):

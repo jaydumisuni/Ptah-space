@@ -121,6 +121,10 @@ class OracleCarrierContract(unittest.TestCase):
     def test_unprepared_state_cannot_create_database_on_read(self):
         empty = Path(self.temp.name) / "unprepared"
         empty.mkdir(mode=0o700)
+        if os.name == "nt":
+            # A Windows admin token can default new-object owner to Administrators.
+            # This fixture is intended to test an owned, unprepared directory.
+            C.windows_claim_new_owner(empty)
         with self.assertRaisesRegex(ValueError, "prepared carrier database required"):
             C.pull(str(empty), "outbound", 0, 1)
         self.assertFalse((empty / "carrier.sqlite3").exists())

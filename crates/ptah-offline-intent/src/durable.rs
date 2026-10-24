@@ -63,8 +63,7 @@ impl IntentDraft {
 // Sticky writable directories are safe only when owned by that trusted set.
 #[cfg(unix)]
 fn trusted_journal_ancestor(mode: u32, owner_uid: u32, effective_uid: u32) -> bool {
-    (owner_uid == 0 || owner_uid == effective_uid)
-        && ((mode & 0o022) == 0 || (mode & 0o1000) != 0)
+    (owner_uid == 0 || owner_uid == effective_uid) && ((mode & 0o022) == 0 || (mode & 0o1000) != 0)
 }
 
 #[cfg(unix)]
@@ -101,7 +100,10 @@ mod journal_leaf_tests {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         let metadata = std::fs::symlink_metadata(&path).unwrap();
         assert!(trusted_journal_leaf(&metadata, metadata.uid()));
-        assert!(!trusted_journal_leaf(&metadata, metadata.uid().wrapping_add(1)));
+        assert!(!trusted_journal_leaf(
+            &metadata,
+            metadata.uid().wrapping_add(1)
+        ));
         drop(file);
         std::fs::remove_file(path).unwrap();
     }
@@ -257,8 +259,7 @@ impl DurableIntentJournal {
             }
             match path.symlink_metadata() {
                 Ok(metadata) => {
-                    if !trusted_journal_leaf(&metadata, effective_uid)
-                    {
+                    if !trusted_journal_leaf(&metadata, effective_uid) {
                         return Err(DurableIntentError::Integrity("unsafe journal file"));
                     }
                 }
@@ -275,8 +276,7 @@ impl DurableIntentJournal {
                             let metadata = path
                                 .symlink_metadata()
                                 .map_err(|_| DurableIntentError::Integrity("journal race"))?;
-                            if !trusted_journal_leaf(&metadata, effective_uid)
-                            {
+                            if !trusted_journal_leaf(&metadata, effective_uid) {
                                 return Err(DurableIntentError::Integrity(
                                     "unsafe concurrent journal",
                                 ));
@@ -295,9 +295,7 @@ impl DurableIntentJournal {
                 let mut name = path.as_os_str().to_os_string();
                 name.push(suffix);
                 match Path::new(&name).symlink_metadata() {
-                    Ok(metadata)
-                        if !trusted_journal_leaf(&metadata, effective_uid) =>
-                    {
+                    Ok(metadata) if !trusted_journal_leaf(&metadata, effective_uid) => {
                         return Err(DurableIntentError::Integrity("unsafe journal sidecar"));
                     }
                     Ok(_) => {}

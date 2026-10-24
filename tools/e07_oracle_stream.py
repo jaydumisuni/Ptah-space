@@ -80,7 +80,17 @@ def require_unaliased_state_path(state):
         raise ValueError("symlinked carrier state ancestor prohibited")
     return root
 
+_DB_OPEN_LOCK = threading.RLock()
+
 def dbconnect(state, create=False):
+    # A second carrier pump thread must not inspect a newly created Windows
+    # SQLite WAL/SHM file before the creator has assigned TokenUser ownership.
+    # This serializes admission/open in this process; it is NOT cross-process
+    # or race-free filesystem authority.
+    with _DB_OPEN_LOCK:
+        return _dbconnect_locked(state, create)
+
+def _dbconnect_locked(state, create=False):
     root = require_unaliased_state_path(state)
     if not root.is_dir() or is_path_alias(root):
         raise ValueError("existing real state directory required")

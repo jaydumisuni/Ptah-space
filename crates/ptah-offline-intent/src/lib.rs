@@ -556,3 +556,6 @@ pub mod durable;
 
 /// Non-authoritative offline/revalidation/conflict status projection.
 pub mod degraded;
+
+/// Immutable negative reconciliation receipts; never an authorization source.
+pub mod reconciliation;

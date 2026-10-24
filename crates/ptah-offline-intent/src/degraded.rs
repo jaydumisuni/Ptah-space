@@ -44,8 +44,11 @@ impl DegradedProjection {
     pub fn from_queue(journal: &DurableIntentJournal) -> Result<Self, DurableIntentError> {
         journal.verify()?;
         let count = journal.history()?.len();
+        let has_unresolved_findings = !journal.findings()?.is_empty();
         Ok(Self {
-            state: if count == 0 {
+            state: if has_unresolved_findings {
+                DegradedState::Conflict
+            } else if count == 0 {
                 DegradedState::OfflineLocal
             } else {
                 DegradedState::QueuedNotAuthorized

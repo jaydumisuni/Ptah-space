@@ -41,7 +41,10 @@ def dbconnect(state, create=False):
     root = require_unaliased_state_path(state)
     if not root.is_dir() or root.is_symlink():
         raise ValueError("existing real state directory required")
-    if stat.S_IMODE(root.stat().st_mode) & 0o077:
+    root_identity = root.stat()
+    if root_identity.st_uid != os.geteuid():
+        raise ValueError("private carrier state owner required")
+    if stat.S_IMODE(root_identity.st_mode) & 0o077:
         raise ValueError("private carrier state directory required")
     db_path = root / "carrier.sqlite3"
     if create:
@@ -54,6 +57,8 @@ def dbconnect(state, create=False):
         raise ValueError("prepared carrier database required") from None
     if not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1:
         raise ValueError("real unaliased carrier database required")
+    if identity.st_uid != os.geteuid():
+        raise ValueError("private carrier database owner required")
     if stat.S_IMODE(identity.st_mode) & 0o077:
         raise ValueError("private carrier database required")
     # SQLite may open these companion files implicitly. Reject pre-existing
@@ -67,6 +72,8 @@ def dbconnect(state, create=False):
             continue
         if not stat.S_ISREG(sidecar_identity.st_mode) or sidecar_identity.st_nlink != 1:
             raise ValueError("real unaliased carrier sidecar required")
+        if sidecar_identity.st_uid != os.geteuid():
+            raise ValueError("private carrier sidecar owner required")
         if stat.S_IMODE(sidecar_identity.st_mode) & 0o077:
             raise ValueError("private carrier sidecar required")
     conn = sqlite3.connect(str(db_path), timeout=7)

@@ -202,6 +202,54 @@ class OracleCarrierContract(unittest.TestCase):
         finally:
             os.chmod(database, original_mode)
 
+    def test_foreign_owned_carrier_state_is_rejected_before_sqlite_open(self):
+        import os
+        from unittest.mock import patch
+        with patch.object(C.os, "geteuid", return_value=os.geteuid() + 1):
+            with patch.object(C.sqlite3, "connect", side_effect=AssertionError("opened foreign-owned state")):
+                with self.assertRaisesRegex(ValueError, "carrier state owner"):
+                    C.pull(self.b, "inbound", 0, 1)
+
+    def test_foreign_owned_database_is_rejected_before_sqlite_open(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        database = Path(self.b) / "carrier.sqlite3"
+        original = Path.lstat
+
+        def foreign_database(path):
+            identity = original(path)
+            if path == database:
+                return SimpleNamespace(st_mode=identity.st_mode, st_nlink=identity.st_nlink,
+                                       st_uid=identity.st_uid + 1)
+            return identity
+
+        with patch.object(Path, "lstat", foreign_database):
+            with patch.object(C.sqlite3, "connect", side_effect=AssertionError("opened foreign-owned database")):
+                with self.assertRaisesRegex(ValueError, "carrier database owner"):
+                    C.pull(self.b, "inbound", 0, 1)
+
+    def test_foreign_owned_sqlite_sidecars_are_rejected_before_open(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        original = Path.lstat
+        for suffix in ("-wal", "-shm", "-journal"):
+            with self.subTest(suffix=suffix):
+                sidecar = Path(self.b) / ("carrier.sqlite3" + suffix)
+                sidecar.write_bytes(b"untrusted sidecar")
+                def foreign_sidecar(path):
+                    identity = original(path)
+                    if path == sidecar:
+                        return SimpleNamespace(st_mode=identity.st_mode, st_nlink=identity.st_nlink,
+                                               st_uid=identity.st_uid + 1)
+                    return identity
+                try:
+                    with patch.object(Path, "lstat", foreign_sidecar):
+                        with patch.object(C.sqlite3, "connect", side_effect=AssertionError("opened foreign-owned sidecar")):
+                            with self.assertRaisesRegex(ValueError, "carrier sidecar owner"):
+                                C.pull(self.b, "inbound", 0, 1)
+                finally:
+                    sidecar.unlink()
+
     def test_gap_and_conflicting_replay_rejected(self):
         C.deliver(self.b,'[{"seq":1,"b64":"YWJj"}]')
         with self.assertRaisesRegex(ValueError,"out-of-order"):

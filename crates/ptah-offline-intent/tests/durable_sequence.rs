@@ -392,6 +392,30 @@ fn symlinked_journal_parent_is_rejected_before_file_creation() {
 
 #[cfg(unix)]
 #[test]
+fn writable_nonsticky_journal_ancestor_fails_before_creation() {
+    use std::os::unix::fs::PermissionsExt;
+    let base = scratch();
+    let parent = base.with_extension("writable-parent");
+    fs::create_dir(&parent).unwrap();
+    let journal_path = parent.join("journal.sqlite");
+    for mode in [0o777, 0o770] {
+        fs::set_permissions(&parent, fs::Permissions::from_mode(mode)).unwrap();
+        assert!(matches!(
+            DurableIntentJournal::open(&journal_path),
+            Err(DurableIntentError::Integrity("unsafe journal ancestor"))
+        ));
+        assert!(!journal_path.exists());
+    }
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+    let journal = DurableIntentJournal::open(&journal_path).unwrap();
+    journal.verify().unwrap();
+    drop(journal);
+    clean(&journal_path);
+    fs::remove_dir(parent).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn unsafe_preexisting_sqlite_sidecar_aliases_are_rejected() {
     use std::os::unix::fs::symlink;
     let path = scratch();

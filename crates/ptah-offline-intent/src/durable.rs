@@ -184,7 +184,14 @@ impl DurableIntentJournal {
                 let metadata = ancestor.symlink_metadata().map_err(|_| {
                     DurableIntentError::Integrity("journal ancestor metadata failed")
                 })?;
-                if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                // A non-sticky writable ancestor permits another directory
+                // writer to replace the journal path before SQLite opens it.
+                // Root-owned sticky temporary directories remain usable.
+                let mode = metadata.permissions().mode();
+                if metadata.file_type().is_symlink()
+                    || !metadata.is_dir()
+                    || ((mode & 0o022) != 0 && (mode & 0o1000) == 0)
+                {
                     return Err(DurableIntentError::Integrity("unsafe journal ancestor"));
                 }
                 parent = ancestor.parent();

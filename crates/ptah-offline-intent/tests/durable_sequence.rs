@@ -669,3 +669,33 @@ fn invalid_draft_is_rejected_before_acquiring_sqlite_writer_lock() {
         "invalid draft should be rejected before writer acquisition: {result:?}"
     );
 }
+
+#[test]
+fn streamed_verification_preserves_interleaved_origin_integrity() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    for sequence in 1..=128 {
+        for node in ["n1", "n2", "n3"] {
+            journal
+                .append(&intent(node, sequence, &format!("{node}-{sequence}")))
+                .unwrap();
+        }
+    }
+    journal.verify().unwrap();
+    drop(journal);
+
+    // A hidden gap in the middle origin must still fail even when its
+    // checkpoint and tail agree. Other origins cannot conceal the loss.
+    let sql = Connection::open(&path).unwrap();
+    sql.execute(
+        "DELETE FROM queued_intents WHERE node='n2' AND sequence='00000000000000000064'",
+        [],
+    )
+    .unwrap();
+    drop(sql);
+    assert!(matches!(
+        DurableIntentJournal::open(&path),
+        Err(DurableIntentError::Integrity("noncontiguous origin journal"))
+    ));
+    clean(&path);
+}

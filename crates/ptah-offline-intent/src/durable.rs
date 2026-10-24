@@ -303,13 +303,20 @@ impl DurableIntentJournal {
     }
 
     /// Verify all origin streams and stored cursors, including hidden interior gaps.
+    /// Stream recovered envelopes instead of collecting the entire journal:
+    /// memory must scale with distinct origins, not with queued intent count.
     ///
     /// # Errors
     /// Rejects any gap, cursor mismatch, forged envelope or invalid checkpoint.
     pub fn verify(&self) -> Result<(), DurableIntentError> {
-        let history = self.history()?;
-        let mut last = std::collections::HashMap::<&str, u64>::new();
-        for item in &history {
+        let mut stmt = self.db.prepare(
+            "SELECT node,sequence,intent_id,workspace_id,activity_id,operation_id,
+             attempt_id,action,digest,revalidate FROM queued_intents ORDER BY node,sequence",
+        )?;
+        let rows = stmt.query_map([], row_intent)?;
+        let mut last = std::collections::HashMap::<String, u64>::new();
+        for row in rows {
+            let item = row?;
             if !item.revalidate_required {
                 return Err(DurableIntentError::Integrity("authority flag"));
             }
@@ -322,7 +329,7 @@ impl DurableIntentJournal {
                     "noncontiguous origin journal",
                 ));
             }
-            last.insert(item.origin.node_id.as_str(), item.origin.value);
+            last.insert(item.origin.node_id, item.origin.value);
         }
         let mut stmt = self.db.prepare("SELECT node,sequence FROM origin_cursor")?;
         let cursors =

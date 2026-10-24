@@ -19,6 +19,16 @@ class OracleCarrierContract(unittest.TestCase):
         self.b=str(Path(self.temp.name)/"athena")
         C.prepare(self.a)
         C.prepare(self.b)
+    def test_relative_carrier_state_rejected_before_filesystem_or_sqlite_use(self):
+        from unittest.mock import patch
+        for state in ("relative-carrier", "./relative-carrier"):
+            with self.subTest(state=state):
+                with self.assertRaisesRegex(ValueError, "absolute carrier state path"):
+                    C.prepare(state)
+                with patch.object(C.sqlite3, "connect", side_effect=AssertionError("opened relative state")):
+                    with self.assertRaisesRegex(ValueError, "absolute carrier state path"):
+                        C.pull(state, "inbound", 0, 1)
+
     def test_ordered_ciphertext_frames_survive_duplicate_transport_delivery(self):
         msgs=[bytes(range(256))*8,b"\x16\x03\x03\x00"+b"\xf0"*1800,b"TLS ciphertext no authority"]
         for message in msgs:

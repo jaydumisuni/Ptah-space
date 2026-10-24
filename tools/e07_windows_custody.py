@@ -79,7 +79,7 @@ def validate_private_windows(path):
         trusted = [user_sid]
         # WinLocalSystemSid=22; WinBuiltinAdministratorsSid=26.
         sid_buffers = []
-        for sid_type in (22, 26):
+        # OWNER RIGHTS (71) grants rights only to the verified object owner.\n        # It is present on Python 3.11+ Windows mkdir-created directories\n        # and can be inherited by the database and SQLite sidecars.\n        for sid_type in (22, 26, 71):
             sid_buffer = ctypes.create_string_buffer(68)
             sid_length = wintypes.DWORD(len(sid_buffer))
             check(advapi.CreateWellKnownSid(sid_type, None, sid_buffer,

@@ -162,6 +162,19 @@ impl NodeLinkControl {
         removed
     }
 
+    /// Return whether one authenticated session is still the exact current
+    /// canonical E01 authority binding.
+    #[must_use]
+    pub fn is_current(&self, binding: &SessionBinding) -> bool {
+        self.sessions.current(binding.node_id) == Some(binding)
+    }
+
+    /// Invalidate only the departing current session; a superseded connection
+    /// cannot invalidate its successor.
+    pub fn end_if_current(&mut self, binding: &SessionBinding) -> bool {
+        self.sessions.end_if_current(binding)
+    }
+
     fn assert_snapshot_binding(
         &self,
         binding: &SessionBinding,

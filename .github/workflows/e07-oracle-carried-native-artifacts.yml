@@ -7,6 +7,7 @@ on:
       - 'services/ptah-node/src/gateway_e02_wire.rs'
       - 'services/ptah-node/src/bin/ptah-e07-node-worker.rs'
       - 'tools/e07_oracle_stream.py'
+      - 'tools/e07_windows_custody.py'
       - 'tools/test_e07_oracle_stream.py'
       - '.github/workflows/e07-oracle-carried-native-artifacts.yml'
   workflow_dispatch:
@@ -39,6 +40,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.11'
+      - name: Windows carrier Python custody and byte-pump regression
+        shell: pwsh
+        run: python -B -m unittest -q tools/test_e07_oracle_stream.py
       - name: Check native A05 worker
         shell: pwsh
         run: cargo test -p ptah-node --bin ptah-e07-node-worker --locked

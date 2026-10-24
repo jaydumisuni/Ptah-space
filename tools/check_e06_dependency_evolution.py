@@ -92,6 +92,49 @@ def strip_exact_webpki_security_patch(raw: bytes) -> bytes:
         raise ValueError("unreviewed_webpki_dependency_change")
     return raw
 
+# 2026-10-24 RUSTSEC-2026-0386: Tokio AsyncFd soundness patch.
+# Preserve the frozen E01 checksum by inverting ONLY the exact patched pair
+# of registry crates; never admit an arbitrary version/checksum or lock drift.
+_TOKIO_FROZEN_STANZA = (
+    b'[[package]]\nname = "tokio"\nversion = "1.48.0"\n'
+    b'source = "registry+https://github.com/rust-lang/crates.io-index"\n'
+    b'checksum = "ff360e02eab121e0bc37a2d3b4d4dc622e6eda3a8e5253d5435ecf5bd4c68408"\n'
+    b'dependencies = [\n "bytes",\n "libc",\n "mio",\n "pin-project-lite",\n'
+    b' "signal-hook-registry",\n "socket2",\n "tokio-macros",\n'
+    b' "windows-sys 0.61.2",\n]\n\n'
+)
+_TOKIO_PATCHED_STANZA = _TOKIO_FROZEN_STANZA.replace(
+    b'version = "1.48.0"', b'version = "1.53.3"', 1
+).replace(
+    b'ff360e02eab121e0bc37a2d3b4d4dc622e6eda3a8e5253d5435ecf5bd4c68408',
+    b'ce3335fa71841cda333a58d7615b03901380ecf09d59b3296d21f8bbac0dde4e', 1
+)
+_TOKIO_MACROS_FROZEN_STANZA = (
+    b'[[package]]\nname = "tokio-macros"\nversion = "2.6.1"\n'
+    b'source = "registry+https://github.com/rust-lang/crates.io-index"\n'
+    b'checksum = "5c55a2eff8b69ce66c84f85e1da1c233edc36ceb85a2058d11b0d6a3c7e7569c"\n'
+    b'dependencies = [\n "proc-macro2",\n "quote",\n "syn 2.0.119",\n]\n\n'
+)
+_TOKIO_MACROS_PATCHED_STANZA = _TOKIO_MACROS_FROZEN_STANZA.replace(
+    b'version = "2.6.1"', b'version = "2.7.2"', 1
+).replace(
+    b'5c55a2eff8b69ce66c84f85e1da1c233edc36ceb85a2058d11b0d6a3c7e7569c',
+    b'78773a2a397f451582ce068015985c33193cf6dea8b74d2a639fe457b2f07b0e', 1
+).replace(b'"syn 2.0.119"', b'"syn 3.0.5"', 1)
+
+
+def strip_exact_tokio_security_patch(raw: bytes) -> bytes:
+    """Invert the exact two-crate Tokio security patch, never a general waiver."""
+    if (raw.count(_TOKIO_PATCHED_STANZA) == 1 and
+            raw.count(_TOKIO_MACROS_PATCHED_STANZA) == 1):
+        return raw.replace(_TOKIO_PATCHED_STANZA, _TOKIO_FROZEN_STANZA, 1).replace(
+            _TOKIO_MACROS_PATCHED_STANZA, _TOKIO_MACROS_FROZEN_STANZA, 1)
+    if (raw.count(_TOKIO_FROZEN_STANZA) == 1 and
+            raw.count(_TOKIO_MACROS_FROZEN_STANZA) == 1):
+        return raw
+    raise ValueError("unreviewed_tokio_dependency_change")
+
+
 def strip_exact_e07_local_service_extension(raw: bytes) -> bytes:
     """Remove E07's two exact local dep stanzas (not arbitrary edits)."""
     if raw.count(_E07_CONTROL_AFTER) != 1 or raw.count(_E07_NODE_AFTER) != 1:
@@ -111,7 +154,8 @@ def verified_local_extension(lock_path: Path, historical_sha256: str) -> int:
     external dependency graph. Only the canonical Cargo package stanza is
     permitted, and its removal MUST reconstruct the frozen old byte stream.
     """
-    raw = strip_exact_webpki_security_patch(lock_path.read_bytes())
+    raw = strip_exact_tokio_security_patch(
+        strip_exact_webpki_security_patch(lock_path.read_bytes()))
     has_p13 = b'name = "ptah-formula-work-cells"' in raw
     raw = strip_exact_p13_local_extension(raw)
     if hashlib.sha256(raw).hexdigest() == historical_sha256:

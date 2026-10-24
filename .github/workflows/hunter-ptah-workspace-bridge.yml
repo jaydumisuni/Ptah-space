@@ -54,5 +54,25 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$PTAH_EXACT_SHA"
           git diff --check "${{ github.event.pull_request.base.sha }}" "$PTAH_EXACT_SHA"
-          test -z "$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "$PTAH_EXACT_SHA" -- Cargo.toml Cargo.lock crates/ptah-ai-workspace)"
+          # The root Tokio security patch is admitted only as one byte-exact
+          # manifest pin change. The frozen E01 Cargo.lock is independently
+          # reconstructed by the existing A01/Phase0C dependency validators.
+          test -z "$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "$PTAH_EXACT_SHA" -- crates/ptah-ai-workspace)"
+          python3 - <<'PY'
+          import pathlib
+          import subprocess
+
+          base = subprocess.check_output(
+              ["git", "show", "${{ github.event.pull_request.base.sha }}:Cargo.toml"]
+          )
+          before = b'tokio = { version = "=1.48.0",'
+          after = b'tokio = { version = "=1.53.3",'
+          assert base.count(before) == 1, "unrecognized_frozen_root_manifest"
+          assert pathlib.Path("Cargo.toml").read_bytes() == base.replace(
+              before, after, 1
+          ), "unreviewed_root_manifest_change"
+          PY
+          python3 tools/check_rust_dependency_lock.py > /dev/null
+          python3 tools/check_a01_scaffold.py > /dev/null
+          python3 tools/check_phase0c_scaffold.py > /dev/null
           echo "PTAH_HUNTER_D02_BRIDGE_EXACT_HEAD=PASS"

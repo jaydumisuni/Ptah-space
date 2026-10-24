@@ -20,6 +20,53 @@ class _AclSize(ctypes.Structure):
                 ("acl_bytes_free", wintypes.DWORD)]
 
 
+
+def claim_new_windows_owner(path):
+    """Set TokenUser as owner only for a file/directory this invocation created.
+
+    An elevated Windows token may create objects owned by Administrators.
+    Existing objects are NEVER re-owned: they must pass admission unchanged.
+    """
+    if os.name != "nt":
+        raise RuntimeError("Windows owner assignment requires Windows")
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    ptr = ctypes.c_void_p
+    dword_ptr = ctypes.POINTER(wintypes.DWORD)
+    advapi.OpenProcessToken.argtypes = [ptr, wintypes.DWORD, ctypes.POINTER(ptr)]
+    advapi.OpenProcessToken.restype = wintypes.BOOL
+    advapi.GetTokenInformation.argtypes = [ptr, wintypes.DWORD, ptr,
+                                           wintypes.DWORD, dword_ptr]
+    advapi.GetTokenInformation.restype = wintypes.BOOL
+    advapi.SetNamedSecurityInfoW.argtypes = [wintypes.LPWSTR, wintypes.DWORD,
+                                              wintypes.DWORD, ptr, ptr, ptr, ptr]
+    advapi.SetNamedSecurityInfoW.restype = wintypes.DWORD
+    kernel.GetCurrentProcess.argtypes = []
+    kernel.GetCurrentProcess.restype = ptr
+    kernel.CloseHandle.argtypes = [ptr]
+    kernel.CloseHandle.restype = wintypes.BOOL
+    token = ptr()
+    if not advapi.OpenProcessToken(kernel.GetCurrentProcess(), 0x0008,
+                                   ctypes.byref(token)):
+        raise ValueError("Windows carrier owner token unavailable")
+    try:
+        needed = wintypes.DWORD()
+        advapi.GetTokenInformation(token, 1, None, 0, ctypes.byref(needed))
+        if not needed.value or needed.value > 65536:
+            raise ValueError("Windows carrier owner token size invalid")
+        user_info = ctypes.create_string_buffer(needed.value)
+        if not advapi.GetTokenInformation(token, 1, user_info, needed,
+                                          ctypes.byref(needed)):
+            raise ValueError("Windows carrier owner token SID unavailable")
+        user_sid = ctypes.cast(user_info, ctypes.POINTER(ptr))[0]
+        # SE_FILE_OBJECT=1; OWNER_SECURITY_INFORMATION=1.
+        error = advapi.SetNamedSecurityInfoW(str(path), 1, 1,
+                                             user_sid, None, None, None)
+        if error:
+            raise ValueError("Windows carrier new-object owner assignment failed: " + str(error))
+    finally:
+        kernel.CloseHandle(token)
+
 def validate_private_windows(path):
     """Require current-user ownership and a DACL without other allow trustees.
 

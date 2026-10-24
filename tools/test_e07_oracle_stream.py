@@ -251,7 +251,7 @@ class OracleCarrierContract(unittest.TestCase):
         from unittest.mock import patch
         with patch.object(C.os, "geteuid", return_value=os.geteuid() + 1):
             with patch.object(C.sqlite3, "connect", side_effect=AssertionError("opened foreign-owned state")):
-                with self.assertRaisesRegex(ValueError, "carrier state owner"):
+                with self.assertRaisesRegex(ValueError, "carrier state directory owner required"):
                     C.pull(self.b, "inbound", 0, 1)
 
     @unittest.skipIf(os.name == "nt", "POSIX modes or privileged symlinks")

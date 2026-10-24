@@ -22,11 +22,49 @@ import sys
 import threading
 import time
 
+# Load the Windows-only native ACL validator from this script's own directory,
+# both for direct CLI execution and importlib-loaded contract tests.
+if os.name == "nt":
+    import importlib.util
+    _win_spec = importlib.util.spec_from_file_location(
+        "_ptah_e07_windows_custody", Path(__file__).with_name("e07_windows_custody.py"))
+    _win_module = importlib.util.module_from_spec(_win_spec)
+    _win_spec.loader.exec_module(_win_module)
+    windows_private_acl = _win_module.validate_private_windows
+
 MAX_CHUNK = 32768
 MAX_ENCODED_CHUNK = 4 * ((MAX_CHUNK + 2) // 3)
 MAX_BATCH = 32
 MAX_TOTAL = 8 * 1024 * 1024
 MAX_RUNTIME = 300
+
+def is_path_alias(path):
+    """Reject symlinks and Windows junction/reparse aliases before path I/O."""
+    try:
+        identity = Path(path).lstat()
+    except FileNotFoundError:
+        return False
+    return (stat.S_ISLNK(identity.st_mode) or
+            bool(getattr(identity, "st_file_attributes", 0) &
+                 getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)))
+
+
+def require_private_custody(path, identity, label):
+    if os.name == "nt":
+        # POSIX mode/st_uid are not Windows NTFS authorization evidence.
+        windows_private_acl(path)
+    else:
+        if identity.st_uid != os.geteuid():
+            raise ValueError("private carrier " + label + " owner required")
+        if stat.S_IMODE(identity.st_mode) & 0o077:
+            raise ValueError("private carrier " + label + " required")
+
+
+def exclusive_open_flags(access):
+    # O_EXCL|O_CREAT rejects existing links on Windows as well as POSIX.
+    # O_NOFOLLOW adds a second guard where the platform provides it.
+    return access | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+
 
 def require_unaliased_state_path(state):
     # Preserve lexical path identity: resolving first would hide symlink parents.
@@ -35,34 +73,30 @@ def require_unaliased_state_path(state):
         raise ValueError("absolute carrier state path required")
     if ".." in root.parts:
         raise ValueError("carrier state parent traversal prohibited")
-    if any(parent.is_symlink() for parent in root.parents):
+    if os.name == "nt" and root.drive.startswith("\\\\"):
+        raise ValueError("local carrier state path required")
+    if any(is_path_alias(parent) for parent in root.parents):
         raise ValueError("symlinked carrier state ancestor prohibited")
     return root
 
 def dbconnect(state, create=False):
     root = require_unaliased_state_path(state)
-    if not root.is_dir() or root.is_symlink():
+    if not root.is_dir() or is_path_alias(root):
         raise ValueError("existing real state directory required")
     root_identity = root.stat()
-    if root_identity.st_uid != os.geteuid():
-        raise ValueError("private carrier state owner required")
-    if stat.S_IMODE(root_identity.st_mode) & 0o077:
-        raise ValueError("private carrier state directory required")
+    require_private_custody(root, root_identity, "state directory")
     db_path = root / "carrier.sqlite3"
     if create:
         # Only prepare may create a database, and never over an existing alias.
-        fd = os.open(db_path, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        fd = os.open(db_path, exclusive_open_flags(os.O_RDWR), 0o600)
         os.close(fd)
     try:
         identity = db_path.lstat()
     except FileNotFoundError:
         raise ValueError("prepared carrier database required") from None
-    if not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1:
+    if not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1 or is_path_alias(db_path):
         raise ValueError("real unaliased carrier database required")
-    if identity.st_uid != os.geteuid():
-        raise ValueError("private carrier database owner required")
-    if stat.S_IMODE(identity.st_mode) & 0o077:
-        raise ValueError("private carrier database required")
+    require_private_custody(db_path, identity, "database")
     # SQLite may open these companion files implicitly. Reject pre-existing
     # aliases before giving SQLite the path; this is not a race-free dirfd
     # custody proof and does not replace independent E07 qualification.
@@ -72,12 +106,10 @@ def dbconnect(state, create=False):
             sidecar_identity = sidecar.lstat()
         except FileNotFoundError:
             continue
-        if not stat.S_ISREG(sidecar_identity.st_mode) or sidecar_identity.st_nlink != 1:
+        if (not stat.S_ISREG(sidecar_identity.st_mode) or sidecar_identity.st_nlink != 1
+                or is_path_alias(sidecar)):
             raise ValueError("real unaliased carrier sidecar required")
-        if sidecar_identity.st_uid != os.geteuid():
-            raise ValueError("private carrier sidecar owner required")
-        if stat.S_IMODE(sidecar_identity.st_mode) & 0o077:
-            raise ValueError("private carrier sidecar required")
+        require_private_custody(sidecar, sidecar_identity, "sidecar")
     conn = sqlite3.connect(str(db_path), timeout=7)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=7000")
@@ -178,7 +210,7 @@ def deliver_quiet(state, packets):
 
 def write_exclusive_marker(path, document):
     """Create a private lifecycle marker without following or replacing aliases."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    fd = os.open(path, exclusive_open_flags(os.O_WRONLY), 0o600)
     with os.fdopen(fd, "w") as file:
         json.dump(document, file, separators=(",", ":"))
         file.flush()
@@ -190,7 +222,7 @@ def serve(state, mode, port):
     root=require_unaliased_state_path(state)
     # A prepared carrier belongs to exactly one TLS socket lifetime.
     # The exclusive claim also rejects concurrent attempts before opening a socket.
-    if (not root.is_dir() or root.is_symlink()
+    if (not root.is_dir() or is_path_alias(root)
             or any(os.path.lexists(root / name) for name in ("ready.json", "ended.json"))):
         raise ValueError("newly prepared carrier state required")
     # Never claim a TLS socket for an unprepared or non-private state. Reuse
@@ -198,7 +230,7 @@ def serve(state, mode, port):
     with dbtransaction(root):
         pass
     try:
-        claim_fd=os.open(root/"serve.claim", os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+        claim_fd=os.open(root/"serve.claim", exclusive_open_flags(os.O_WRONLY), 0o600)
     except FileExistsError:
         raise ValueError("newly prepared carrier state required") from None
     else:

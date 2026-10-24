@@ -118,6 +118,97 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["packets"], [])
         self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
 
+    def test_cross_process_admission_lock_serializes_transaction_lifetime(self):
+        import subprocess
+        import sys
+        child_code = """
+import importlib.util, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("carrier", Path(sys.argv[1]))
+carrier = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(carrier)
+with carrier.carrier_admission_lock(sys.argv[2]):
+    print("LOCKED", flush=True)
+    sys.stdin.readline()
+"""
+        child = subprocess.Popen(
+            [sys.executable, "-c", child_code, str(Path(C.__file__)), self.b],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True,
+        )
+        finished = threading.Event()
+        failures = []
+        thread = None
+        try:
+            self.assertEqual(child.stdout.readline().strip(), "LOCKED")
+            def read_while_locked():
+                try:
+                    C.pull(self.b, "inbound", 0, 1)
+                except Exception as error:
+                    failures.append(error)
+                finally:
+                    finished.set()
+            thread = threading.Thread(target=read_while_locked, daemon=True)
+            thread.start()
+            self.assertFalse(finished.wait(0.15), "transaction bypassed cross-process lock")
+        finally:
+            if child.stdin:
+                child.stdin.write("\n")
+                child.stdin.flush()
+                child.stdin.close()
+            child.wait(timeout=10)
+            if thread:
+                thread.join(timeout=10)
+        try:
+            self.assertEqual(child.returncode, 0, child.stderr.read())
+        finally:
+            child.stdout.close()
+            child.stderr.close()
+        self.assertTrue(finished.is_set(), "transaction did not resume after lock release")
+        self.assertFalse(failures, failures)
+
+    def test_missing_admission_lock_fails_closed_before_sqlite_open(self):
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        lock_path.unlink()
+        with patch.object(C.sqlite3, "connect", side_effect=AssertionError("opened missing lock")):
+            with self.assertRaisesRegex(ValueError, "prepared carrier admission lock required"):
+                C.pull(self.b, "inbound", 0, 1)
+
+    @unittest.skipIf(os.name == "nt", "POSIX mode fixture")
+    def test_shared_admission_lock_fails_closed_before_sqlite_open(self):
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        os.chmod(lock_path, 0o644)
+        with patch.object(C.sqlite3, "connect", side_effect=AssertionError("opened shared lock")):
+            with self.assertRaisesRegex(ValueError, "private carrier admission lock required"):
+                C.pull(self.b, "inbound", 0, 1)
+
+    @unittest.skipIf(os.name == "nt", "POSIX symlink/hardlink fixture")
+    def test_admission_lock_alias_rejected_before_sqlite_open(self):
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        original = lock_path.read_bytes()
+        lock_path.unlink()
+        victim = Path(self.temp.name) / "external-lock"
+        victim.write_bytes(original)
+        try:
+            for alias in ("symlink", "hardlink"):
+                with self.subTest(alias=alias):
+                    if alias == "symlink":
+                        lock_path.symlink_to(victim)
+                    else:
+                        os.link(victim, lock_path)
+                    with patch.object(C.sqlite3, "connect", side_effect=AssertionError("opened unsafe lock")):
+                        with self.assertRaisesRegex(ValueError, "unaliased carrier admission lock"):
+                            C.pull(self.b, "inbound", 0, 1)
+                    lock_path.unlink()
+        finally:
+            if lock_path.is_symlink() or lock_path.exists():
+                lock_path.unlink()
+            lock_path.write_bytes(original)
+            os.chmod(lock_path, 0o600)
+
     def test_unprepared_state_cannot_create_database_on_read(self):
         empty = Path(self.temp.name) / "unprepared"
         empty.mkdir(mode=0o700)

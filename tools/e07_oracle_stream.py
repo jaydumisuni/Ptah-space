@@ -81,6 +81,69 @@ def require_unaliased_state_path(state):
     return root
 
 _DB_OPEN_LOCK = threading.RLock()
+_ADMISSION_LOCK_NAME = "carrier.admission.lock"
+
+@contextmanager
+def carrier_admission_lock(state, preparing=False):
+    """Serialize SQLite sidecar admission and lifetime across cooperating processes.
+
+    The lock is exclusively created during prepare; no operation repairs a
+    missing or foreign-owned lock. This is not a defense against an attacker
+    concurrently replacing filesystem path components.
+    """
+    root = require_unaliased_state_path(state)
+    if not root.is_dir() or is_path_alias(root):
+        raise ValueError("existing real state directory required")
+    require_private_custody(root, root.stat(), "state directory")
+    path = root / _ADMISSION_LOCK_NAME
+    if not preparing and not (root / "carrier.sqlite3").exists():
+        raise ValueError("prepared carrier database required")
+    try:
+        identity = path.lstat()
+    except FileNotFoundError:
+        raise ValueError("prepared carrier admission lock required") from None
+    if not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1 or is_path_alias(path):
+        raise ValueError("real unaliased carrier admission lock required")
+    require_private_custody(path, identity, "admission lock")
+    fd = os.open(path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        opened = os.fstat(fd)
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1
+                or (opened.st_dev, opened.st_ino) != (identity.st_dev, identity.st_ino)):
+            raise ValueError("carrier admission lock identity changed")
+        require_private_custody(path, opened, "admission lock")
+        # Bound contention rather than hanging an Oracle RPC indefinitely.
+        deadline = time.monotonic() + 7
+        if os.name == "nt":
+            import msvcrt
+        else:
+            import fcntl
+        while True:
+            try:
+                if os.name == "nt":
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                else:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except (OSError, BlockingIOError) as error:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("carrier admission lock busy") from error
+                time.sleep(0.02)
+        try:
+            current = path.lstat()
+            if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
+                raise ValueError("carrier admission lock identity changed")
+            require_private_custody(path, current, "admission lock")
+            yield
+        finally:
+            if os.name == "nt":
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 def dbconnect(state, create=False):
     # A second carrier pump thread must not inspect a newly created Windows
@@ -153,12 +216,16 @@ def _dbconnect_locked(state, create=False):
 @contextmanager
 def dbtransaction(state):
     """Commit or roll back each operation and always release its SQLite handle."""
-    conn = dbconnect(state)
-    try:
-        with conn:
-            yield conn
-    finally:
-        conn.close()
+    # Keep the lock through transaction completion and close: WAL/SHM files
+    # can be created or removed after the initial SQLite connection opens.
+    with _DB_OPEN_LOCK:
+        with carrier_admission_lock(state):
+            conn = dbconnect(state)
+            try:
+                with conn:
+                    yield conn
+            finally:
+                conn.close()
 
 def prepare(state):
     p = require_unaliased_state_path(state)
@@ -167,8 +234,19 @@ def prepare(state):
     p.mkdir(parents=True, mode=0o700)
     if os.name == "nt":
         windows_claim_new_owner(p)
-    conn = dbconnect(p, create=True)
-    conn.close()
+    lock_path = p / _ADMISSION_LOCK_NAME
+    fd = os.open(lock_path, exclusive_open_flags(os.O_RDWR), 0o600)
+    try:
+        os.write(fd, b"\0")
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    if os.name == "nt":
+        windows_claim_new_owner(lock_path)
+    with _DB_OPEN_LOCK:
+        with carrier_admission_lock(p, preparing=True):
+            conn = dbconnect(p, create=True)
+            conn.close()
     print(json.dumps({"state":str(p),"new":True,"listener":"loopback_only"}))
 
 def publish(state, table, payload):

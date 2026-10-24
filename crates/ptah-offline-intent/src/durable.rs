@@ -67,6 +67,46 @@ fn trusted_journal_ancestor(mode: u32, owner_uid: u32, effective_uid: u32) -> bo
         && ((mode & 0o022) == 0 || (mode & 0o1000) != 0)
 }
 
+#[cfg(unix)]
+fn trusted_journal_leaf(metadata: &std::fs::Metadata, effective_uid: u32) -> bool {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    // Mode 0600 is not enough when a privileged worker can open a journal
+    // owned and mutable by another principal.
+    metadata.is_file()
+        && metadata.nlink() == 1
+        && metadata.uid() == effective_uid
+        && (metadata.permissions().mode() & 0o077) == 0
+}
+
+#[cfg(all(test, unix))]
+mod journal_leaf_tests {
+    use super::trusted_journal_leaf;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    #[test]
+    fn private_leaf_must_belong_to_the_effective_owner() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "ptah-e06-owner-{}-{nonce}.sqlite",
+            std::process::id()
+        ));
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let metadata = std::fs::symlink_metadata(&path).unwrap();
+        assert!(trusted_journal_leaf(&metadata, metadata.uid()));
+        assert!(!trusted_journal_leaf(&metadata, metadata.uid().wrapping_add(1)));
+        drop(file);
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
 pub struct DurableIntentJournal {
     db: Connection,
 }
@@ -217,9 +257,7 @@ impl DurableIntentJournal {
             }
             match path.symlink_metadata() {
                 Ok(metadata) => {
-                    if !metadata.is_file()
-                        || metadata.nlink() != 1
-                        || (metadata.permissions().mode() & 0o077) != 0
+                    if !trusted_journal_leaf(&metadata, effective_uid)
                     {
                         return Err(DurableIntentError::Integrity("unsafe journal file"));
                     }
@@ -237,9 +275,7 @@ impl DurableIntentJournal {
                             let metadata = path
                                 .symlink_metadata()
                                 .map_err(|_| DurableIntentError::Integrity("journal race"))?;
-                            if !metadata.is_file()
-                                || metadata.nlink() != 1
-                                || (metadata.permissions().mode() & 0o077) != 0
+                            if !trusted_journal_leaf(&metadata, effective_uid)
                             {
                                 return Err(DurableIntentError::Integrity(
                                     "unsafe concurrent journal",
@@ -260,9 +296,7 @@ impl DurableIntentJournal {
                 name.push(suffix);
                 match Path::new(&name).symlink_metadata() {
                     Ok(metadata)
-                        if !metadata.is_file()
-                            || metadata.nlink() != 1
-                            || (metadata.permissions().mode() & 0o077) != 0 =>
+                        if !trusted_journal_leaf(&metadata, effective_uid) =>
                     {
                         return Err(DurableIntentError::Integrity("unsafe journal sidecar"));
                     }

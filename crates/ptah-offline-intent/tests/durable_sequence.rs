@@ -701,3 +701,38 @@ fn streamed_verification_preserves_interleaved_origin_integrity() {
     ));
     clean(&path);
 }
+
+#[cfg(unix)]
+#[test]
+fn foreign_owned_private_journal_and_sidecars_fail_closed() {
+    use nix::unistd::{chown, Uid};
+    // Only a privileged test runner can construct a foreign-owned 0600
+    // file. The pure leaf-policy unit test runs on unprivileged CI too.
+    let owner = Uid::effective();
+    if !owner.is_root() {
+        return;
+    }
+    let path = scratch();
+    drop(DurableIntentJournal::open(&path).unwrap());
+    let foreign = Uid::from_raw(65534);
+    chown(&path, Some(foreign), None).unwrap();
+    assert!(matches!(
+        DurableIntentJournal::open(&path),
+        Err(DurableIntentError::Integrity("unsafe journal file"))
+    ));
+    chown(&path, Some(owner), None).unwrap();
+
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = PathBuf::from(format!("{}{suffix}", path.display()));
+        fs::write(&sidecar, b"untrusted sidecar").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&sidecar, fs::Permissions::from_mode(0o600)).unwrap();
+        chown(&sidecar, Some(foreign), None).unwrap();
+        assert!(matches!(
+            DurableIntentJournal::open(&path),
+            Err(DurableIntentError::Integrity("unsafe journal sidecar"))
+        ));
+        fs::remove_file(sidecar).unwrap();
+    }
+    clean(&path);
+}

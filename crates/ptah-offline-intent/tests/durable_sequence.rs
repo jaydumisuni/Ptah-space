@@ -695,7 +695,9 @@ fn streamed_verification_preserves_interleaved_origin_integrity() {
     drop(sql);
     assert!(matches!(
         DurableIntentJournal::open(&path),
-        Err(DurableIntentError::Integrity("noncontiguous origin journal"))
+        Err(DurableIntentError::Integrity(
+            "noncontiguous origin journal"
+        ))
     ));
     clean(&path);
 }

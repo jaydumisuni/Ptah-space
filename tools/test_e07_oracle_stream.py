@@ -339,6 +339,37 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         self.assertTrue(finished.is_set(), "transaction did not resume after lock release")
         self.assertFalse(failures, failures)
 
+    @unittest.skipIf(os.name == "nt", "POSIX flock hardlink race fixture")
+    def test_admission_lock_hardlink_after_acquire_rejected_before_sqlite(self):
+        # A second pathname added after the initial lstat/fstat is not a
+        # privately held single-link lock, even if its inode is unchanged.
+        import fcntl
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        alias = Path(self.temp.name) / "late-carrier-lock-alias"
+        real_flock = fcntl.flock
+        injected = []
+
+        def link_after_acquire(fd, operation):
+            result = real_flock(fd, operation)
+            if operation & fcntl.LOCK_EX and not injected:
+                os.link(lock_path, alias)
+                injected.append(True)
+            return result
+
+        try:
+            with patch.object(fcntl, "flock", side_effect=link_after_acquire):
+                with patch.object(C.sqlite3, "connect",
+                                  side_effect=AssertionError("SQLite opened aliased lock")):
+                    with self.assertRaisesRegex(ValueError,
+                                                "carrier admission lock identity changed"):
+                        C.pull(self.b, "inbound", 0, 1)
+            self.assertEqual(injected, [True])
+        finally:
+            alias.unlink(missing_ok=True)
+        # Releasing the adversarial alias must restore normal operation.
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
     def test_missing_admission_lock_fails_closed_before_sqlite_open(self):
         from unittest.mock import patch
         lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME

@@ -136,7 +136,8 @@ def carrier_admission_lock(state, preparing=False):
                 time.sleep(0.02)
         try:
             current = path.lstat()
-            if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
+            if (not stat.S_ISREG(current.st_mode) or current.st_nlink != 1
+                    or (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino)):
                 raise ValueError("carrier admission lock identity changed")
             require_private_custody(path, current, "admission lock")
             yield

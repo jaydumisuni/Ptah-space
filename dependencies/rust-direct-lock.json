@@ -88,13 +88,13 @@
       "version": "2.0.17"
     },
     {
-      "checksum": "ff360e02eab121e0bc37a2d3b4d4dc622e6eda3a8e5253d5435ecf5bd4c68408",
+      "checksum": "ce3335fa71841cda333a58d7615b03901380ecf09d59b3296d21f8bbac0dde4e",
       "expected_licence": "MIT",
       "features": ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"],
       "name": "tokio",
       "purpose": "concurrent one-Node activity, terminal, transfer and local service substrate",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "1.48.0"
+      "version": "1.53.3"
     },
     {
       "checksum": "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61",

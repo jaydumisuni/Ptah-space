@@ -44,6 +44,21 @@ def _read_frame(connection: ssl.SSLSocket) -> dict:
     return obj
 
 
+def _canonical_u64(value: object) -> bool:
+    # E01 NodeGeneration and ConnectionEpoch are serde-transparent Rust u64.
+    # Python bool and float compare equal to integers but are not wire-equivalent.
+    return type(value) is int and 0 <= value <= (1 << 64) - 1
+
+
+def _validate_node_hello(hello: dict, expected_node_id: str) -> None:
+    if (not isinstance(hello, dict) or type(expected_node_id) is not str
+            or not expected_node_id or type(hello.get("node_id")) is not str
+            or hello["node_id"] != expected_node_id
+            or not all(_canonical_u64(hello.get(field))
+                       for field in ("node_generation", "connection_epoch"))):
+        raise LinkFailure("invalid_node_hello")
+
+
 def join(
     address: str,
     port: int,
@@ -63,6 +78,7 @@ def join(
     """
     if not 1 <= heartbeats <= 10:
         raise ValueError("heartbeats must be 1..10")
+    _validate_node_hello(hello, expected_node_id)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_3
     ctx.maximum_version = ssl.TLSVersion.TLSv1_3
@@ -83,9 +99,14 @@ def join(
             if body.get("node_id") != expected_node_id:
                 raise LinkFailure("wrong_node_ack")
             for field in ("node_generation", "connection_epoch"):
-                if body.get(field) != hello.get(field):
+                if not _canonical_u64(body.get(field)) or body[field] != hello[field]:
                     raise LinkFailure("mismatched_" + field)
-            if body.get("selected_version") != {"major": 1, "minor": 0}:
+            selected = body.get("selected_version")
+            if (not isinstance(selected, dict)
+                    or set(selected) != {"major", "minor"}
+                    or type(selected["major"]) is not int
+                    or type(selected["minor"]) is not int
+                    or selected != {"major": 1, "minor": 0}):
                 raise LinkFailure("wrong_e01_version")
             for sequence in range(1, heartbeats + 1):
                 _write_frame(tls, {"kind": "heartbeat", "payload": {

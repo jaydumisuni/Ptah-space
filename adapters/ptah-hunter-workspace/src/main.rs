@@ -81,8 +81,13 @@ fn inspection(ledger: &Path, req: &Request) -> Result<Value, String> {
     // Verify canonical owner *metadata* is internally consistent with the
     // projection. Do not compare it to a caller-supplied owner/identity.
     let recorded_owner: EntityRef = serde_json::from_value(
-        record.document.get("owner_ref").cloned().ok_or("OWNER_RECORD_MISSING")?
-    ).map_err(|_| "OWNER_RECORD_INVALID")?;
+        record
+            .document
+            .get("owner_ref")
+            .cloned()
+            .ok_or("OWNER_RECORD_MISSING")?,
+    )
+    .map_err(|_| "OWNER_RECORD_INVALID")?;
     if recorded_owner != projection.owner_ref {
         return Err("WORKSPACE_METADATA_INCONSISTENT".into());
     }
@@ -122,17 +127,23 @@ fn process(ledger: &Path, request: Request) -> Result<Value, String> {
             // not authentication tokens. Accept supplied metadata for backward
             // compatibility, otherwise assign local record provenance without
             // creating a login, membership, Grant or approval.
-            let owner = request.owner_ref.clone()
+            let owner = request
+                .owner_ref
+                .clone()
                 .map_or_else(|| EntityRef::new("identity.principal"), Ok)
                 .map_err(|_| "WORKSPACE_METADATA_INVALID")?;
-            let authority = request.authority_ref.clone()
+            let authority = request
+                .authority_ref
+                .clone()
                 .map_or_else(|| EntityRef::new("authority.owner"), Ok)
                 .map_err(|_| "WORKSPACE_METADATA_INVALID")?;
             let policy_refs = request.policy_ref.clone().into_iter().collect();
             if owner.entity_kind.as_str() != "identity.principal"
                 || authority.entity_kind.as_str() != "authority.owner"
-                || request.policy_ref.as_ref().is_some_and(|policy|
-                    policy.entity_kind.as_str() != "policy.workspace")
+                || request
+                    .policy_ref
+                    .as_ref()
+                    .is_some_and(|policy| policy.entity_kind.as_str() != "policy.workspace")
             {
                 return Err("WORKSPACE_METADATA_KIND_INVALID".into());
             }
@@ -236,28 +247,39 @@ mod tests {
             "workspace_key":"shared.all-callers",
             "title":"Shared Ptah Workspace",
             "observed_at":"2026-10-19T20:10:00Z"
-        })).expect("no login/owner/grant metadata required");
-        let created=process(&path,new_request).expect("any admitted caller can create");
+        }))
+        .expect("no login/owner/grant metadata required");
+        let created = process(&path, new_request).expect("any admitted caller can create");
         assert_eq!(created["state"], "existing_workspace");
         assert_eq!(created["ownerRefIsMetadataOnly"], true);
         assert_eq!(created["secondAuthorizationPerformed"], false);
-        let inspected=process(&path,serde_json::from_value(json!({
-            "action":"inspect",
-            "workspace_ref": created["workspaceRef"],
-            "observed_at":"2026-10-19T20:11:00Z"
-        })).unwrap()).expect("any admitted caller can inspect");
-        assert_eq!(inspected["workspaceRef"],created["workspaceRef"]);
-        assert_eq!(inspected["ownerRef"],created["ownerRef"]);
-        let arbitrary_other=EntityRef::new("identity.principal").unwrap();
-        let repeated=process(&path,serde_json::from_value(json!({
-            "action":"inspect",
-            "workspace_ref": created["workspaceRef"],
-            "owner_ref": arbitrary_other,
-            "observed_at":"2026-10-19T20:11:00Z"
-        })).unwrap()).expect("client-supplied owner identity is not an access control");
-        assert_eq!(repeated["workspaceRef"],created["workspaceRef"]);
-        assert_eq!(repeated["secondAuthorizationPerformed"],false);
-        let _=std::fs::remove_file(&path);
+        let inspected = process(
+            &path,
+            serde_json::from_value(json!({
+                "action":"inspect",
+                "workspace_ref": created["workspaceRef"],
+                "observed_at":"2026-10-19T20:11:00Z"
+            }))
+            .unwrap(),
+        )
+        .expect("any admitted caller can inspect");
+        assert_eq!(inspected["workspaceRef"], created["workspaceRef"]);
+        assert_eq!(inspected["ownerRef"], created["ownerRef"]);
+        let arbitrary_other = EntityRef::new("identity.principal").unwrap();
+        let repeated = process(
+            &path,
+            serde_json::from_value(json!({
+                "action":"inspect",
+                "workspace_ref": created["workspaceRef"],
+                "owner_ref": arbitrary_other,
+                "observed_at":"2026-10-19T20:11:00Z"
+            }))
+            .unwrap(),
+        )
+        .expect("client-supplied owner identity is not an access control");
+        assert_eq!(repeated["workspaceRef"], created["workspaceRef"]);
+        assert_eq!(repeated["secondAuthorizationPerformed"], false);
+        let _ = std::fs::remove_file(&path);
     }
     #[test]
     fn provision_then_reopen_exact_d02_record_for_other_admitted_caller() {

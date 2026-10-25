@@ -708,6 +708,59 @@ with carrier.carrier_admission_lock(sys.argv[2]):
                 finally:
                     marker.unlink()
 
+    def test_status_only_reports_admitted_lifecycle_markers(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        def status():
+            output = StringIO()
+            with patch.object(C.sys, "argv", ["e07_oracle_stream.py", "status",
+                                               "--state", self.b]):
+                with redirect_stdout(output):
+                    C.main()
+            return json.loads(output.getvalue())
+
+        self.assertFalse(status()["ready"])
+        self.assertFalse(status()["ended"])
+        C.write_exclusive_marker(Path(self.b) / "ready.json", {"bound": "127.0.0.1"})
+        self.assertTrue(status()["ready"])
+        self.assertFalse(status()["ended"])
+        C.write_exclusive_marker(Path(self.b) / "ended.json", {"finished": True})
+        self.assertTrue(status()["ended"])
+
+    @unittest.skipIf(os.name == "nt", "POSIX symlink/hardlink/mode fixtures")
+    def test_status_rejects_aliased_and_shared_lifecycle_markers(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        outside = Path(self.temp.name) / "outside-marker"
+        outside.write_text("{}", encoding="utf-8")
+        for name in ("ready.json", "ended.json"):
+            marker = Path(self.b) / name
+            for kind in ("symlink", "hardlink", "shared"):
+                with self.subTest(marker=name, kind=kind):
+                    if kind == "symlink":
+                        marker.symlink_to(outside)
+                        expected = "unaliased carrier lifecycle marker"
+                    elif kind == "hardlink":
+                        os.link(outside, marker)
+                        expected = "unaliased carrier lifecycle marker"
+                    else:
+                        marker.write_text("{}", encoding="utf-8")
+                        os.chmod(marker, 0o644)
+                        expected = "private carrier lifecycle marker required"
+                    try:
+                        with patch.object(C.sys, "argv", ["e07_oracle_stream.py",
+                                                           "status", "--state", self.b]):
+                            with redirect_stdout(StringIO()):
+                                with self.assertRaisesRegex(ValueError, expected):
+                                    C.main()
+                    finally:
+                        marker.unlink()
+        self.assertEqual(outside.read_text(encoding="utf-8"), "{}")
+
     def test_database_handles_are_closed_after_carrier_operations(self):
         import sqlite3
         from unittest.mock import patch

@@ -371,6 +371,24 @@ def write_exclusive_marker(path, document):
         json.dump(document, file, separators=(",", ":"))
         file.flush()
         os.fsync(file.fileno())
+    if os.name == "nt":
+        # Elevated Windows tokens may default newly created files to the
+        # Administrators owner. Admit only our own new marker as TokenUser.
+        windows_claim_new_owner(path)
+
+
+def admitted_lifecycle_marker(path):
+    """Report only an unaliased, privately owned carrier lifecycle marker."""
+    try:
+        identity = path.lstat()
+    except FileNotFoundError:
+        return False
+    if (not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1
+            or is_path_alias(path)):
+        raise ValueError("real unaliased carrier lifecycle marker required")
+    require_private_custody(path, identity, "lifecycle marker")
+    return True
+
 
 def serve(state, mode, port):
     if mode not in ("accept","dial") or not 1024<=port<=65535:
@@ -519,7 +537,10 @@ def main():
         with dbtransaction(a.state) as db:
             n1=db.execute("SELECT count(*),coalesce(sum(length(content)),0) FROM outbound").fetchone()
             n2=db.execute("SELECT count(*),coalesce(sum(length(content)),0) FROM inbound").fetchone()
-        print(json.dumps({"outbound":n1,"inbound":n2,"ready":(Path(a.state)/"ready.json").exists(),"ended":(Path(a.state)/"ended.json").exists()}))
+        root = require_unaliased_state_path(a.state)
+        print(json.dumps({"outbound": n1, "inbound": n2,
+                          "ready": admitted_lifecycle_marker(root / "ready.json"),
+                          "ended": admitted_lifecycle_marker(root / "ended.json")}))
 
 if __name__=="__main__":
     try: main()

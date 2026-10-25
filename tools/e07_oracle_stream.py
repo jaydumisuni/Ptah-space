@@ -286,16 +286,19 @@ def pull(state, table, after, limit):
         rows = conn.execute(f"SELECT seq,content FROM {table} WHERE seq>? ORDER BY seq LIMIT ?",(after,limit)).fetchall()
     return [{"seq":seq,"b64":base64.b64encode(buf).decode("ascii")} for seq,buf in rows]
 
-def snapshot(state, after):
-    # An over-advanced caller cursor is not evidence that these opaque TLS
-    # bytes were ever published. Reject it instead of echoing a fabricated
-    # latest sequence across an Oracle RPC/restarted carrier session.
-    if type(after) is not int or after < 0:
+def require_durable_outbound_cursor(conn, after):
+    # Validate the caller's journal cursor before any exchange mutation.
+    # A cursor from another session cannot acknowledge nonexistent bytes.
+    if type(after) is not int or not 0 <= after <= (1 << 63) - 1:
         raise ValueError("invalid outbound cursor")
+    durable_latest = conn.execute("SELECT coalesce(max(seq),0) FROM outbound").fetchone()[0]
+    if after > durable_latest:
+        raise ValueError("outbound cursor exceeds durable sequence")
+
+
+def snapshot(state, after):
     with dbtransaction(state) as conn:
-        durable_latest = conn.execute("SELECT coalesce(max(seq),0) FROM outbound").fetchone()[0]
-        if after > durable_latest:
-            raise ValueError("outbound cursor exceeds durable sequence")
+        require_durable_outbound_cursor(conn, after)
         rows = conn.execute(
             "SELECT seq,content FROM outbound WHERE seq>? ORDER BY seq LIMIT ?",
             (after, MAX_BATCH),
@@ -502,7 +505,13 @@ def main():
         data=decode_packet_batch(a.packets)
         if not isinstance(data, list) or len(data) > MAX_BATCH:
             raise ValueError("invalid packet batch")
-        if data: deliver_quiet(a.state,data)
+        if data:
+            # The original exchange delivered inbound ciphertext first, then
+            # rejected an invalid outbound cursor. Never commit a partial
+            # exchange before the caller's snapshot cursor is admitted.
+            with dbtransaction(a.state) as conn:
+                require_durable_outbound_cursor(conn, a.after)
+            deliver_quiet(a.state,data)
         time.sleep(.04)
         snapshot(a.state,a.after)
     elif a.command=="serve": serve(a.state,a.mode,a.port)

@@ -38,6 +38,26 @@ class OracleCarrierContract(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Windows ACL grants other principals"):
                     C.pull(self.b, "inbound", 0, 1)
 
+    @unittest.skipUnless(os.name == "nt", "Windows TokenUser lifecycle integration")
+    def test_windows_status_admits_newly_owned_private_lifecycle_markers(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+        root = Path(self.b)
+        for name in ("ready.json", "ended.json"):
+            marker = root / name
+            C.write_exclusive_marker(marker, {"phase": name})
+            # Exercise the real Windows TokenUser/DACL validator, not a mock.
+            C.windows_private_acl(marker)
+            output = StringIO()
+            with patch("sys.argv", ["e07_oracle_stream.py", "status",
+                                    "--state", self.b]):
+                with redirect_stdout(output):
+                    C.main()
+            status = json.loads(output.getvalue())
+            self.assertTrue(status["ready"])
+            self.assertEqual(status["ended"], name == "ended.json")
+
     @unittest.skipUnless(os.name == "nt", "Windows exclusive-create integration")
     def test_windows_exclusive_creation_does_not_replace_existing_marker(self):
         marker = Path(self.b) / "ready.json"
@@ -727,6 +747,60 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         for connection in opened:
             with self.assertRaises(sqlite3.ProgrammingError):
                 connection.execute("SELECT 1")
+
+    @unittest.skipIf(os.name == "nt", "POSIX lifecycle alias and mode fixture")
+    def test_status_rejects_aliased_or_shared_lifecycle_markers(self):
+        # A status query must not report a symlink, hardlink, or shared-writable
+        # marker as authenticated carrier lifecycle evidence.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+        state = Path(self.b)
+        external = Path(self.temp.name) / "external-lifecycle"
+        external.write_text("{}", encoding="utf-8")
+        os.chmod(external, 0o600)
+
+        def status():
+            output = StringIO()
+            with patch("sys.argv", ["e07_oracle_stream.py", "status",
+                                    "--state", self.b]):
+                with redirect_stdout(output):
+                    C.main()
+            return json.loads(output.getvalue())
+
+        self.assertEqual((status()["ready"], status()["ended"]), (False, False))
+        for name in ("ready.json", "ended.json"):
+            marker = state / name
+            with self.subTest(name=name, alias="symlink"):
+                marker.symlink_to(external)
+                try:
+                    with self.assertRaisesRegex(ValueError, "lifecycle marker"):
+                        status()
+                finally:
+                    marker.unlink()
+            with self.subTest(name=name, alias="hardlink"):
+                os.link(external, marker)
+                try:
+                    with self.assertRaisesRegex(ValueError, "lifecycle marker"):
+                        status()
+                finally:
+                    marker.unlink()
+            with self.subTest(name=name, alias="shared-mode"):
+                marker.write_text("{}", encoding="utf-8")
+                os.chmod(marker, 0o666)
+                try:
+                    with self.assertRaisesRegex(ValueError, "private carrier lifecycle marker"):
+                        status()
+                finally:
+                    marker.unlink()
+            with self.subTest(name=name, alias="private-regular"):
+                marker.write_text("{}", encoding="utf-8")
+                os.chmod(marker, 0o600)
+                try:
+                    result = status()
+                    self.assertTrue(result["ready" if name == "ready.json" else "ended"])
+                finally:
+                    marker.unlink()
 
     def test_endpoint_is_loopback_only_and_never_decides_tasks(self):
         listener=socket.socket()

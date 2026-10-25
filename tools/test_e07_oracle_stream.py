@@ -167,6 +167,37 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertEqual(C.pull(self.a, "outbound", 0, 1),
                          [{"seq": 1, "b64": "b3BhcXVl"}])
 
+    def test_exchange_invalid_outbound_cursor_does_not_commit_inbound(self):
+        # An Oracle exchange must not acknowledge failure after already
+        # committing new inbound ciphertext: a retry cannot infer its effect.
+        from unittest.mock import patch
+        from contextlib import redirect_stdout
+        from io import StringIO
+        C.publish(self.b, "outbound", b"published")
+        packet = '[{"seq":1,"b64":"YWJj"}]'
+        for cursor in ("-1", "2", str(1 << 63)):
+            with self.subTest(cursor=cursor):
+                output = StringIO()
+                with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                        "--state", self.b, "--after", cursor,
+                                        "--packets", packet]):
+                    with redirect_stdout(output):
+                        with self.assertRaisesRegex(ValueError, "outbound cursor"):
+                            C.main()
+                self.assertEqual(output.getvalue(), "")
+                self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
+
+        # Valid cursor and packet still complete one ordinary exchange.
+        output = StringIO()
+        with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                "--state", self.b, "--after", "1",
+                                "--packets", packet]):
+            with redirect_stdout(output):
+                C.main()
+        self.assertEqual(json.loads(output.getvalue())["latest"], 1)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 10),
+                         [{"seq": 1, "b64": "YWJj"}])
+
     def test_exchange_empty_array_remains_valid_snapshot_poll(self):
         from unittest.mock import patch
         from contextlib import redirect_stdout

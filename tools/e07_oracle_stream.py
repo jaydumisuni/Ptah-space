@@ -265,6 +265,11 @@ def require_carrier_stream_table(table):
 
 def publish(state, table, payload):
     require_carrier_stream_table(table)
+    # Only nonempty bounded TLS ciphertext frames are transportable: the
+    # receiver rejects empty and >MAX_CHUNK packets. Enforce before opening
+    # the journal so no undeliverable outbound sequence can be committed.
+    if type(payload) is not bytes or not 1 <= len(payload) <= MAX_CHUNK:
+        raise ValueError("invalid outbound carrier frame")
     with dbtransaction(state) as conn:
         row = conn.execute(f"SELECT coalesce(sum(length(content)),0), coalesce(max(seq),0) FROM {table}").fetchone()
         if row[0]+len(payload)>MAX_TOTAL:

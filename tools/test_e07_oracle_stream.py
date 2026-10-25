@@ -56,6 +56,20 @@ class OracleCarrierContract(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "absolute carrier state path"):
                         C.pull(state, "inbound", 0, 1)
 
+    def test_outbound_publish_requires_bounded_nonempty_bytes(self):
+        # The receiving E07 journal rejects zero-length or oversized frames.
+        # Never persist an outbound frame that cannot be delivered over Oracle.
+        for payload in (b"", b"x" * (C.MAX_CHUNK + 1), "text", None, bytearray(b"x")):
+            with self.subTest(kind=type(payload).__name__, size=len(payload) if payload is not None else None):
+                with self.assertRaisesRegex(ValueError, "invalid outbound carrier frame"):
+                    C.publish(self.a, "outbound", payload)
+                self.assertEqual(C.pull(self.a, "outbound", 0, 1), [])
+        C.publish(self.a, "outbound", b"x" * C.MAX_CHUNK)
+        rows = C.pull(self.a, "outbound", 0, 1)
+        self.assertEqual(len(rows), 1)
+        import base64
+        self.assertEqual(base64.b64decode(rows[0]["b64"]), b"x" * C.MAX_CHUNK)
+
     def test_ordered_ciphertext_frames_survive_duplicate_transport_delivery(self):
         msgs=[bytes(range(256))*8,b"\x16\x03\x03\x00"+b"\xf0"*1800,b"TLS ciphertext no authority"]
         for message in msgs:

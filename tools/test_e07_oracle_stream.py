@@ -106,6 +106,32 @@ class OracleCarrierContract(unittest.TestCase):
                         C.main()
                 self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
 
+    def test_snapshot_rejects_cursor_ahead_of_durable_outbound(self):
+        # A caller-side cursor from another session must never be echoed
+        # as acknowledged TLS bytes from this local durable journal.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        C.publish(self.a, "outbound", b"first")
+        C.publish(self.a, "outbound", b"second")
+        for cursor in (-1, 3, 100):
+            with self.subTest(cursor=cursor):
+                output = StringIO()
+                with redirect_stdout(output):
+                    with self.assertRaisesRegex(ValueError, "outbound cursor"):
+                        C.snapshot(self.a, cursor)
+                self.assertEqual(output.getvalue(), "")
+        output = StringIO()
+        with redirect_stdout(output):
+            C.snapshot(self.a, 1)
+        result = json.loads(output.getvalue())
+        self.assertEqual([p["seq"] for p in result["packets"]], [2])
+        self.assertEqual(result["latest"], 2)
+        output = StringIO()
+        with redirect_stdout(output):
+            C.snapshot(self.a, 2)
+        result = json.loads(output.getvalue())
+        self.assertEqual(result, {"packets": [], "count": 0, "latest": 2})
+
     def test_exchange_empty_array_remains_valid_snapshot_poll(self):
         from unittest.mock import patch
         from contextlib import redirect_stdout

@@ -269,8 +269,24 @@ def pull(state, table, after, limit):
     return [{"seq":seq,"b64":base64.b64encode(buf).decode("ascii")} for seq,buf in rows]
 
 def snapshot(state, after):
-    rows=pull(state,"outbound",after,MAX_BATCH)
-    print(json.dumps({"packets":rows,"count":len(rows),"latest":rows[-1]["seq"] if rows else after},separators=(",",":")))
+    # An over-advanced caller cursor is not evidence that these opaque TLS
+    # bytes were ever published. Reject it instead of echoing a fabricated
+    # latest sequence across an Oracle RPC/restarted carrier session.
+    if type(after) is not int or after < 0:
+        raise ValueError("invalid outbound cursor")
+    with dbtransaction(state) as conn:
+        durable_latest = conn.execute("SELECT coalesce(max(seq),0) FROM outbound").fetchone()[0]
+        if after > durable_latest:
+            raise ValueError("outbound cursor exceeds durable sequence")
+        rows = conn.execute(
+            "SELECT seq,content FROM outbound WHERE seq>? ORDER BY seq LIMIT ?",
+            (after, MAX_BATCH),
+        ).fetchall()
+    packets = [{"seq": seq, "b64": base64.b64encode(buf).decode("ascii")}
+               for seq, buf in rows]
+    print(json.dumps({"packets": packets, "count": len(packets),
+                      "latest": packets[-1]["seq"] if packets else after},
+                     separators=(",", ":")))
 
 def decode_packet_batch(document):
     if not isinstance(document, str) or len(document) > MAX_BATCH * (MAX_ENCODED_CHUNK + 64) + 2:

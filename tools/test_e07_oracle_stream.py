@@ -167,6 +167,36 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertEqual(C.pull(self.a, "outbound", 0, 1),
                          [{"seq": 1, "b64": "b3BhcXVl"}])
 
+    def test_exchange_invalid_outbound_cursor_never_commits_inbound(self):
+        # Reconcile the independent PR #168 preflight with the current E07
+        # carrier head. Invalid outbound acknowledgement cannot partially
+        # commit otherwise valid inbound TLS ciphertext.
+        from unittest.mock import patch
+        from contextlib import redirect_stdout
+        from io import StringIO
+        C.publish(self.b, "outbound", b"existing")
+        packets = '[{"seq":1,"b64":"YWJj"}]'
+        for cursor in ("-1", "2", "99", str(1 << 63)):
+            with self.subTest(cursor=cursor):
+                output = StringIO()
+                with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                        "--state", self.b, "--after", cursor,
+                                        "--packets", packets]):
+                    with redirect_stdout(output):
+                        with self.assertRaisesRegex(ValueError, "outbound cursor"):
+                            C.main()
+                self.assertEqual(output.getvalue(), "")
+                self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
+        output = StringIO()
+        with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                "--state", self.b, "--after", "1",
+                                "--packets", packets]):
+            with redirect_stdout(output):
+                C.main()
+        self.assertEqual(json.loads(output.getvalue()),
+                         {"packets": [], "count": 0, "latest": 1})
+        self.assertEqual(len(C.pull(self.b, "inbound", 0, 10)), 1)
+
     def test_exchange_empty_array_remains_valid_snapshot_poll(self):
         from unittest.mock import patch
         from contextlib import redirect_stdout

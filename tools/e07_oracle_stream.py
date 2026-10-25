@@ -105,7 +105,11 @@ def carrier_admission_lock(state, preparing=False):
     if not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1 or is_path_alias(path):
         raise ValueError("real unaliased carrier admission lock required")
     require_private_custody(path, identity, "admission lock")
-    fd = os.open(path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
+    # The path can be swapped for a FIFO after lstat. Nonblocking open
+    # prevents an untrusted FIFO with no writer from hanging the Oracle RPC;
+    # fstat below still rejects the substituted non-regular inode.
+    fd = os.open(path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+                 | getattr(os, "O_NONBLOCK", 0))
     try:
         opened = os.fstat(fd)
         if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1

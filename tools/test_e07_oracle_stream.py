@@ -132,6 +132,38 @@ class OracleCarrierContract(unittest.TestCase):
         result = json.loads(output.getvalue())
         self.assertEqual(result, {"packets": [], "count": 0, "latest": 2})
 
+    def test_exchange_invalid_outbound_cursor_never_commits_inbound(self):
+        # A valid inbound frame combined with an impossible outbound cursor
+        # must fail as a whole, not commit ciphertext before reporting failure.
+        from unittest.mock import patch
+        from contextlib import redirect_stdout
+        from io import StringIO
+        C.publish(self.b, "outbound", b"existing")
+        packets = '[{"seq":1,"b64":"YWJj"}]'
+        for cursor in ("-1", "2", "99"):
+            with self.subTest(cursor=cursor):
+                output = StringIO()
+                with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                        "--state", self.b, "--after", cursor,
+                                        "--packets", packets]):
+                    with redirect_stdout(output):
+                        with self.assertRaisesRegex(ValueError, "outbound cursor"):
+                            C.main()
+                self.assertEqual(output.getvalue(), "")
+                self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
+
+        # A valid bidirectional exchange still commits and returns the
+        # exact durable outbound cursor.
+        output = StringIO()
+        with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                "--state", self.b, "--after", "1",
+                                "--packets", packets]):
+            with redirect_stdout(output):
+                C.main()
+        self.assertEqual(json.loads(output.getvalue()),
+                         {"packets": [], "count": 0, "latest": 1})
+        self.assertEqual(len(C.pull(self.b, "inbound", 0, 10)), 1)
+
     def test_exchange_empty_array_remains_valid_snapshot_poll(self):
         from unittest.mock import patch
         from contextlib import redirect_stdout

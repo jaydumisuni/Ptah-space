@@ -38,6 +38,26 @@ class OracleCarrierContract(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Windows ACL grants other principals"):
                     C.pull(self.b, "inbound", 0, 1)
 
+    @unittest.skipUnless(os.name == "nt", "Windows TokenUser lifecycle integration")
+    def test_windows_status_admits_newly_owned_private_lifecycle_markers(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+        root = Path(self.b)
+        for name in ("ready.json", "ended.json"):
+            marker = root / name
+            C.write_exclusive_marker(marker, {"phase": name})
+            # Exercise the real Windows TokenUser/DACL validator, not a mock.
+            C.windows_private_acl(marker)
+            output = StringIO()
+            with patch("sys.argv", ["e07_oracle_stream.py", "status",
+                                    "--state", self.b]):
+                with redirect_stdout(output):
+                    C.main()
+            status = json.loads(output.getvalue())
+            self.assertTrue(status["ready"])
+            self.assertEqual(status["ended"], name == "ended.json")
+
     @unittest.skipUnless(os.name == "nt", "Windows exclusive-create integration")
     def test_windows_exclusive_creation_does_not_replace_existing_marker(self):
         marker = Path(self.b) / "ready.json"

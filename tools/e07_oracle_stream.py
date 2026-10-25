@@ -408,6 +408,11 @@ def write_exclusive_marker(path, document):
         json.dump(document, file, separators=(",", ":"))
         file.flush()
         os.fsync(file.fileno())
+    # Windows elevated tokens may create files owned by Administrators.
+    # Only a marker created by this exclusive operation may be rebound to
+    # TokenUser; never change ownership of a pre-existing lifecycle file.
+    if os.name == "nt":
+        windows_claim_new_owner(path)
 
 def serve(state, mode, port):
     if mode not in ("accept","dial") or not 1024<=port<=65535:

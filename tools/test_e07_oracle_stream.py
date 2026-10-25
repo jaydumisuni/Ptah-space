@@ -118,6 +118,34 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["packets"], [])
         self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
 
+    def test_sqlite_initialization_failure_closes_handle(self):
+        # A failed PRAGMA/schema/commit must not leak a SQLite handle after
+        # the admission lock is released, especially on Windows WAL files.
+        import sqlite3
+        from unittest.mock import patch
+
+        for failure_at in ("execute", "commit"):
+            with self.subTest(failure_at=failure_at):
+                class FailingConnection:
+                    closed = False
+
+                    def execute(self, _sql):
+                        if failure_at == "execute":
+                            raise sqlite3.OperationalError("injected setup failure")
+
+                    def commit(self):
+                        if failure_at == "commit":
+                            raise sqlite3.OperationalError("injected setup failure")
+
+                    def close(self):
+                        self.closed = True
+
+                connection = FailingConnection()
+                with patch.object(C.sqlite3, "connect", return_value=connection):
+                    with self.assertRaisesRegex(sqlite3.OperationalError, "injected setup failure"):
+                        C.pull(self.b, "inbound", 0, 1)
+                self.assertTrue(connection.closed, "failed SQLite setup leaked a handle")
+
     def test_cross_process_admission_lock_serializes_transaction_lifetime(self):
         import subprocess
         import sys

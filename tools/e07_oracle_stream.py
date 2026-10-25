@@ -189,13 +189,16 @@ def _dbconnect_locked(state, create=False):
             raise ValueError("real unaliased carrier sidecar required")
         require_private_custody(sidecar, sidecar_identity, "sidecar")
     conn = sqlite3.connect(str(db_path), timeout=7)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=7000")
-    conn.execute("CREATE TABLE IF NOT EXISTS outbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
-    conn.execute("CREATE TABLE IF NOT EXISTS inbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
-    conn.commit()
-    if os.name == "nt":
-        try:
+    try:
+        # Schema/PRAGMA/commit failures must close the handle before the
+        # caller releases the cross-process admission lock. A leaked handle
+        # can retain Windows SQLite WAL/SHM custody beyond this operation.
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=7000")
+        conn.execute("CREATE TABLE IF NOT EXISTS outbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
+        conn.execute("CREATE TABLE IF NOT EXISTS inbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
+        conn.commit()
+        if os.name == "nt":
             # SQLite may create WAL/SHM files after the pre-open check.
             # Only freshly created sidecars may be assigned TokenUser;
             # existing foreign-owned sidecars must remain rejected.
@@ -208,9 +211,9 @@ def _dbconnect_locked(state, create=False):
                     raise ValueError("real unaliased carrier sidecar required")
                 windows_claim_new_owner(sidecar)
                 require_private_custody(sidecar, sidecar.lstat(), "sidecar")
-        except Exception:
-            conn.close()
-            raise
+    except Exception:
+        conn.close()
+        raise
     return conn
 
 @contextmanager

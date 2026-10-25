@@ -146,6 +146,39 @@ class OracleCarrierContract(unittest.TestCase):
                         C.pull(self.b, "inbound", 0, 1)
                 self.assertTrue(connection.closed, "failed SQLite setup leaked a handle")
 
+    @unittest.skipIf(os.name == "nt" or not hasattr(os, "O_NONBLOCK"),
+                     "POSIX nonblocking FIFO admission")
+    def test_admission_lock_fifo_swap_never_blocks_rpc(self):
+        # A FIFO substituted between lstat and open must be rejected without
+        # waiting for a writer or letting SQLite touch untrusted state.
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        original_bytes = lock_path.read_bytes()
+        real_open = os.open
+        swapped = []
+
+        def replace_at_open(path, flags, *args, **kwargs):
+            if Path(path) == lock_path:
+                self.assertTrue(flags & os.O_NONBLOCK,
+                                "admission lock open must reject blocking FIFOs")
+                lock_path.unlink()
+                os.mkfifo(lock_path, mode=0o600)
+                swapped.append(True)
+            return real_open(path, flags, *args, **kwargs)
+
+        try:
+            with patch.object(C.os, "open", side_effect=replace_at_open):
+                with patch.object(C.sqlite3, "connect",
+                                  side_effect=AssertionError("SQLite opened swapped FIFO")):
+                    with self.assertRaisesRegex(ValueError,
+                                                "admission lock identity changed"):
+                        C.pull(self.b, "inbound", 0, 1)
+            self.assertEqual(swapped, [True])
+        finally:
+            lock_path.unlink(missing_ok=True)
+            lock_path.write_bytes(original_bytes)
+            os.chmod(lock_path, 0o600)
+
     def test_cross_process_admission_lock_serializes_transaction_lifetime(self):
         import subprocess
         import sys

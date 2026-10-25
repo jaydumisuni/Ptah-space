@@ -367,6 +367,40 @@ def deliver_quiet(state, packets):
     with redirect_stdout(StringIO()):
         deliver(state,json.dumps(packets,separators=(",",":")))
 
+def admitted_lifecycle_marker(root, name):
+    """Report a lifecycle marker only after private, unaliased inode admission.
+
+    Marker presence is historical evidence, not proof of a live TLS socket.
+    """
+    marker = root / name
+    try:
+        identity = marker.lstat()
+    except FileNotFoundError:
+        return False
+    if (not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1
+            or is_path_alias(marker)):
+        raise ValueError("real unaliased carrier lifecycle marker required")
+    require_private_custody(marker, identity, "lifecycle marker")
+    # Opening nonblocking and no-follow prevents FIFO/symlink substitution
+    # from turning a read-only status RPC into a hang or alias admission.
+    fd = os.open(marker, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                 | getattr(os, "O_NONBLOCK", 0))
+    try:
+        opened = os.fstat(fd)
+        named = marker.lstat()
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1
+                or not stat.S_ISREG(named.st_mode) or named.st_nlink != 1
+                or (opened.st_dev, opened.st_ino) != (identity.st_dev, identity.st_ino)
+                or (named.st_dev, named.st_ino) != (opened.st_dev, opened.st_ino)
+                or is_path_alias(marker)):
+            raise ValueError("carrier lifecycle marker identity changed")
+        require_private_custody(marker, opened, "lifecycle marker")
+        require_private_custody(marker, named, "lifecycle marker")
+    finally:
+        os.close(fd)
+    return True
+
+
 def write_exclusive_marker(path, document):
     """Create a private lifecycle marker without following or replacing aliases."""
     fd = os.open(path, exclusive_open_flags(os.O_WRONLY), 0o600)
@@ -520,7 +554,9 @@ def main():
         with dbtransaction(a.state) as db:
             n1=db.execute("SELECT count(*),coalesce(sum(length(content)),0) FROM outbound").fetchone()
             n2=db.execute("SELECT count(*),coalesce(sum(length(content)),0) FROM inbound").fetchone()
-        print(json.dumps({"outbound":n1,"inbound":n2,"ready":(Path(a.state)/"ready.json").exists(),"ended":(Path(a.state)/"ended.json").exists()}))
+        print(json.dumps({"outbound":n1,"inbound":n2,
+                          "ready":admitted_lifecycle_marker(Path(a.state), "ready.json"),
+                          "ended":admitted_lifecycle_marker(Path(a.state), "ended.json")}))
 
 if __name__=="__main__":
     try: main()

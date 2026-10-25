@@ -505,6 +505,37 @@ with carrier.carrier_admission_lock(sys.argv[2]):
             C.deliver(self.b,'[{"seq":3,"b64":"YWJj"}]')
         with self.assertRaisesRegex(ValueError,"non-idempotent"):
             C.deliver(self.b,'[{"seq":1,"b64":"YWJk"}]')
+    def test_live_carrier_runtime_budget_exhaustion_is_not_success(self):
+        # A still-connected TLS socket at the carrier deadline is not a
+        # successful completed byte pump, even without a storage exception.
+        from unittest.mock import patch
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        errors = []
+
+        def run():
+            try:
+                C.serve(self.b, "accept", port)
+            except Exception as error:
+                errors.append(str(error))
+
+        with patch.object(C, "MAX_RUNTIME", 0.8):
+            worker = threading.Thread(target=run)
+            worker.start()
+            deadline = time.monotonic() + 3
+            while not (Path(self.b) / "ready.json").exists() and time.monotonic() < deadline:
+                time.sleep(.01)
+            with socket.create_connection(("127.0.0.1", port), timeout=2):
+                worker.join(timeout=3)
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(errors, "runtime exhaustion must not silently succeed")
+        self.assertIn("E07_CARRIER_PUMP_FAILED:timeout", errors[0])
+        status = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertFalse(status["finished"])
+        self.assertTrue(status["failed"])
+
     def test_reader_sqlite_or_quota_failure_is_propagated_not_marked_finished(self):
         listener=socket.socket()
         listener.bind(("127.0.0.1",0));port=listener.getsockname()[1]
@@ -674,5 +705,8 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         cli.close()
         server.join(timeout=3)
         self.assertFalse(server.is_alive())
+        status = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertTrue(status["finished"])
+        self.assertFalse(status["failed"])
 
 if __name__=="__main__": unittest.main()

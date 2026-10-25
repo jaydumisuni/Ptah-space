@@ -415,7 +415,10 @@ def serve(state, mode, port):
         completed.set()
     def reader():
         try:
-            while not completed.is_set() and time.monotonic()-started<MAX_RUNTIME:
+            while not completed.is_set():
+                if time.monotonic()-started>=MAX_RUNTIME:
+                    record_failure("timeout", TimeoutError("carrier runtime budget exhausted"))
+                    break
                 try:
                     chunk=sock.recv(MAX_CHUNK)
                 except socket.timeout:
@@ -430,7 +433,10 @@ def serve(state, mode, port):
     def writer():
         cursor=0
         try:
-            while not completed.is_set() and time.monotonic()-started<MAX_RUNTIME:
+            while not completed.is_set():
+                if time.monotonic()-started>=MAX_RUNTIME:
+                    record_failure("timeout", TimeoutError("carrier runtime budget exhausted"))
+                    break
                 packets=pull(state,"inbound",cursor,MAX_BATCH)
                 for p in packets:
                     sock.sendall(base64.b64decode(p["b64"]))
@@ -444,7 +450,10 @@ def serve(state, mode, port):
     b=threading.Thread(target=writer,daemon=True)
     a.start()
     b.start()
-    while not completed.is_set() and time.monotonic()-started<MAX_RUNTIME:
+    while not completed.is_set():
+        if time.monotonic()-started>=MAX_RUNTIME:
+            record_failure("timeout", TimeoutError("carrier runtime budget exhausted"))
+            break
         time.sleep(.08)
     completed.set()
     try:

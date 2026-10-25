@@ -286,16 +286,22 @@ def pull(state, table, after, limit):
         rows = conn.execute(f"SELECT seq,content FROM {table} WHERE seq>? ORDER BY seq LIMIT ?",(after,limit)).fetchall()
     return [{"seq":seq,"b64":base64.b64encode(buf).decode("ascii")} for seq,buf in rows]
 
+def validate_outbound_cursor(conn, after):
+    """Reject a cursor from another carrier before accepting inbound bytes."""
+    if type(after) is not int or not 0 <= after <= (1 << 63) - 1:
+        raise ValueError("invalid outbound cursor")
+    durable_latest = conn.execute("SELECT coalesce(max(seq),0) FROM outbound").fetchone()[0]
+    if after > durable_latest:
+        raise ValueError("outbound cursor exceeds durable sequence")
+
 def snapshot(state, after):
     # An over-advanced caller cursor is not evidence that these opaque TLS
     # bytes were ever published. Reject it instead of echoing a fabricated
     # latest sequence across an Oracle RPC/restarted carrier session.
-    if type(after) is not int or after < 0:
+    if type(after) is not int or not 0 <= after <= (1 << 63) - 1:
         raise ValueError("invalid outbound cursor")
     with dbtransaction(state) as conn:
-        durable_latest = conn.execute("SELECT coalesce(max(seq),0) FROM outbound").fetchone()[0]
-        if after > durable_latest:
-            raise ValueError("outbound cursor exceeds durable sequence")
+        validate_outbound_cursor(conn, after)
         rows = conn.execute(
             "SELECT seq,content FROM outbound WHERE seq>? ORDER BY seq LIMIT ?",
             (after, MAX_BATCH),
@@ -502,6 +508,10 @@ def main():
         data=decode_packet_batch(a.packets)
         if not isinstance(data, list) or len(data) > MAX_BATCH:
             raise ValueError("invalid packet batch")
+        # Validate outbound custody before committing any inbound ciphertext.
+        # The final snapshot repeats this check after delivery.
+        with dbtransaction(a.state) as conn:
+            validate_outbound_cursor(conn, a.after)
         if data: deliver_quiet(a.state,data)
         time.sleep(.04)
         snapshot(a.state,a.after)

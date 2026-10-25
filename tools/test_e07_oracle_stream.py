@@ -132,6 +132,27 @@ class OracleCarrierContract(unittest.TestCase):
         result = json.loads(output.getvalue())
         self.assertEqual(result, {"packets": [], "count": 0, "latest": 2})
 
+    def test_stream_queries_reject_unbounded_or_unapproved_sql_parameters(self):
+        # Internal carrier helpers must not turn a malformed caller parameter
+        # into a raw SQL table expression or SQLite's unlimited LIMIT -1.
+        C.publish(self.a, "outbound", b"opaque")
+        for table in ("sqlite_master", "outbound WHERE 1=1 --", "", 7):
+            with self.subTest(table=table):
+                with self.assertRaisesRegex(ValueError, "carrier stream table"):
+                    C.publish(self.a, table, b"unexpected")
+                with self.assertRaisesRegex(ValueError, "carrier stream table"):
+                    C.pull(self.a, table, 0, 1)
+        for cursor in (-1, True, 1.5, 2**63):
+            with self.subTest(cursor=cursor):
+                with self.assertRaisesRegex(ValueError, "carrier cursor"):
+                    C.pull(self.a, "outbound", cursor, 1)
+        for limit in (0, -1, C.MAX_BATCH + 1, True, 1.5):
+            with self.subTest(limit=limit):
+                with self.assertRaisesRegex(ValueError, "carrier batch limit"):
+                    C.pull(self.a, "outbound", 0, limit)
+        self.assertEqual(C.pull(self.a, "outbound", 0, 1),
+                         [{"seq": 1, "b64": "b3BhcXVl"}])
+
     def test_exchange_empty_array_remains_valid_snapshot_poll(self):
         from unittest.mock import patch
         from contextlib import redirect_stdout

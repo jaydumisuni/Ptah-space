@@ -256,7 +256,15 @@ def prepare(state):
             conn.close()
     print(json.dumps({"state":str(p),"new":True,"listener":"loopback_only"}))
 
+def require_carrier_stream_table(table):
+    # Table identifiers cannot be SQL parameters; keep this internal helper
+    # limited to the two durable opaque-byte journals it actually owns.
+    if type(table) is not str or table not in ("outbound", "inbound"):
+        raise ValueError("invalid carrier stream table")
+
+
 def publish(state, table, payload):
+    require_carrier_stream_table(table)
     with dbtransaction(state) as conn:
         row = conn.execute(f"SELECT coalesce(sum(length(content)),0), coalesce(max(seq),0) FROM {table}").fetchone()
         if row[0]+len(payload)>MAX_TOTAL:
@@ -264,6 +272,11 @@ def publish(state, table, payload):
         conn.execute(f"INSERT INTO {table}(seq,content) VALUES (?,?)",(row[1]+1,payload))
 
 def pull(state, table, after, limit):
+    require_carrier_stream_table(table)
+    if type(after) is not int or not 0 <= after <= (1 << 63) - 1:
+        raise ValueError("invalid carrier cursor")
+    if type(limit) is not int or not 1 <= limit <= MAX_BATCH:
+        raise ValueError("invalid carrier batch limit")
     with dbtransaction(state) as conn:
         rows = conn.execute(f"SELECT seq,content FROM {table} WHERE seq>? ORDER BY seq LIMIT ?",(after,limit)).fetchall()
     return [{"seq":seq,"b64":base64.b64encode(buf).decode("ascii")} for seq,buf in rows]

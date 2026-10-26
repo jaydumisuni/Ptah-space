@@ -382,8 +382,13 @@ def deliver(state, document):
         latest=conn.execute("SELECT coalesce(max(seq),0) FROM inbound").fetchone()[0]
         total=conn.execute("SELECT coalesce(sum(length(content)),0) FROM inbound").fetchone()[0]
         for row in rows:
+            # SQLite INTEGER bindings are signed 64-bit. Reject oversized or
+            # nonpositive sequence IDs as schema errors before any SQL bind;
+            # otherwise a hostile negative bignum escapes as OverflowError.
             if (not isinstance(row,dict) or set(row)!={"seq","b64"}
-                    or type(row["seq"]) is not int or not isinstance(row["b64"],str)):
+                    or type(row["seq"]) is not int
+                    or not 1 <= row["seq"] <= (1 << 63) - 1
+                    or not isinstance(row["b64"],str)):
                 raise ValueError("invalid packet schema")
             if len(row["b64"]) > MAX_ENCODED_CHUNK:
                 raise ValueError("invalid packet size")

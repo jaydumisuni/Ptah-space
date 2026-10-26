@@ -426,6 +426,31 @@ with carrier.carrier_admission_lock(sys.argv[2]):
             with self.assertRaisesRegex(ValueError, "lifecycle marker identity changed"):
                 C.admitted_lifecycle_marker(marker)
 
+    @unittest.skipIf(os.name == "nt", "POSIX post-open unlink fixture")
+    def test_lifecycle_marker_removed_after_open_fails_closed_and_closes_fd(self):
+        from unittest.mock import patch
+        real_fstat = os.fstat
+        for name in ("ready.json", "ended.json"):
+            with self.subTest(marker=name):
+                marker = Path(self.b) / name
+                C.write_exclusive_marker(marker, {"finished": False})
+                observed = []
+
+                def unlink_after_open(fd):
+                    opened = real_fstat(fd)
+                    observed.append(fd)
+                    marker.unlink()
+                    return opened
+
+                with patch.object(C.os, "fstat", side_effect=unlink_after_open):
+                    with self.assertRaisesRegex(
+                            ValueError, "carrier lifecycle marker identity changed"):
+                        C.admitted_lifecycle_marker(marker)
+                self.assertEqual(len(observed), 1)
+                self.assertFalse(marker.exists())
+                with self.assertRaises(OSError):
+                    real_fstat(observed[0])
+
     def test_unprepared_state_cannot_create_database_on_read(self):
         empty = Path(self.temp.name) / "unprepared"
         empty.mkdir(mode=0o700)

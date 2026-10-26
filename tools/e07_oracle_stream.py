@@ -402,7 +402,12 @@ def admitted_lifecycle_marker(path):
         raise ValueError("carrier lifecycle marker changed during admission") from error
     try:
         opened = os.fstat(fd)
-        current = path.lstat()
+        try:
+            current = path.lstat()
+        except OSError as error:
+            # A marker removed after open must fail closed as an admission
+            # error, not escape the Oracle RPC as an unhandled filesystem race.
+            raise ValueError("carrier lifecycle marker identity changed") from error
         def marker_identity(value):
             return (value.st_dev, value.st_ino, value.st_mode,
                     value.st_nlink, value.st_uid, value.st_gid)

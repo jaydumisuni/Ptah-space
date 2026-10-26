@@ -117,6 +117,28 @@ class OracleCarrierContract(unittest.TestCase):
             C.deliver(self.b, '[{"seq":1,"b64":123}]')
         self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
 
+    def test_invalid_packet_payloads_are_rejected_before_database_admission(self):
+        # Reject an untrusted packet envelope without opening SQLite or
+        # acquiring a carrier admission lock, including the exchange path.
+        from unittest.mock import patch
+        invalid = (
+            '[{"seq":0,"b64":"YWJj"}]',
+            '[{"seq":1,"b64":123}]',
+            '[{"seq":1,"b64":"not-base64!"}]',
+            json.dumps([{"seq":1,"b64":"A" * (C.MAX_ENCODED_CHUNK + 1)}]),
+        )
+        for sample in invalid:
+            with self.subTest(sample=sample[:48]):
+                with patch.object(C, "dbtransaction",
+                                  side_effect=AssertionError("invalid packet reached SQLite")):
+                    with self.assertRaises(ValueError):
+                        C.deliver(self.b, sample)
+                    with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                            "--state", self.b, "--packets", sample]):
+                        with self.assertRaises(ValueError):
+                            C.main()
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
     def test_packet_sequence_outside_sqlite_integer_range_fails_closed(self):
         """Hostile JSON bignums must not escape as sqlite3 OverflowError."""
         for seq in (-1, 0, -(1 << 100), (1 << 63), (1 << 100)):

@@ -391,33 +391,39 @@ def decode_packet_batch(document):
         # stack exhaustion into a controlled, fail-closed RPC input error.
         raise ValueError("invalid packet batch nesting") from error
 
+def admit_packet_batch(document):
+    """Validate every untrusted frame before acquiring SQLite custody."""
+    rows = decode_packet_batch(document)
+    if not isinstance(rows, list) or len(rows) > MAX_BATCH:
+        raise ValueError("invalid packet batch")
+    decoded = []
+    for row in rows:
+        if (not isinstance(row, dict) or set(row) != {"seq", "b64"}
+                or type(row["seq"]) is not int
+                or not 1 <= row["seq"] <= (1 << 63) - 1
+                or not isinstance(row["b64"], str)):
+            raise ValueError("invalid packet schema")
+        if len(row["b64"]) > MAX_ENCODED_CHUNK:
+            raise ValueError("invalid packet size")
+        try:
+            packet = base64.b64decode(row["b64"], validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise ValueError("invalid packet encoding") from error
+        if not packet or len(packet) > MAX_CHUNK:
+            raise ValueError("invalid packet size")
+        decoded.append(packet)
+    return rows, decoded
+
+
 def deliver(state, document):
     # Reject oversized RPC envelopes before parsing or decoding attacker-supplied bytes.
     if not isinstance(document, str) or len(document) > MAX_BATCH * (MAX_ENCODED_CHUNK + 64) + 2:
         raise ValueError("invalid packet batch")
-    rows=decode_packet_batch(document)
-    if not isinstance(rows,list) or len(rows)>MAX_BATCH:
-        raise ValueError("invalid packet batch")
+    rows, packets = admit_packet_batch(document)
     with dbtransaction(state) as conn:
         latest=conn.execute("SELECT coalesce(max(seq),0) FROM inbound").fetchone()[0]
         total=conn.execute("SELECT coalesce(sum(length(content)),0) FROM inbound").fetchone()[0]
-        for row in rows:
-            # SQLite INTEGER bindings are signed 64-bit. Reject oversized or
-            # nonpositive sequence IDs as schema errors before any SQL bind;
-            # otherwise a hostile negative bignum escapes as OverflowError.
-            if (not isinstance(row,dict) or set(row)!={"seq","b64"}
-                    or type(row["seq"]) is not int
-                    or not 1 <= row["seq"] <= (1 << 63) - 1
-                    or not isinstance(row["b64"],str)):
-                raise ValueError("invalid packet schema")
-            if len(row["b64"]) > MAX_ENCODED_CHUNK:
-                raise ValueError("invalid packet size")
-            try:
-                packet=base64.b64decode(row["b64"],validate=True)
-            except (binascii.Error, ValueError) as error:
-                raise ValueError("invalid packet encoding") from error
-            if not packet or len(packet)>MAX_CHUNK:
-                raise ValueError("invalid packet size")
+        for row, packet in zip(rows, packets):
             seq=row["seq"]
             if seq <= latest:
                 old=conn.execute("SELECT content FROM inbound WHERE seq=?",(seq,)).fetchone()
@@ -624,9 +630,7 @@ def main():
         # Single authenticated Oracle invocation both commits inbound and
         # obtains outbound. Reduces per-cycle latency for E01 TLS timeouts.
         # Do not print input ciphertext again or mistake it for commands.
-        data=decode_packet_batch(a.packets)
-        if not isinstance(data, list) or len(data) > MAX_BATCH:
-            raise ValueError("invalid packet batch")
+        data, _ = admit_packet_batch(a.packets)
         if data:
             # The original exchange delivered inbound ciphertext first, then
             # rejected an invalid outbound cursor. Never commit a partial

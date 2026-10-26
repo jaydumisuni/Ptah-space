@@ -378,6 +378,54 @@ with carrier.carrier_admission_lock(sys.argv[2]):
             lock_path.write_bytes(original)
             os.chmod(lock_path, 0o600)
 
+    def test_private_lifecycle_marker_status_and_missing_marker(self):
+        marker = Path(self.b) / "ready.json"
+        self.assertFalse(C.admitted_lifecycle_marker(marker))
+        C.write_exclusive_marker(marker, {"mode": "accept", "pid": 1})
+        self.assertTrue(C.admitted_lifecycle_marker(marker))
+        self.assertFalse(C.admitted_lifecycle_marker(Path(self.b) / "ended.json"))
+
+    @unittest.skipIf(os.name == "nt", "POSIX inode replacement fixture")
+    def test_lifecycle_marker_regular_file_swap_is_rejected(self):
+        from unittest.mock import patch
+        marker = Path(self.b) / "ready.json"
+        replacement = Path(self.b) / "replacement.json"
+        C.write_exclusive_marker(marker, {"pid": 1})
+        C.write_exclusive_marker(replacement, {"pid": 2})
+        real_open = os.open
+        swapped = []
+
+        def swap_before_open(path, flags, *args, **kwargs):
+            if Path(path) == marker:
+                marker.unlink()
+                replacement.rename(marker)
+                swapped.append(True)
+            return real_open(path, flags, *args, **kwargs)
+
+        with patch.object(C.os, "open", side_effect=swap_before_open):
+            with self.assertRaisesRegex(ValueError, "lifecycle marker identity changed"):
+                C.admitted_lifecycle_marker(marker)
+        self.assertEqual(swapped, [True])
+
+    @unittest.skipIf(os.name == "nt" or not hasattr(os, "O_NONBLOCK"),
+                     "POSIX nonblocking FIFO replacement fixture")
+    def test_lifecycle_marker_fifo_swap_does_not_block_status(self):
+        from unittest.mock import patch
+        marker = Path(self.b) / "ready.json"
+        C.write_exclusive_marker(marker, {"pid": 1})
+        real_open = os.open
+
+        def fifo_before_open(path, flags, *args, **kwargs):
+            if Path(path) == marker:
+                self.assertTrue(flags & os.O_NONBLOCK)
+                marker.unlink()
+                os.mkfifo(marker, mode=0o600)
+            return real_open(path, flags, *args, **kwargs)
+
+        with patch.object(C.os, "open", side_effect=fifo_before_open):
+            with self.assertRaisesRegex(ValueError, "lifecycle marker identity changed"):
+                C.admitted_lifecycle_marker(marker)
+
     def test_unprepared_state_cannot_create_database_on_read(self):
         empty = Path(self.temp.name) / "unprepared"
         empty.mkdir(mode=0o700)

@@ -297,6 +297,10 @@ def publish(state, table, payload):
         row = conn.execute(f"SELECT coalesce(sum(length(content)),0), coalesce(max(seq),0) FROM {table}").fetchone()
         if row[0]+len(payload)>MAX_TOTAL:
             raise RuntimeError("bounded carrier byte quota exhausted")
+        # SQLite sequence keys are signed 64-bit. Exhaustion must be a
+        # controlled carrier rejection, not a Python-to-SQLite OverflowError.
+        if row[1] >= (1 << 63) - 1:
+            raise ValueError("carrier sequence exhausted")
         conn.execute(f"INSERT INTO {table}(seq,content) VALUES (?,?)",(row[1]+1,payload))
 
 def pull(state, table, after, limit):

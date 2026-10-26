@@ -70,6 +70,21 @@ class OracleCarrierContract(unittest.TestCase):
         import base64
         self.assertEqual(base64.b64decode(rows[0]["b64"]), b"x" * C.MAX_CHUNK)
 
+    def test_outbound_sequence_exhaustion_is_controlled_before_sqlite_bind(self):
+        # A valid final signed-64-bit key may be written, but no successor
+        # can be bound to SQLite. Failed publication preserves prior bytes.
+        maximum = (1 << 63) - 1
+        with C.dbtransaction(self.a) as conn:
+            conn.execute("INSERT INTO outbound(seq,content) VALUES (?,?)",
+                         (maximum - 1, b"penultimate"))
+        C.publish(self.a, "outbound", b"last")
+        self.assertEqual(C.pull(self.a, "outbound", maximum - 1, 1),
+                         [{"seq": maximum, "b64": "bGFzdA=="}])
+        with self.assertRaisesRegex(ValueError, "carrier sequence exhausted"):
+            C.publish(self.a, "outbound", b"overflow")
+        self.assertEqual(C.pull(self.a, "outbound", maximum - 1, 2),
+                         [{"seq": maximum, "b64": "bGFzdA=="}])
+
     def test_ordered_ciphertext_frames_survive_duplicate_transport_delivery(self):
         msgs=[bytes(range(256))*8,b"\x16\x03\x03\x00"+b"\xf0"*1800,b"TLS ciphertext no authority"]
         for message in msgs:

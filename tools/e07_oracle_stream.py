@@ -108,8 +108,13 @@ def carrier_admission_lock(state, preparing=False):
     # The path can be swapped for a FIFO after lstat. Nonblocking open
     # prevents an untrusted FIFO with no writer from hanging the Oracle RPC;
     # fstat below still rejects the substituted non-regular inode.
-    fd = os.open(path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
-                 | getattr(os, "O_NONBLOCK", 0))
+    try:
+        fd = os.open(path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+                     | getattr(os, "O_NONBLOCK", 0))
+    except OSError as error:
+        # A lock removed or substituted between lstat and open is an
+        # admission failure, not an unhandled filesystem exception.
+        raise ValueError("carrier admission lock identity changed") from error
     try:
         opened = os.fstat(fd)
         if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1
@@ -135,7 +140,11 @@ def carrier_admission_lock(state, preparing=False):
                     raise TimeoutError("carrier admission lock busy") from error
                 time.sleep(0.02)
         try:
-            current = path.lstat()
+            try:
+                current = path.lstat()
+            except OSError as error:
+                # Unlink after acquiring flock must fail closed before SQLite.
+                raise ValueError("carrier admission lock identity changed") from error
             if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
                 raise ValueError("carrier admission lock identity changed")
             require_private_custody(path, current, "admission lock")

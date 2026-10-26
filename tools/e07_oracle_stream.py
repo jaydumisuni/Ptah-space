@@ -225,7 +225,13 @@ def _dbconnect_locked(state, create=False):
         # Schema/PRAGMA/commit failures must close the handle before the
         # caller releases the cross-process admission lock. A leaked handle
         # can retain Windows SQLite WAL/SHM custody beyond this operation.
-        conn.execute("PRAGMA journal_mode=WAL")
+        # SQLite may return a different journal mode when the backing
+        # filesystem cannot provide WAL. The carrier's concurrent reader/
+        # writer and sidecar custody contract must never silently downgrade.
+        journal_mode = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+        if (not journal_mode or type(journal_mode[0]) is not str
+                or journal_mode[0].lower() != "wal"):
+            raise ValueError("carrier WAL journal mode required")
         conn.execute("PRAGMA busy_timeout=7000")
         conn.execute("CREATE TABLE IF NOT EXISTS outbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
         conn.execute("CREATE TABLE IF NOT EXISTS inbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")

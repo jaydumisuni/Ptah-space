@@ -270,6 +270,35 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["packets"], [])
         self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
 
+    def test_sqlite_wal_fallback_is_rejected_before_schema_admission(self):
+        # A filesystem refusing WAL must not silently switch carrier journal
+        # semantics while the admission lock and sidecar contract assume WAL.
+        from unittest.mock import patch
+
+        class FallbackConnection:
+            def __init__(self):
+                self.closed = False
+                self.queries = []
+
+            def execute(self, sql):
+                self.queries.append(sql)
+                if sql == "PRAGMA journal_mode=WAL":
+                    class Cursor:
+                        def fetchone(self):
+                            return ("delete",)
+                    return Cursor()
+                raise AssertionError("schema initialized after WAL rejection")
+
+            def close(self):
+                self.closed = True
+
+        connection = FallbackConnection()
+        with patch.object(C.sqlite3, "connect", return_value=connection):
+            with self.assertRaisesRegex(ValueError, "carrier WAL journal mode required"):
+                C.pull(self.b, "inbound", 0, 1)
+        self.assertEqual(connection.queries, ["PRAGMA journal_mode=WAL"])
+        self.assertTrue(connection.closed)
+
     def test_sqlite_initialization_failure_closes_handle(self):
         # A failed PRAGMA/schema/commit must not leak a SQLite handle after
         # the admission lock is released, especially on Windows WAL files.
@@ -284,6 +313,11 @@ class OracleCarrierContract(unittest.TestCase):
                     def execute(self, _sql):
                         if failure_at == "execute":
                             raise sqlite3.OperationalError("injected setup failure")
+                        if _sql == "PRAGMA journal_mode=WAL":
+                            class Cursor:
+                                def fetchone(self):
+                                    return ("wal",)
+                            return Cursor()
 
                     def commit(self):
                         if failure_at == "commit":

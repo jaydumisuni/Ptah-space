@@ -11,6 +11,7 @@ import argparse
 from contextlib import contextmanager
 import base64
 import binascii
+import errno
 import hashlib
 import json
 import os
@@ -108,8 +109,16 @@ def carrier_admission_lock(state, preparing=False):
     # The path can be swapped for a FIFO after lstat. Nonblocking open
     # prevents an untrusted FIFO with no writer from hanging the Oracle RPC;
     # fstat below still rejects the substituted non-regular inode.
-    fd = os.open(path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
-                 | getattr(os, "O_NONBLOCK", 0))
+    try:
+        fd = os.open(path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+                     | getattr(os, "O_NONBLOCK", 0))
+    except OSError as error:
+        # Only missing/substituted lock paths are identity races. Preserve
+        # unrelated I/O, descriptor exhaustion and permission diagnostics.
+        if error.errno not in (errno.ENOENT, errno.ENOTDIR,
+                               getattr(errno, "ELOOP", None)):
+            raise
+        raise ValueError("carrier admission lock identity changed") from error
     try:
         opened = os.fstat(fd)
         if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1
@@ -135,7 +144,15 @@ def carrier_admission_lock(state, preparing=False):
                     raise TimeoutError("carrier admission lock busy") from error
                 time.sleep(0.02)
         try:
-            current = path.lstat()
+            try:
+                current = path.lstat()
+            except OSError as error:
+                # A missing or displaced lock pathname fails closed, but an
+                # unrelated filesystem error keeps its original diagnosis.
+                if error.errno not in (errno.ENOENT, errno.ENOTDIR,
+                                       getattr(errno, "ELOOP", None)):
+                    raise
+                raise ValueError("carrier admission lock identity changed") from error
             if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
                 raise ValueError("carrier admission lock identity changed")
             require_private_custody(path, current, "admission lock")

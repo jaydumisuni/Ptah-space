@@ -287,6 +287,114 @@ class OracleCarrierContract(unittest.TestCase):
             lock_path.write_bytes(original_bytes)
             os.chmod(lock_path, 0o600)
 
+    @unittest.skipIf(os.name == "nt", "POSIX lock unlink race fixture")
+    def test_admission_lock_removed_between_stat_and_open_fails_closed(self):
+        """Do not leak a raw open error or enter SQLite after lock removal."""
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        original = lock_path.read_bytes()
+        real_open = os.open
+
+        def unlink_before_open(path, flags, *args, **kwargs):
+            if Path(path) == lock_path:
+                lock_path.unlink()
+            return real_open(path, flags, *args, **kwargs)
+
+        try:
+            with patch.object(C.os, "open", side_effect=unlink_before_open):
+                with patch.object(C.sqlite3, "connect",
+                                  side_effect=AssertionError("SQLite opened without lock")):
+                    with self.assertRaisesRegex(ValueError,
+                                                "admission lock identity changed"):
+                        C.pull(self.b, "inbound", 0, 1)
+        finally:
+            lock_path.write_bytes(original)
+            os.chmod(lock_path, 0o600)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+    @unittest.skipIf(os.name == "nt", "POSIX flock unlink race fixture")
+    def test_admission_lock_removed_after_flock_fails_closed_and_closes_fd(self):
+        """A vanished locked pathname cannot authorize a SQLite transaction."""
+        import fcntl
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        original = lock_path.read_bytes()
+        real_flock = fcntl.flock
+        observed = []
+
+        def unlink_after_lock(fd, operation):
+            result = real_flock(fd, operation)
+            if operation & fcntl.LOCK_EX:
+                observed.append(fd)
+                lock_path.unlink()
+            return result
+
+        try:
+            with patch.object(fcntl, "flock", side_effect=unlink_after_lock):
+                with patch.object(C.sqlite3, "connect",
+                                  side_effect=AssertionError("SQLite opened without lock")):
+                    with self.assertRaisesRegex(ValueError,
+                                                "admission lock identity changed"):
+                        C.pull(self.b, "inbound", 0, 1)
+            self.assertEqual(len(observed), 1)
+            with self.assertRaises(OSError):
+                os.fstat(observed[0])
+        finally:
+            lock_path.write_bytes(original)
+            os.chmod(lock_path, 0o600)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+    @unittest.skipIf(os.name == "nt", "POSIX injected lock open failures")
+    def test_admission_lock_unrelated_open_errors_preserve_errno(self):
+        """An I/O or resource failure is not evidence of lock substitution."""
+        import errno
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        real_open = os.open
+
+        for code in (errno.EACCES, errno.EMFILE, errno.EIO):
+            with self.subTest(errno=code):
+                def fail_lock_open(path, flags, *args, **kwargs):
+                    if Path(path) == lock_path:
+                        raise OSError(code, os.strerror(code))
+                    return real_open(path, flags, *args, **kwargs)
+
+                with patch.object(C.os, "open", side_effect=fail_lock_open):
+                    with patch.object(C.sqlite3, "connect",
+                                      side_effect=AssertionError("SQLite opened after lock failure")):
+                        with self.assertRaises(OSError) as caught:
+                            C.pull(self.b, "inbound", 0, 1)
+                self.assertEqual(caught.exception.errno, code)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+    @unittest.skipIf(os.name == "nt", "POSIX injected post-lock stat failures")
+    def test_admission_lock_unrelated_post_lock_stat_errors_preserve_errno(self):
+        """Keep filesystem diagnostics while still releasing the lock handle."""
+        import errno
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        real_lstat = Path.lstat
+
+        for code in (errno.EACCES, errno.EIO):
+            with self.subTest(errno=code):
+                seen = []
+
+                def fail_post_lock_lstat(path, *args, **kwargs):
+                    if path == lock_path:
+                        seen.append(path)
+                        if len(seen) == 3:
+                            raise OSError(code, os.strerror(code))
+                    return real_lstat(path, *args, **kwargs)
+
+                with patch.object(C.Path, "lstat", fail_post_lock_lstat):
+                    with patch.object(C.sqlite3, "connect",
+                                      side_effect=AssertionError("SQLite opened after stat failure")):
+                        with self.assertRaises(OSError) as caught:
+                            C.pull(self.b, "inbound", 0, 1)
+                self.assertEqual(len(seen), 3)
+                self.assertEqual(caught.exception.errno, code)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
     def test_cross_process_admission_lock_serializes_transaction_lifetime(self):
         import subprocess
         import sys

@@ -565,8 +565,10 @@ dependencies = [
  "ptah-platform-admission",
  "ptah-provider-api",
  "ptah-transfer",
+ "rusqlite",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -645,12 +647,18 @@ version = "0.0.0-phase0c"
 dependencies = [
  "native-process",
  "ptah-activity-runtime",
+ "ptah-control",
  "ptah-identifiers",
  "ptah-node-agent",
  "ptah-node-link",
  "ptah-node-transfer",
+ "ptah-placement-runtime",
+ "ptah-platform-admission",
  "ptah-provider-api",
  "ptah-transfer",
+ "rusqlite",
+ "serde",
+ "serde_json",
  "sha2",
  "tokio",
 ]

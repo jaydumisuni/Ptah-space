@@ -159,3 +159,24 @@ fn control_restart_fences_previous_in_memory_binding() {
         Err(LinkError::SupersededConnection)
     );
 }
+
+#[test]
+fn disconnect_removes_only_current_session_and_cannot_cancel_successor() {
+    let mut agent = NodeAgent::bootstrap().expect("node");
+    let fingerprint = CredentialFingerprint::from_der(b"session-retain-test");
+    let approved = enrollment(&agent, fingerprint);
+    let ref_id = approved.enrollment_ref().clone();
+    let mut control = NodeLinkControl::new(ProtocolVersion { major: 1, minor: 0 }, vec![approved]);
+    let old = control
+        .accept_hello(&hello(&agent, ref_id.clone()), fingerprint, 0)
+        .expect("old session");
+    agent.reconnect().expect("new epoch");
+    let newer = control
+        .accept_hello(&hello(&agent, ref_id), fingerprint, 1)
+        .expect("new session");
+    assert!(!control.end_if_current(&old));
+    assert!(control.is_current(&newer));
+    assert!(control.end_if_current(&newer));
+    assert!(control.current_session(agent.node_id()).is_none());
+    assert!(!control.end_if_current(&newer));
+}

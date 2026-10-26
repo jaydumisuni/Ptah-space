@@ -95,7 +95,8 @@ def carrier_admission_lock(state, preparing=False):
     root = require_unaliased_state_path(state)
     if not root.is_dir() or is_path_alias(root):
         raise ValueError("existing real state directory required")
-    require_private_custody(root, root.stat(), "state directory")
+    root_identity = root.lstat()
+    require_private_custody(root, root_identity, "state directory")
     path = root / _ADMISSION_LOCK_NAME
     if not preparing and not (root / "carrier.sqlite3").exists():
         raise ValueError("prepared carrier database required")
@@ -149,6 +150,26 @@ def carrier_admission_lock(state, preparing=False):
                     raise TimeoutError("carrier admission lock busy") from error
                 time.sleep(0.02)
         try:
+            # Holding the original lock inode does not protect a newly named
+            # state directory. Recheck the directory identity after flock,
+            # before opening SQLite by pathname. This detects observed root
+            # replacement; it is not race-free dirfd-relative custody.
+            try:
+                current_root = root.lstat()
+            except OSError as error:
+                if error.errno not in (errno.ENOENT, errno.ENOTDIR,
+                                       getattr(errno, "ELOOP", None)):
+                    raise
+                raise ValueError("carrier state directory identity changed") from error
+            if (not stat.S_ISDIR(current_root.st_mode) or is_path_alias(root)
+                    or (current_root.st_dev, current_root.st_ino,
+                        current_root.st_mode, current_root.st_uid,
+                        current_root.st_gid, current_root.st_nlink)
+                    != (root_identity.st_dev, root_identity.st_ino,
+                        root_identity.st_mode, root_identity.st_uid,
+                        root_identity.st_gid, root_identity.st_nlink)):
+                raise ValueError("carrier state directory identity changed")
+            require_private_custody(root, current_root, "state directory")
             try:
                 current = path.lstat()
             except OSError as error:

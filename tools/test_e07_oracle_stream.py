@@ -444,6 +444,43 @@ class OracleCarrierContract(unittest.TestCase):
             os.chmod(lock_path, 0o600)
         self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
 
+    @unittest.skipIf(os.name == "nt", "POSIX post-flock root replacement fixture")
+    def test_admission_lock_root_replaced_after_flock_fails_before_sqlite(self):
+        """Locking an old directory's inode must not admit a new named state root."""
+        import fcntl
+        import shutil
+        from unittest.mock import patch
+
+        root = Path(self.b)
+        detached = Path(self.temp.name) / "athena-detached"
+        real_flock = fcntl.flock
+        swapped = []
+
+        def replace_root_after_lock(fd, operation):
+            result = real_flock(fd, operation)
+            if operation & fcntl.LOCK_EX and not swapped:
+                root.rename(detached)
+                shutil.copytree(detached, root)
+                (root / C._ADMISSION_LOCK_NAME).unlink()
+                (detached / C._ADMISSION_LOCK_NAME).rename(root / C._ADMISSION_LOCK_NAME)
+                swapped.append(True)
+            return result
+
+        try:
+            with patch.object(fcntl, "flock", side_effect=replace_root_after_lock):
+                with patch.object(C.sqlite3, "connect",
+                                  side_effect=AssertionError("SQLite opened replacement state root")):
+                    with self.assertRaisesRegex(ValueError, "carrier state directory identity changed"):
+                        C.pull(self.b, "inbound", 0, 1)
+            self.assertEqual(swapped, [True])
+        finally:
+            if detached.exists():
+                if root.exists():
+                    (root / C._ADMISSION_LOCK_NAME).rename(detached / C._ADMISSION_LOCK_NAME)
+                    shutil.rmtree(root)
+                detached.rename(root)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
     @unittest.skipIf(os.name == "nt", "POSIX post-flock hardlink fixture")
     def test_admission_lock_hardlinked_after_flock_fails_closed(self):
         """A newly aliased locked inode cannot authorize SQLite admission."""

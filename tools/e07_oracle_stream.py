@@ -383,7 +383,7 @@ def write_exclusive_marker(path, document):
 
 
 def admitted_lifecycle_marker(path):
-    """Report only an unaliased, privately owned carrier lifecycle marker."""
+    """Admit a lifecycle marker only while its named inode matches an open handle."""
     try:
         identity = path.lstat()
     except FileNotFoundError:
@@ -392,6 +392,30 @@ def admitted_lifecycle_marker(path):
             or is_path_alias(path)):
         raise ValueError("real unaliased carrier lifecycle marker required")
     require_private_custody(path, identity, "lifecycle marker")
+    # The initial lstat alone can describe a file replaced before status
+    # returns. O_NONBLOCK also prevents a raced FIFO from hanging the RPC.
+    flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+             | getattr(os, "O_NONBLOCK", 0))
+    try:
+        fd = os.open(path, flags)
+    except OSError as error:
+        raise ValueError("carrier lifecycle marker changed during admission") from error
+    try:
+        opened = os.fstat(fd)
+        current = path.lstat()
+        def marker_identity(value):
+            return (value.st_dev, value.st_ino, value.st_mode,
+                    value.st_nlink, value.st_uid, value.st_gid)
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1
+                or not stat.S_ISREG(current.st_mode) or current.st_nlink != 1
+                or marker_identity(identity) != marker_identity(opened)
+                or marker_identity(opened) != marker_identity(current)
+                or is_path_alias(path)):
+            raise ValueError("carrier lifecycle marker identity changed")
+        require_private_custody(path, opened, "lifecycle marker")
+        require_private_custody(path, current, "lifecycle marker")
+    finally:
+        os.close(fd)
     return True
 
 

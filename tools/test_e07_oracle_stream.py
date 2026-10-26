@@ -89,6 +89,14 @@ class OracleCarrierContract(unittest.TestCase):
             C.deliver(self.b, '[{"seq":1,"b64":123}]')
         self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
 
+    def test_packet_depth_scan_ignores_quoted_brackets_and_escaped_quotes(self):
+        """Only structural JSON delimiters count toward the envelope limit."""
+        sample = ["[[{\"[[", {"seq": 1, "b64": "YWJj"}]
+        self.assertEqual(C.decode_packet_batch(json.dumps(sample)), sample)
+        nested = [{"seq": 1, "b64": "YWJj", "extra": {"x": 1}}]
+        with self.assertRaisesRegex(ValueError, "invalid packet batch nesting"):
+            C.decode_packet_batch(json.dumps(nested))
+
     def test_deeply_nested_packet_envelope_fails_closed_before_sqlite(self):
         # The envelope is well below the byte budget but exceeds the JSON
         # decoder's nesting limit; a RecursionError must not escape the CLI.
@@ -342,6 +350,39 @@ class OracleCarrierContract(unittest.TestCase):
         finally:
             lock_path.write_bytes(original)
             os.chmod(lock_path, 0o600)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+    @unittest.skipIf(os.name == "nt", "POSIX post-flock hardlink fixture")
+    def test_admission_lock_hardlinked_after_flock_fails_closed(self):
+        """A newly aliased locked inode cannot authorize SQLite admission."""
+        import fcntl
+        from unittest.mock import patch
+
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        alias = Path(self.temp.name) / "external-admission-lock-alias"
+        real_flock = fcntl.flock
+        observed = []
+
+        def alias_after_lock(fd, operation):
+            result = real_flock(fd, operation)
+            if operation & fcntl.LOCK_EX:
+                observed.append(fd)
+                os.link(lock_path, alias)
+            return result
+
+        try:
+            with patch.object(fcntl, "flock", side_effect=alias_after_lock):
+                with patch.object(C.sqlite3, "connect",
+                                  side_effect=AssertionError("SQLite opened aliased lock")):
+                    with self.assertRaisesRegex(ValueError,
+                                                "admission lock identity changed"):
+                        C.pull(self.b, "inbound", 0, 1)
+            self.assertEqual(len(observed), 1)
+            with self.assertRaises(OSError):
+                os.fstat(observed[0])
+        finally:
+            if alias.exists():
+                alias.unlink()
         self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
 
     @unittest.skipIf(os.name == "nt", "POSIX injected lock open failures")

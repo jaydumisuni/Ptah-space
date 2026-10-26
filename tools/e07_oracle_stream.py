@@ -153,7 +153,13 @@ def carrier_admission_lock(state, preparing=False):
                                        getattr(errno, "ELOOP", None)):
                     raise
                 raise ValueError("carrier admission lock identity changed") from error
-            if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
+            # A new hardlink can alias the lock after its initial lstat/fstat.
+            # Check the pathname and locked descriptor again before SQLite.
+            locked = os.fstat(fd)
+            if (not stat.S_ISREG(current.st_mode) or current.st_nlink != 1
+                    or locked.st_nlink != 1
+                    or (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino)
+                    or (locked.st_dev, locked.st_ino) != (opened.st_dev, opened.st_ino)):
                 raise ValueError("carrier admission lock identity changed")
             require_private_custody(path, current, "admission lock")
             yield
@@ -329,6 +335,28 @@ def snapshot(state, after):
 def decode_packet_batch(document):
     if not isinstance(document, str) or len(document) > MAX_BATCH * (MAX_ENCODED_CHUNK + 64) + 2:
         raise ValueError("invalid packet batch")
+    # A packet batch has only an array and flat packet objects. Bound nesting
+    # before json.loads: parser recursion limits vary across Python releases.
+    # Brackets inside quoted JSON strings (including escaped quotes) are inert.
+    depth = 0
+    quoted = False
+    escaped = False
+    for char in document:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char in "[{":
+            depth += 1
+            if depth > 2:
+                raise ValueError("invalid packet batch nesting")
+        elif char in "]}":
+            depth -= 1
     def unique(pairs):
         result = {}
         for key, value in pairs:

@@ -89,6 +89,22 @@ class OracleCarrierContract(unittest.TestCase):
             C.deliver(self.b, '[{"seq":1,"b64":123}]')
         self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
 
+    def test_deeply_nested_packet_envelope_fails_closed_before_sqlite(self):
+        # The envelope is well below the byte budget but exceeds the JSON
+        # decoder's nesting limit; a RecursionError must not escape the CLI.
+        from unittest.mock import patch
+        nested = "[" * 10000 + "]" * 10000
+        self.assertLess(len(nested), C.MAX_BATCH * (C.MAX_ENCODED_CHUNK + 64) + 2)
+        with patch.object(C, "dbtransaction",
+                          side_effect=AssertionError("nested JSON reached SQLite")):
+            with self.assertRaisesRegex(ValueError, "invalid packet batch nesting"):
+                C.deliver(self.b, nested)
+            with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                    "--state", self.b, "--packets", nested]):
+                with self.assertRaisesRegex(ValueError, "invalid packet batch nesting"):
+                    C.main()
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
     def test_duplicate_json_packet_keys_are_rejected_without_committing_bytes(self):
         # Different JSON decoders must not disagree on packet identity or content.
         samples = (

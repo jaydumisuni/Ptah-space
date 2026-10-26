@@ -89,6 +89,14 @@ class OracleCarrierContract(unittest.TestCase):
             C.deliver(self.b, '[{"seq":1,"b64":123}]')
         self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
 
+    def test_packet_sequence_outside_sqlite_integer_range_fails_closed(self):
+        """Hostile JSON bignums must not escape as sqlite3 OverflowError."""
+        for seq in (-1, 0, -(1 << 100), (1 << 63), (1 << 100)):
+            with self.subTest(seq=seq):
+                with self.assertRaisesRegex(ValueError, "invalid packet schema"):
+                    C.deliver(self.b, json.dumps([{"seq": seq, "b64": "YWJj"}]))
+                self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
     def test_packet_depth_scan_ignores_quoted_brackets_and_escaped_quotes(self):
         """Only structural JSON delimiters count toward the envelope limit."""
         sample = ["[[{\"[[", {"seq": 1, "b64": "YWJj"}]

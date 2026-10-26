@@ -319,7 +319,12 @@ def decode_packet_batch(document):
                 raise ValueError("duplicate packet key")
             result[key] = value
         return result
-    return json.loads(document, object_pairs_hook=unique)
+    try:
+        return json.loads(document, object_pairs_hook=unique)
+    except RecursionError as error:
+        # A bounded byte count does not bound JSON nesting. Convert parser
+        # stack exhaustion into a controlled, fail-closed RPC input error.
+        raise ValueError("invalid packet batch nesting") from error
 
 def deliver(state, document):
     # Reject oversized RPC envelopes before parsing or decoding attacker-supplied bytes.

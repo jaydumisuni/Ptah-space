@@ -85,6 +85,19 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertEqual(C.pull(self.a, "outbound", maximum - 1, 2),
                          [{"seq": maximum, "b64": "bGFzdA=="}])
 
+    def test_pull_rejects_cursor_beyond_durable_journal(self):
+        # An impossible local cursor must not silently hide queued TLS bytes.
+        for table in ("outbound", "inbound"):
+            with self.subTest(table=table):
+                with self.assertRaisesRegex(ValueError, "carrier cursor exceeds durable sequence"):
+                    C.pull(self.a, table, 1, 1)
+                C.publish(self.a, table, b"first")
+                self.assertEqual(len(C.pull(self.a, table, 0, 1)), 1)
+                self.assertEqual(C.pull(self.a, table, 1, 1), [])
+                with self.assertRaisesRegex(ValueError, "carrier cursor exceeds durable sequence"):
+                    C.pull(self.a, table, 2, 1)
+                self.assertEqual(len(C.pull(self.a, table, 0, 1)), 1)
+
     def test_ordered_ciphertext_frames_survive_duplicate_transport_delivery(self):
         msgs=[bytes(range(256))*8,b"\x16\x03\x03\x00"+b"\xf0"*1800,b"TLS ciphertext no authority"]
         for message in msgs:

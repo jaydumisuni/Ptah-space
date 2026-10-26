@@ -310,6 +310,11 @@ def pull(state, table, after, limit):
     if type(limit) is not int or not 1 <= limit <= MAX_BATCH:
         raise ValueError("invalid carrier batch limit")
     with dbtransaction(state) as conn:
+        # A cursor ahead of this durable journal cannot be a successful
+        # resume. Silently returning [] would conceal missing TLS frames.
+        latest = conn.execute(f"SELECT coalesce(max(seq),0) FROM {table}").fetchone()[0]
+        if after > latest:
+            raise ValueError("carrier cursor exceeds durable sequence")
         rows = conn.execute(f"SELECT seq,content FROM {table} WHERE seq>? ORDER BY seq LIMIT ?",(after,limit)).fetchall()
     return [{"seq":seq,"b64":base64.b64encode(buf).decode("ascii")} for seq,buf in rows]
 

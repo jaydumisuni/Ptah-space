@@ -139,7 +139,12 @@ def carrier_admission_lock(state, preparing=False):
                 else:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
-            except (OSError, BlockingIOError) as error:
+            except OSError as error:
+                # Only a contended nonblocking lock is retryable. EIO, EBADF,
+                # EINVAL and other failures must retain their original errno
+                # rather than being mislabeled as a seven-second lock timeout.
+                if error.errno not in (errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK):
+                    raise
                 if time.monotonic() >= deadline:
                     raise TimeoutError("carrier admission lock busy") from error
                 time.sleep(0.02)

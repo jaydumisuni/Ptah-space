@@ -444,6 +444,47 @@ class OracleCarrierContract(unittest.TestCase):
                 self.assertEqual(caught.exception.errno, code)
         self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
 
+    @unittest.skipIf(os.name == "nt", "POSIX injected flock failures")
+    def test_admission_lock_noncontention_flock_errors_are_not_retried(self):
+        """A broken lock operation must preserve its real error immediately."""
+        import errno
+        import fcntl
+        from unittest.mock import patch
+
+        for code in (errno.EIO, errno.EBADF, errno.EINVAL):
+            with self.subTest(errno=code):
+                with patch.object(fcntl, "flock",
+                                  side_effect=OSError(code, os.strerror(code))):
+                    with patch.object(C.time, "sleep",
+                                      side_effect=AssertionError("noncontention lock error retried")):
+                        with patch.object(C.sqlite3, "connect",
+                                          side_effect=AssertionError("SQLite opened after lock failure")):
+                            with self.assertRaises(OSError) as caught:
+                                C.pull(self.b, "inbound", 0, 1)
+                self.assertEqual(caught.exception.errno, code)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+    @unittest.skipIf(os.name == "nt", "POSIX transient flock contention")
+    def test_admission_lock_retries_transient_contention(self):
+        import errno
+        import fcntl
+        from unittest.mock import patch
+
+        real_flock = fcntl.flock
+        attempts = []
+
+        def contend_once(fd, operation):
+            if operation & fcntl.LOCK_EX:
+                attempts.append(operation)
+                if len(attempts) == 1:
+                    raise BlockingIOError(errno.EAGAIN, os.strerror(errno.EAGAIN))
+            return real_flock(fd, operation)
+
+        with patch.object(fcntl, "flock", side_effect=contend_once):
+            with patch.object(C.time, "sleep", return_value=None):
+                self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+        self.assertEqual(len(attempts), 2)
+
     @unittest.skipIf(os.name == "nt", "POSIX injected post-lock stat failures")
     def test_admission_lock_unrelated_post_lock_stat_errors_preserve_errno(self):
         """Keep filesystem diagnostics while still releasing the lock handle."""

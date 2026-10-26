@@ -11,6 +11,7 @@ import argparse
 from contextlib import contextmanager
 import base64
 import binascii
+import errno
 import hashlib
 import json
 import os
@@ -112,8 +113,11 @@ def carrier_admission_lock(state, preparing=False):
         fd = os.open(path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
                      | getattr(os, "O_NONBLOCK", 0))
     except OSError as error:
-        # A lock removed or substituted between lstat and open is an
-        # admission failure, not an unhandled filesystem exception.
+        # Only missing/substituted lock paths are identity races. Preserve
+        # unrelated I/O, descriptor exhaustion and permission diagnostics.
+        if error.errno not in (errno.ENOENT, errno.ENOTDIR,
+                               getattr(errno, "ELOOP", None)):
+            raise
         raise ValueError("carrier admission lock identity changed") from error
     try:
         opened = os.fstat(fd)
@@ -143,7 +147,11 @@ def carrier_admission_lock(state, preparing=False):
             try:
                 current = path.lstat()
             except OSError as error:
-                # Unlink after acquiring flock must fail closed before SQLite.
+                # A missing or displaced lock pathname fails closed, but an
+                # unrelated filesystem error keeps its original diagnosis.
+                if error.errno not in (errno.ENOENT, errno.ENOTDIR,
+                                       getattr(errno, "ELOOP", None)):
+                    raise
                 raise ValueError("carrier admission lock identity changed") from error
             if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
                 raise ValueError("carrier admission lock identity changed")

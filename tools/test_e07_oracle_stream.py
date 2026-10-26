@@ -344,6 +344,57 @@ class OracleCarrierContract(unittest.TestCase):
             os.chmod(lock_path, 0o600)
         self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
 
+    @unittest.skipIf(os.name == "nt", "POSIX injected lock open failures")
+    def test_admission_lock_unrelated_open_errors_preserve_errno(self):
+        """An I/O or resource failure is not evidence of lock substitution."""
+        import errno
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        real_open = os.open
+
+        for code in (errno.EACCES, errno.EMFILE, errno.EIO):
+            with self.subTest(errno=code):
+                def fail_lock_open(path, flags, *args, **kwargs):
+                    if Path(path) == lock_path:
+                        raise OSError(code, os.strerror(code))
+                    return real_open(path, flags, *args, **kwargs)
+
+                with patch.object(C.os, "open", side_effect=fail_lock_open):
+                    with patch.object(C.sqlite3, "connect",
+                                      side_effect=AssertionError("SQLite opened after lock failure")):
+                        with self.assertRaises(OSError) as caught:
+                            C.pull(self.b, "inbound", 0, 1)
+                self.assertEqual(caught.exception.errno, code)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+    @unittest.skipIf(os.name == "nt", "POSIX injected post-lock stat failures")
+    def test_admission_lock_unrelated_post_lock_stat_errors_preserve_errno(self):
+        """Keep filesystem diagnostics while still releasing the lock handle."""
+        import errno
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        real_lstat = Path.lstat
+
+        for code in (errno.EACCES, errno.EIO):
+            with self.subTest(errno=code):
+                seen = []
+
+                def fail_post_lock_lstat(path, *args, **kwargs):
+                    if path == lock_path:
+                        seen.append(path)
+                        if len(seen) == 3:
+                            raise OSError(code, os.strerror(code))
+                    return real_lstat(path, *args, **kwargs)
+
+                with patch.object(C.Path, "lstat", fail_post_lock_lstat):
+                    with patch.object(C.sqlite3, "connect",
+                                      side_effect=AssertionError("SQLite opened after stat failure")):
+                        with self.assertRaises(OSError) as caught:
+                            C.pull(self.b, "inbound", 0, 1)
+                self.assertEqual(len(seen), 3)
+                self.assertEqual(caught.exception.errno, code)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
     def test_cross_process_admission_lock_serializes_transaction_lifetime(self):
         import subprocess
         import sys

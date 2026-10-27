@@ -352,22 +352,29 @@ def publish(state, table, payload):
         # oversized frame cannot be extended into a supposedly usable TLS
         # stream. Validate durable payload custody in the same transaction
         # as the append; quota and sequence checks alone are insufficient.
-        row = conn.execute(
-            f"SELECT coalesce(sum(length(content)),0), coalesce(max(seq),0), "
+        count, first, latest, total, invalid = conn.execute(
+            f"SELECT count(*), coalesce(min(seq),0), coalesce(max(seq),0), "
+            f"coalesce(sum(length(content)),0), "
             f"coalesce(sum(CASE WHEN typeof(content) != 'blob' "
             f"OR length(content) NOT BETWEEN 1 AND ? THEN 1 ELSE 0 END),0) "
             f"FROM {table}",
             (MAX_CHUNK,),
         ).fetchone()
-        if row[2]:
-            raise ValueError("invalid durable carrier frame")
-        if row[0]+len(payload)>MAX_TOTAL:
-            raise RuntimeError("bounded carrier byte quota exhausted")
         # SQLite sequence keys are signed 64-bit. Exhaustion must be a
         # controlled carrier rejection, not a Python-to-SQLite OverflowError.
-        if row[1] >= (1 << 63) - 1:
+        if latest >= (1 << 63) - 1:
             raise ValueError("carrier sequence exhausted")
-        conn.execute(f"INSERT INTO {table}(seq,content) VALUES (?,?)",(row[1]+1,payload))
+        # A damaged historical stream must not be extended: a new append
+        # cannot repair missing, zero, or negative sequence identities.
+        # Check within the same transaction as the new ciphertext write.
+        if count and (first != 1 or count != latest):
+            raise ValueError("carrier journal sequence gap")
+        if invalid:
+            raise ValueError("invalid durable carrier frame")
+        if total + len(payload) > MAX_TOTAL:
+            raise RuntimeError("bounded carrier byte quota exhausted")
+        conn.execute(f"INSERT INTO {table}(seq,content) VALUES (?,?)",
+                     (latest + 1, payload))
 
 def pull(state, table, after, limit):
     require_carrier_stream_table(table)

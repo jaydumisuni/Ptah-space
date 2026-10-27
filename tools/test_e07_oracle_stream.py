@@ -97,20 +97,60 @@ class OracleCarrierContract(unittest.TestCase):
                     [(1, b"valid-ciphertext")],
                 )
 
+    def test_publish_rejects_sparse_historical_journal_before_append(self):
+        # A valid new frame must not extend a journal whose earlier sequence
+        # is missing, zero or negative. This applies to both stream directions.
+        damaged = (
+            ((1, b"one"), (3, b"three")),
+            ((2, b"two"),),
+            ((0, b"zero"), (1, b"one")),
+            ((-1, b"negative"), (1, b"one")),
+        )
+        for table in ("outbound", "inbound"):
+            for history in damaged:
+                with self.subTest(table=table, seqs=[x[0] for x in history]):
+                    with C.dbtransaction(self.a) as conn:
+                        conn.execute(f"DELETE FROM {table}")
+                        conn.executemany(
+                            f"INSERT INTO {table}(seq,content) VALUES (?,?)",
+                            history,
+                        )
+                    with self.assertRaisesRegex(
+                        ValueError, "carrier journal sequence gap"
+                    ):
+                        C.publish(self.a, table, b"new-ciphertext")
+                    with C.dbtransaction(self.a) as conn:
+                        self.assertEqual(
+                            conn.execute(
+                                f"SELECT seq,content FROM {table} ORDER BY seq"
+                            ).fetchall(),
+                            list(history),
+                        )
+            with C.dbtransaction(self.a) as conn:
+                conn.execute(f"DELETE FROM {table}")
+            C.publish(self.a, table, b"valid-ciphertext")
+            self.assertEqual(len(C.pull(self.a, table, 0, 1)), 1)
+
     def test_outbound_sequence_exhaustion_is_controlled_before_sqlite_bind(self):
-        # A valid final signed-64-bit key may be written, but no successor
-        # can be bound to SQLite. Failed publication preserves prior bytes.
+        # A fabricated near-limit history is sparse, so reject its append
+        # rather than issuing an undeliverable successor. A max-int key also
+        # produces a controlled overflow error without SQLite binding.
         maximum = (1 << 63) - 1
         with C.dbtransaction(self.a) as conn:
             conn.execute("INSERT INTO outbound(seq,content) VALUES (?,?)",
                          (maximum - 1, b"penultimate"))
-        C.publish(self.a, "outbound", b"last")
-        self.assertEqual(C.pull(self.a, "outbound", maximum - 1, 1),
-                         [{"seq": maximum, "b64": "bGFzdA=="}])
+        with self.assertRaisesRegex(ValueError, "carrier journal sequence gap"):
+            C.publish(self.a, "outbound", b"last")
+        with C.dbtransaction(self.a) as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM outbound").fetchone()[0], 1)
+            conn.execute("DELETE FROM outbound")
+            conn.execute("INSERT INTO outbound(seq,content) VALUES (?,?)",
+                         (maximum, b"last"))
         with self.assertRaisesRegex(ValueError, "carrier sequence exhausted"):
             C.publish(self.a, "outbound", b"overflow")
-        self.assertEqual(C.pull(self.a, "outbound", maximum - 1, 2),
-                         [{"seq": maximum, "b64": "bGFzdA=="}])
+        with C.dbtransaction(self.a) as conn:
+            self.assertEqual(conn.execute("SELECT seq,content FROM outbound").fetchall(),
+                             [(maximum, b"last")])
 
     def test_pull_rejects_cursor_beyond_durable_journal(self):
         # An impossible local cursor must not silently hide queued TLS bytes.

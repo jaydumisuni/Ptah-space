@@ -318,6 +318,22 @@ def require_carrier_stream_table(table):
         raise ValueError("invalid carrier stream table")
 
 
+def require_contiguous_carrier_rows(conn, table, after, rows):
+    """Fail closed if a resumed opaque byte stream would silently skip a frame.
+
+    This checks the requested window, not a full historical journal audit.
+    The only admitted table names are the carrier's fixed internal journals.
+    """
+    require_carrier_stream_table(table)
+    if after and conn.execute(f"SELECT 1 FROM {table} WHERE seq=?", (after,)).fetchone() is None:
+        raise ValueError("carrier journal sequence gap")
+    expected = after + 1
+    for seq, _ in rows:
+        if seq != expected:
+            raise ValueError("carrier journal sequence gap")
+        expected += 1
+
+
 def publish(state, table, payload):
     require_carrier_stream_table(table)
     # Only nonempty bounded TLS ciphertext frames are transportable: the
@@ -348,6 +364,7 @@ def pull(state, table, after, limit):
         if after > latest:
             raise ValueError("carrier cursor exceeds durable sequence")
         rows = conn.execute(f"SELECT seq,content FROM {table} WHERE seq>? ORDER BY seq LIMIT ?",(after,limit)).fetchall()
+        require_contiguous_carrier_rows(conn, table, after, rows)
     return [{"seq":seq,"b64":base64.b64encode(buf).decode("ascii")} for seq,buf in rows]
 
 def require_durable_outbound_cursor(conn, after):
@@ -367,6 +384,7 @@ def snapshot(state, after):
             "SELECT seq,content FROM outbound WHERE seq>? ORDER BY seq LIMIT ?",
             (after, MAX_BATCH),
         ).fetchall()
+        require_contiguous_carrier_rows(conn, "outbound", after, rows)
     packets = [{"seq": seq, "b64": base64.b64encode(buf).decode("ascii")}
                for seq, buf in rows]
     print(json.dumps({"packets": packets, "count": len(packets),

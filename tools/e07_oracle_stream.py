@@ -377,14 +377,20 @@ def require_durable_outbound_cursor(conn, after):
         raise ValueError("outbound cursor exceeds durable sequence")
 
 
+def outbound_snapshot_rows(conn, after):
+    """Validate the exact outbound window before acknowledging inbound bytes."""
+    require_durable_outbound_cursor(conn, after)
+    rows = conn.execute(
+        "SELECT seq,content FROM outbound WHERE seq>? ORDER BY seq LIMIT ?",
+        (after, MAX_BATCH),
+    ).fetchall()
+    require_contiguous_carrier_rows(conn, "outbound", after, rows)
+    return rows
+
+
 def snapshot(state, after):
     with dbtransaction(state) as conn:
-        require_durable_outbound_cursor(conn, after)
-        rows = conn.execute(
-            "SELECT seq,content FROM outbound WHERE seq>? ORDER BY seq LIMIT ?",
-            (after, MAX_BATCH),
-        ).fetchall()
-        require_contiguous_carrier_rows(conn, "outbound", after, rows)
+        rows = outbound_snapshot_rows(conn, after)
     packets = [{"seq": seq, "b64": base64.b64encode(buf).decode("ascii")}
                for seq, buf in rows]
     print(json.dumps({"packets": packets, "count": len(packets),
@@ -459,28 +465,32 @@ def admit_packet_batch(document):
     return rows, decoded
 
 
+def commit_admitted_inbound(conn, rows, packets):
+    """Commit already-validated frames in the caller's SQLite transaction."""
+    latest=conn.execute("SELECT coalesce(max(seq),0) FROM inbound").fetchone()[0]
+    total=conn.execute("SELECT coalesce(sum(length(content)),0) FROM inbound").fetchone()[0]
+    for row, packet in zip(rows, packets):
+        seq=row["seq"]
+        if seq <= latest:
+            old=conn.execute("SELECT content FROM inbound WHERE seq=?",(seq,)).fetchone()
+            if old is None or old[0]!=packet:
+                raise ValueError("non-idempotent packet replay")
+        elif seq == latest+1:
+            if total+len(packet)>MAX_TOTAL:
+                raise ValueError("bounded carrier byte quota exhausted")
+            conn.execute("INSERT INTO inbound(seq,content) VALUES (?,?)",(seq,packet))
+            latest=seq
+            total+=len(packet)
+        else:
+            raise ValueError("out-of-order packet sequence")
+    return latest
+
+
 def deliver(state, document):
-    # Reject oversized RPC envelopes before parsing or decoding attacker-supplied bytes.
-    if not isinstance(document, str) or len(document) > MAX_BATCH * (MAX_ENCODED_CHUNK + 64) + 2:
-        raise ValueError("invalid packet batch")
+    # Reject untrusted RPC bytes before acquiring SQLite custody.
     rows, packets = admit_packet_batch(document)
     with dbtransaction(state) as conn:
-        latest=conn.execute("SELECT coalesce(max(seq),0) FROM inbound").fetchone()[0]
-        total=conn.execute("SELECT coalesce(sum(length(content)),0) FROM inbound").fetchone()[0]
-        for row, packet in zip(rows, packets):
-            seq=row["seq"]
-            if seq <= latest:
-                old=conn.execute("SELECT content FROM inbound WHERE seq=?",(seq,)).fetchone()
-                if old is None or old[0]!=packet:
-                    raise ValueError("non-idempotent packet replay")
-            elif seq == latest+1:
-                if total+len(packet)>MAX_TOTAL:
-                    raise ValueError("bounded carrier byte quota exhausted")
-                conn.execute("INSERT INTO inbound(seq,content) VALUES (?,?)",(seq,packet))
-                latest=seq
-                total+=len(packet)
-            else:
-                raise ValueError("out-of-order packet sequence")
+        latest = commit_admitted_inbound(conn, rows, packets)
     print(json.dumps({"accepted_through":latest,"authority":"none","transport":"external_oracle_rpc"}))
 
 def deliver_quiet(state, packets):
@@ -674,14 +684,14 @@ def main():
         # Single authenticated Oracle invocation both commits inbound and
         # obtains outbound. Reduces per-cycle latency for E01 TLS timeouts.
         # Do not print input ciphertext again or mistake it for commands.
-        data, _ = admit_packet_batch(a.packets)
-        if data:
-            # The original exchange delivered inbound ciphertext first, then
-            # rejected an invalid outbound cursor. Never commit a partial
-            # exchange before the caller's snapshot cursor is admitted.
-            with dbtransaction(a.state) as conn:
-                require_durable_outbound_cursor(conn, a.after)
-            deliver_quiet(a.state,data)
+        data, packets = admit_packet_batch(a.packets)
+        # The outbound cursor and the entire current window must be valid
+        # in the SAME transaction that commits inbound frames. Otherwise a
+        # sparse outbound journal could fail snapshot AFTER accepting input.
+        with dbtransaction(a.state) as conn:
+            outbound_snapshot_rows(conn, a.after)
+            if data:
+                commit_admitted_inbound(conn, data, packets)
         time.sleep(.04)
         snapshot(a.state,a.after)
     elif a.command=="serve": serve(a.state,a.mode,a.port)

@@ -579,6 +579,8 @@ def deliver(state, document):
     # Reject untrusted RPC bytes before acquiring SQLite custody.
     rows, packets = admit_packet_batch(document)
     with dbtransaction(state) as conn:
+        if rows:
+            require_open_carrier_lifetime(state)
         latest = commit_admitted_inbound(conn, rows, packets)
     print(json.dumps({"accepted_through":latest,"authority":"none","transport":"external_oracle_rpc"}))
 
@@ -587,6 +589,18 @@ def deliver_quiet(state, packets):
     from io import StringIO
     with redirect_stdout(StringIO()):
         deliver(state,json.dumps(packets,separators=(",",":")))
+
+def require_open_carrier_lifetime(state):
+    """Reject delayed inbound RPCs after the native TLS socket has ended.
+
+    Called under the cross-process admission lock. The final EOF check and
+    ended-marker creation hold that same lock, so a concurrent RPC cannot
+    commit a new ciphertext frame between successful closure and its marker.
+    Read-only snapshots remain available to drain already durable outbound.
+    """
+    if admitted_lifecycle_marker(Path(state) / "ended.json"):
+        raise ValueError("carrier lifetime ended")
+
 
 def write_exclusive_marker(path, document):
     """Create a private lifecycle marker without following or replacing aliases."""
@@ -750,23 +764,32 @@ def serve(state, mode, port):
     b.join(timeout=3)
     if a.is_alive() or b.is_alive():
         record_failure("shutdown",RuntimeError("carrier byte pump did not terminate"))
-    if not failures:
-        # The reader can observe EOF before the writer polls already admitted
-        # inbound TLS bytes. Never claim a completed pump with such bytes
-        # stranded in SQLite. This is local forwarding evidence only, not a
-        # remote TLS/effect acknowledgment.
-        try:
-            with dbtransaction(state) as conn:
-                require_healthy_carrier_history(conn, "inbound")
-                latest = conn.execute(
-                    "SELECT coalesce(max(seq),0) FROM inbound").fetchone()[0]
-            if latest > delivered_through[0]:
-                record_failure("undelivered", RuntimeError(
-                    "durable inbound frames not forwarded to native socket"))
-        except Exception as error:
-            record_failure("finalize", error)
-    status={"pid":os.getpid(),"finished":not failures,"failed":bool(failures)}
-    write_exclusive_marker(root/"ended.json", status)
+    # The reader can observe EOF before the writer polls already admitted
+    # inbound TLS bytes. The final history check and ended marker MUST share
+    # the same admission lock as deliver/exchange. Otherwise an Oracle RPC
+    # can commit a new frame after the check but before the marker, producing
+    # a false successful socket-lifetime record.
+    try:
+        with dbtransaction(state) as conn:
+            if not failures:
+                try:
+                    require_healthy_carrier_history(conn, "inbound")
+                    latest = conn.execute(
+                        "SELECT coalesce(max(seq),0) FROM inbound").fetchone()[0]
+                    if latest > delivered_through[0]:
+                        record_failure("undelivered", RuntimeError(
+                            "durable inbound frames not forwarded to native socket"))
+                except Exception as error:
+                    record_failure("finalize", error)
+            status={"pid":os.getpid(),"finished":not failures,"failed":bool(failures)}
+            write_exclusive_marker(root/"ended.json", status)
+    except Exception as error:
+        record_failure("finalize", error)
+        # An unavailable database cannot justify a success marker. Preserve
+        # a failed marker when possible without replacing an existing alias.
+        if not os.path.lexists(root/"ended.json"):
+            write_exclusive_marker(root/"ended.json",
+                                   {"pid":os.getpid(),"finished":False,"failed":True})
     if failures:
         first=failures[0]
         raise RuntimeError("E07_CARRIER_PUMP_FAILED:"+first[0]+":"+first[1]+":"+first[2])
@@ -804,6 +827,8 @@ def main():
             # Even an empty polling window must validate the inbound prefix.
             # Otherwise a damaged TLS journal can be reported as a healthy
             # bidirectional exchange without any durable admission check.
+            if data:
+                require_open_carrier_lifetime(a.state)
             commit_admitted_inbound(conn, data, packets)
         emit_outbound_snapshot(rows, a.after)
     elif a.command=="serve": serve(a.state,a.mode,a.port)

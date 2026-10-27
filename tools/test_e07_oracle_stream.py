@@ -1560,6 +1560,96 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         self.assertTrue(ended["finished"])
         self.assertFalse(ended["failed"])
 
+    def test_ended_carrier_rejects_late_deliver_and_exchange(self):
+        # A finished native socket cannot receive another TLS ciphertext
+        # frame through a delayed Oracle RPC. Snapshot reads remain allowed.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+        import base64
+
+        C.publish(self.b, "outbound", b"outbound-drainable")
+        C.write_exclusive_marker(Path(self.b) / "ended.json",
+                                 {"finished": True, "failed": False})
+        packet = json.dumps([{"seq": 1, "b64": base64.b64encode(
+            b"late-tls-frame").decode("ascii")}])
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.b, packet)
+        with patch.object(C.sys, "argv", ["e07_oracle_stream.py",
+                                          "exchange", "--state", self.b,
+                                          "--after", "0", "--packets", packet]):
+            with redirect_stdout(StringIO()):
+                with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+                    C.main()
+        with C.dbtransaction(self.b) as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM inbound").fetchone()[0], 0)
+        self.assertEqual(C.pull(self.b, "outbound", 0, 1)[0]["seq"], 1)
+
+    def test_end_marker_admission_is_serialized_against_late_rpc(self):
+        # The final EOF check and ended marker must share the admission lock.
+        # A concurrent RPC attempting delivery while the marker is being
+        # written must not slip into the now-closed TLS session.
+        from unittest.mock import patch
+        import base64
+
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        marker_started = threading.Event()
+        release_marker = threading.Event()
+        result = []
+        late = []
+        original = C.write_exclusive_marker
+
+        def delayed_marker(path, document):
+            if Path(path).name == "ended.json":
+                marker_started.set()
+                if not release_marker.wait(timeout=4):
+                    raise TimeoutError("test marker barrier")
+            return original(path, document)
+
+        def run_server():
+            try:
+                C.serve(self.b, "accept", port)
+                result.append("finished")
+            except Exception as error:
+                result.append(str(error))
+
+        def late_delivery():
+            packet = json.dumps([{"seq": 1, "b64": base64.b64encode(
+                b"late-tls-frame").decode("ascii")}])
+            try:
+                C.deliver(self.b, packet)
+                late.append("accepted")
+            except Exception as error:
+                late.append(str(error))
+
+        with patch.object(C, "write_exclusive_marker", side_effect=delayed_marker):
+            server = threading.Thread(target=run_server)
+            server.start()
+            try:
+                deadline = time.monotonic() + 3
+                while not (Path(self.b) / "ready.json").exists() and time.monotonic() < deadline:
+                    time.sleep(.01)
+                with socket.create_connection(("127.0.0.1", port), timeout=2):
+                    pass
+                self.assertTrue(marker_started.wait(timeout=3))
+                sender = threading.Thread(target=late_delivery)
+                sender.start()
+                time.sleep(.05)
+                release_marker.set()
+                sender.join(timeout=4)
+                server.join(timeout=4)
+                self.assertFalse(sender.is_alive())
+                self.assertFalse(server.is_alive())
+                self.assertEqual(result, ["finished"])
+                self.assertEqual(len(late), 1)
+                self.assertIn("carrier lifetime ended", late[0])
+            finally:
+                release_marker.set()
+                server.join(timeout=4)
+
     def test_spent_carrier_state_cannot_reopen_a_socket_and_replay_tls_bytes(self):
         # The same SQLite queue must never be attached to a second TLS session.
         C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')

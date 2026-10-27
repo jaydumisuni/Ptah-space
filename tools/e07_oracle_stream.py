@@ -95,7 +95,8 @@ def carrier_admission_lock(state, preparing=False):
     root = require_unaliased_state_path(state)
     if not root.is_dir() or is_path_alias(root):
         raise ValueError("existing real state directory required")
-    require_private_custody(root, root.stat(), "state directory")
+    root_identity = root.lstat()
+    require_private_custody(root, root_identity, "state directory")
     path = root / _ADMISSION_LOCK_NAME
     if not preparing and not (root / "carrier.sqlite3").exists():
         raise ValueError("prepared carrier database required")
@@ -139,11 +140,36 @@ def carrier_admission_lock(state, preparing=False):
                 else:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
-            except (OSError, BlockingIOError) as error:
+            except OSError as error:
+                # Only a contended nonblocking lock is retryable. EIO, EBADF,
+                # EINVAL and other failures must retain their original errno
+                # rather than being mislabeled as a seven-second lock timeout.
+                if error.errno not in (errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK):
+                    raise
                 if time.monotonic() >= deadline:
                     raise TimeoutError("carrier admission lock busy") from error
                 time.sleep(0.02)
         try:
+            # Holding the original lock inode does not protect a newly named
+            # state directory. Recheck the directory identity after flock,
+            # before opening SQLite by pathname. This detects observed root
+            # replacement; it is not race-free dirfd-relative custody.
+            try:
+                current_root = root.lstat()
+            except OSError as error:
+                if error.errno not in (errno.ENOENT, errno.ENOTDIR,
+                                       getattr(errno, "ELOOP", None)):
+                    raise
+                raise ValueError("carrier state directory identity changed") from error
+            if (not stat.S_ISDIR(current_root.st_mode) or is_path_alias(root)
+                    or (current_root.st_dev, current_root.st_ino,
+                        current_root.st_mode, current_root.st_uid,
+                        current_root.st_gid, current_root.st_nlink)
+                    != (root_identity.st_dev, root_identity.st_ino,
+                        root_identity.st_mode, root_identity.st_uid,
+                        root_identity.st_gid, root_identity.st_nlink)):
+                raise ValueError("carrier state directory identity changed")
+            require_private_custody(root, current_root, "state directory")
             try:
                 current = path.lstat()
             except OSError as error:
@@ -153,7 +179,13 @@ def carrier_admission_lock(state, preparing=False):
                                        getattr(errno, "ELOOP", None)):
                     raise
                 raise ValueError("carrier admission lock identity changed") from error
-            if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
+            # A new hardlink can alias the lock after its initial lstat/fstat.
+            # Check the pathname and locked descriptor again before SQLite.
+            locked = os.fstat(fd)
+            if (not stat.S_ISREG(current.st_mode) or current.st_nlink != 1
+                    or locked.st_nlink != 1
+                    or (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino)
+                    or (locked.st_dev, locked.st_ino) != (opened.st_dev, opened.st_ino)):
                 raise ValueError("carrier admission lock identity changed")
             require_private_custody(path, current, "admission lock")
             yield
@@ -214,7 +246,13 @@ def _dbconnect_locked(state, create=False):
         # Schema/PRAGMA/commit failures must close the handle before the
         # caller releases the cross-process admission lock. A leaked handle
         # can retain Windows SQLite WAL/SHM custody beyond this operation.
-        conn.execute("PRAGMA journal_mode=WAL")
+        # SQLite may return a different journal mode when the backing
+        # filesystem cannot provide WAL. The carrier's concurrent reader/
+        # writer and sidecar custody contract must never silently downgrade.
+        journal_mode = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+        if (not journal_mode or type(journal_mode[0]) is not str
+                or journal_mode[0].lower() != "wal"):
+            raise ValueError("carrier WAL journal mode required")
         conn.execute("PRAGMA busy_timeout=7000")
         conn.execute("CREATE TABLE IF NOT EXISTS outbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
         conn.execute("CREATE TABLE IF NOT EXISTS inbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
@@ -291,6 +329,10 @@ def publish(state, table, payload):
         row = conn.execute(f"SELECT coalesce(sum(length(content)),0), coalesce(max(seq),0) FROM {table}").fetchone()
         if row[0]+len(payload)>MAX_TOTAL:
             raise RuntimeError("bounded carrier byte quota exhausted")
+        # SQLite sequence keys are signed 64-bit. Exhaustion must be a
+        # controlled carrier rejection, not a Python-to-SQLite OverflowError.
+        if row[1] >= (1 << 63) - 1:
+            raise ValueError("carrier sequence exhausted")
         conn.execute(f"INSERT INTO {table}(seq,content) VALUES (?,?)",(row[1]+1,payload))
 
 def pull(state, table, after, limit):
@@ -300,6 +342,11 @@ def pull(state, table, after, limit):
     if type(limit) is not int or not 1 <= limit <= MAX_BATCH:
         raise ValueError("invalid carrier batch limit")
     with dbtransaction(state) as conn:
+        # A cursor ahead of this durable journal cannot be a successful
+        # resume. Silently returning [] would conceal missing TLS frames.
+        latest = conn.execute(f"SELECT coalesce(max(seq),0) FROM {table}").fetchone()[0]
+        if after > latest:
+            raise ValueError("carrier cursor exceeds durable sequence")
         rows = conn.execute(f"SELECT seq,content FROM {table} WHERE seq>? ORDER BY seq LIMIT ?",(after,limit)).fetchall()
     return [{"seq":seq,"b64":base64.b64encode(buf).decode("ascii")} for seq,buf in rows]
 
@@ -329,6 +376,28 @@ def snapshot(state, after):
 def decode_packet_batch(document):
     if not isinstance(document, str) or len(document) > MAX_BATCH * (MAX_ENCODED_CHUNK + 64) + 2:
         raise ValueError("invalid packet batch")
+    # A packet batch has only an array and flat packet objects. Bound nesting
+    # before json.loads: parser recursion limits vary across Python releases.
+    # Brackets inside quoted JSON strings (including escaped quotes) are inert.
+    depth = 0
+    quoted = False
+    escaped = False
+    for char in document:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char in "[{":
+            depth += 1
+            if depth > 2:
+                raise ValueError("invalid packet batch nesting")
+        elif char in "]}":
+            depth -= 1
     def unique(pairs):
         result = {}
         for key, value in pairs:
@@ -343,28 +412,44 @@ def decode_packet_batch(document):
         # stack exhaustion into a controlled, fail-closed RPC input error.
         raise ValueError("invalid packet batch nesting") from error
 
+def admit_packet_batch(document):
+    """Validate every untrusted frame before acquiring SQLite custody."""
+    rows = decode_packet_batch(document)
+    if not isinstance(rows, list) or len(rows) > MAX_BATCH:
+        raise ValueError("invalid packet batch")
+    decoded = []
+    for row in rows:
+        if (not isinstance(row, dict) or set(row) != {"seq", "b64"}
+                or type(row["seq"]) is not int
+                or not 1 <= row["seq"] <= (1 << 63) - 1
+                or not isinstance(row["b64"], str)):
+            raise ValueError("invalid packet schema")
+        if len(row["b64"]) > MAX_ENCODED_CHUNK:
+            raise ValueError("invalid packet size")
+        try:
+            packet = base64.b64decode(row["b64"], validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise ValueError("invalid packet encoding") from error
+        if not packet or len(packet) > MAX_CHUNK:
+            raise ValueError("invalid packet size")
+        # Strict base64 decoding accepts nonzero unused pad bits on some
+        # Python versions. Pin the unique RFC 4648 representation before
+        # SQLite admission; our own snapshot/pull always emits this form.
+        if base64.b64encode(packet).decode("ascii") != row["b64"]:
+            raise ValueError("noncanonical packet encoding")
+        decoded.append(packet)
+    return rows, decoded
+
+
 def deliver(state, document):
     # Reject oversized RPC envelopes before parsing or decoding attacker-supplied bytes.
     if not isinstance(document, str) or len(document) > MAX_BATCH * (MAX_ENCODED_CHUNK + 64) + 2:
         raise ValueError("invalid packet batch")
-    rows=decode_packet_batch(document)
-    if not isinstance(rows,list) or len(rows)>MAX_BATCH:
-        raise ValueError("invalid packet batch")
+    rows, packets = admit_packet_batch(document)
     with dbtransaction(state) as conn:
         latest=conn.execute("SELECT coalesce(max(seq),0) FROM inbound").fetchone()[0]
         total=conn.execute("SELECT coalesce(sum(length(content)),0) FROM inbound").fetchone()[0]
-        for row in rows:
-            if (not isinstance(row,dict) or set(row)!={"seq","b64"}
-                    or type(row["seq"]) is not int or not isinstance(row["b64"],str)):
-                raise ValueError("invalid packet schema")
-            if len(row["b64"]) > MAX_ENCODED_CHUNK:
-                raise ValueError("invalid packet size")
-            try:
-                packet=base64.b64decode(row["b64"],validate=True)
-            except (binascii.Error, ValueError) as error:
-                raise ValueError("invalid packet encoding") from error
-            if not packet or len(packet)>MAX_CHUNK:
-                raise ValueError("invalid packet size")
+        for row, packet in zip(rows, packets):
             seq=row["seq"]
             if seq <= latest:
                 old=conn.execute("SELECT content FROM inbound WHERE seq=?",(seq,)).fetchone()
@@ -571,9 +656,7 @@ def main():
         # Single authenticated Oracle invocation both commits inbound and
         # obtains outbound. Reduces per-cycle latency for E01 TLS timeouts.
         # Do not print input ciphertext again or mistake it for commands.
-        data=decode_packet_batch(a.packets)
-        if not isinstance(data, list) or len(data) > MAX_BATCH:
-            raise ValueError("invalid packet batch")
+        data, _ = admit_packet_batch(a.packets)
         if data:
             # The original exchange delivered inbound ciphertext first, then
             # rejected an invalid outbound cursor. Never commit a partial

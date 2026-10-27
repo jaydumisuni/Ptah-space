@@ -70,6 +70,34 @@ class OracleCarrierContract(unittest.TestCase):
         import base64
         self.assertEqual(base64.b64decode(rows[0]["b64"]), b"x" * C.MAX_CHUNK)
 
+    def test_outbound_sequence_exhaustion_is_controlled_before_sqlite_bind(self):
+        # A valid final signed-64-bit key may be written, but no successor
+        # can be bound to SQLite. Failed publication preserves prior bytes.
+        maximum = (1 << 63) - 1
+        with C.dbtransaction(self.a) as conn:
+            conn.execute("INSERT INTO outbound(seq,content) VALUES (?,?)",
+                         (maximum - 1, b"penultimate"))
+        C.publish(self.a, "outbound", b"last")
+        self.assertEqual(C.pull(self.a, "outbound", maximum - 1, 1),
+                         [{"seq": maximum, "b64": "bGFzdA=="}])
+        with self.assertRaisesRegex(ValueError, "carrier sequence exhausted"):
+            C.publish(self.a, "outbound", b"overflow")
+        self.assertEqual(C.pull(self.a, "outbound", maximum - 1, 2),
+                         [{"seq": maximum, "b64": "bGFzdA=="}])
+
+    def test_pull_rejects_cursor_beyond_durable_journal(self):
+        # An impossible local cursor must not silently hide queued TLS bytes.
+        for table in ("outbound", "inbound"):
+            with self.subTest(table=table):
+                with self.assertRaisesRegex(ValueError, "carrier cursor exceeds durable sequence"):
+                    C.pull(self.a, table, 1, 1)
+                C.publish(self.a, table, b"first")
+                self.assertEqual(len(C.pull(self.a, table, 0, 1)), 1)
+                self.assertEqual(C.pull(self.a, table, 1, 1), [])
+                with self.assertRaisesRegex(ValueError, "carrier cursor exceeds durable sequence"):
+                    C.pull(self.a, table, 2, 1)
+                self.assertEqual(len(C.pull(self.a, table, 0, 1)), 1)
+
     def test_ordered_ciphertext_frames_survive_duplicate_transport_delivery(self):
         msgs=[bytes(range(256))*8,b"\x16\x03\x03\x00"+b"\xf0"*1800,b"TLS ciphertext no authority"]
         for message in msgs:
@@ -88,6 +116,60 @@ class OracleCarrierContract(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid packet schema"):
             C.deliver(self.b, '[{"seq":1,"b64":123}]')
         self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
+
+    def test_invalid_packet_payloads_are_rejected_before_database_admission(self):
+        # Reject an untrusted packet envelope without opening SQLite or
+        # acquiring a carrier admission lock, including the exchange path.
+        from unittest.mock import patch
+        invalid = (
+            '[{"seq":0,"b64":"YWJj"}]',
+            '[{"seq":1,"b64":123}]',
+            '[{"seq":1,"b64":"not-base64!"}]',
+            json.dumps([{"seq":1,"b64":"A" * (C.MAX_ENCODED_CHUNK + 1)}]),
+        )
+        for sample in invalid:
+            with self.subTest(sample=sample[:48]):
+                with patch.object(C, "dbtransaction",
+                                  side_effect=AssertionError("invalid packet reached SQLite")):
+                    with self.assertRaises(ValueError):
+                        C.deliver(self.b, sample)
+                    with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                            "--state", self.b, "--packets", sample]):
+                        with self.assertRaises(ValueError):
+                            C.main()
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+    def test_noncanonical_base64_packet_encoding_rejected_before_sqlite(self):
+        # RFC 4648 padding bits must be zero: permissive decoders otherwise
+        # accept alternate text for the same opaque TLS bytes.
+        from unittest.mock import patch
+        for encoded in ("Zh==", "Zi==", "Zm9="):
+            with self.subTest(encoded=encoded):
+                batch = json.dumps([{"seq": 1, "b64": encoded}])
+                with patch.object(C, "dbtransaction",
+                                  side_effect=AssertionError("opened SQLite for noncanonical frame")):
+                    with self.assertRaisesRegex(ValueError, "noncanonical packet encoding"):
+                        C.deliver(self.b, batch)
+        # The canonical representations remain interoperable with publish/pull.
+        canonical = [{"seq": 1, "b64": "Zg=="}, {"seq": 2, "b64": "Zm8="}]
+        C.deliver(self.b, json.dumps(canonical))
+        self.assertEqual(C.pull(self.b, "inbound", 0, 2), canonical)
+
+    def test_packet_sequence_outside_sqlite_integer_range_fails_closed(self):
+        """Hostile JSON bignums must not escape as sqlite3 OverflowError."""
+        for seq in (-1, 0, -(1 << 100), (1 << 63), (1 << 100)):
+            with self.subTest(seq=seq):
+                with self.assertRaisesRegex(ValueError, "invalid packet schema"):
+                    C.deliver(self.b, json.dumps([{"seq": seq, "b64": "YWJj"}]))
+                self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+    def test_packet_depth_scan_ignores_quoted_brackets_and_escaped_quotes(self):
+        """Only structural JSON delimiters count toward the envelope limit."""
+        sample = ["[[{\"[[", {"seq": 1, "b64": "YWJj"}]
+        self.assertEqual(C.decode_packet_batch(json.dumps(sample)), sample)
+        nested = [{"seq": 1, "b64": "YWJj", "extra": {"x": 1}}]
+        with self.assertRaisesRegex(ValueError, "invalid packet batch nesting"):
+            C.decode_packet_batch(json.dumps(nested))
 
     def test_deeply_nested_packet_envelope_fails_closed_before_sqlite(self):
         # The envelope is well below the byte budget but exceeds the JSON
@@ -226,6 +308,35 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["packets"], [])
         self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
 
+    def test_sqlite_wal_fallback_is_rejected_before_schema_admission(self):
+        # A filesystem refusing WAL must not silently switch carrier journal
+        # semantics while the admission lock and sidecar contract assume WAL.
+        from unittest.mock import patch
+
+        class FallbackConnection:
+            def __init__(self):
+                self.closed = False
+                self.queries = []
+
+            def execute(self, sql):
+                self.queries.append(sql)
+                if sql == "PRAGMA journal_mode=WAL":
+                    class Cursor:
+                        def fetchone(self):
+                            return ("delete",)
+                    return Cursor()
+                raise AssertionError("schema initialized after WAL rejection")
+
+            def close(self):
+                self.closed = True
+
+        connection = FallbackConnection()
+        with patch.object(C.sqlite3, "connect", return_value=connection):
+            with self.assertRaisesRegex(ValueError, "carrier WAL journal mode required"):
+                C.pull(self.b, "inbound", 0, 1)
+        self.assertEqual(connection.queries, ["PRAGMA journal_mode=WAL"])
+        self.assertTrue(connection.closed)
+
     def test_sqlite_initialization_failure_closes_handle(self):
         # A failed PRAGMA/schema/commit must not leak a SQLite handle after
         # the admission lock is released, especially on Windows WAL files.
@@ -240,6 +351,11 @@ class OracleCarrierContract(unittest.TestCase):
                     def execute(self, _sql):
                         if failure_at == "execute":
                             raise sqlite3.OperationalError("injected setup failure")
+                        if _sql == "PRAGMA journal_mode=WAL":
+                            class Cursor:
+                                def fetchone(self):
+                                    return ("wal",)
+                            return Cursor()
 
                     def commit(self):
                         if failure_at == "commit":
@@ -344,6 +460,76 @@ class OracleCarrierContract(unittest.TestCase):
             os.chmod(lock_path, 0o600)
         self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
 
+    @unittest.skipIf(os.name == "nt", "POSIX post-flock root replacement fixture")
+    def test_admission_lock_root_replaced_after_flock_fails_before_sqlite(self):
+        """Locking an old directory's inode must not admit a new named state root."""
+        import fcntl
+        import shutil
+        from unittest.mock import patch
+
+        root = Path(self.b)
+        detached = Path(self.temp.name) / "athena-detached"
+        real_flock = fcntl.flock
+        swapped = []
+
+        def replace_root_after_lock(fd, operation):
+            result = real_flock(fd, operation)
+            if operation & fcntl.LOCK_EX and not swapped:
+                root.rename(detached)
+                shutil.copytree(detached, root)
+                (root / C._ADMISSION_LOCK_NAME).unlink()
+                (detached / C._ADMISSION_LOCK_NAME).rename(root / C._ADMISSION_LOCK_NAME)
+                swapped.append(True)
+            return result
+
+        try:
+            with patch.object(fcntl, "flock", side_effect=replace_root_after_lock):
+                with patch.object(C.sqlite3, "connect",
+                                  side_effect=AssertionError("SQLite opened replacement state root")):
+                    with self.assertRaisesRegex(ValueError, "carrier state directory identity changed"):
+                        C.pull(self.b, "inbound", 0, 1)
+            self.assertEqual(swapped, [True])
+        finally:
+            if detached.exists():
+                if root.exists():
+                    (root / C._ADMISSION_LOCK_NAME).rename(detached / C._ADMISSION_LOCK_NAME)
+                    shutil.rmtree(root)
+                detached.rename(root)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+    @unittest.skipIf(os.name == "nt", "POSIX post-flock hardlink fixture")
+    def test_admission_lock_hardlinked_after_flock_fails_closed(self):
+        """A newly aliased locked inode cannot authorize SQLite admission."""
+        import fcntl
+        from unittest.mock import patch
+
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        alias = Path(self.temp.name) / "external-admission-lock-alias"
+        real_flock = fcntl.flock
+        observed = []
+
+        def alias_after_lock(fd, operation):
+            result = real_flock(fd, operation)
+            if operation & fcntl.LOCK_EX:
+                observed.append(fd)
+                os.link(lock_path, alias)
+            return result
+
+        try:
+            with patch.object(fcntl, "flock", side_effect=alias_after_lock):
+                with patch.object(C.sqlite3, "connect",
+                                  side_effect=AssertionError("SQLite opened aliased lock")):
+                    with self.assertRaisesRegex(ValueError,
+                                                "admission lock identity changed"):
+                        C.pull(self.b, "inbound", 0, 1)
+            self.assertEqual(len(observed), 1)
+            with self.assertRaises(OSError):
+                os.fstat(observed[0])
+        finally:
+            if alias.exists():
+                alias.unlink()
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
     @unittest.skipIf(os.name == "nt", "POSIX injected lock open failures")
     def test_admission_lock_unrelated_open_errors_preserve_errno(self):
         """An I/O or resource failure is not evidence of lock substitution."""
@@ -366,6 +552,47 @@ class OracleCarrierContract(unittest.TestCase):
                             C.pull(self.b, "inbound", 0, 1)
                 self.assertEqual(caught.exception.errno, code)
         self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+    @unittest.skipIf(os.name == "nt", "POSIX injected flock failures")
+    def test_admission_lock_noncontention_flock_errors_are_not_retried(self):
+        """A broken lock operation must preserve its real error immediately."""
+        import errno
+        import fcntl
+        from unittest.mock import patch
+
+        for code in (errno.EIO, errno.EBADF, errno.EINVAL):
+            with self.subTest(errno=code):
+                with patch.object(fcntl, "flock",
+                                  side_effect=OSError(code, os.strerror(code))):
+                    with patch.object(C.time, "sleep",
+                                      side_effect=AssertionError("noncontention lock error retried")):
+                        with patch.object(C.sqlite3, "connect",
+                                          side_effect=AssertionError("SQLite opened after lock failure")):
+                            with self.assertRaises(OSError) as caught:
+                                C.pull(self.b, "inbound", 0, 1)
+                self.assertEqual(caught.exception.errno, code)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+    @unittest.skipIf(os.name == "nt", "POSIX transient flock contention")
+    def test_admission_lock_retries_transient_contention(self):
+        import errno
+        import fcntl
+        from unittest.mock import patch
+
+        real_flock = fcntl.flock
+        attempts = []
+
+        def contend_once(fd, operation):
+            if operation & fcntl.LOCK_EX:
+                attempts.append(operation)
+                if len(attempts) == 1:
+                    raise BlockingIOError(errno.EAGAIN, os.strerror(errno.EAGAIN))
+            return real_flock(fd, operation)
+
+        with patch.object(fcntl, "flock", side_effect=contend_once):
+            with patch.object(C.time, "sleep", return_value=None):
+                self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+        self.assertEqual(len(attempts), 2)
 
     @unittest.skipIf(os.name == "nt", "POSIX injected post-lock stat failures")
     def test_admission_lock_unrelated_post_lock_stat_errors_preserve_errno(self):

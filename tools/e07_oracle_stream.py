@@ -321,12 +321,21 @@ def require_carrier_stream_table(table):
 def require_contiguous_carrier_rows(conn, table, after, rows):
     """Fail closed if a resumed opaque byte stream would silently skip a frame.
 
-    This checks the requested window, not a full historical journal audit.
-    The only admitted table names are the carrier's fixed internal journals.
+    This checks the acknowledged cursor frame and requested window, not a
+    full historical journal audit. The only admitted table names are the
+    carrier's fixed internal journals.
     """
     require_carrier_stream_table(table)
-    if after and conn.execute(f"SELECT 1 FROM {table} WHERE seq=?", (after,)).fetchone() is None:
-        raise ValueError("carrier journal sequence gap")
+    if after:
+        # The caller's cursor acknowledges the immediately preceding durable
+        # frame. Even if the next window is valid (or empty), a corrupted
+        # acknowledged frame must not be silently treated as delivered.
+        cursor = conn.execute(
+            f"SELECT content FROM {table} WHERE seq=?", (after,)).fetchone()
+        if cursor is None:
+            raise ValueError("carrier journal sequence gap")
+        if type(cursor[0]) is not bytes or not 1 <= len(cursor[0]) <= MAX_CHUNK:
+            raise ValueError("invalid durable carrier frame")
     expected = after + 1
     for seq, payload in rows:
         if seq != expected:

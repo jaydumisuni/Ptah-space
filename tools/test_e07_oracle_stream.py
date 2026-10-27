@@ -498,6 +498,59 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertEqual(C.pull(self.b, "inbound", 0, 10),
                          [{"seq": 1, "b64": "YWJj"}])
 
+    def test_corrupt_acknowledged_outbound_cursor_never_commits_inbound(self):
+        # A cursor is an assertion that the caller already received this
+        # ciphertext. A damaged acknowledged row must not be silently skipped
+        # merely because the subsequent outbound window is still healthy.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        incoming = '[{"seq":1,"b64":"YWJj"}]'
+        for damaged in (b"", "not-a-blob", b"x" * (C.MAX_CHUNK + 1)):
+            for cursor in (1, 2):
+                with self.subTest(kind=type(damaged).__name__, cursor=cursor):
+                    with C.dbtransaction(self.b) as conn:
+                        conn.execute("DELETE FROM outbound")
+                        conn.execute("DELETE FROM inbound")
+                        conn.executemany(
+                            "INSERT INTO outbound(seq,content) VALUES (?,?)",
+                            [(1, b"first"), (2, b"second")])
+                        conn.execute(
+                            "UPDATE outbound SET content=? WHERE seq=?",
+                            (damaged, cursor))
+                    with self.assertRaisesRegex(
+                            ValueError, "invalid durable carrier frame"):
+                        C.pull(self.b, "outbound", cursor, C.MAX_BATCH)
+                    output = StringIO()
+                    with redirect_stdout(output):
+                        with self.assertRaisesRegex(
+                                ValueError, "invalid durable carrier frame"):
+                            C.snapshot(self.b, cursor)
+                    self.assertEqual(output.getvalue(), "")
+                    output = StringIO()
+                    with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                            "--state", self.b, "--after",
+                                            str(cursor), "--packets", incoming]):
+                        with redirect_stdout(output):
+                            with self.assertRaisesRegex(
+                                    ValueError, "invalid durable carrier frame"):
+                                C.main()
+                    self.assertEqual(output.getvalue(), "")
+                    self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+        with C.dbtransaction(self.b) as conn:
+            conn.execute("UPDATE outbound SET content=? WHERE seq=2", (b"second",))
+        output = StringIO()
+        with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                "--state", self.b, "--after", "2",
+                                "--packets", incoming]):
+            with redirect_stdout(output):
+                C.main()
+        self.assertEqual(json.loads(output.getvalue())["packets"], [])
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1),
+                         [{"seq": 1, "b64": "YWJj"}])
+
     def test_corrupt_durable_ciphertext_frames_rejected_before_exchange_commit(self):
         # A damaged SQLite BLOB can pass sequence continuity but cannot be
         # delivered as a TLS frame. Reject it before accepting inbound bytes.

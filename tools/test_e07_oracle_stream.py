@@ -350,6 +350,43 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertEqual(C.pull(self.b, "inbound", 0, 10),
                          [{"seq": 1, "b64": "YWJj"}])
 
+    def test_corrupt_durable_ciphertext_frames_rejected_before_exchange_commit(self):
+        # A damaged SQLite BLOB can pass sequence continuity but cannot be
+        # delivered as a TLS frame. Reject it before accepting inbound bytes.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        incoming = '[{"seq":1,"b64":"YWJj"}]'
+        for damaged in (b"", "not-a-blob", b"x" * (C.MAX_CHUNK + 1)):
+            with self.subTest(kind=type(damaged).__name__, size=len(damaged)):
+                with C.dbtransaction(self.b) as conn:
+                    conn.execute("DELETE FROM outbound")
+                    conn.execute("DELETE FROM inbound")
+                    conn.execute("INSERT INTO outbound(seq,content) VALUES (1,?)",
+                                 (damaged,))
+                output = StringIO()
+                with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                        "--state", self.b, "--after", "0",
+                                        "--packets", incoming]):
+                    with redirect_stdout(output):
+                        with self.assertRaisesRegex(ValueError, "invalid durable carrier frame"):
+                            C.main()
+                self.assertEqual(output.getvalue(), "")
+                self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+    def test_corrupt_durable_ciphertext_frames_rejected_on_read(self):
+        # The same fail-closed frame invariant applies to both journal reads.
+        for table in ("inbound", "outbound"):
+            with self.subTest(table=table):
+                with C.dbtransaction(self.a) as conn:
+                    conn.execute(f"INSERT INTO {table}(seq,content) VALUES (1,?)",
+                                 (b"",))
+                with self.assertRaisesRegex(ValueError, "invalid durable carrier frame"):
+                    C.pull(self.a, table, 0, 1)
+                with C.dbtransaction(self.a) as conn:
+                    conn.execute(f"DELETE FROM {table}")
+
     def test_exchange_snapshot_is_bound_to_inbound_commit_transaction(self):
         # A second SQLite read after the inbound commit can observe a changed
         # outbound journal and fail, even though the inbound bytes persisted.

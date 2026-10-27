@@ -98,6 +98,25 @@ class OracleCarrierContract(unittest.TestCase):
                     C.pull(self.a, table, 2, 1)
                 self.assertEqual(len(C.pull(self.a, table, 0, 1)), 1)
 
+    def test_sparse_durable_ciphertext_journal_fails_closed_at_read(self):
+        # A missing committed frame must not be silently skipped by either
+        # the ordinary pull or the Oracle exchange snapshot.
+        for table in ("outbound", "inbound"):
+            with self.subTest(table=table):
+                for payload in (b"one", b"two", b"three"):
+                    C.publish(self.a, table, payload)
+                with C.dbtransaction(self.a) as conn:
+                    conn.execute(f"DELETE FROM {table} WHERE seq=2")
+                for after in (0, 1, 2):
+                    with self.subTest(after=after):
+                        with self.assertRaisesRegex(ValueError, "carrier journal sequence gap"):
+                            C.pull(self.a, table, after, C.MAX_BATCH)
+                if table == "outbound":
+                    with self.assertRaisesRegex(ValueError, "carrier journal sequence gap"):
+                        C.snapshot(self.a, 0)
+                with C.dbtransaction(self.a) as conn:
+                    conn.execute(f"DELETE FROM {table}")
+
     def test_ordered_ciphertext_frames_survive_duplicate_transport_delivery(self):
         msgs=[bytes(range(256))*8,b"\x16\x03\x03\x00"+b"\xf0"*1800,b"TLS ciphertext no authority"]
         for message in msgs:

@@ -1348,6 +1348,27 @@ with carrier.carrier_admission_lock(sys.argv[2]):
                 finally:
                     sidecar.unlink()
 
+    def test_batch_sequence_must_increase_before_sqlite_admission(self):
+        # A single Oracle packet batch is an ordered TLS stream window.
+        # An out-of-order replay or duplicate within that window must not
+        # become an acknowledged transport delivery, even if SQLite could
+        # ultimately sort the durable rows by their primary keys.
+        for sequences in ((2, 1), (1, 1), (1, 3, 2)):
+            with self.subTest(sequences=sequences):
+                document = json.dumps([
+                    {"seq": seq, "b64": "YWJj"} for seq in sequences
+                ])
+                with self.assertRaisesRegex(ValueError, "strictly increasing"):
+                    C.admit_packet_batch(document)
+        # A repeated *complete* ordered batch remains idempotent.
+        ordered = json.dumps([
+            {"seq": seq, "b64": "YWJj"} for seq in (1, 2, 3)
+        ])
+        C.deliver(self.b, ordered)
+        C.deliver(self.b, ordered)
+        self.assertEqual([row["seq"] for row in C.pull(self.b, "inbound", 0, 32)],
+                         [1, 2, 3])
+
     def test_gap_and_conflicting_replay_rejected(self):
         C.deliver(self.b,'[{"seq":1,"b64":"YWJj"}]')
         with self.assertRaisesRegex(ValueError,"out-of-order"):

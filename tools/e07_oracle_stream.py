@@ -505,12 +505,20 @@ def admit_packet_batch(document):
     if not isinstance(rows, list) or len(rows) > MAX_BATCH:
         raise ValueError("invalid packet batch")
     decoded = []
+    previous_seq = 0
     for row in rows:
         if (not isinstance(row, dict) or set(row) != {"seq", "b64"}
                 or type(row["seq"]) is not int
                 or not 1 <= row["seq"] <= (1 << 63) - 1
                 or not isinstance(row["b64"], str)):
             raise ValueError("invalid packet schema")
+        # The caller's array is a transport-order window, not a set of
+        # SQLite keys. Reject intra-batch duplicates and reversed replay
+        # before acquiring durable state; complete ordered replays remain
+        # idempotent in commit_admitted_inbound.
+        if row["seq"] <= previous_seq:
+            raise ValueError("packet batch sequence must be strictly increasing")
+        previous_seq = row["seq"]
         if len(row["b64"]) > MAX_ENCODED_CHUNK:
             raise ValueError("invalid packet size")
         try:

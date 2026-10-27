@@ -70,6 +70,33 @@ class OracleCarrierContract(unittest.TestCase):
         import base64
         self.assertEqual(base64.b64decode(rows[0]["b64"]), b"x" * C.MAX_CHUNK)
 
+    def test_publish_rejects_invalid_historical_frame_before_append(self):
+        # A valid new ciphertext frame cannot rehabilitate an invalid
+        # historical durable frame. Keep the original row and sequence intact.
+        for table in ("outbound", "inbound"):
+            for damaged in (b"", "text-not-ciphertext", b"x" * (C.MAX_CHUNK + 1)):
+                with self.subTest(table=table, kind=type(damaged).__name__,
+                                  length=len(damaged)):
+                    with C.dbtransaction(self.a) as conn:
+                        conn.execute(f"DELETE FROM {table}")
+                        conn.execute(f"INSERT INTO {table}(seq,content) VALUES (1,?)",
+                                     (damaged,))
+                    with self.assertRaisesRegex(ValueError, "invalid durable carrier frame"):
+                        C.publish(self.a, table, b"new-ciphertext")
+                    with C.dbtransaction(self.a) as conn:
+                        self.assertEqual(
+                            conn.execute(f"SELECT seq,content FROM {table}").fetchall(),
+                            [(1, damaged)],
+                        )
+            with C.dbtransaction(self.a) as conn:
+                conn.execute(f"DELETE FROM {table}")
+            C.publish(self.a, table, b"valid-ciphertext")
+            with C.dbtransaction(self.a) as conn:
+                self.assertEqual(
+                    conn.execute(f"SELECT seq,content FROM {table}").fetchall(),
+                    [(1, b"valid-ciphertext")],
+                )
+
     def test_outbound_sequence_exhaustion_is_controlled_before_sqlite_bind(self):
         # A valid final signed-64-bit key may be written, but no successor
         # can be bound to SQLite. Failed publication preserves prior bytes.

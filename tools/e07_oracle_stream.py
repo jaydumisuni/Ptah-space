@@ -348,7 +348,19 @@ def publish(state, table, payload):
     if type(payload) is not bytes or not 1 <= len(payload) <= MAX_CHUNK:
         raise ValueError("invalid outbound carrier frame")
     with dbtransaction(state) as conn:
-        row = conn.execute(f"SELECT coalesce(sum(length(content)),0), coalesce(max(seq),0) FROM {table}").fetchone()
+        # A historical journal containing TEXT, an empty BLOB or an
+        # oversized frame cannot be extended into a supposedly usable TLS
+        # stream. Validate durable payload custody in the same transaction
+        # as the append; quota and sequence checks alone are insufficient.
+        row = conn.execute(
+            f"SELECT coalesce(sum(length(content)),0), coalesce(max(seq),0), "
+            f"coalesce(sum(CASE WHEN typeof(content) != 'blob' "
+            f"OR length(content) NOT BETWEEN 1 AND ? THEN 1 ELSE 0 END),0) "
+            f"FROM {table}",
+            (MAX_CHUNK,),
+        ).fetchone()
+        if row[2]:
+            raise ValueError("invalid durable carrier frame")
         if row[0]+len(payload)>MAX_TOTAL:
             raise RuntimeError("bounded carrier byte quota exhausted")
         # SQLite sequence keys are signed 64-bit. Exhaustion must be a

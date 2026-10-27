@@ -1533,6 +1533,48 @@ with carrier.carrier_admission_lock(sys.argv[2]):
                 finally:
                     marker.unlink()
 
+    def test_status_rejects_corrupt_durable_history_before_reporting_ready(self):
+        # A ready marker and plausible row counts must not present a broken
+        # TLS journal as usable transport state. Validate both directions.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        C.write_exclusive_marker(Path(self.b) / "ready.json",
+                                 {"bound": "127.0.0.1"})
+        damaged = (
+            ("outbound", 1, "not-ciphertext"),
+            ("inbound", 1, b""),
+            ("outbound", 2, b"skipped-first"),
+            ("inbound", 0, b"invalid-sequence"),
+        )
+        for table, seq, content in damaged:
+            with self.subTest(table=table, seq=seq):
+                with C.dbtransaction(self.b) as conn:
+                    conn.execute("DELETE FROM outbound")
+                    conn.execute("DELETE FROM inbound")
+                    conn.execute(f"INSERT INTO {table}(seq,content) VALUES (?,?)",
+                                 (seq, content))
+                output = StringIO()
+                with patch.object(C.sys, "argv", ["e07_oracle_stream.py",
+                                                  "status", "--state", self.b]):
+                    with redirect_stdout(output):
+                        with self.assertRaisesRegex(
+                                ValueError,
+                                "invalid durable carrier frame|carrier journal sequence gap"):
+                            C.main()
+                self.assertEqual(output.getvalue(), "")
+        with C.dbtransaction(self.b) as conn:
+            conn.execute("DELETE FROM outbound")
+            conn.execute("DELETE FROM inbound")
+        C.publish(self.b, "outbound", b"valid")
+        output = StringIO()
+        with patch.object(C.sys, "argv", ["e07_oracle_stream.py",
+                                          "status", "--state", self.b]):
+            with redirect_stdout(output):
+                C.main()
+        self.assertTrue(json.loads(output.getvalue())["ready"])
+
     def test_status_only_reports_admitted_lifecycle_markers(self):
         from contextlib import redirect_stdout
         from io import StringIO

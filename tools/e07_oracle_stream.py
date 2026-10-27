@@ -788,6 +788,12 @@ def main():
     elif a.command=="serve": serve(a.state,a.mode,a.port)
     elif a.command=="status":
         with dbtransaction(a.state) as db:
+            # Status is a transport-readiness observation, not merely a row
+            # counter. A ready marker cannot rehabilitate a corrupt durable
+            # TLS prefix. Validate both streams under the same admission lock
+            # and transaction before reporting apparently usable state.
+            require_healthy_carrier_history(db, "outbound")
+            require_healthy_carrier_history(db, "inbound")
             n1=db.execute("SELECT count(*),coalesce(sum(length(content)),0) FROM outbound").fetchone()
             n2=db.execute("SELECT count(*),coalesce(sum(length(content)),0) FROM inbound").fetchone()
         root = require_unaliased_state_path(a.state)

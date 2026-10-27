@@ -318,12 +318,34 @@ def require_carrier_stream_table(table):
         raise ValueError("invalid carrier stream table")
 
 
+def require_healthy_carrier_history(conn, table):
+    """Reject a damaged durable prefix before any resumed TLS read.
+
+    Checking only the acknowledged cursor and next batch can conceal an
+    earlier missing sequence or invalid BLOB. The bounded SQLite journal is
+    inspected within the same transaction as the read/exchange.
+    """
+    require_carrier_stream_table(table)
+    count, first, latest, total, invalid = conn.execute(
+        f"SELECT count(*),coalesce(min(seq),0),coalesce(max(seq),0),"
+        f"coalesce(sum(length(content)),0),"
+        f"coalesce(sum(CASE WHEN typeof(content) != 'blob' "
+        f"OR length(content) NOT BETWEEN 1 AND ? THEN 1 ELSE 0 END),0) "
+        f"FROM {table}",
+        (MAX_CHUNK,),
+    ).fetchone()
+    if count and (first != 1 or count != latest):
+        raise ValueError("carrier journal sequence gap")
+    if invalid or total > MAX_TOTAL:
+        raise ValueError("invalid durable carrier frame")
+
+
 def require_contiguous_carrier_rows(conn, table, after, rows):
     """Fail closed if a resumed opaque byte stream would silently skip a frame.
 
-    This checks the acknowledged cursor frame and requested window, not a
-    full historical journal audit. The only admitted table names are the
-    carrier's fixed internal journals.
+    This checks the acknowledged cursor and requested window. Callers also
+    validate the complete bounded historical prefix before resuming.
+    The only admitted table names are the carrier's fixed internal journals.
     """
     require_carrier_stream_table(table)
     if after:
@@ -392,6 +414,7 @@ def pull(state, table, after, limit):
     if type(limit) is not int or not 1 <= limit <= MAX_BATCH:
         raise ValueError("invalid carrier batch limit")
     with dbtransaction(state) as conn:
+        require_healthy_carrier_history(conn, table)
         # A cursor ahead of this durable journal cannot be a successful
         # resume. Silently returning [] would conceal missing TLS frames.
         latest = conn.execute(f"SELECT coalesce(max(seq),0) FROM {table}").fetchone()[0]
@@ -412,8 +435,9 @@ def require_durable_outbound_cursor(conn, after):
 
 
 def outbound_snapshot_rows(conn, after):
-    """Validate the exact outbound window before acknowledging inbound bytes."""
+    """Validate the durable outbound history before acknowledging inbound bytes."""
     require_durable_outbound_cursor(conn, after)
+    require_healthy_carrier_history(conn, "outbound")
     rows = conn.execute(
         "SELECT seq,content FROM outbound WHERE seq>? ORDER BY seq LIMIT ?",
         (after, MAX_BATCH),

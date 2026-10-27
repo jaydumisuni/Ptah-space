@@ -184,6 +184,58 @@ class OracleCarrierContract(unittest.TestCase):
                 with C.dbtransaction(self.a) as conn:
                     conn.execute(f"DELETE FROM {table}")
 
+    def test_resumed_reads_reject_corrupt_historical_prefix(self):
+        # A valid acknowledged cursor and suffix must not conceal an earlier
+        # missing sequence or invalid frame in the same durable TLS stream.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        histories = (
+            ((1, b"one"), (3, b"three"), (4, b"four")),
+            ((1, b""), (2, b"two"), (3, b"three"), (4, b"four")),
+        )
+        for table in ("outbound", "inbound"):
+            for history in histories:
+                with self.subTest(table=table, history=history):
+                    with C.dbtransaction(self.a) as conn:
+                        conn.execute(f"DELETE FROM {table}")
+                        conn.executemany(
+                            f"INSERT INTO {table}(seq,content) VALUES (?,?)",
+                            history,
+                        )
+                    for after in (3, 4):
+                        with self.subTest(after=after):
+                            with self.assertRaisesRegex(
+                                ValueError,
+                                "carrier journal sequence gap|invalid durable carrier frame",
+                            ):
+                                C.pull(self.a, table, after, 1)
+                            if table == "outbound":
+                                output = StringIO()
+                                with redirect_stdout(output):
+                                    with self.assertRaisesRegex(
+                                        ValueError,
+                                        "carrier journal sequence gap|invalid durable carrier frame",
+                                    ):
+                                        C.snapshot(self.a, after)
+                                self.assertEqual(output.getvalue(), "")
+                    if table == "outbound":
+                        output = StringIO()
+                        with patch("sys.argv", [
+                            "e07_oracle_stream.py", "exchange",
+                            "--state", self.a, "--after", "3",
+                            "--packets", '[{"seq":1,"b64":"YWJj"}]',
+                        ]):
+                            with redirect_stdout(output):
+                                with self.assertRaisesRegex(
+                                    ValueError,
+                                    "carrier journal sequence gap|invalid durable carrier frame",
+                                ):
+                                    C.main()
+                        self.assertEqual(output.getvalue(), "")
+                        self.assertEqual(C.pull(self.a, "inbound", 0, 1), [])
+
     def test_historical_inbound_gap_rejects_new_delivery_and_exchange(self):
         # A previously damaged durable inbound journal must never advance its
         # acknowledged cursor. Both RPC paths must roll back before printing.

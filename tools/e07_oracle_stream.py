@@ -328,9 +328,15 @@ def require_contiguous_carrier_rows(conn, table, after, rows):
     if after and conn.execute(f"SELECT 1 FROM {table} WHERE seq=?", (after,)).fetchone() is None:
         raise ValueError("carrier journal sequence gap")
     expected = after + 1
-    for seq, _ in rows:
+    for seq, payload in rows:
         if seq != expected:
             raise ValueError("carrier journal sequence gap")
+        # A damaged SQLite journal may retain contiguous sequence keys but
+        # contain TEXT, empty BLOBs, or oversized ciphertext. Validate every
+        # frame while the exchange transaction can still roll back inbound
+        # admission, not after commit during response encoding.
+        if type(payload) is not bytes or not 1 <= len(payload) <= MAX_CHUNK:
+            raise ValueError("invalid durable carrier frame")
         expected += 1
 
 

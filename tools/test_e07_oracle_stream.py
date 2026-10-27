@@ -315,6 +315,41 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertEqual(C.pull(self.b, "inbound", 0, 10),
                          [{"seq": 1, "b64": "YWJj"}])
 
+    def test_exchange_sparse_outbound_window_never_commits_inbound(self):
+        # A durable missing outbound frame must reject the whole exchange,
+        # not accept inbound ciphertext before snapshot raises an error.
+        from unittest.mock import patch
+        from contextlib import redirect_stdout
+        from io import StringIO
+        for payload in (b"one", b"two", b"three"):
+            C.publish(self.b, "outbound", payload)
+        with C.dbtransaction(self.b) as conn:
+            conn.execute("DELETE FROM outbound WHERE seq=2")
+        incoming = '[{"seq":1,"b64":"YWJj"}]'
+        for cursor in (0, 1, 2):
+            with self.subTest(cursor=cursor):
+                output = StringIO()
+                with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                        "--state", self.b, "--after", str(cursor),
+                                        "--packets", incoming]):
+                    with redirect_stdout(output):
+                        with self.assertRaisesRegex(ValueError, "carrier journal sequence gap"):
+                            C.main()
+                self.assertEqual(output.getvalue(), "")
+                self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
+        # A healthy outbound window retains normal bidirectional exchange.
+        with C.dbtransaction(self.b) as conn:
+            conn.execute("INSERT INTO outbound(seq,content) VALUES (2,?)", (b"two",))
+        output = StringIO()
+        with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                "--state", self.b, "--after", "1",
+                                "--packets", incoming]):
+            with redirect_stdout(output):
+                C.main()
+        self.assertEqual(json.loads(output.getvalue())["latest"], 3)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 10),
+                         [{"seq": 1, "b64": "YWJj"}])
+
     def test_exchange_empty_array_remains_valid_snapshot_poll(self):
         from unittest.mock import patch
         from contextlib import redirect_stdout

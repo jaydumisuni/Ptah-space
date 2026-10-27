@@ -688,6 +688,36 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["packets"], [])
         self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
 
+    def test_empty_exchange_rejects_damaged_inbound_history(self):
+        # An empty Oracle poll still represents a usable bidirectional TLS
+        # transport. It must not report success over a broken inbound prefix.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        histories = (
+            [(1, b"one"), (3, b"missing-two")],
+            [(1, "text-instead-of-ciphertext")],
+            [(1, b"")],
+        )
+        for history in histories:
+            with self.subTest(history=history):
+                with C.dbtransaction(self.b) as conn:
+                    conn.execute("DELETE FROM inbound")
+                    conn.executemany(
+                        "INSERT INTO inbound(seq,content) VALUES (?,?)", history
+                    )
+                output = StringIO()
+                with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                        "--state", self.b, "--packets", "[]"]):
+                    with redirect_stdout(output):
+                        with self.assertRaisesRegex(
+                            ValueError,
+                            "carrier journal sequence gap|invalid durable inbound carrier frame",
+                        ):
+                            C.main()
+                self.assertEqual(output.getvalue(), "")
+
     def test_sqlite_wal_fallback_is_rejected_before_schema_admission(self):
         # A filesystem refusing WAL must not silently switch carrier journal
         # semantics while the admission lock and sidecar contract assume WAL.

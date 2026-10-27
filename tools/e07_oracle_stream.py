@@ -782,8 +782,10 @@ def main():
         # fail on a changed journal despite inbound bytes already persisting.
         with dbtransaction(a.state) as conn:
             rows = outbound_snapshot_rows(conn, a.after)
-            if data:
-                commit_admitted_inbound(conn, data, packets)
+            # Even an empty polling window must validate the inbound prefix.
+            # Otherwise a damaged TLS journal can be reported as a healthy
+            # bidirectional exchange without any durable admission check.
+            commit_admitted_inbound(conn, data, packets)
         emit_outbound_snapshot(rows, a.after)
     elif a.command=="serve": serve(a.state,a.mode,a.port)
     elif a.command=="status":

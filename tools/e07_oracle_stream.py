@@ -483,12 +483,21 @@ def commit_admitted_inbound(conn, rows, packets):
     # unique; a positive journal beginning at one is contiguous exactly when
     # its row count equals its maximum sequence. Check within this transaction
     # before any new inbound write or replay acknowledgement.
-    count, first, latest, total = conn.execute(
+    count, first, latest, total, invalid = conn.execute(
         "SELECT count(*),coalesce(min(seq),0),coalesce(max(seq),0),"
-        "coalesce(sum(length(content)),0) FROM inbound"
+        "coalesce(sum(length(content)),0),"
+        "coalesce(sum(CASE WHEN typeof(content) != 'blob' "
+        "OR length(content) NOT BETWEEN 1 AND ? THEN 1 ELSE 0 END),0) "
+        "FROM inbound",
+        (MAX_CHUNK,),
     ).fetchone()
     if count and (first != 1 or count != latest):
         raise ValueError("carrier journal sequence gap")
+    # A contiguous SQLite journal is not necessarily valid ciphertext.
+    # Reject historical TEXT/empty/oversized frames before acknowledging
+    # any newer packet, even when the damaged frame is not replayed.
+    if invalid or total > MAX_TOTAL:
+        raise ValueError("invalid durable inbound carrier frame")
     for row, packet in zip(rows, packets):
         seq=row["seq"]
         if seq <= latest:

@@ -161,6 +161,43 @@ class OracleCarrierContract(unittest.TestCase):
                             ).fetchall()
                         self.assertEqual(observed, sorted(existing))
 
+    def test_historical_inbound_invalid_frames_cannot_be_acknowledged(self):
+        # A contiguous journal may still contain invalid durable bytes. Neither
+        # delivery nor exchange may acknowledge a newer frame over that damage.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        incoming = '[{"seq":2,"b64":"YWJj"}]'
+        for damaged in (b"", "not-a-blob", b"x" * (C.MAX_CHUNK + 1)):
+            with self.subTest(kind=type(damaged).__name__,
+                              size=len(damaged) if damaged is not None else None):
+                with C.dbtransaction(self.b) as conn:
+                    conn.execute("DELETE FROM inbound")
+                    conn.execute("INSERT INTO inbound(seq,content) VALUES (1,?)",
+                                 (damaged,))
+                for operation in ("deliver", "exchange"):
+                    with self.subTest(operation=operation):
+                        output = StringIO()
+                        with redirect_stdout(output):
+                            with self.assertRaisesRegex(
+                                ValueError, "invalid durable inbound carrier frame"
+                            ):
+                                if operation == "deliver":
+                                    C.deliver(self.b, incoming)
+                                else:
+                                    with patch("sys.argv", [
+                                        "e07_oracle_stream.py", "exchange",
+                                        "--state", self.b, "--packets", incoming
+                                    ]):
+                                        C.main()
+                        self.assertEqual(output.getvalue(), "")
+                        with C.dbtransaction(self.b) as conn:
+                            self.assertEqual(
+                                conn.execute("SELECT seq,content FROM inbound").fetchall(),
+                                [(1, damaged)],
+                            )
+
     def test_ordered_ciphertext_frames_survive_duplicate_transport_delivery(self):
         msgs=[bytes(range(256))*8,b"\x16\x03\x03\x00"+b"\xf0"*1800,b"TLS ciphertext no authority"]
         for message in msgs:

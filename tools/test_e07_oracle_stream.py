@@ -1493,6 +1493,73 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         self.assertIn("E07_CARRIER_PUMP_FAILED:writer",caught[0])
         self.assertFalse(json.loads((Path(self.b)/"ended.json").read_text())["finished"])
 
+    def test_socket_eof_with_undelivered_inbound_is_not_finished(self):
+        # The native peer can close before the writer drains already admitted
+        # Oracle ciphertext. A clean EOF is not proof those bytes reached it.
+        from unittest.mock import patch
+        C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        errors = []
+
+        def run():
+            try:
+                C.serve(self.b, "accept", port)
+            except Exception as error:
+                errors.append(str(error))
+
+        # Model a writer whose poll has not yet observed the inbound frame.
+        # The durable queue still contains the frame when the reader sees EOF.
+        with patch.object(C, "pull", return_value=[]):
+            worker = threading.Thread(target=run)
+            worker.start()
+            deadline = time.monotonic() + 3
+            while not (Path(self.b) / "ready.json").exists() and time.monotonic() < deadline:
+                time.sleep(.01)
+            with socket.create_connection(("127.0.0.1", port), timeout=2):
+                pass
+            worker.join(timeout=4)
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(errors, "undelivered durable inbound bytes must fail closed")
+        self.assertIn("E07_CARRIER_PUMP_FAILED:undelivered", errors[0])
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertFalse(ended["finished"])
+        self.assertTrue(ended["failed"])
+        self.assertEqual([p["seq"] for p in C.pull(self.b, "inbound", 0, 32)], [1])
+
+    def test_socket_eof_after_inbound_forwarding_can_finish(self):
+        # A completed local sendall is eligible for a local pump success
+        # claim; it is not a remote TLS or application effect witness.
+        C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        errors = []
+
+        def run():
+            try:
+                C.serve(self.b, "accept", port)
+            except Exception as error:
+                errors.append(str(error))
+
+        worker = threading.Thread(target=run)
+        worker.start()
+        deadline = time.monotonic() + 3
+        while not (Path(self.b) / "ready.json").exists() and time.monotonic() < deadline:
+            time.sleep(.01)
+        with socket.create_connection(("127.0.0.1", port), timeout=2) as sock:
+            sock.settimeout(2)
+            self.assertEqual(sock.recv(32), b"tls-frame")
+        worker.join(timeout=4)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, [])
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertTrue(ended["finished"])
+        self.assertFalse(ended["failed"])
+
     def test_spent_carrier_state_cannot_reopen_a_socket_and_replay_tls_bytes(self):
         # The same SQLite queue must never be attached to a second TLS session.
         C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')

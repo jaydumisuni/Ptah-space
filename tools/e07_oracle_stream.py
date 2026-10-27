@@ -688,6 +688,9 @@ def serve(state, mode, port):
     completed=threading.Event()
     failures=[]
     failure_lock=threading.Lock()
+    # A clean native socket EOF does not imply that the writer forwarded all
+    # durable Oracle inbound ciphertext before the reader stopped both pumps.
+    delivered_through = [0]
     def record_failure(role,exc):
         with failure_lock:
             failures.append((role,type(exc).__name__,str(exc)))
@@ -720,6 +723,7 @@ def serve(state, mode, port):
                 for p in packets:
                     sock.sendall(base64.b64decode(p["b64"]))
                     cursor=p["seq"]
+                    delivered_through[0] = cursor
                 time.sleep(.015)
         except Exception as error:
             record_failure("writer",error)
@@ -746,6 +750,21 @@ def serve(state, mode, port):
     b.join(timeout=3)
     if a.is_alive() or b.is_alive():
         record_failure("shutdown",RuntimeError("carrier byte pump did not terminate"))
+    if not failures:
+        # The reader can observe EOF before the writer polls already admitted
+        # inbound TLS bytes. Never claim a completed pump with such bytes
+        # stranded in SQLite. This is local forwarding evidence only, not a
+        # remote TLS/effect acknowledgment.
+        try:
+            with dbtransaction(state) as conn:
+                require_healthy_carrier_history(conn, "inbound")
+                latest = conn.execute(
+                    "SELECT coalesce(max(seq),0) FROM inbound").fetchone()[0]
+            if latest > delivered_through[0]:
+                record_failure("undelivered", RuntimeError(
+                    "durable inbound frames not forwarded to native socket"))
+        except Exception as error:
+            record_failure("finalize", error)
     status={"pid":os.getpid(),"finished":not failures,"failed":bool(failures)}
     write_exclusive_marker(root/"ended.json", status)
     if failures:

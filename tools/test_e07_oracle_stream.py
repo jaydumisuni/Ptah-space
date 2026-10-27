@@ -158,6 +158,22 @@ class OracleCarrierContract(unittest.TestCase):
                             C.main()
         self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
 
+    def test_noncanonical_base64_packet_encoding_rejected_before_sqlite(self):
+        # RFC 4648 padding bits must be zero: permissive decoders otherwise
+        # accept alternate text for the same opaque TLS bytes.
+        from unittest.mock import patch
+        for encoded in ("Zh==", "Zi==", "Zm9="):
+            with self.subTest(encoded=encoded):
+                batch = json.dumps([{"seq": 1, "b64": encoded}])
+                with patch.object(C, "dbtransaction",
+                                  side_effect=AssertionError("opened SQLite for noncanonical frame")):
+                    with self.assertRaisesRegex(ValueError, "noncanonical packet encoding"):
+                        C.deliver(self.b, batch)
+        # The canonical representations remain interoperable with publish/pull.
+        canonical = [{"seq": 1, "b64": "Zg=="}, {"seq": 2, "b64": "Zm8="}]
+        C.deliver(self.b, json.dumps(canonical))
+        self.assertEqual(C.pull(self.b, "inbound", 0, 2), canonical)
+
     def test_packet_sequence_outside_sqlite_integer_range_fails_closed(self):
         """Hostile JSON bignums must not escape as sqlite3 OverflowError."""
         for seq in (-1, 0, -(1 << 100), (1 << 63), (1 << 100)):

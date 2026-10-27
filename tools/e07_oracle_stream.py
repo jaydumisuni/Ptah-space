@@ -450,6 +450,11 @@ def admit_packet_batch(document):
             raise ValueError("invalid packet encoding") from error
         if not packet or len(packet) > MAX_CHUNK:
             raise ValueError("invalid packet size")
+        # Strict base64 decoding accepts nonzero unused pad bits on some
+        # Python versions. Pin the unique RFC 4648 representation before
+        # SQLite admission; our own snapshot/pull always emits this form.
+        if base64.b64encode(packet).decode("ascii") != row["b64"]:
+            raise ValueError("noncanonical packet encoding")
         decoded.append(packet)
     return rows, decoded
 

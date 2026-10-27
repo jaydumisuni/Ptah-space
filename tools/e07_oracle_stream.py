@@ -478,8 +478,17 @@ def admit_packet_batch(document):
 
 def commit_admitted_inbound(conn, rows, packets):
     """Commit already-validated frames in the caller's SQLite transaction."""
-    latest=conn.execute("SELECT coalesce(max(seq),0) FROM inbound").fetchone()[0]
-    total=conn.execute("SELECT coalesce(sum(length(content)),0) FROM inbound").fetchone()[0]
+    # A historical gap or nonpositive sequence must not be concealed by
+    # acknowledging a newer TLS frame. INTEGER PRIMARY KEY identities are
+    # unique; a positive journal beginning at one is contiguous exactly when
+    # its row count equals its maximum sequence. Check within this transaction
+    # before any new inbound write or replay acknowledgement.
+    count, first, latest, total = conn.execute(
+        "SELECT count(*),coalesce(min(seq),0),coalesce(max(seq),0),"
+        "coalesce(sum(length(content)),0) FROM inbound"
+    ).fetchone()
+    if count and (first != 1 or count != latest):
+        raise ValueError("carrier journal sequence gap")
     for row, packet in zip(rows, packets):
         seq=row["seq"]
         if seq <= latest:

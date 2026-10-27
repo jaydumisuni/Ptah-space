@@ -388,14 +388,19 @@ def outbound_snapshot_rows(conn, after):
     return rows
 
 
-def snapshot(state, after):
-    with dbtransaction(state) as conn:
-        rows = outbound_snapshot_rows(conn, after)
+def emit_outbound_snapshot(rows, after):
+    """Emit only the already-validated durable outbound window."""
     packets = [{"seq": seq, "b64": base64.b64encode(buf).decode("ascii")}
                for seq, buf in rows]
     print(json.dumps({"packets": packets, "count": len(packets),
                       "latest": packets[-1]["seq"] if packets else after},
                      separators=(",", ":")))
+
+
+def snapshot(state, after):
+    with dbtransaction(state) as conn:
+        rows = outbound_snapshot_rows(conn, after)
+    emit_outbound_snapshot(rows, after)
 
 def decode_packet_batch(document):
     if not isinstance(document, str) or len(document) > MAX_BATCH * (MAX_ENCODED_CHUNK + 64) + 2:
@@ -685,15 +690,17 @@ def main():
         # obtains outbound. Reduces per-cycle latency for E01 TLS timeouts.
         # Do not print input ciphertext again or mistake it for commands.
         data, packets = admit_packet_batch(a.packets)
-        # The outbound cursor and the entire current window must be valid
-        # in the SAME transaction that commits inbound frames. Otherwise a
-        # sparse outbound journal could fail snapshot AFTER accepting input.
+        # Allow the local native pump a short opportunity to publish before
+        # taking the snapshot, never between commit and response.
+        time.sleep(.04)
+        # Bind the returned outbound window to the SAME transaction that
+        # commits inbound frames. A second SQLite read after commit could
+        # fail on a changed journal despite inbound bytes already persisting.
         with dbtransaction(a.state) as conn:
-            outbound_snapshot_rows(conn, a.after)
+            rows = outbound_snapshot_rows(conn, a.after)
             if data:
                 commit_admitted_inbound(conn, data, packets)
-        time.sleep(.04)
-        snapshot(a.state,a.after)
+        emit_outbound_snapshot(rows, a.after)
     elif a.command=="serve": serve(a.state,a.mode,a.port)
     elif a.command=="status":
         with dbtransaction(a.state) as db:

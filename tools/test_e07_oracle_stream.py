@@ -350,6 +350,42 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertEqual(C.pull(self.b, "inbound", 0, 10),
                          [{"seq": 1, "b64": "YWJj"}])
 
+    def test_exchange_snapshot_is_bound_to_inbound_commit_transaction(self):
+        # A second SQLite read after the inbound commit can observe a changed
+        # outbound journal and fail, even though the inbound bytes persisted.
+        # The response must use the validated window captured at commit time.
+        from contextlib import contextmanager, redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        for payload in (b"one", b"two", b"three"):
+            C.publish(self.b, "outbound", payload)
+        real_transaction = C.dbtransaction
+        changed = []
+
+        @contextmanager
+        def post_commit_change(state):
+            with real_transaction(state) as conn:
+                yield conn
+            if not changed:
+                changed.append(True)
+                with real_transaction(state) as conn:
+                    conn.execute("DELETE FROM outbound WHERE seq=2")
+
+        output = StringIO()
+        with patch.object(C, "dbtransaction", side_effect=post_commit_change):
+            with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                    "--state", self.b, "--after", "0",
+                                    "--packets", '[{"seq":1,"b64":"YWJj"}]']):
+                with redirect_stdout(output):
+                    C.main()
+        result = json.loads(output.getvalue())
+        self.assertEqual([row["seq"] for row in result["packets"]], [1, 2, 3])
+        self.assertEqual(result["latest"], 3)
+        self.assertEqual(changed, [True])
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1),
+                         [{"seq": 1, "b64": "YWJj"}])
+
     def test_exchange_empty_array_remains_valid_snapshot_poll(self):
         from unittest.mock import patch
         from contextlib import redirect_stdout

@@ -2011,6 +2011,47 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         C.write_exclusive_marker(Path(self.b) / "ended.json", {"pid": 1, "finished": True, "failed": False})
         self.assertTrue(status()["ended"])
 
+    def test_status_lifecycle_markers_share_durable_admission_transaction(self):
+        # A status snapshot must not release the admission lock between
+        # journal verification and lifecycle-marker readback. The finalizer
+        # writes ended.json while holding that same lock.
+        from contextlib import contextmanager, redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        original_transaction = C.dbtransaction
+        original_marker = C.admitted_lifecycle_marker
+        inside_transaction = [False]
+
+        @contextmanager
+        def tracked_transaction(state):
+            with original_transaction(state) as conn:
+                inside_transaction[0] = True
+                try:
+                    yield conn
+                finally:
+                    inside_transaction[0] = False
+
+        def checked_marker(path):
+            self.assertTrue(inside_transaction[0],
+                            "status marker read escaped durable admission lock")
+            return original_marker(path)
+
+        C.write_exclusive_marker(
+            Path(self.b) / "ready.json",
+            {"mode": "accept", "port": 41321, "pid": 1,
+             "bound": "127.0.0.1"},
+        )
+        output = StringIO()
+        with patch.object(C, "dbtransaction", tracked_transaction):
+            with patch.object(C, "admitted_lifecycle_marker", checked_marker):
+                with patch.object(C.sys, "argv", [
+                        "e07_oracle_stream.py", "status", "--state", self.b]):
+                    with redirect_stdout(output):
+                        C.main()
+        self.assertTrue(json.loads(output.getvalue())["ready"])
+        self.assertFalse(json.loads(output.getvalue())["ended"])
+
     @unittest.skipIf(os.name == "nt", "POSIX symlink/hardlink/mode fixtures")
     def test_status_rejects_aliased_and_shared_lifecycle_markers(self):
         from contextlib import redirect_stdout

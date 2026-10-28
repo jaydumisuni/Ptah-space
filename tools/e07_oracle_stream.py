@@ -960,10 +960,14 @@ def main():
             require_healthy_carrier_history(db, "inbound")
             n1=db.execute("SELECT count(*),coalesce(sum(length(content)),0) FROM outbound").fetchone()
             n2=db.execute("SELECT count(*),coalesce(sum(length(content)),0) FROM inbound").fetchone()
-        root = require_unaliased_state_path(a.state)
+            # End-of-lifetime sealing uses this same cross-process admission
+            # lock. Observe the admitted markers before releasing it, so the
+            # journal and lifecycle status describe one consistent snapshot.
+            root = require_unaliased_state_path(a.state)
+            ready = admitted_lifecycle_marker(root / "ready.json")
+            ended = admitted_lifecycle_marker(root / "ended.json")
         print(json.dumps({"outbound": n1, "inbound": n2,
-                          "ready": admitted_lifecycle_marker(root / "ready.json"),
-                          "ended": admitted_lifecycle_marker(root / "ended.json")}))
+                          "ready": ready, "ended": ended}))
 
 if __name__=="__main__":
     try: main()

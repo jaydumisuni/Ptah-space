@@ -14,6 +14,7 @@ import binascii
 import errno
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import socket
@@ -668,9 +669,17 @@ def admitted_lifecycle_marker(path):
             return result
         def reject_nonfinite(value):
             raise ValueError("nonfinite carrier lifecycle marker value")
+        def finite_float(token):
+            # json.loads accepts 1e999 as float("inf") without calling
+            # parse_constant. Reject overflow at every nesting depth.
+            value = float(token)
+            if not math.isfinite(value):
+                raise ValueError("nonfinite carrier lifecycle marker value")
+            return value
         try:
             document = json.loads(payload, object_pairs_hook=unique_fields,
-                                  parse_constant=reject_nonfinite)
+                                  parse_constant=reject_nonfinite,
+                                  parse_float=finite_float)
         except (ValueError, UnicodeError) as error:
             raise ValueError("invalid carrier lifecycle marker content") from error
         if type(document) is not dict or not document:

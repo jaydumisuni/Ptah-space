@@ -1844,7 +1844,9 @@ with carrier.carrier_admission_lock(sys.argv[2]):
 
         bad = (b"", b'{"bound":', b"true",
                b'{"finished":true,"finished":false}',
-               b'{"finished":NaN}', b'{"pad":"' + b"x" * 4096 + b'"}')
+               b'{"finished":NaN}', b'{"port":1e999}',
+               b'{"nested":[{"duration":-1e999}]}',
+               b'{"pad":"' + b"x" * 4096 + b'"}')
         for name in ("ready.json", "ended.json"):
             marker = Path(self.b) / name
             # Use the same private-owner/ACL creation path as the real pump.

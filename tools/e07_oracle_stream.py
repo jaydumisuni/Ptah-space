@@ -767,6 +767,19 @@ def serve(state, mode, port):
             except OSError:
                 time.sleep(.1)
         if sock is None:
+            # The exclusive claim has consumed this carrier lifetime even
+            # though no Control socket became ready. Seal the failed attempt
+            # under the same admission lock as inbound Oracle RPCs so status
+            # cannot leave an exhausted dialer looking merely unstarted.
+            try:
+                with carrier_admission_lock(root):
+                    write_exclusive_marker(root / "ended.json",
+                                           {"pid": os.getpid(), "finished": False,
+                                            "failed": True})
+            except OSError:
+                # Preserve the actual unavailable-Control failure. The
+                # exclusive serve.claim still prevents lifetime reuse.
+                pass
             raise RuntimeError("local Control unavailable")
         try:
             write_exclusive_marker(marker, {"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"})

@@ -1823,6 +1823,33 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         self.assertFalse(marker.exists())
         self.assertTrue((Path(self.b) / "serve.claim").exists())
 
+    def test_dial_timeout_records_failed_lifetime_without_ready(self):
+        # A claimed carrier that exhausted its local Control dial budget
+        # must leave an explicit failed lifetime, never a ready event.
+        from unittest.mock import patch
+        marker = Path(self.b) / "ready.json"
+        ended = Path(self.b) / "ended.json"
+        attempts = [0]
+        def unavailable(*args, **kwargs):
+            attempts[0] += 1
+            raise ConnectionRefusedError("no Control")
+        with patch.object(C.time, "monotonic",
+                          side_effect=lambda: 121 if attempts[0] else 0):
+            with patch.object(C.time, "sleep", return_value=None):
+                with patch.object(C.socket, "create_connection",
+                                  side_effect=unavailable) as connect:
+                    with self.assertRaisesRegex(RuntimeError, "local Control unavailable"):
+                        C.serve(self.b, "dial", 41321)
+        connect.assert_called_once_with(("127.0.0.1", 41321), timeout=3)
+        self.assertFalse(marker.exists())
+        self.assertTrue((Path(self.b) / "serve.claim").exists())
+        self.assertEqual(
+            (json.loads(ended.read_text())["finished"],
+             json.loads(ended.read_text())["failed"]), (False, True))
+        self.assertTrue(C.admitted_lifecycle_marker(ended))
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
+
     def test_dial_marks_ready_after_local_control_connects(self):
         from unittest.mock import patch
         marker = Path(self.b) / "ready.json"

@@ -150,3 +150,18 @@ recorded as `finished=false, failed=true` before the lock is released.
 This is source-level carrier lifecycle custody. It is not an independent
 E02/A05 effect witness and does not establish unattended off-LAN or
 Windows-native physical acceptance.
+
+## E07 exhausted dialer failure custody — 28 October 2026
+
+A dial-mode carrier that exhausts its bounded local Control connection
+window has already consumed its exclusive serve.claim, even though it
+never published ready.json. Previously it raised local Control unavailable
+without sealing the lifetime, leaving status ambiguous and allowing a
+late inbound packet to be admitted to the abandoned journal. The carrier
+now writes a private ended.json with finished=false, failed=true
+under the cross-process admission lock before reporting the original
+connection failure. A predecessor regression reproduced the absent
+failure marker; the corrected test verifies marker admission and rejects
+late inbound delivery. This is Ptah E07 source-level custody only, not
+Windows-native, unattended off-LAN, or independently witnessed E02/A05
+qualification.

@@ -1835,6 +1835,32 @@ with carrier.carrier_admission_lock(sys.argv[2]):
                 C.main()
         self.assertTrue(json.loads(output.getvalue())["ready"])
 
+    def test_lifecycle_markers_reject_malformed_content_before_reporting_ready(self):
+        # A private inode alone does not establish a complete lifecycle event.
+        # A crash can leave a newly created marker empty or partially written.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        bad = (b"", b'{"bound":', b"true",
+               b'{"finished":true,"finished":false}',
+               b'{"finished":NaN}', b'{"pad":"' + b"x" * 4096 + b'"}')
+        for name in ("ready.json", "ended.json"):
+            marker = Path(self.b) / name
+            for payload in bad:
+                with self.subTest(name=name, payload=payload[:40]):
+                    marker.write_bytes(payload)
+                    with self.assertRaisesRegex(ValueError, "invalid carrier lifecycle marker"):
+                        C.admitted_lifecycle_marker(marker)
+                    output = StringIO()
+                    with patch.object(C.sys, "argv", ["e07_oracle_stream.py",
+                                                      "status", "--state", self.b]):
+                        with redirect_stdout(output):
+                            with self.assertRaisesRegex(ValueError, "invalid carrier lifecycle marker"):
+                                C.main()
+                    self.assertEqual(output.getvalue(), "")
+            marker.unlink()
+
     def test_status_only_reports_admitted_lifecycle_markers(self):
         from contextlib import redirect_stdout
         from io import StringIO

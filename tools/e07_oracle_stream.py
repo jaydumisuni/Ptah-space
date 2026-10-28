@@ -652,6 +652,29 @@ def admitted_lifecycle_marker(path):
             raise ValueError("carrier lifecycle marker identity changed")
         require_private_custody(path, opened, "lifecycle marker")
         require_private_custody(path, current, "lifecycle marker")
+        # An exclusive marker may be observed between O_EXCL creation and
+        # fsync, or after a crash left a truncated document. A private inode
+        # alone cannot attest a ready/ended lifecycle event. Read only from
+        # the already admitted descriptor, with a small fixed size ceiling.
+        payload = os.read(fd, 4097)
+        if not payload or len(payload) > 4096:
+            raise ValueError("invalid carrier lifecycle marker content")
+        def unique_fields(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("duplicate carrier lifecycle marker key")
+                result[key] = value
+            return result
+        def reject_nonfinite(value):
+            raise ValueError("nonfinite carrier lifecycle marker value")
+        try:
+            document = json.loads(payload, object_pairs_hook=unique_fields,
+                                  parse_constant=reject_nonfinite)
+        except (ValueError, UnicodeError) as error:
+            raise ValueError("invalid carrier lifecycle marker content") from error
+        if type(document) is not dict or not document:
+            raise ValueError("invalid carrier lifecycle marker content")
     finally:
         os.close(fd)
     return True

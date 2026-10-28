@@ -1126,9 +1126,42 @@ with carrier.carrier_admission_lock(sys.argv[2]):
     def test_private_lifecycle_marker_status_and_missing_marker(self):
         marker = Path(self.b) / "ready.json"
         self.assertFalse(C.admitted_lifecycle_marker(marker))
-        C.write_exclusive_marker(marker, {"mode": "accept", "pid": 1})
+        C.write_exclusive_marker(marker, {"mode": "accept", "port": 41321, "pid": 1, "bound": "127.0.0.1"})
         self.assertTrue(C.admitted_lifecycle_marker(marker))
         self.assertFalse(C.admitted_lifecycle_marker(Path(self.b) / "ended.json"))
+
+    def test_lifecycle_marker_requires_actual_transport_event_schema(self):
+        # A private, valid JSON file is not proof that a native carrier ever
+        # became ready or ended. Reject incomplete and contradictory events.
+        valid_ready = {"mode": "accept", "port": 41321, "pid": 1,
+                       "bound": "127.0.0.1"}
+        valid_ended = {"pid": 1, "finished": True, "failed": False}
+        cases = (
+            ("ready.json", {"unrelated": True}),
+            ("ready.json", {"mode": "dial", "pid": 1}),
+            ("ready.json", {**valid_ready, "port": 443}),
+            ("ready.json", {**valid_ready, "bound": "0.0.0.0"}),
+            ("ready.json", {**valid_ready, "pid": True}),
+            ("ended.json", {"unrelated": True}),
+            ("ended.json", {**valid_ended, "finished": True, "failed": True}),
+            ("ended.json", {**valid_ended, "finished": 1}),
+        )
+        for name, document in cases:
+            with self.subTest(name=name, document=document):
+                marker = Path(self.b) / name
+                if marker.exists():
+                    marker.unlink()
+                C.write_exclusive_marker(marker, document)
+                try:
+                    with self.assertRaisesRegex(ValueError, "invalid carrier lifecycle marker schema"):
+                        C.admitted_lifecycle_marker(marker)
+                finally:
+                    marker.unlink()
+        for name, document in (("ready.json", valid_ready),
+                               ("ended.json", valid_ended)):
+            marker = Path(self.b) / name
+            C.write_exclusive_marker(marker, document)
+            self.assertTrue(C.admitted_lifecycle_marker(marker))
 
     @unittest.skipIf(os.name == "nt", "POSIX inode replacement fixture")
     def test_lifecycle_marker_regular_file_swap_is_rejected(self):
@@ -1570,7 +1603,7 @@ with carrier.carrier_admission_lock(sys.argv[2]):
 
         C.publish(self.b, "outbound", b"outbound-drainable")
         C.write_exclusive_marker(Path(self.b) / "ended.json",
-                                 {"finished": True, "failed": False})
+                                 {"pid": 1, "finished": True, "failed": False})
         packet = json.dumps([{"seq": 1, "b64": base64.b64encode(
             b"late-tls-frame").decode("ascii")}])
         with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
@@ -1830,7 +1863,8 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         from unittest.mock import patch
 
         C.write_exclusive_marker(Path(self.b) / "ready.json",
-                                 {"bound": "127.0.0.1"})
+                                 {"mode": "accept", "port": 41321,
+                                  "pid": 1, "bound": "127.0.0.1"})
         damaged = (
             ("outbound", 1, "not-ciphertext"),
             ("inbound", 1, b""),
@@ -1911,10 +1945,10 @@ with carrier.carrier_admission_lock(sys.argv[2]):
 
         self.assertFalse(status()["ready"])
         self.assertFalse(status()["ended"])
-        C.write_exclusive_marker(Path(self.b) / "ready.json", {"bound": "127.0.0.1"})
+        C.write_exclusive_marker(Path(self.b) / "ready.json", {"mode": "accept", "port": 41321, "pid": 1, "bound": "127.0.0.1"})
         self.assertTrue(status()["ready"])
         self.assertFalse(status()["ended"])
-        C.write_exclusive_marker(Path(self.b) / "ended.json", {"finished": True})
+        C.write_exclusive_marker(Path(self.b) / "ended.json", {"pid": 1, "finished": True, "failed": False})
         self.assertTrue(status()["ended"])
 
     @unittest.skipIf(os.name == "nt", "POSIX symlink/hardlink/mode fixtures")

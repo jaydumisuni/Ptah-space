@@ -684,6 +684,27 @@ def admitted_lifecycle_marker(path):
             raise ValueError("invalid carrier lifecycle marker content") from error
         if type(document) is not dict or not document:
             raise ValueError("invalid carrier lifecycle marker content")
+        # Private JSON alone is not evidence of a native TLS socket event.
+        # Only serve() writes these two exact event shapes. In particular,
+        # an incomplete ready marker must not be reported as a live carrier,
+        # and a contradictory end marker must not certify completion.
+        if path.name == "ready.json":
+            valid = (set(document) == {"mode", "port", "pid", "bound"}
+                     and document["mode"] in ("accept", "dial")
+                     and type(document["port"]) is int
+                     and 1024 <= document["port"] <= 65535
+                     and type(document["pid"]) is int and document["pid"] > 0
+                     and document["bound"] == "127.0.0.1")
+        elif path.name == "ended.json":
+            valid = (set(document) == {"pid", "finished", "failed"}
+                     and type(document["pid"]) is int and document["pid"] > 0
+                     and type(document["finished"]) is bool
+                     and type(document["failed"]) is bool
+                     and document["finished"] != document["failed"])
+        else:
+            valid = False
+        if not valid:
+            raise ValueError("invalid carrier lifecycle marker schema")
     finally:
         os.close(fd)
     return True

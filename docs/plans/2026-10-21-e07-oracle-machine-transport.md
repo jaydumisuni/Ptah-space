@@ -121,3 +121,7 @@ records the unsuccessful lifetime without impersonating a successful
 E01/E02/A05 exchange. Two adversarial regression cases reproduced the
 previous leaked-socket condition before the correction. This does not
 qualify unattended roaming or Windows-native acceptance.
+
+### E07 lifecycle-marker event-schema custody (2026-10-28)
+
+A private, inode-verified JSON marker is not by itself evidence that a native TLS socket became ready or ended. The carrier now admits only the exact `ready.json` event (accept/dial, loopback bound, admitted port, positive PID) or the exact `ended.json` event (positive PID, complementary boolean finished/failed). Incomplete, contradictory, or unexpected-key markers fail closed in status and delayed-inbound admission. This is source-level transport custody only; it does not qualify unattended off-LAN execution, Windows-native acceptance, or protected promotion.

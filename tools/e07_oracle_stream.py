@@ -788,7 +788,20 @@ def serve(state, mode, port):
             write_exclusive_marker(marker, {"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"})
         except BaseException:
             # A connected socket must not leak when marker admission fails.
+            # The exclusive claim has also consumed this lifetime: seal it
+            # under the Oracle inbound admission lock so a late RPC cannot
+            # append ciphertext to a socket that has already been closed.
             sock.close()
+            try:
+                with carrier_admission_lock(root):
+                    if not os.path.lexists(root / "ended.json"):
+                        write_exclusive_marker(root / "ended.json",
+                                               {"pid": os.getpid(), "finished": False,
+                                                "failed": True})
+            except Exception:
+                # Preserve the original ready-marker error. The exclusive
+                # claim still prevents a second native socket lifetime.
+                pass
             raise
     try:
         sock.settimeout(.1)

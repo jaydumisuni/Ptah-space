@@ -181,3 +181,18 @@ cross-process admission lock. The original socket error remains observable.
 Adversarial native regressions cover both pre-ready cases and reject late
 inbound delivery. This does not establish Windows-native or unattended
 off-LAN acceptance, nor any independent E02/A05 effect witness.
+
+
+## E07 dial ready-marker failure custody — 29 October 2026
+
+A dial-mode carrier can connect to a real local Control socket but fail
+while publishing its private ready.json. Previously the socket was
+closed and the exclusive serve.claim remained, yet no failed ended.json
+was written. Oracle-side status could therefore report an apparently
+unended carrier, and delayed inbound ciphertext was not rejected by
+lifecycle admission. The corrected dial exception path closes the socket,
+seals the consumed lifetime with finished=false, failed=true under the
+existing cross-process admission lock, and preserves the original marker
+failure. The regression was RED against the predecessor and PASS after
+correction. This is source-only lifecycle custody; Windows-native,
+unattended off-LAN, and independent E02/A05 effect acceptance remain held.

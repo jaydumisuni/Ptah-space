@@ -1790,6 +1790,33 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
             C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
 
+    def test_dial_ready_marker_failure_seals_spent_socket_lifetime(self):
+        # A successful native dial followed by a failed ready-marker write
+        # must not leave a claimed but apparently unended Oracle carrier.
+        from unittest.mock import MagicMock, patch
+
+        client = MagicMock()
+        original_marker = C.write_exclusive_marker
+
+        def fail_ready_only(path, document):
+            if Path(path).name == "ready.json":
+                raise OSError("injected dial ready marker failure")
+            return original_marker(path, document)
+
+        with patch.object(C.socket, "create_connection", return_value=client):
+            with patch.object(C, "write_exclusive_marker",
+                              side_effect=fail_ready_only):
+                with self.assertRaisesRegex(OSError, "injected dial ready marker failure"):
+                    C.serve(self.b, "dial", 41321)
+        client.close.assert_called_once_with()
+        root = Path(self.b)
+        self.assertTrue((root / "serve.claim").exists())
+        self.assertFalse((root / "ready.json").exists())
+        ended = json.loads((root / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
+
     def test_accept_closes_listener_when_ready_marker_creation_fails(self):
         from unittest.mock import MagicMock, patch
         listener = MagicMock()

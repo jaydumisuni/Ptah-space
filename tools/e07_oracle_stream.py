@@ -753,7 +753,24 @@ def serve(state, mode, port):
             # A connected socket must not leak when marker admission fails.
             sock.close()
             raise
-    sock.settimeout(.1)
+    try:
+        sock.settimeout(.1)
+    except BaseException:
+        # The ready marker already exists. A socket setup failure before
+        # pump threads start must release both endpoints and seal a failed
+        # lifetime rather than leaving an apparently live carrier.
+        sock.close()
+        if listener is not None:
+            listener.close()
+        if os.path.lexists(marker) and not os.path.lexists(root/"ended.json"):
+            try:
+                write_exclusive_marker(root/"ended.json",
+                                       {"pid":os.getpid(),"finished":False,"failed":True})
+            except OSError:
+                # Keep the original setup failure; the exclusive claim
+                # prevents another socket from inheriting this state.
+                pass
+        raise
     completed=threading.Event()
     failures=[]
     failure_lock=threading.Lock()

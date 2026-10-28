@@ -1683,6 +1683,35 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         ended = json.loads((Path(self.b) / "ended.json").read_text())
         self.assertEqual((ended["finished"], ended["failed"]), (False, True))
 
+    def test_accept_socket_timeout_setup_failure_closes_both_sockets_and_seals_failure(self):
+        # Readiness was already published; a failed pump setup must not
+        # leave a bound listener or advertise an unfinished live carrier.
+        from unittest.mock import MagicMock, patch
+        listener = MagicMock()
+        client = MagicMock()
+        client.settimeout.side_effect = OSError("test socket timeout setup failure")
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        with patch.object(C.socket, "socket", return_value=listener):
+            with self.assertRaisesRegex(OSError, "test socket timeout setup failure"):
+                C.serve(self.b, "accept", 41321)
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
+        self.assertTrue((Path(self.b) / "ready.json").exists())
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+
+    def test_dial_socket_timeout_setup_failure_closes_client_and_seals_failure(self):
+        from unittest.mock import MagicMock, patch
+        client = MagicMock()
+        client.settimeout.side_effect = OSError("test socket timeout setup failure")
+        with patch.object(C.socket, "create_connection", return_value=client):
+            with self.assertRaisesRegex(OSError, "test socket timeout setup failure"):
+                C.serve(self.b, "dial", 41321)
+        client.close.assert_called_once_with()
+        self.assertTrue((Path(self.b) / "ready.json").exists())
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+
     def test_dial_does_not_advertise_ready_before_control_connects(self):
         # A dialer has no local Control socket until create_connection succeeds.
         # The exclusive claim remains fail-closed even when connection fails.

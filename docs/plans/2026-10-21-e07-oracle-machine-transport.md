@@ -110,3 +110,14 @@ No production ATHENA config, scheduled task, Knights system, firewall,
 router, or Oracle configuration changed in this work. Unavailable transport
 only affects the E07 operation attempted; ordinary Ptah capabilities stay
 available. Prime OS integration LAST.
+
+## Pre-pump socket setup failure custody — 28 October 2026
+
+Source-only E07 preparation now closes the accepted/dialed native socket
+and any listener if socket timeout configuration fails after readiness
+was published but before either byte-pump thread starts. The existing
+exclusive claim remains in place; a private failed ended.json marker
+records the unsuccessful lifetime without impersonating a successful
+E01/E02/A05 exchange. Two adversarial regression cases reproduced the
+previous leaked-socket condition before the correction. This does not
+qualify unattended roaming or Windows-native acceptance.

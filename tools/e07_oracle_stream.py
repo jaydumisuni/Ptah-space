@@ -682,12 +682,27 @@ def serve(state, mode, port):
     started=time.monotonic()
     if mode=="accept":
         listener=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        listener.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-        listener.bind(("127.0.0.1",port))
-        listener.listen(1)
-        listener.settimeout(120)
-        write_exclusive_marker(marker, {"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"})
-        sock,_=listener.accept()
+        try:
+            listener.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+            listener.bind(("127.0.0.1",port))
+            listener.listen(1)
+            listener.settimeout(120)
+            write_exclusive_marker(marker, {"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"})
+            sock,_=listener.accept()
+        except BaseException:
+            # A failed listener must not retain a bound port. If readiness
+            # was already published, record the failed lifetime so status
+            # cannot mistake an abandoned listener for a live TLS carrier.
+            listener.close()
+            if os.path.lexists(marker) and not os.path.lexists(root/"ended.json"):
+                try:
+                    write_exclusive_marker(root/"ended.json",
+                                           {"pid":os.getpid(),"finished":False,"failed":True})
+                except OSError:
+                    # Preserve the original accept/marker failure. The
+                    # exclusive claim still prevents a second socket.
+                    pass
+            raise
     else:
         # Dial mode is not ready until a real local Control socket exists.
         # A failed dial retains serve.claim, but must not advertise a ready

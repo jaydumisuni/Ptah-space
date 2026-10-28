@@ -1659,6 +1659,30 @@ with carrier.carrier_admission_lock(sys.argv[2]):
             with self.assertRaisesRegex(ValueError, "newly prepared carrier state"):
                 C.serve(self.b, "accept", 41321)
 
+    def test_accept_closes_listener_when_ready_marker_creation_fails(self):
+        from unittest.mock import MagicMock, patch
+        listener = MagicMock()
+        with patch.object(C.socket, "socket", return_value=listener):
+            with patch.object(C, "write_exclusive_marker",
+                              side_effect=OSError("ready marker refused")):
+                with self.assertRaisesRegex(OSError, "ready marker refused"):
+                    C.serve(self.b, "accept", 41321)
+        listener.close.assert_called_once_with()
+        self.assertFalse((Path(self.b) / "ready.json").exists())
+        self.assertTrue((Path(self.b) / "serve.claim").exists())
+
+    def test_accept_timeout_closes_listener_and_records_failed_lifetime(self):
+        from unittest.mock import MagicMock, patch
+        listener = MagicMock()
+        listener.accept.side_effect = socket.timeout("control never connected")
+        with patch.object(C.socket, "socket", return_value=listener):
+            with self.assertRaisesRegex(socket.timeout, "control never connected"):
+                C.serve(self.b, "accept", 41321)
+        listener.close.assert_called_once_with()
+        self.assertTrue((Path(self.b) / "ready.json").exists())
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+
     def test_dial_does_not_advertise_ready_before_control_connects(self):
         # A dialer has no local Control socket until create_connection succeeds.
         # The exclusive claim remains fail-closed even when connection fails.

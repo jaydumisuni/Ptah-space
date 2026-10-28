@@ -135,3 +135,18 @@ ended.json marker. It must propagate the original launch exception.
 Adversarial cases cover both the first-thread and second-thread failure.
 This is source-only lifecycle correctness, not an E01/E02/A05 effect
 witness or Windows/off-LAN acceptance.
+
+## E07 final SQLite commit and lifecycle-marker ordering — 28 October 2026
+
+A successful `ended.json` must not be published before the final SQLite
+transaction commits. The earlier finalizer wrote the success marker *inside*
+the transaction; an injected commit failure left that marker falsely reporting
+`finished=true` even though the finalization failed. A predecessor regression
+reproduced the incorrect marker. The corrected finalizer retains the existing
+cross-process admission lock through final journal validation, SQLite commit,
+connection closure, and exclusive marker creation. Commit/open failures are
+recorded as `finished=false, failed=true` before the lock is released.
+
+This is source-level carrier lifecycle custody. It is not an independent
+E02/A05 effect witness and does not establish unattended off-LAN or
+Windows-native physical acceptance.

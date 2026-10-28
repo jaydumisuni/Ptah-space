@@ -2130,4 +2130,49 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         self.assertTrue(status["finished"])
         self.assertFalse(status["failed"])
 
+    def test_finalize_commit_failure_cannot_publish_success_marker(self):
+        # A durable transaction failure after the final history check must
+        # never leave a successful ended marker for Oracle-side observers.
+        from unittest.mock import MagicMock, patch
+
+        listener = MagicMock()
+        client = MagicMock()
+        client.recv.return_value = b""
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        original_connect = C.dbconnect
+
+        class FailedFinalizeCommit:
+            def __init__(self, connection):
+                self.connection = connection
+
+            def __enter__(self):
+                self.connection.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                self.connection.__exit__(*args)
+                raise OSError("injected final SQLite commit failure")
+
+            def execute(self, *args, **kwargs):
+                return self.connection.execute(*args, **kwargs)
+
+            def close(self):
+                self.connection.close()
+
+        def connect_with_final_commit_failure(state, create=False):
+            connection = original_connect(state, create)
+            if (Path(state) / "ready.json").exists() and (
+                    threading.current_thread() is threading.main_thread()):
+                return FailedFinalizeCommit(connection)
+            return connection
+
+        with patch.object(C.socket, "socket", return_value=listener):
+            with patch.object(C, "dbconnect", side_effect=connect_with_final_commit_failure):
+                with self.assertRaisesRegex(RuntimeError, "E07_CARRIER_PUMP_FAILED:finalize:OSError"):
+                    C.serve(self.b, "accept", 41321)
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
+
 if __name__=="__main__": unittest.main()

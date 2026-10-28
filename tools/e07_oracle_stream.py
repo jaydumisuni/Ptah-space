@@ -888,23 +888,39 @@ def serve(state, mode, port):
     # can commit a new frame after the check but before the marker, producing
     # a false successful socket-lifetime record.
     try:
-        with dbtransaction(state) as conn:
-            if not failures:
+        # Keep the cross-process admission lock through BOTH SQLite commit
+        # and lifecycle sealing. A successful marker written inside an
+        # uncommitted transaction can survive a failed commit and falsely
+        # certify the socket lifetime. Do not publish until commit succeeds.
+        with _DB_OPEN_LOCK:
+            with carrier_admission_lock(state):
+                conn = None
                 try:
-                    require_healthy_carrier_history(conn, "inbound")
-                    latest = conn.execute(
-                        "SELECT coalesce(max(seq),0) FROM inbound").fetchone()[0]
-                    if latest > delivered_through[0]:
-                        record_failure("undelivered", RuntimeError(
-                            "durable inbound frames not forwarded to native socket"))
+                    conn = dbconnect(state)
+                    with conn:
+                        if not failures:
+                            try:
+                                require_healthy_carrier_history(conn, "inbound")
+                                latest = conn.execute(
+                                    "SELECT coalesce(max(seq),0) FROM inbound").fetchone()[0]
+                                if latest > delivered_through[0]:
+                                    record_failure("undelivered", RuntimeError(
+                                        "durable inbound frames not forwarded to native socket"))
+                            except Exception as error:
+                                record_failure("finalize", error)
                 except Exception as error:
+                    # Rollback/commit failure must be recorded BEFORE the
+                    # ended marker is created, while late delivery is locked.
                     record_failure("finalize", error)
-            status={"pid":os.getpid(),"finished":not failures,"failed":bool(failures)}
-            write_exclusive_marker(root/"ended.json", status)
+                finally:
+                    if conn is not None:
+                        conn.close()
+                status={"pid":os.getpid(),"finished":not failures,"failed":bool(failures)}
+                write_exclusive_marker(root/"ended.json", status)
     except Exception as error:
         record_failure("finalize", error)
-        # An unavailable database cannot justify a success marker. Preserve
-        # a failed marker when possible without replacing an existing alias.
+        # An unavailable admission lock or marker write cannot justify
+        # success. Never replace a pre-existing marker or alias.
         if not os.path.lexists(root/"ended.json"):
             write_exclusive_marker(root/"ended.json",
                                    {"pid":os.getpid(),"finished":False,"failed":True})

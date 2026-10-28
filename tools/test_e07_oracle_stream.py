@@ -1526,6 +1526,28 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         self.assertIn("E07_CARRIER_PUMP_FAILED:writer",caught[0])
         self.assertFalse(json.loads((Path(self.b)/"ended.json").read_text())["finished"])
 
+    def test_writer_send_failure_cannot_certify_inbound_delivery(self):
+        # A failed local socket send is not an E07 transport completion,
+        # even when the Oracle inbound journal already durably holds bytes.
+        from unittest.mock import MagicMock, patch
+        C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
+        listener = MagicMock()
+        client = MagicMock()
+        client.recv.side_effect = socket.timeout("poll while writer runs")
+        client.sendall.side_effect = BrokenPipeError("injected local send failure")
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        with patch.object(C.socket, "socket", return_value=listener):
+            with self.assertRaisesRegex(
+                    RuntimeError, "E07_CARRIER_PUMP_FAILED:writer:BrokenPipeError"):
+                C.serve(self.b, "accept", 41321)
+        client.sendall.assert_called_once_with(b"tls-frame")
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+        self.assertEqual(
+            [frame["seq"] for frame in C.pull(self.b, "inbound", 0, 32)], [1])
+
     def test_socket_eof_with_undelivered_inbound_is_not_finished(self):
         # The native peer can close before the writer drains already admitted
         # Oracle ciphertext. A clean EOF is not proof those bytes reached it.

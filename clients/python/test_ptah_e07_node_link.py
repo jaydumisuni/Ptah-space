@@ -66,6 +66,23 @@ class NodeLinkProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(link.LinkFailure,"invalid_frame_size"):
             link._write_frame(MemorySocket(),{"payload":"x"*1_048_577})
 
+    def test_outgoing_frame_rejects_nonfinite_json_before_wire_write(self):
+        # Python json.dumps emits NaN/Infinity by default, but the E01
+        # Rust/JSON peer cannot admit those tokens as canonical JSON.
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=repr(value)):
+                wire = MemorySocket()
+                with self.assertRaisesRegex(link.LinkFailure, "invalid_outgoing_frame"):
+                    link._write_frame(wire, {"kind": "hello", "payload": {
+                        "node_id": "test-node", "nested": [value]}})
+                self.assertEqual(wire.sent, bytearray())
+
+    def test_outgoing_frame_rejects_non_json_objects_before_wire_write(self):
+        wire = MemorySocket()
+        with self.assertRaisesRegex(link.LinkFailure, "invalid_outgoing_frame"):
+            link._write_frame(wire, {"kind": "hello", "payload": {"bad": object()}})
+        self.assertEqual(wire.sent, bytearray())
+
     def test_no_second_workspace_user_approval_in_client(self):
         source=Path(link.__file__).read_text()
         self.assertNotIn("PTAH_OWNER_LOGIN",source)

@@ -29,7 +29,14 @@ def _receive_exact(connection: ssl.SSLSocket, count: int) -> bytes:
 
 
 def _write_frame(connection: ssl.SSLSocket, message: dict) -> None:
-    data = json.dumps(message, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    # Python emits NaN and Infinity by default, although they are not JSON
+    # numbers accepted by the E01 Rust peer. Reject before sending any bytes.
+    # Normalize unsupported values into a bounded protocol failure as well.
+    try:
+        data = json.dumps(message, separators=(",", ":"), sort_keys=True,
+                          allow_nan=False).encode("utf-8")
+    except (TypeError, ValueError, OverflowError) as error:
+        raise LinkFailure("invalid_outgoing_frame") from error
     if not data or len(data) > 1_048_576:
         raise LinkFailure("invalid_frame_size")
     connection.sendall(struct.pack(">I", len(data)) + data)

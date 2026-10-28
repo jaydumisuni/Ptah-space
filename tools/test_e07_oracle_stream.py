@@ -1752,6 +1752,44 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         ended = json.loads((Path(self.b) / "ended.json").read_text())
         self.assertEqual((ended["finished"], ended["failed"]), (False, True))
 
+    def test_accept_socket_creation_failure_seals_claimed_lifetime(self):
+        # A failed socket constructor occurs after serve.claim but before
+        # ready.json. It must still end the spent lifetime and reject late
+        # Oracle ciphertext instead of leaving an ambiguous claimed state.
+        from unittest.mock import patch
+
+        with patch.object(C.socket, "socket",
+                          side_effect=OSError("injected listener allocation failure")):
+            with self.assertRaisesRegex(OSError, "injected listener allocation failure"):
+                C.serve(self.b, "accept", 41321)
+        root = Path(self.b)
+        self.assertTrue((root / "serve.claim").exists())
+        self.assertFalse((root / "ready.json").exists())
+        ended = root / "ended.json"
+        self.assertTrue(ended.exists(), "spent socket claim lacks failed end marker")
+        status = json.loads(ended.read_text())
+        self.assertEqual((status["finished"], status["failed"]), (False, True))
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
+
+    def test_accept_bind_failure_closes_listener_and_seals_claimed_lifetime(self):
+        # Binding can fail after the claim but before a ready marker exists.
+        from unittest.mock import MagicMock, patch
+
+        listener = MagicMock()
+        listener.bind.side_effect = OSError("injected loopback bind failure")
+        with patch.object(C.socket, "socket", return_value=listener):
+            with self.assertRaisesRegex(OSError, "injected loopback bind failure"):
+                C.serve(self.b, "accept", 41321)
+        listener.close.assert_called_once_with()
+        root = Path(self.b)
+        self.assertTrue((root / "serve.claim").exists())
+        self.assertFalse((root / "ready.json").exists())
+        ended = json.loads((root / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
+
     def test_accept_closes_listener_when_ready_marker_creation_fails(self):
         from unittest.mock import MagicMock, patch
         listener = MagicMock()

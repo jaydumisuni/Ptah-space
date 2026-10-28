@@ -165,3 +165,19 @@ failure marker; the corrected test verifies marker admission and rejects
 late inbound delivery. This is Ptah E07 source-level custody only, not
 Windows-native, unattended off-LAN, or independently witnessed E02/A05
 qualification.
+
+
+## E07 pre-ready listener failure custody — 29 October 2026
+
+A claimed accept-mode carrier can fail before publishing `ready.json`: the
+native listener constructor or loopback bind can raise after `serve.claim`
+is created. Previously the constructor failure escaped the listener cleanup
+handler, and a bind failure closed the socket but left no `ended.json`.
+Both cases stranded an ambiguous consumed lifetime that could still admit
+late inbound Oracle ciphertext. The corrected source handles allocation and
+bind failures under one post-claim failure path, closes any allocated
+listener, and writes the private failed `ended.json` under the existing
+cross-process admission lock. The original socket error remains observable.
+Adversarial native regressions cover both pre-ready cases and reject late
+inbound delivery. This does not establish Windows-native or unattended
+off-LAN acceptance, nor any independent E02/A05 effect witness.

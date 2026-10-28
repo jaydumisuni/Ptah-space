@@ -734,8 +734,10 @@ def serve(state, mode, port):
     listener=None
     started=time.monotonic()
     if mode=="accept":
-        listener=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
         try:
+            # Socket allocation itself happens after serve.claim. Failure
+            # here consumes the lifetime just like bind/accept failure.
+            listener=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
             listener.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
             listener.bind(("127.0.0.1",port))
             listener.listen(1)
@@ -743,17 +745,18 @@ def serve(state, mode, port):
             write_exclusive_marker(marker, {"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"})
             sock,_=listener.accept()
         except BaseException:
-            # A failed listener must not retain a bound port. If readiness
-            # was already published, record the failed lifetime so status
-            # cannot mistake an abandoned listener for a live TLS carrier.
-            listener.close()
-            if os.path.lexists(marker) and not os.path.lexists(root/"ended.json"):
+            # Every post-claim listener failure must close its socket and
+            # seal the spent lifetime, even before ready.json is published.
+            if listener is not None:
+                listener.close()
+            if not os.path.lexists(root/"ended.json"):
                 try:
-                    write_exclusive_marker(root/"ended.json",
-                                           {"pid":os.getpid(),"finished":False,"failed":True})
-                except OSError:
-                    # Preserve the original accept/marker failure. The
-                    # exclusive claim still prevents a second socket.
+                    with carrier_admission_lock(root):
+                        write_exclusive_marker(root/"ended.json",
+                                               {"pid":os.getpid(),"finished":False,"failed":True})
+                except (OSError, ValueError):
+                    # Preserve the original failure. The exclusive claim
+                    # still prevents a second socket on this state.
                     pass
             raise
     else:

@@ -838,8 +838,33 @@ def serve(state, mode, port):
             completed.set()
     a=threading.Thread(target=reader,daemon=True)
     b=threading.Thread(target=writer,daemon=True)
-    a.start()
-    b.start()
+    launched = []
+    try:
+        a.start()
+        launched.append(a)
+        b.start()
+        launched.append(b)
+    except BaseException:
+        # Readiness precedes the byte pumps. A failed thread launch must
+        # terminate any already-started pump and seal the claimed lifetime.
+        completed.set()
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        sock.close()
+        if listener is not None:
+            listener.close()
+        for thread in launched:
+            thread.join(timeout=3)
+        if os.path.lexists(marker) and not os.path.lexists(root / "ended.json"):
+            try:
+                write_exclusive_marker(root / "ended.json",
+                                       {"pid": os.getpid(), "finished": False, "failed": True})
+            except OSError:
+                # Retain the original launch error and exclusive claim.
+                pass
+        raise
     while not completed.is_set():
         if time.monotonic()-started>=MAX_RUNTIME:
             record_failure("timeout", TimeoutError("carrier runtime budget exhausted"))

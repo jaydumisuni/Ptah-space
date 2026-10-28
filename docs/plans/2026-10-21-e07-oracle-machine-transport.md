@@ -125,3 +125,13 @@ qualify unattended roaming or Windows-native acceptance.
 ### E07 lifecycle-marker event-schema custody (2026-10-28)
 
 A private, inode-verified JSON marker is not by itself evidence that a native TLS socket became ready or ended. The carrier now admits only the exact `ready.json` event (accept/dial, loopback bound, admitted port, positive PID) or the exact `ended.json` event (positive PID, complementary boolean finished/failed). Incomplete, contradictory, or unexpected-key markers fail closed in status and delayed-inbound admission. This is source-level transport custody only; it does not qualify unattended off-LAN execution, Windows-native acceptance, or protected promotion.
+
+## Byte-pump thread-launch failure custody — 28 October 2026
+
+If the native carrier publishes ready.json but the reader or writer thread
+cannot start, the adapter must set the stop event, close the native socket
+and listener, join any successfully launched pump, and write a failed
+ended.json marker. It must propagate the original launch exception.
+Adversarial cases cover both the first-thread and second-thread failure.
+This is source-only lifecycle correctness, not an E01/E02/A05 effect
+witness or Windows/off-LAN acceptance.

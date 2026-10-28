@@ -1714,6 +1714,44 @@ with carrier.carrier_admission_lock(sys.argv[2]):
             with self.assertRaisesRegex(ValueError, "newly prepared carrier state"):
                 C.serve(self.b, "accept", 41321)
 
+    def test_carrier_thread_launch_failure_closes_sockets_and_seals_lifetime(self):
+        # Ready is already durable; a failed byte-pump launch must not
+        # advertise a live carrier or leave a native socket open.
+        from unittest.mock import MagicMock, patch
+        listener = MagicMock()
+        client = MagicMock()
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        thread = MagicMock()
+        thread.start.side_effect = RuntimeError("injected thread launch failure")
+        with patch.object(C.socket, "socket", return_value=listener):
+            with patch.object(C.threading, "Thread", return_value=thread):
+                with self.assertRaisesRegex(RuntimeError, "injected thread launch failure"):
+                    C.serve(self.b, "accept", 41321)
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+
+    def test_second_carrier_thread_launch_failure_stops_first_and_seals_lifetime(self):
+        # The reader may already have started when the writer cannot launch.
+        from unittest.mock import MagicMock, patch
+        listener = MagicMock()
+        client = MagicMock()
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        reader = MagicMock()
+        writer = MagicMock()
+        writer.start.side_effect = RuntimeError("injected writer launch failure")
+        with patch.object(C.socket, "socket", return_value=listener):
+            with patch.object(C.threading, "Thread", side_effect=[reader, writer]):
+                with self.assertRaisesRegex(RuntimeError, "injected writer launch failure"):
+                    C.serve(self.b, "accept", 41321)
+        reader.start.assert_called_once_with()
+        reader.join.assert_called_once_with(timeout=3)
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+
     def test_accept_closes_listener_when_ready_marker_creation_fails(self):
         from unittest.mock import MagicMock, patch
         listener = MagicMock()

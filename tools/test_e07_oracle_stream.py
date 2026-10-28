@@ -1659,6 +1659,55 @@ with carrier.carrier_admission_lock(sys.argv[2]):
             with self.assertRaisesRegex(ValueError, "newly prepared carrier state"):
                 C.serve(self.b, "accept", 41321)
 
+    def test_dial_does_not_advertise_ready_before_control_connects(self):
+        # A dialer has no local Control socket until create_connection succeeds.
+        # The exclusive claim remains fail-closed even when connection fails.
+        from unittest.mock import patch
+        marker = Path(self.b) / "ready.json"
+        observed = []
+
+        def unavailable_control(address, timeout=None):
+            observed.append(marker.exists())
+            raise RuntimeError("test dial unavailable")
+
+        with patch.object(C.socket, "create_connection", side_effect=unavailable_control):
+            with self.assertRaisesRegex(RuntimeError, "test dial unavailable"):
+                C.serve(self.b, "dial", 41321)
+        self.assertEqual(observed, [False])
+        self.assertFalse(marker.exists())
+        self.assertTrue((Path(self.b) / "serve.claim").exists())
+
+    def test_dial_marks_ready_after_local_control_connects(self):
+        from unittest.mock import patch
+        marker = Path(self.b) / "ready.json"
+        client, peer = socket.socketpair()
+        peer.close()
+        observed = []
+
+        def connected_control(address, timeout=None):
+            observed.append(marker.exists())
+            return client
+
+        with patch.object(C.socket, "create_connection", side_effect=connected_control):
+            C.serve(self.b, "dial", 41321)
+        self.assertEqual(observed, [False])
+        self.assertTrue(marker.exists())
+        self.assertTrue(json.loads((Path(self.b) / "ended.json").read_text())["finished"])
+
+    def test_dial_closes_connected_socket_if_ready_marker_fails(self):
+        from unittest.mock import patch
+        client, peer = socket.socketpair()
+        try:
+            with patch.object(C.socket, "create_connection", return_value=client):
+                with patch.object(C, "write_exclusive_marker",
+                                  side_effect=OSError("test marker failure")):
+                    with self.assertRaisesRegex(OSError, "test marker failure"):
+                        C.serve(self.b, "dial", 41321)
+            self.assertEqual(client.fileno(), -1)
+            self.assertFalse((Path(self.b) / "ready.json").exists())
+        finally:
+            peer.close()
+
     def test_claimed_carrier_cannot_start_a_second_socket(self):
         # The exclusive claim survives a crash before ready.json is published.
         (Path(self.b) / "serve.claim").write_text("")

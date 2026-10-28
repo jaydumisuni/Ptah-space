@@ -689,7 +689,9 @@ def serve(state, mode, port):
         write_exclusive_marker(marker, {"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"})
         sock,_=listener.accept()
     else:
-        write_exclusive_marker(marker, {"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"})
+        # Dial mode is not ready until a real local Control socket exists.
+        # A failed dial retains serve.claim, but must not advertise a ready
+        # transport marker that could mislead Oracle-side observations.
         while time.monotonic()-started<120:
             try:
                 sock=socket.create_connection(("127.0.0.1",port),timeout=3)
@@ -698,6 +700,12 @@ def serve(state, mode, port):
                 time.sleep(.1)
         if sock is None:
             raise RuntimeError("local Control unavailable")
+        try:
+            write_exclusive_marker(marker, {"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"})
+        except BaseException:
+            # A connected socket must not leak when marker admission fails.
+            sock.close()
+            raise
     sock.settimeout(.1)
     completed=threading.Event()
     failures=[]

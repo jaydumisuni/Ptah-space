@@ -1847,6 +1847,10 @@ with carrier.carrier_admission_lock(sys.argv[2]):
                b'{"finished":NaN}', b'{"pad":"' + b"x" * 4096 + b'"}')
         for name in ("ready.json", "ended.json"):
             marker = Path(self.b) / name
+            # Use the same private-owner/ACL creation path as the real pump.
+            # A new Path.write_bytes file is 0644 on POSIX and may have the
+            # wrong TokenUser owner on hosted Windows, failing custody first.
+            C.write_exclusive_marker(marker, {"prepared": True})
             for payload in bad:
                 with self.subTest(name=name, payload=payload[:40]):
                     marker.write_bytes(payload)

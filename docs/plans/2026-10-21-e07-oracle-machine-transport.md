@@ -222,3 +222,17 @@ opens a second socket lifetime. Two predecessor RED adversarial variants
 (connection setup and interrupted retry delay) became GREEN; this is
 KRATOS source-only evidence, not unattended off-LAN or independent
 Windows-native E02/A05 acceptance.
+
+## E07 cleanup-exception lifetime custody — 29 October 2026
+
+A native socket close may itself raise while the carrier is already
+handling an accept-mode bind failure or dial-mode ready-marker failure.
+Previously the cleanup exception replaced the original failure and skipped
+the admission-locked failed ended.json seal after serve.claim. The bounded
+correction preserves the original failure and attempts the same guarded
+failure seal even if close raises. The exclusive claim continues to prevent
+lifetime reuse; a failed close is not evidence that the OS released a
+socket. Two predecessor adversarial regressions were RED and now require
+a failed ended.json plus rejection of delayed inbound ciphertext.
+This is KRATOS source-only custody; Windows-native, unattended off-LAN,
+and independent E02/A05 effect acceptance remain unproven.

@@ -759,10 +759,15 @@ def serve(state, mode, port):
             write_exclusive_marker(marker, {"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"})
             sock,_=listener.accept()
         except BaseException:
-            # Every post-claim listener failure must close its socket and
-            # seal the spent lifetime, even before ready.json is published.
+            # Attempt listener closure, then seal the spent lifetime even
+            # if cleanup fails before ready.json is published.
             if listener is not None:
-                listener.close()
+                try:
+                    listener.close()
+                except Exception:
+                    # Preserve the original post-claim failure and continue
+                    # sealing; serve.claim still prohibits lifetime reuse.
+                    pass
             if not os.path.lexists(root/"ended.json"):
                 try:
                     with carrier_admission_lock(root):
@@ -817,8 +822,13 @@ def serve(state, mode, port):
             # A connected socket must not leak when marker admission fails.
             # The exclusive claim has also consumed this lifetime: seal it
             # under the Oracle inbound admission lock so a late RPC cannot
-            # append ciphertext to a socket that has already been closed.
-            sock.close()
+            # append ciphertext to a spent, possibly unclosed socket.
+            try:
+                sock.close()
+            except Exception:
+                # Cleanup failure must not mask marker failure or bypass
+                # the admission-locked failed-lifetime seal.
+                pass
             try:
                 with carrier_admission_lock(root):
                     if not os.path.lexists(root / "ended.json"):

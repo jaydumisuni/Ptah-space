@@ -753,10 +753,13 @@ def serve(state, mode, port):
     if (not root.is_dir() or is_path_alias(root)
             or any(os.path.lexists(root / name) for name in ("ready.json", "ended.json"))):
         raise ValueError("newly prepared carrier state required")
-    # Never claim a TLS socket for an unprepared or non-private state. Reuse
-    # the same SQLite custody checks as snapshot/deliver before any side effect.
-    with dbtransaction(root):
-        pass
+    # Never consume the one-shot socket claim for a damaged prepared TLS
+    # journal. Schema/ACL admission alone is insufficient: both directional
+    # histories must be contiguous, bounded ciphertext before native I/O.
+    # Keep the checks inside the existing cross-process admission transaction.
+    with dbtransaction(root) as conn:
+        require_healthy_carrier_history(conn, "outbound")
+        require_healthy_carrier_history(conn, "inbound")
     try:
         claim_fd=os.open(root/"serve.claim", exclusive_open_flags(os.O_WRONLY), 0o600)
     except FileExistsError:

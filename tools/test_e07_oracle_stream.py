@@ -20,6 +20,35 @@ class OracleCarrierContract(unittest.TestCase):
         self.b=str(Path(self.temp.name)/"athena")
         C.prepare(self.a)
         C.prepare(self.b)
+    def test_serve_rejects_corrupt_prepared_history_before_socket_claim(self):
+        # A prepared SQLite schema can retain a damaged durable TLS prefix.
+        # Never consume the one-shot claim or open a native socket before
+        # verifying both directional histories under admission custody.
+        from unittest.mock import patch
+
+        cases = (
+            (self.a, "outbound", 2, b"missing-first"),
+            (self.b, "inbound", 1, "text-not-ciphertext"),
+        )
+        for state, table, seq, payload in cases:
+            with self.subTest(table=table):
+                with C.dbtransaction(state) as conn:
+                    conn.execute(
+                        f"INSERT INTO {table}(seq,content) VALUES (?,?)",
+                        (seq, payload),
+                    )
+                with patch.object(C.socket, "socket",
+                                  side_effect=AssertionError("native socket opened")):
+                    with patch.object(C.socket, "create_connection",
+                                      side_effect=AssertionError("native dial opened")):
+                        with self.assertRaisesRegex(
+                                ValueError,
+                                "carrier journal sequence gap|invalid durable carrier frame"):
+                            C.serve(state, "accept" if table == "outbound" else "dial",
+                                    41321)
+                self.assertFalse((Path(state) / "serve.claim").exists())
+                self.assertFalse((Path(state) / "ready.json").exists())
+
     def test_missing_durable_stream_table_is_not_silently_recreated(self):
         # A missing journal is damaged custody, not an empty fresh stream.
         # A read-only observation must not repair it or report healthy.

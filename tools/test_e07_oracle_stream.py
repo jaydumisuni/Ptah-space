@@ -20,6 +20,14 @@ class OracleCarrierContract(unittest.TestCase):
         self.b=str(Path(self.temp.name)/"athena")
         C.prepare(self.a)
         C.prepare(self.b)
+    def claim_socket_lifetime_for_status_fixture(self):
+        # Status fixtures emulate a native serve() claim without a real socket.
+        path = Path(self.b) / "serve.claim"
+        fd = os.open(path, C.exclusive_open_flags(os.O_WRONLY), 0o600)
+        os.close(fd)
+        if os.name == "nt":
+            C.windows_claim_new_owner(path)
+
     def test_serve_rejects_corrupt_prepared_history_before_socket_claim(self):
         # A prepared SQLite schema can retain a damaged durable TLS prefix.
         # Never consume the one-shot claim or open a native socket before
@@ -2386,6 +2394,7 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         from io import StringIO
         from unittest.mock import patch
 
+        self.claim_socket_lifetime_for_status_fixture()
         C.write_exclusive_marker(Path(self.b) / "ready.json",
                                  {"mode": "accept", "port": 41321,
                                   "pid": 1, "bound": "127.0.0.1"})
@@ -2462,6 +2471,7 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         from unittest.mock import patch
 
         root = Path(self.b)
+        self.claim_socket_lifetime_for_status_fixture()
         C.write_exclusive_marker(
             root / "ready.json",
             {"mode": "accept", "port": 41321, "pid": 111,
@@ -2497,6 +2507,73 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         self.assertTrue(status["ready"])
         self.assertTrue(status["ended"])
 
+    def test_status_rejects_lifecycle_marker_without_native_socket_claim(self):
+        # A JSON marker alone is not a claimed native TLS socket lifetime.
+        # A prepared but never-served carrier must not advertise readiness or
+        # a completed/failed socket event merely because a marker was planted.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        root = Path(self.b)
+        self.assertFalse((root / "serve.claim").exists())
+        cases = (
+            ("ready.json", {"mode": "accept", "port": 41321,
+                            "pid": 101, "bound": "127.0.0.1"}),
+            ("ended.json", {"pid": 101, "finished": False,
+                            "failed": True}),
+        )
+        for name, document in cases:
+            with self.subTest(name=name):
+                marker = root / name
+                C.write_exclusive_marker(marker, document)
+                try:
+                    output = StringIO()
+                    with patch.object(C.sys, "argv", [
+                            "e07_oracle_stream.py", "status", "--state", self.b]):
+                        with redirect_stdout(output):
+                            with self.assertRaisesRegex(
+                                    ValueError, "carrier lifecycle missing socket claim"):
+                                C.main()
+                    self.assertEqual(output.getvalue(), "")
+                finally:
+                    marker.unlink()
+
+    @unittest.skipIf(os.name == "nt", "POSIX socket-claim alias fixture")
+    def test_status_rejects_aliased_or_nonempty_socket_claim(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        root = Path(self.b)
+        claim = root / "serve.claim"
+        outside = Path(self.temp.name) / "outside-claim"
+        outside.write_bytes(b"")
+        os.chmod(outside, 0o600)
+        C.write_exclusive_marker(root / "ready.json",
+                                 {"mode": "accept", "port": 41321,
+                                  "pid": 101, "bound": "127.0.0.1"})
+        for kind in ("symlink", "hardlink", "nonempty"):
+            with self.subTest(kind=kind):
+                if kind == "symlink":
+                    claim.symlink_to(outside)
+                elif kind == "hardlink":
+                    os.link(outside, claim)
+                else:
+                    claim.write_bytes(b"forged")
+                    os.chmod(claim, 0o600)
+                try:
+                    output = StringIO()
+                    with patch.object(C.sys, "argv", [
+                            "e07_oracle_stream.py", "status", "--state", self.b]):
+                        with redirect_stdout(output):
+                            with self.assertRaisesRegex(
+                                    ValueError, "socket claim"):
+                                C.main()
+                    self.assertEqual(output.getvalue(), "")
+                finally:
+                    claim.unlink()
+
     def test_status_rejects_success_without_ready_marker(self):
         # A failed socket attempt can seal before ready, but a successful
         # native TLS lifetime cannot end without having become ready.
@@ -2506,6 +2583,7 @@ with carrier.carrier_admission_lock(sys.argv[2]):
 
         root = Path(self.b)
         marker = root / "ended.json"
+        self.claim_socket_lifetime_for_status_fixture()
         C.write_exclusive_marker(
             marker, {"pid": 101, "finished": True, "failed": False},
         )
@@ -2549,6 +2627,7 @@ with carrier.carrier_admission_lock(sys.argv[2]):
 
         self.assertFalse(status()["ready"])
         self.assertFalse(status()["ended"])
+        self.claim_socket_lifetime_for_status_fixture()
         C.write_exclusive_marker(Path(self.b) / "ready.json", {"mode": "accept", "port": 41321, "pid": 1, "bound": "127.0.0.1"})
         self.assertTrue(status()["ready"])
         self.assertFalse(status()["ended"])
@@ -2582,6 +2661,7 @@ with carrier.carrier_admission_lock(sys.argv[2]):
             return original_marker(path, return_pid=return_pid,
                                    return_document=return_document)
 
+        self.claim_socket_lifetime_for_status_fixture()
         C.write_exclusive_marker(
             Path(self.b) / "ready.json",
             {"mode": "accept", "port": 41321, "pid": 1,

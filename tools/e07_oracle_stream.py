@@ -730,6 +730,47 @@ def admitted_lifecycle_marker(path, return_pid=False, return_document=False):
     return document["pid"] if return_pid else True
 
 
+def require_admitted_socket_claim(root):
+    """Bind reported native lifecycle markers to a private one-shot claim.
+
+    The claim is created before any socket is opened. A standalone ready or
+    ended JSON file in a merely prepared state is not native-lifetime evidence.
+    """
+    path = root / "serve.claim"
+    try:
+        original = path.lstat()
+    except FileNotFoundError:
+        raise ValueError("carrier lifecycle missing socket claim") from None
+    if (not stat.S_ISREG(original.st_mode) or original.st_nlink != 1
+            or is_path_alias(path)):
+        raise ValueError("real unaliased carrier socket claim required")
+    require_private_custody(path, original, "socket claim")
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                     | getattr(os, "O_NONBLOCK", 0))
+    except OSError as error:
+        raise ValueError("carrier socket claim changed during admission") from error
+    try:
+        opened = os.fstat(fd)
+        try:
+            current = path.lstat()
+        except OSError as error:
+            raise ValueError("carrier socket claim identity changed") from error
+        def identity(value):
+            return (value.st_dev, value.st_ino, value.st_mode,
+                    value.st_nlink, value.st_uid, value.st_gid)
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1
+                or not stat.S_ISREG(current.st_mode) or current.st_nlink != 1
+                or identity(original) != identity(opened)
+                or identity(opened) != identity(current)
+                or opened.st_size != 0 or is_path_alias(path)):
+            raise ValueError("carrier socket claim identity changed")
+        require_private_custody(path, opened, "socket claim")
+        require_private_custody(path, current, "socket claim")
+    finally:
+        os.close(fd)
+
+
 def seal_failed_post_ready_lifetime(root):
     """Serialize failed post-ready socket closure with inbound RPC admission.
 
@@ -1089,6 +1130,8 @@ def main():
             ended_document = admitted_lifecycle_marker(
                 root / "ended.json", return_document=True)
             ended_pid = ended_document["pid"] if ended_document else None
+            if ready_pid is not None or ended_pid is not None:
+                require_admitted_socket_claim(root)
             # A failed pre-ready socket claim can end without ready.json. A
             # successful native lifetime cannot: serve() publishes ready
             # before any successful finalizer can publish ended.json.

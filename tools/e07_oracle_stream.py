@@ -634,12 +634,12 @@ def write_exclusive_marker(path, document):
         windows_claim_new_owner(path)
 
 
-def admitted_lifecycle_marker(path):
+def admitted_lifecycle_marker(path, return_pid=False):
     """Admit a lifecycle marker only while its named inode matches an open handle."""
     try:
         identity = path.lstat()
     except FileNotFoundError:
-        return False
+        return None if return_pid else False
     if (not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1
             or is_path_alias(path)):
         raise ValueError("real unaliased carrier lifecycle marker required")
@@ -725,7 +725,7 @@ def admitted_lifecycle_marker(path):
             raise ValueError("invalid carrier lifecycle marker schema")
     finally:
         os.close(fd)
-    return True
+    return document["pid"] if return_pid else True
 
 
 def seal_failed_post_ready_lifetime(root):
@@ -1080,10 +1080,17 @@ def main():
             # lock. Observe the admitted markers before releasing it, so the
             # journal and lifecycle status describe one consistent snapshot.
             root = require_unaliased_state_path(a.state)
-            ready = admitted_lifecycle_marker(root / "ready.json")
-            ended = admitted_lifecycle_marker(root / "ended.json")
+            ready_pid = admitted_lifecycle_marker(root / "ready.json", return_pid=True)
+            ended_pid = admitted_lifecycle_marker(root / "ended.json", return_pid=True)
+            # Independently valid markers must describe the SAME claimed
+            # native socket lifetime. A mismatched creator cannot certify
+            # that a different process finished the advertised transport.
+            if (ready_pid is not None and ended_pid is not None
+                    and ready_pid != ended_pid):
+                raise ValueError("carrier lifecycle process identity mismatch")
         print(json.dumps({"outbound": n1, "inbound": n2,
-                          "ready": ready, "ended": ended}))
+                          "ready": ready_pid is not None,
+                          "ended": ended_pid is not None}))
 
 if __name__=="__main__":
     try: main()

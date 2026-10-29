@@ -2425,6 +2425,49 @@ with carrier.carrier_admission_lock(sys.argv[2]):
                     self.assertEqual(output.getvalue(), "")
             marker.unlink()
 
+    def test_status_rejects_conflicting_ready_and_ended_process_identity(self):
+        # Both markers may be independently valid but cannot attest one
+        # native socket lifetime when their creator PIDs disagree.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        root = Path(self.b)
+        C.write_exclusive_marker(
+            root / "ready.json",
+            {"mode": "accept", "port": 41321, "pid": 111,
+             "bound": "127.0.0.1"},
+        )
+        C.write_exclusive_marker(
+            root / "ended.json",
+            {"pid": 222, "finished": True, "failed": False},
+        )
+        output = StringIO()
+        with patch.object(C.sys, "argv", [
+            "e07_oracle_stream.py", "status", "--state", self.b
+        ]):
+            with redirect_stdout(output):
+                with self.assertRaisesRegex(
+                        ValueError, "carrier lifecycle process identity mismatch"):
+                    C.main()
+        self.assertEqual(output.getvalue(), "")
+
+        # A matching lifetime remains observable, without weakening either
+        # marker's existing private-inode and schema admission.
+        (root / "ended.json").unlink()
+        C.write_exclusive_marker(
+            root / "ended.json",
+            {"pid": 111, "finished": True, "failed": False},
+        )
+        with patch.object(C.sys, "argv", [
+            "e07_oracle_stream.py", "status", "--state", self.b
+        ]):
+            with redirect_stdout(output):
+                C.main()
+        status = json.loads(output.getvalue())
+        self.assertTrue(status["ready"])
+        self.assertTrue(status["ended"])
+
     def test_status_only_reports_admitted_lifecycle_markers(self):
         from contextlib import redirect_stdout
         from io import StringIO
@@ -2467,10 +2510,10 @@ with carrier.carrier_admission_lock(sys.argv[2]):
                 finally:
                     inside_transaction[0] = False
 
-        def checked_marker(path):
+        def checked_marker(path, return_pid=False):
             self.assertTrue(inside_transaction[0],
                             "status marker read escaped durable admission lock")
-            return original_marker(path)
+            return original_marker(path, return_pid=return_pid)
 
         C.write_exclusive_marker(
             Path(self.b) / "ready.json",

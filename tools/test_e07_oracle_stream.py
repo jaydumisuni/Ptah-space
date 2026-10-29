@@ -1705,6 +1705,84 @@ with carrier.carrier_admission_lock(sys.argv[2]):
                 release_marker.set()
                 server.join(timeout=4)
 
+    def test_end_marker_admission_serializes_exchange_snapshot_and_commit(self):
+        # The combined Oracle exchange must not commit inbound ciphertext or
+        # return an outbound window after the native EOF finalizer seals life.
+        # This is a separate concurrency path from deliver(), not just a
+        # static already-ended marker check.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+        import base64
+
+        C.publish(self.a, "outbound", b"drain-after-end")
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        marker_started = threading.Event()
+        release_marker = threading.Event()
+        server_result = []
+        exchange_result = []
+        original_marker = C.write_exclusive_marker
+
+        def held_end_marker(path, document):
+            if Path(path).name == "ended.json":
+                marker_started.set()
+                if not release_marker.wait(timeout=4):
+                    raise TimeoutError("test exchange marker barrier")
+            return original_marker(path, document)
+
+        def run_server():
+            try:
+                C.serve(self.a, "accept", port)
+                server_result.append("finished")
+            except Exception as error:
+                server_result.append(str(error))
+
+        def run_exchange():
+            packet = json.dumps([{"seq": 1, "b64": base64.b64encode(
+                b"late-exchange-tls").decode("ascii")}])
+            output = StringIO()
+            try:
+                with patch.object(C.sys, "argv", [
+                    "e07_oracle_stream.py", "exchange", "--state", self.a,
+                    "--after", "0", "--packets", packet,
+                ]), redirect_stdout(output):
+                    C.main()
+                exchange_result.append(("accepted", output.getvalue()))
+            except Exception as error:
+                exchange_result.append((str(error), output.getvalue()))
+
+        with patch.object(C, "write_exclusive_marker", side_effect=held_end_marker):
+            server = threading.Thread(target=run_server)
+            server.start()
+            try:
+                deadline = time.monotonic() + 3
+                while not (Path(self.a) / "ready.json").exists() and time.monotonic() < deadline:
+                    time.sleep(.01)
+                with socket.create_connection(("127.0.0.1", port), timeout=2):
+                    pass
+                self.assertTrue(marker_started.wait(timeout=3))
+                exchange = threading.Thread(target=run_exchange)
+                exchange.start()
+                time.sleep(.08)
+                release_marker.set()
+                exchange.join(timeout=4)
+                server.join(timeout=4)
+                self.assertFalse(exchange.is_alive())
+                self.assertFalse(server.is_alive())
+                self.assertEqual(server_result, ["finished"])
+                self.assertEqual(len(exchange_result), 1)
+                self.assertIn("carrier lifetime ended", exchange_result[0][0])
+                self.assertEqual(exchange_result[0][1], "")
+            finally:
+                release_marker.set()
+                server.join(timeout=4)
+        with C.dbtransaction(self.a) as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM inbound").fetchone()[0], 0)
+        self.assertEqual(C.pull(self.a, "outbound", 0, 1)[0]["seq"], 1)
+
     def test_spent_carrier_state_cannot_reopen_a_socket_and_replay_tls_bytes(self):
         # The same SQLite queue must never be attached to a second TLS session.
         C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')

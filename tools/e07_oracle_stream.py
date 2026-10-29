@@ -710,6 +710,20 @@ def admitted_lifecycle_marker(path):
     return True
 
 
+def seal_failed_post_ready_lifetime(root):
+    """Serialize failed post-ready socket closure with inbound RPC admission.
+
+    An ended marker written without the carrier admission lock could race a
+    delayed Oracle delivery and leave ciphertext committed after socket loss.
+    Never write an unlocked fallback marker if custody cannot be obtained.
+    """
+    with carrier_admission_lock(root):
+        if not os.path.lexists(root / "ended.json"):
+            write_exclusive_marker(root / "ended.json",
+                                   {"pid": os.getpid(), "finished": False,
+                                    "failed": True})
+
+
 def serve(state, mode, port):
     if mode not in ("accept","dial") or not 1024<=port<=65535:
         raise ValueError("invalid endpoint")
@@ -812,13 +826,12 @@ def serve(state, mode, port):
         sock.close()
         if listener is not None:
             listener.close()
-        if os.path.lexists(marker) and not os.path.lexists(root/"ended.json"):
+        if os.path.lexists(marker):
             try:
-                write_exclusive_marker(root/"ended.json",
-                                       {"pid":os.getpid(),"finished":False,"failed":True})
-            except OSError:
-                # Keep the original setup failure; the exclusive claim
-                # prevents another socket from inheriting this state.
+                seal_failed_post_ready_lifetime(root)
+            except (OSError, ValueError):
+                # Preserve the setup error; never write an unlocked marker.
+                # The exclusive claim prevents socket-lifetime reuse.
                 pass
         raise
     completed=threading.Event()
@@ -886,12 +899,12 @@ def serve(state, mode, port):
             listener.close()
         for thread in launched:
             thread.join(timeout=3)
-        if os.path.lexists(marker) and not os.path.lexists(root / "ended.json"):
+        if os.path.lexists(marker):
             try:
-                write_exclusive_marker(root / "ended.json",
-                                       {"pid": os.getpid(), "finished": False, "failed": True})
-            except OSError:
-                # Retain the original launch error and exclusive claim.
+                seal_failed_post_ready_lifetime(root)
+            except (OSError, ValueError):
+                # Retain the launch error; never seal outside admission lock.
+                # The exclusive claim prevents another socket lifetime.
                 pass
         raise
     while not completed.is_set():

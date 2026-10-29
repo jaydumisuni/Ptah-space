@@ -1714,6 +1714,56 @@ with carrier.carrier_admission_lock(sys.argv[2]):
             with self.assertRaisesRegex(ValueError, "newly prepared carrier state"):
                 C.serve(self.b, "accept", 41321)
 
+    def test_post_ready_failure_seals_under_inbound_admission_lock(self):
+        # A late Oracle delivery must not race either post-ready failure
+        # marker. Both socket setup and byte-pump launch consume the claim.
+        from contextlib import contextmanager
+        from unittest.mock import MagicMock, patch
+
+        original_lock = C.carrier_admission_lock
+        original_marker = C.write_exclusive_marker
+        held = [0]
+
+        @contextmanager
+        def traced_lock(*args, **kwargs):
+            with original_lock(*args, **kwargs):
+                held[0] += 1
+                try:
+                    yield
+                finally:
+                    held[0] -= 1
+
+        def require_locked_end(path, document):
+            if Path(path).name == "ended.json":
+                self.assertGreater(held[0], 0, "failed end marker outside admission lock")
+            return original_marker(path, document)
+
+        listener = MagicMock()
+        client = MagicMock()
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        client.settimeout.side_effect = OSError("injected post-ready setup failure")
+        with patch.object(C, "carrier_admission_lock", side_effect=traced_lock):
+            with patch.object(C, "write_exclusive_marker", side_effect=require_locked_end):
+                with patch.object(C.socket, "socket", return_value=listener):
+                    with self.assertRaisesRegex(OSError, "post-ready setup failure"):
+                        C.serve(self.a, "accept", 41321)
+        ended = json.loads((Path(self.a) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+
+        listener = MagicMock()
+        client = MagicMock()
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        thread = MagicMock()
+        thread.start.side_effect = RuntimeError("injected post-ready thread failure")
+        with patch.object(C, "carrier_admission_lock", side_effect=traced_lock):
+            with patch.object(C, "write_exclusive_marker", side_effect=require_locked_end):
+                with patch.object(C.socket, "socket", return_value=listener):
+                    with patch.object(C.threading, "Thread", return_value=thread):
+                        with self.assertRaisesRegex(RuntimeError, "post-ready thread failure"):
+                            C.serve(self.b, "accept", 41321)
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+
     def test_carrier_thread_launch_failure_closes_sockets_and_seals_lifetime(self):
         # Ready is already durable; a failed byte-pump launch must not
         # advertise a live carrier or leave a native socket open.

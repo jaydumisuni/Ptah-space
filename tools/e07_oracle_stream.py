@@ -846,9 +846,15 @@ def serve(state, mode, port):
         # The ready marker already exists. A socket setup failure before
         # pump threads start must release both endpoints and seal a failed
         # lifetime rather than leaving an apparently live carrier.
-        sock.close()
-        if listener is not None:
-            listener.close()
+        # Cleanup is best-effort after the claimed lifetime has failed.
+        # A close exception must neither replace the setup error nor bypass
+        # the admission-locked failed marker and late-inbound rejection.
+        for endpoint in (sock, listener):
+            if endpoint is not None:
+                try:
+                    endpoint.close()
+                except Exception:
+                    pass
         if os.path.lexists(marker):
             try:
                 seal_failed_post_ready_lifetime(root)
@@ -917,9 +923,14 @@ def serve(state, mode, port):
             sock.shutdown(socket.SHUT_RDWR)
         except OSError:
             pass
-        sock.close()
-        if listener is not None:
-            listener.close()
+        # Preserve the launch error and continue sealing even if a native
+        # endpoint refuses to close; serve.claim still prevents reuse.
+        for endpoint in (sock, listener):
+            if endpoint is not None:
+                try:
+                    endpoint.close()
+                except Exception:
+                    pass
         for thread in launched:
             thread.join(timeout=3)
         if os.path.lexists(marker):

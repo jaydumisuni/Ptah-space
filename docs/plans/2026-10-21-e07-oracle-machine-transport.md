@@ -236,3 +236,7 @@ socket. Two predecessor adversarial regressions were RED and now require
 a failed ended.json plus rejection of delayed inbound ciphertext.
 This is KRATOS source-only custody; Windows-native, unattended off-LAN,
 and independent E02/A05 effect acceptance remain unproven.
+
+## E07 post-ready cleanup-exception failure sealing — 29 October 2026
+
+A socket timeout setup error or byte-pump thread-launch error after `ready.json` previously allowed a secondary `close()` exception to replace the primary failure and skip the cross-process admission-locked `ended.json` failure seal. Two adversarial native regressions first reproduced these failures. Cleanup now attempts both endpoint closes independently, preserves the primary error, and continues the admission-locked failed-lifetime seal, rejecting delayed inbound Oracle ciphertext. The exclusive `serve.claim` remains consumed; a failed close does not prove the OS released a socket. This is source-only KRATOS custody, not Windows-native, unattended off-LAN, or independent E02/A05 effect acceptance.

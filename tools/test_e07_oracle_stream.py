@@ -2041,6 +2041,49 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         ended = json.loads((Path(self.b) / "ended.json").read_text())
         self.assertEqual((ended["finished"], ended["failed"]), (False, True))
 
+    def test_post_ready_setup_cleanup_errors_do_not_skip_lifetime_seal(self):
+        # Both close operations may fail after readiness; preserve the setup
+        # error and serialize a failed end marker before accepting late bytes.
+        from unittest.mock import MagicMock, patch
+        listener = MagicMock()
+        client = MagicMock()
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        client.settimeout.side_effect = OSError("original timeout setup failure")
+        client.close.side_effect = OSError("client cleanup failed")
+        listener.close.side_effect = OSError("listener cleanup failed")
+        with patch.object(C.socket, "socket", return_value=listener):
+            with self.assertRaisesRegex(OSError, "original timeout setup failure"):
+                C.serve(self.a, "accept", 41321)
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
+        root = Path(self.a)
+        self.assertEqual(json.loads((root / "ended.json").read_text()),
+                         {"pid": os.getpid(), "finished": False, "failed": True})
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.a, '[{"seq":1,"b64":"eA=="}]')
+
+    def test_thread_launch_cleanup_errors_do_not_skip_lifetime_seal(self):
+        # A failed byte-pump launch is the primary error, not socket close.
+        from unittest.mock import MagicMock, patch
+        listener = MagicMock()
+        client = MagicMock()
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        client.close.side_effect = OSError("client cleanup failed")
+        listener.close.side_effect = OSError("listener cleanup failed")
+        thread = MagicMock()
+        thread.start.side_effect = RuntimeError("original thread launch failure")
+        with patch.object(C.socket, "socket", return_value=listener):
+            with patch.object(C.threading, "Thread", return_value=thread):
+                with self.assertRaisesRegex(RuntimeError, "original thread launch failure"):
+                    C.serve(self.b, "accept", 41321)
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
+        root = Path(self.b)
+        self.assertEqual(json.loads((root / "ended.json").read_text()),
+                         {"pid": os.getpid(), "finished": False, "failed": True})
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.b, '[{"seq":1,"b64":"eA=="}]')
+
     def test_accept_socket_timeout_setup_failure_closes_both_sockets_and_seals_failure(self):
         # Readiness was already published; a failed pump setup must not
         # leave a bound listener or advertise an unfinished live carrier.

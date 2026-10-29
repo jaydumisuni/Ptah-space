@@ -40,6 +40,12 @@ MAX_ENCODED_CHUNK = 4 * ((MAX_CHUNK + 2) // 3)
 MAX_BATCH = 32
 MAX_TOTAL = 8 * 1024 * 1024
 MAX_RUNTIME = 300
+# The only admitted durable TLS journal layouts. A same-name SQLite TABLE
+# without the sequence primary key can hide duplicate frames from count=max.
+_CARRIER_TABLE_DDL = {
+    name: f"CREATE TABLE {name}(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)"
+    for name in ("outbound", "inbound")
+}
 
 def is_path_alias(path):
     """Reject symlinks and Windows junction/reparse aliases before path I/O."""
@@ -257,18 +263,25 @@ def _dbconnect_locked(state, create=False):
         conn.execute("PRAGMA busy_timeout=7000")
         if create:
             # Only the one-shot prepare path may establish durable journals.
-            conn.execute("CREATE TABLE outbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
-            conn.execute("CREATE TABLE inbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
+            for ddl in _CARRIER_TABLE_DDL.values():
+                conn.execute(ddl)
         else:
-            # Read/append/status must never repair missing journals or accept
-            # a VIEW masquerading as a durable TLS byte-stream table.
-            # Otherwise a damaged history could be silently reinitialized
-            # and reported as a healthy empty stream.
+            # A same-name TABLE is not sufficient: a missing INTEGER PRIMARY
+            # KEY can conceal duplicate sequences behind count=max checks.
+            # Pin the exact prepared DDL and reject triggers/indexes that
+            # could change append behavior without altering the table names.
             tables = set(conn.execute(
-                "SELECT name,type FROM sqlite_master "
+                "SELECT name,type,sql FROM sqlite_master "
                 "WHERE name IN ('outbound','inbound')"
             ).fetchall())
-            if tables != {("outbound", "table"), ("inbound", "table")}:
+            expected = {(name, "table", ddl)
+                        for name, ddl in _CARRIER_TABLE_DDL.items()}
+            extras = conn.execute(
+                "SELECT 1 FROM sqlite_master "
+                "WHERE tbl_name IN ('outbound','inbound') "
+                "AND type IN ('trigger','index') LIMIT 1"
+            ).fetchone()
+            if tables != expected or extras:
                 raise ValueError("carrier journal schema missing or replaced")
         conn.commit()
         if os.name == "nt":

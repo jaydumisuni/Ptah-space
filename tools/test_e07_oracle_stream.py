@@ -57,6 +57,54 @@ class OracleCarrierContract(unittest.TestCase):
                 self.assertFalse((Path(state) / "serve.claim").exists())
                 self.assertFalse((Path(state) / "ready.json").exists())
 
+    def test_replaced_durable_stream_schema_is_not_accepted(self):
+        # A same-name TABLE is insufficient custody. Removing the sequence
+        # primary key permits duplicate keys that defeat count=max checks;
+        # altered constraints and triggers can change append semantics.
+        import sqlite3
+        from contextlib import closing
+
+        path = str(Path(self.a) / "carrier.sqlite3")
+        for table in ("inbound", "outbound"):
+            other = "outbound" if table == "inbound" else "inbound"
+            cases = (
+                f"CREATE TABLE {table}(seq INTEGER, content BLOB NOT NULL)",
+                f"CREATE TABLE {table}(seq INTEGER PRIMARY KEY, content BLOB)",
+                f"CREATE TABLE {table}(seq INTEGER PRIMARY KEY, content BLOB NOT NULL, extra TEXT)",
+            )
+            for ddl in cases:
+                with self.subTest(table=table, ddl=ddl):
+                    with closing(sqlite3.connect(path)) as conn:
+                        conn.execute(f"DROP TABLE {table}")
+                        conn.execute(ddl)
+                        if "seq INTEGER," in ddl:
+                            conn.executemany(
+                                f"INSERT INTO {table}(seq,content) VALUES (?,?)",
+                                ((1, b"a"), (1, b"b"), (3, b"c")),
+                            )
+                        conn.commit()
+                    with self.assertRaisesRegex(ValueError, "carrier journal schema"):
+                        C.pull(self.a, other, 0, 1)
+                    with closing(sqlite3.connect(path)) as conn:
+                        conn.execute(f"DROP TABLE {table}")
+                        conn.execute(
+                            f"CREATE TABLE {table}(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)"
+                        )
+                        conn.commit()
+
+            with self.subTest(table=table, ddl="trigger"):
+                with closing(sqlite3.connect(path)) as conn:
+                    conn.execute(
+                        f"CREATE TRIGGER unexpected_{table} AFTER INSERT ON {table} "
+                        f"BEGIN DELETE FROM {table} WHERE seq=NEW.seq; END"
+                    )
+                    conn.commit()
+                with self.assertRaisesRegex(ValueError, "carrier journal schema"):
+                    C.pull(self.a, other, 0, 1)
+                with closing(sqlite3.connect(path)) as conn:
+                    conn.execute(f"DROP TRIGGER unexpected_{table}")
+                    conn.commit()
+
     def test_missing_durable_stream_table_is_not_silently_recreated(self):
         # A missing journal is damaged custody, not an empty fresh stream.
         # A read-only observation must not repair it or report healthy.
@@ -857,9 +905,15 @@ class OracleCarrierContract(unittest.TestCase):
                                     return ("wal",)
                             return Cursor()
                         if "FROM sqlite_master" in _sql:
+                            if "tbl_name" in _sql:
+                                class Cursor:
+                                    def fetchone(self):
+                                        return None
+                                return Cursor()
                             class Cursor:
                                 def fetchall(self):
-                                    return [("outbound", "table"), ("inbound", "table")]
+                                    return [(name, "table", ddl)
+                                            for name, ddl in C._CARRIER_TABLE_DDL.items()]
                             return Cursor()
 
                     def commit(self):

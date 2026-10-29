@@ -287,3 +287,22 @@ unchanged. Native carrier and Node Link suites pass with expected Windows
 skips. This is local E07 evidence-fidelity preparation, not Oracle runtime
 authorization, Windows-native/off-LAN proof, or an independent E02/A05
 effect witness.
+
+
+## E07 durable journal schema identity custody — 30 October 2026
+
+A prepared SQLite carrier with the right `outbound`/`inbound` table
+names could previously substitute a table lacking the `seq INTEGER PRIMARY
+KEY` constraint. Duplicate sequence 1 twice plus sequence 3 satisfies the
+historical count=max aggregate despite missing sequence 2. The carrier also
+accepted changed column constraints and triggers on either journal. Eight
+adversarial subcases were RED on the predecessor.
+
+Only one-shot prepare now creates the two canonical journal DDLs. Every
+subsequent SQLite open verifies both exact table definitions and rejects
+additional indexes/triggers bound to either journal before read, append,
+status, or native socket use. Focused regression PASS; complete E07
+carrier suite 120 tests, 3 Windows-only skips, 0 failures; Node Link 12/12
+PASS; Python compilation and git diff check PASS. This is source-only
+evidence integrity, not unattended roaming, Windows-native acceptance,
+an independent E02/A05 effect witness, or Oracle runtime authorization.

@@ -777,12 +777,25 @@ def serve(state, mode, port):
         # Dial mode is not ready until a real local Control socket exists.
         # A failed dial retains serve.claim, but must not advertise a ready
         # transport marker that could mislead Oracle-side observations.
-        while time.monotonic()-started<120:
+        try:
+            while time.monotonic()-started<120:
+                try:
+                    sock=socket.create_connection(("127.0.0.1",port),timeout=3)
+                    break
+                except OSError:
+                    time.sleep(.1)
+        except BaseException:
+            # Unexpected socket/retry failures also consume serve.claim.
+            # Seal under the inbound admission lock before returning the
+            # original failure, or delayed Oracle bytes could be admitted.
+            if sock is not None:
+                sock.close()
             try:
-                sock=socket.create_connection(("127.0.0.1",port),timeout=3)
-                break
-            except OSError:
-                time.sleep(.1)
+                seal_failed_post_ready_lifetime(root)
+            except Exception:
+                # The exclusive claim still prevents socket reuse.
+                pass
+            raise
         if sock is None:
             # The exclusive claim has consumed this carrier lifetime even
             # though no Control socket became ready. Seal the failed attempt

@@ -209,3 +209,16 @@ retains the exclusive `serve.claim` to prevent socket reuse, and leaves
 finalizer-only admission-lock timeout and verifies no unlocked end marker.
 This is source-level lifecycle custody, not an independent A05 effect witness
 or unattended Windows/off-LAN acceptance.
+
+## E07 unexpected dial retry failure custody — 29 October 2026
+
+An unexpected non-OS error during the dial-mode local Control connection
+attempt or its retry delay previously escaped after the exclusive
+`serve.claim` without an `ended.json` marker. Late inbound Oracle
+ciphertext could still be admitted into that consumed carrier state.
+The bounded source correction seals the failed lifetime under the existing
+cross-process admission lock and propagates the original error; it never
+opens a second socket lifetime. Two predecessor RED adversarial variants
+(connection setup and interrupted retry delay) became GREEN; this is
+KRATOS source-only evidence, not unattended off-LAN or independent
+Windows-native E02/A05 acceptance.

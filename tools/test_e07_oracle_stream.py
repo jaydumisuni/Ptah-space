@@ -1918,6 +1918,33 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
             C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
 
+    def test_unexpected_dial_attempt_failure_seals_claimed_lifetime(self):
+        # Unexpected errors during the bounded dial retry loop occur AFTER
+        # serve.claim. They must not leave a spent state open to late RPC bytes.
+        from unittest.mock import patch
+
+        for state, interrupted_sleep in ((self.a, False), (self.b, True)):
+            with self.subTest(interrupted_sleep=interrupted_sleep):
+                with patch.object(C.socket, "create_connection",
+                                  side_effect=OSError("Control unavailable") if interrupted_sleep
+                                  else RuntimeError("injected dial setup failure")):
+                    if interrupted_sleep:
+                        with patch.object(C.time, "sleep",
+                                          side_effect=RuntimeError("injected dial retry failure")):
+                            with self.assertRaisesRegex(RuntimeError, "injected dial retry failure"):
+                                C.serve(state, "dial", 41321)
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "injected dial setup failure"):
+                            C.serve(state, "dial", 41321)
+                root = Path(state)
+                self.assertTrue((root / "serve.claim").exists())
+                self.assertFalse((root / "ready.json").exists())
+                self.assertTrue(C.admitted_lifecycle_marker(root / "ended.json"))
+                self.assertEqual(json.loads((root / "ended.json").read_text()),
+                                 {"pid": os.getpid(), "finished": False, "failed": True})
+                with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+                    C.deliver(state, '[{"seq":1,"b64":"eA=="}]')
+
     def test_dial_ready_marker_failure_seals_spent_socket_lifetime(self):
         # A successful native dial followed by a failed ready-marker write
         # must not leave a claimed but apparently unended Oracle carrier.

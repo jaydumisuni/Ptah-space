@@ -634,12 +634,12 @@ def write_exclusive_marker(path, document):
         windows_claim_new_owner(path)
 
 
-def admitted_lifecycle_marker(path, return_pid=False):
+def admitted_lifecycle_marker(path, return_pid=False, return_document=False):
     """Admit a lifecycle marker only while its named inode matches an open handle."""
     try:
         identity = path.lstat()
     except FileNotFoundError:
-        return None if return_pid else False
+        return None if (return_pid or return_document) else False
     if (not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1
             or is_path_alias(path)):
         raise ValueError("real unaliased carrier lifecycle marker required")
@@ -725,6 +725,8 @@ def admitted_lifecycle_marker(path, return_pid=False):
             raise ValueError("invalid carrier lifecycle marker schema")
     finally:
         os.close(fd)
+    if return_document:
+        return document
     return document["pid"] if return_pid else True
 
 
@@ -1081,7 +1083,15 @@ def main():
             # journal and lifecycle status describe one consistent snapshot.
             root = require_unaliased_state_path(a.state)
             ready_pid = admitted_lifecycle_marker(root / "ready.json", return_pid=True)
-            ended_pid = admitted_lifecycle_marker(root / "ended.json", return_pid=True)
+            ended_document = admitted_lifecycle_marker(
+                root / "ended.json", return_document=True)
+            ended_pid = ended_document["pid"] if ended_document else None
+            # A failed pre-ready socket claim can end without ready.json. A
+            # successful native lifetime cannot: serve() publishes ready
+            # before any successful finalizer can publish ended.json.
+            if (ended_document is not None and ended_document["finished"]
+                    and ready_pid is None):
+                raise ValueError("successful carrier missing ready marker")
             # Independently valid markers must describe the SAME claimed
             # native socket lifetime. A mismatched creator cannot certify
             # that a different process finished the advertised transport.

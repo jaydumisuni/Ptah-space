@@ -2468,6 +2468,43 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         self.assertTrue(status["ready"])
         self.assertTrue(status["ended"])
 
+    def test_status_rejects_success_without_ready_marker(self):
+        # A failed socket attempt can seal before ready, but a successful
+        # native TLS lifetime cannot end without having become ready.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        root = Path(self.b)
+        marker = root / "ended.json"
+        C.write_exclusive_marker(
+            marker, {"pid": 101, "finished": True, "failed": False},
+        )
+        output = StringIO()
+        with patch.object(C.sys, "argv", [
+            "e07_oracle_stream.py", "status", "--state", self.b
+        ]):
+            with redirect_stdout(output):
+                with self.assertRaisesRegex(
+                        ValueError, "successful carrier missing ready marker"):
+                    C.main()
+        self.assertEqual(output.getvalue(), "")
+
+        # An attempt that failed before readiness legitimately has only an
+        # ended marker; preserve its observable failed-lifetime evidence.
+        marker.unlink()
+        C.write_exclusive_marker(
+            marker, {"pid": 101, "finished": False, "failed": True},
+        )
+        with patch.object(C.sys, "argv", [
+            "e07_oracle_stream.py", "status", "--state", self.b
+        ]):
+            with redirect_stdout(output):
+                C.main()
+        status = json.loads(output.getvalue())
+        self.assertFalse(status["ready"])
+        self.assertTrue(status["ended"])
+
     def test_status_only_reports_admitted_lifecycle_markers(self):
         from contextlib import redirect_stdout
         from io import StringIO
@@ -2510,10 +2547,11 @@ with carrier.carrier_admission_lock(sys.argv[2]):
                 finally:
                     inside_transaction[0] = False
 
-        def checked_marker(path, return_pid=False):
+        def checked_marker(path, return_pid=False, return_document=False):
             self.assertTrue(inside_transaction[0],
                             "status marker read escaped durable admission lock")
-            return original_marker(path, return_pid=return_pid)
+            return original_marker(path, return_pid=return_pid,
+                                   return_document=return_document)
 
         C.write_exclusive_marker(
             Path(self.b) / "ready.json",

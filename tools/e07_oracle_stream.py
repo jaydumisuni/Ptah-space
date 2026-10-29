@@ -757,13 +757,20 @@ def require_admitted_socket_claim(root):
         except OSError as error:
             raise ValueError("carrier socket claim identity changed") from error
         def identity(value):
+            # The one-shot claim is an immutable empty file. An in-place
+            # rewrite can preserve inode, ownership, mode and even length
+            # while changing the claim's epoch between descriptor and path
+            # admission. Do not mistake that for the claimed socket lifetime.
             return (value.st_dev, value.st_ino, value.st_mode,
-                    value.st_nlink, value.st_uid, value.st_gid)
+                    value.st_nlink, value.st_uid, value.st_gid,
+                    value.st_size, value.st_mtime_ns, value.st_ctime_ns)
         if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1
                 or not stat.S_ISREG(current.st_mode) or current.st_nlink != 1
+                or original.st_size != 0 or opened.st_size != 0
+                or current.st_size != 0
                 or identity(original) != identity(opened)
                 or identity(opened) != identity(current)
-                or opened.st_size != 0 or is_path_alias(path)):
+                or is_path_alias(path)):
             raise ValueError("carrier socket claim identity changed")
         require_private_custody(path, opened, "socket claim")
         require_private_custody(path, current, "socket claim")

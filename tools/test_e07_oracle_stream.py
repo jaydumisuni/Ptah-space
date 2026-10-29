@@ -2574,6 +2574,43 @@ with carrier.carrier_admission_lock(sys.argv[2]):
                 finally:
                     claim.unlink()
 
+    @unittest.skipIf(os.name == "nt", "POSIX claim metadata race fixture")
+    def test_socket_claim_rejects_inplace_change_between_descriptor_and_path_stat(self):
+        # A one-shot empty claim must remain the same immutable inode epoch.
+        # fstat can observe the original empty descriptor before another
+        # writer changes the named file; later lstat must not certify it.
+        from unittest.mock import patch
+
+        claim = Path(self.b) / "serve.claim"
+        for kind in ("append", "rewrite_empty"):
+            with self.subTest(kind=kind):
+                self.claim_socket_lifetime_for_status_fixture()
+                original_fstat = os.fstat
+                invoked = [False]
+
+                def changed_after_fstat(fd):
+                    before = original_fstat(fd)
+                    if not invoked[0]:
+                        invoked[0] = True
+                        if kind == "append":
+                            claim.write_bytes(b"forged")
+                        else:
+                            claim.write_bytes(b"changed")
+                            claim.write_bytes(b"")
+                            os.utime(claim, ns=(
+                                before.st_atime_ns,
+                                before.st_mtime_ns + 2_000_000_000,
+                            ))
+                    return before
+
+                try:
+                    with patch.object(C.os, "fstat", side_effect=changed_after_fstat):
+                        with self.assertRaisesRegex(ValueError, "socket claim identity changed"):
+                            C.require_admitted_socket_claim(Path(self.b))
+                    self.assertTrue(invoked[0])
+                finally:
+                    claim.unlink()
+
     def test_status_rejects_success_without_ready_marker(self):
         # A failed socket attempt can seal before ready, but a successful
         # native TLS lifetime cannot end without having become ready.

@@ -255,8 +255,21 @@ def _dbconnect_locked(state, create=False):
                 or journal_mode[0].lower() != "wal"):
             raise ValueError("carrier WAL journal mode required")
         conn.execute("PRAGMA busy_timeout=7000")
-        conn.execute("CREATE TABLE IF NOT EXISTS outbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
-        conn.execute("CREATE TABLE IF NOT EXISTS inbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
+        if create:
+            # Only the one-shot prepare path may establish durable journals.
+            conn.execute("CREATE TABLE outbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
+            conn.execute("CREATE TABLE inbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
+        else:
+            # Read/append/status must never repair missing journals or accept
+            # a VIEW masquerading as a durable TLS byte-stream table.
+            # Otherwise a damaged history could be silently reinitialized
+            # and reported as a healthy empty stream.
+            tables = set(conn.execute(
+                "SELECT name,type FROM sqlite_master "
+                "WHERE name IN ('outbound','inbound')"
+            ).fetchall())
+            if tables != {("outbound", "table"), ("inbound", "table")}:
+                raise ValueError("carrier journal schema missing or replaced")
         conn.commit()
         if os.name == "nt":
             # SQLite may create WAL/SHM files after the pre-open check.

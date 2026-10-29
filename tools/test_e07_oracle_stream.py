@@ -20,6 +20,59 @@ class OracleCarrierContract(unittest.TestCase):
         self.b=str(Path(self.temp.name)/"athena")
         C.prepare(self.a)
         C.prepare(self.b)
+    def test_missing_durable_stream_table_is_not_silently_recreated(self):
+        # A missing journal is damaged custody, not an empty fresh stream.
+        # A read-only observation must not repair it or report healthy.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        for table in ("inbound", "outbound"):
+            with self.subTest(table=table):
+                with C.dbtransaction(self.a) as conn:
+                    conn.execute(f"DROP TABLE {table}")
+                output = StringIO()
+                with redirect_stdout(output):
+                    with self.assertRaisesRegex(ValueError, "carrier journal schema"):
+                        C.pull(self.a, "outbound", 0, 1)
+                    with patch("sys.argv", [
+                        "e07_oracle_stream.py", "status", "--state", self.a
+                    ]):
+                        with self.assertRaisesRegex(ValueError, "carrier journal schema"):
+                            C.main()
+                self.assertEqual(output.getvalue(), "")
+                # Verify the failed observation did not recreate the table.
+                import sqlite3
+                conn = sqlite3.connect(str(Path(self.a) / "carrier.sqlite3"))
+                try:
+                    self.assertIsNone(conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                        (table,),
+                    ).fetchone())
+                    conn.execute(
+                        f"CREATE TABLE {table}(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)"
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+
+    def test_durable_stream_view_cannot_impersonate_missing_table(self):
+        # SQLite IF NOT EXISTS accepts a preexisting VIEW of the same name.
+        # No transport observation may accept it as a durable frame journal.
+        import sqlite3
+        with C.dbtransaction(self.a) as conn:
+            conn.execute("DROP TABLE inbound")
+            conn.execute("CREATE VIEW inbound AS SELECT 1 AS seq, X'6162' AS content")
+        with self.assertRaisesRegex(ValueError, "carrier journal schema"):
+            C.pull(self.a, "outbound", 0, 1)
+        conn = sqlite3.connect(str(Path(self.a) / "carrier.sqlite3"))
+        try:
+            self.assertEqual(conn.execute(
+                "SELECT type FROM sqlite_master WHERE name='inbound'"
+            ).fetchone(), ("view",))
+        finally:
+            conn.close()
+
     @unittest.skipUnless(os.name == "nt", "Windows ACL integration")
     def test_windows_real_acl_custody_allows_fresh_private_carrier(self):
         # Real native owner/DACL admission is exercised, not mocked.
@@ -765,6 +818,11 @@ class OracleCarrierContract(unittest.TestCase):
                             class Cursor:
                                 def fetchone(self):
                                     return ("wal",)
+                            return Cursor()
+                        if "FROM sqlite_master" in _sql:
+                            class Cursor:
+                                def fetchall(self):
+                                    return [("outbound", "table"), ("inbound", "table")]
                             return Cursor()
 
                     def commit(self):

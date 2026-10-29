@@ -270,3 +270,20 @@ lock as finalization. Previously durable outbound bytes remain
 drainable; the exclusive claim is not reset. This is source-only
 lifecycle custody, not Windows-native/off-LAN or independent E02/A05
 effect qualification. Oracle production and devices remain untouched.
+
+## E07 durable journal schema custody — 29 October 2026
+
+A resumed carrier must never treat missing SQLite inbound/outbound tables
+as an empty, freshly prepared TLS journal. The previous shared database
+open path used `CREATE TABLE IF NOT EXISTS` for both preparation and
+read/append/status operations, silently recreating a dropped journal; a
+same-name SQLite view was also accepted by that statement. The project-owned
+source-only correction restricts table creation to one-shot prepare and
+requires both named durable stream objects to be real tables on every
+subsequent database open. Test-first regressions reproduced three RED
+observations (missing inbound, missing outbound, substituted view); after
+correction they PASS, and the failed observations leave damaged schema
+unchanged. Native carrier and Node Link suites pass with expected Windows
+skips. This is local E07 evidence-fidelity preparation, not Oracle runtime
+authorization, Windows-native/off-LAN proof, or an independent E02/A05
+effect witness.

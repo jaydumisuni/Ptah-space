@@ -240,3 +240,17 @@ and independent E02/A05 effect acceptance remain unproven.
 ## E07 post-ready cleanup-exception failure sealing — 29 October 2026
 
 A socket timeout setup error or byte-pump thread-launch error after `ready.json` previously allowed a secondary `close()` exception to replace the primary failure and skip the cross-process admission-locked `ended.json` failure seal. Two adversarial native regressions first reproduced these failures. Cleanup now attempts both endpoint closes independently, preserves the primary error, and continues the admission-locked failed-lifetime seal, rejecting delayed inbound Oracle ciphertext. The exclusive `serve.claim` remains consumed; a failed close does not prove the OS released a socket. This is source-only KRATOS custody, not Windows-native, unattended off-LAN, or independent E02/A05 effect acceptance.
+
+
+## E07 post-pump endpoint close failure sealing — 29 October 2026
+
+Once both native byte pumps stop, an exception from either the connected
+socket close or the listener close must not bypass the final SQLite and
+lifecycle-marker transaction. The post-pump cleanup now attempts both
+endpoint closes, records a shutdown failure for any close exception,
+and proceeds to the admission-locked finalizer. A test-first two-endpoint
+regression reproduced the old missing-marker behavior and now requires a
+failed ended.json and rejection of late inbound ciphertext. A failed
+close is not proof that the OS released a socket. This is source-only
+lifecycle custody, not unattended off-LAN or independent E02/A05 effect
+qualification; no Oracle runtime or production node was modified.

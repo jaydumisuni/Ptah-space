@@ -951,9 +951,15 @@ def serve(state, mode, port):
         sock.shutdown(socket.SHUT_RDWR)
     except OSError:
         pass
-    sock.close()
-    if listener is not None:
-        listener.close()
+    # Native endpoint cleanup is part of the claimed socket lifetime.
+    # A close exception must not skip the admission-locked finalizer or
+    # certify a completed transport. Attempt both closes and seal failure.
+    for endpoint in (sock, listener):
+        if endpoint is not None:
+            try:
+                endpoint.close()
+            except Exception as error:
+                record_failure("shutdown", error)
     a.join(timeout=3)
     b.join(timeout=3)
     if a.is_alive() or b.is_alive():

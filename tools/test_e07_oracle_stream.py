@@ -1548,6 +1548,30 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         self.assertEqual(
             [frame["seq"] for frame in C.pull(self.b, "inbound", 0, 32)], [1])
 
+    def test_post_pump_socket_close_errors_still_seal_failed_lifetime(self):
+        # A socket close failure after the pumps stop must not bypass the
+        # admission-locked finalizer or leave an apparently live carrier.
+        from unittest.mock import MagicMock, patch
+        for state, failed_endpoint in ((self.a, "client"), (self.b, "listener")):
+            with self.subTest(endpoint=failed_endpoint):
+                listener = MagicMock()
+                client = MagicMock()
+                client.recv.return_value = b""
+                listener.accept.return_value = (client, ("127.0.0.1", 41322))
+                endpoint = client if failed_endpoint == "client" else listener
+                endpoint.close.side_effect = OSError("injected final socket close failure")
+                with patch.object(C.socket, "socket", return_value=listener):
+                    with self.assertRaisesRegex(
+                        RuntimeError, "E07_CARRIER_PUMP_FAILED:shutdown:OSError"
+                    ):
+                        C.serve(state, "accept", 41321)
+                client.close.assert_called_once_with()
+                listener.close.assert_called_once_with()
+                ended = json.loads((Path(state) / "ended.json").read_text())
+                self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+                with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+                    C.deliver(state, '[{"seq":1,"b64":"eA=="}]')
+
     def test_socket_eof_with_undelivered_inbound_is_not_finished(self):
         # The native peer can close before the writer drains already admitted
         # Oracle ciphertext. A clean EOF is not proof those bytes reached it.

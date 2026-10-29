@@ -196,3 +196,16 @@ existing cross-process admission lock, and preserves the original marker
 failure. The regression was RED against the predecessor and PASS after
 correction. This is source-only lifecycle custody; Windows-native,
 unattended off-LAN, and independent E02/A05 effect acceptance remain held.
+
+## Finalizer admission-lock timeout review correction — 29 October 2026
+
+A finalizer that times out acquiring the cross-process inbound admission lock
+must not write a failed `ended.json` without that lock. A concurrently admitted
+`deliver` or `exchange` may still be committing TLS ciphertext; publishing an
+unlocked ended marker would falsely imply the inbound journal and socket-lifetime
+state were serialized. The fallback is removed. Finalization reports failure,
+retains the exclusive `serve.claim` to prevent socket reuse, and leaves
+`ended.json` absent if the lock could not be obtained. A regression injects a
+finalizer-only admission-lock timeout and verifies no unlocked end marker.
+This is source-level lifecycle custody, not an independent A05 effect witness
+or unattended Windows/off-LAN acceptance.

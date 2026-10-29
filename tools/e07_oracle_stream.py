@@ -961,11 +961,11 @@ def serve(state, mode, port):
                 write_exclusive_marker(root/"ended.json", status)
     except Exception as error:
         record_failure("finalize", error)
-        # An unavailable admission lock or marker write cannot justify
-        # success. Never replace a pre-existing marker or alias.
-        if not os.path.lexists(root/"ended.json"):
-            write_exclusive_marker(root/"ended.json",
-                                   {"pid":os.getpid(),"finished":False,"failed":True})
+        # Never seal outside the inbound admission lock, including when the
+        # lock itself is busy. A concurrent deliver/exchange may have passed
+        # its open-lifetime check and still be committing ciphertext. The
+        # consumed serve.claim prevents socket reuse; leave ended.json absent
+        # rather than publish a falsely serialized failure marker.
     if failures:
         first=failures[0]
         raise RuntimeError("E07_CARRIER_PUMP_FAILED:"+first[0]+":"+first[1]+":"+first[2])

@@ -2317,4 +2317,38 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         client.close.assert_called_once_with()
         listener.close.assert_called_once_with()
 
+
+    def test_finalizer_lock_timeout_cannot_publish_unlocked_failed_marker(self):
+        # Review regression: a held inbound admission lock must not permit
+        # finalization to seal ended.json outside the serialization boundary.
+        from contextlib import contextmanager
+        from unittest.mock import MagicMock, patch
+
+        listener = MagicMock()
+        client = MagicMock()
+        client.recv.return_value = b""
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        original_lock = C.carrier_admission_lock
+
+        @contextmanager
+        def finalizer_lock_busy(state):
+            if (Path(state) / "ready.json").exists() and (
+                    threading.current_thread() is threading.main_thread()):
+                raise TimeoutError("injected admission lock busy")
+            with original_lock(state):
+                yield
+
+        with patch.object(C.socket, "socket", return_value=listener):
+            with patch.object(C, "carrier_admission_lock",
+                              side_effect=finalizer_lock_busy):
+                with self.assertRaisesRegex(
+                        RuntimeError, "E07_CARRIER_PUMP_FAILED:finalize:TimeoutError"):
+                    C.serve(self.b, "accept", 41321)
+        self.assertTrue((Path(self.b) / "serve.claim").exists())
+        self.assertTrue((Path(self.b) / "ready.json").exists())
+        self.assertFalse((Path(self.b) / "ended.json").exists(),
+                         "never seal an ended marker without admission lock")
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
+
 if __name__=="__main__": unittest.main()

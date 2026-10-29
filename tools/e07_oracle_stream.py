@@ -380,6 +380,11 @@ def publish(state, table, payload):
     if type(payload) is not bytes or not 1 <= len(payload) <= MAX_CHUNK:
         raise ValueError("invalid outbound carrier frame")
     with dbtransaction(state) as conn:
+        # A reader pump may outlive the bounded shutdown join. The ended
+        # marker and this check share the cross-process admission lock:
+        # never append native outbound bytes after a claimed TLS lifetime
+        # has been sealed, even when the failed socket still has a thread.
+        require_open_carrier_lifetime(state)
         # A historical journal containing TEXT, an empty BLOB or an
         # oversized frame cannot be extended into a supposedly usable TLS
         # stream. Validate durable payload custody in the same transaction

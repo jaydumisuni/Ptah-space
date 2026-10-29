@@ -254,3 +254,19 @@ failed ended.json and rejection of late inbound ciphertext. A failed
 close is not proof that the OS released a socket. This is source-only
 lifecycle custody, not unattended off-LAN or independent E02/A05 effect
 qualification; no Oracle runtime or production node was modified.
+
+
+## E07 post-ended native outbound admission — 29 October 2026
+
+A native reader pump can survive the bounded shutdown join after the
+finalizer records a failed socket lifetime. Previously the outbound
+publish path checked SQLite sequence and quota but did not check the
+admission-locked ended.json; late native ciphertext could therefore
+extend the journal after finished or failed had been sealed. A
+test-first regression reproduced two unauthorized appends (successful
+and failed ended markers). The corrected publish transaction now
+rejects either sealed lifetime under the same cross-process admission
+lock as finalization. Previously durable outbound bytes remain
+drainable; the exclusive claim is not reset. This is source-only
+lifecycle custody, not Windows-native/off-LAN or independent E02/A05
+effect qualification. Oracle production and devices remain untouched.

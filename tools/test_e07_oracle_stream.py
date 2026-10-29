@@ -1639,6 +1639,24 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         self.assertTrue(ended["finished"])
         self.assertFalse(ended["failed"])
 
+    def test_ended_carrier_rejects_late_native_outbound_publish(self):
+        # A pump thread that survives the bounded shutdown join must not
+        # append outbound TLS ciphertext after the finalizer seals the
+        # claimed socket lifetime. Already durable bytes stay drainable.
+        for state, finished in ((self.a, True), (self.b, False)):
+            with self.subTest(finished=finished):
+                C.publish(state, "outbound", b"durable-before-end")
+                C.write_exclusive_marker(
+                    Path(state) / "ended.json",
+                    {"pid": 1, "finished": finished, "failed": not finished})
+                with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+                    C.publish(state, "outbound", b"late-native-tls")
+                packets = C.pull(state, "outbound", 0, 2)
+                self.assertEqual(len(packets), 1)
+                import base64
+                self.assertEqual(base64.b64decode(packets[0]["b64"]),
+                                 b"durable-before-end")
+
     def test_ended_carrier_rejects_late_deliver_and_exchange(self):
         # A finished native socket cannot receive another TLS ciphertext
         # frame through a delayed Oracle RPC. Snapshot reads remain allowed.

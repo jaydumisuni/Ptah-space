@@ -72,42 +72,46 @@ def _write_frame(connection: ssl.SSLSocket, message: dict) -> None:
     connection.sendall(struct.pack(">I", len(data)) + data)
 
 
-def _read_frame(connection: ssl.SSLSocket) -> dict:
-    size = struct.unpack(">I", _receive_exact(connection, 4))[0]
-    if not 0 < size <= 1_048_576:
-        raise LinkFailure("invalid_incoming_frame_size")
-    # The TLS peer is authenticated, but ambiguous JSON is not an admitted
-    # E01 frame: Python otherwise keeps the last duplicate identity field and
-    # accepts NaN/Infinity or exponent-overflow values as ordinary floats.
+def _decode_strict_json(text: str, direction: str) -> object:
+    # Authenticated wire frames and local Hello files must share one
+    # unambiguous JSON decoder; duplicate identities and nonfinite numbers
+    # cannot be normalized before E01 identity checks.
+    _require_json_nesting_budget(text, direction)
+
     def unique_fields(pairs):
         result = {}
         for key, value in pairs:
             if key in result:
-                raise LinkFailure("invalid_incoming_frame: duplicate JSON field")
+                raise LinkFailure(f"invalid_{direction}_frame: duplicate JSON field")
             result[key] = value
         return result
 
     def reject_nonfinite(_token):
-        raise LinkFailure("invalid_incoming_frame: nonfinite JSON number")
+        raise LinkFailure(f"invalid_{direction}_frame: nonfinite JSON number")
 
     def finite_float(token):
         value = float(token)
         if not math.isfinite(value):
-            raise LinkFailure("invalid_incoming_frame: nonfinite JSON number")
+            raise LinkFailure(f"invalid_{direction}_frame: nonfinite JSON number")
         return value
 
+    try:
+        return json.loads(text, object_pairs_hook=unique_fields,
+                          parse_constant=reject_nonfinite,
+                          parse_float=finite_float)
+    except (ValueError, UnicodeError, RecursionError) as error:
+        raise LinkFailure(f"invalid_{direction}_frame: malformed JSON") from error
+
+
+def _read_frame(connection: ssl.SSLSocket) -> dict:
+    size = struct.unpack(">I", _receive_exact(connection, 4))[0]
+    if not 0 < size <= 1_048_576:
+        raise LinkFailure("invalid_incoming_frame_size")
     try:
         text = _receive_exact(connection, size).decode("utf-8")
     except UnicodeError as error:
         raise LinkFailure("invalid_incoming_frame: malformed JSON") from error
-    # Keep the incoming peer on the same structural budget as outbound E01.
-    _require_json_nesting_budget(text, "incoming")
-    try:
-        obj = json.loads(text, object_pairs_hook=unique_fields,
-                         parse_constant=reject_nonfinite,
-                         parse_float=finite_float)
-    except (ValueError, UnicodeError, RecursionError) as error:
-        raise LinkFailure("invalid_incoming_frame: malformed JSON") from error
+    obj = _decode_strict_json(text, "incoming")
     if not isinstance(obj, dict):
         raise LinkFailure("invalid_incoming_frame")
     return obj
@@ -196,6 +200,23 @@ def join(
             }
 
 
+def _load_hello_json(path: Path) -> dict:
+    # Read at most one byte beyond the E01 frame limit. A caller-provided
+    # file must not allocate unbounded memory or bypass wire JSON custody.
+    with path.open("rb") as stream:
+        raw = stream.read(1_048_577)
+    if not 0 < len(raw) <= 1_048_576:
+        raise LinkFailure("invalid_hello_frame_size")
+    try:
+        hello = _decode_strict_json(raw.decode("utf-8"), "hello")
+    except UnicodeError as error:
+        raise LinkFailure("invalid_hello_frame: malformed UTF-8") from error
+    if not isinstance(hello, dict) or type(hello.get("node_id")) is not str:
+        raise LinkFailure("invalid_node_hello")
+    _validate_node_hello(hello, hello["node_id"])
+    return hello
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Bounded Ptah E07 mTLS Node-link client")
     parser.add_argument("--address", required=True)
@@ -206,10 +227,8 @@ def main() -> int:
     parser.add_argument("--hello-json", type=Path, required=True)
     parser.add_argument("--heartbeats", type=int, default=2)
     args = parser.parse_args()
-    hello = json.loads(args.hello_json.read_text(encoding="utf-8"))
-    if not isinstance(hello, dict) or not isinstance(hello.get("node_id"), str):
-        parser.error("invalid NodeHello input")
     try:
+        hello = _load_hello_json(args.hello_json)
         result = join(args.address,args.port,args.ca,args.client_cert,args.client_key,
                       hello=hello,expected_node_id=hello["node_id"],heartbeats=args.heartbeats)
     except (LinkFailure, ValueError, OSError, ssl.SSLError, json.JSONDecodeError) as error:

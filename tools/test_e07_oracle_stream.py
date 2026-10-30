@@ -1427,6 +1427,21 @@ with carrier.carrier_admission_lock(sys.argv[2]):
             C.write_exclusive_marker(marker, document)
             self.assertTrue(C.admitted_lifecycle_marker(marker))
 
+    def test_lifecycle_marker_rejects_non_native_process_identity(self):
+        # A marker cannot attest a native socket process using an arbitrary
+        # precision JSON integer outside the operating-system PID domain.
+        for name, document in (
+            ("ready.json", {"mode": "accept", "port": 41321,
+                            "pid": 1 << 32, "bound": "127.0.0.1"}),
+            ("ended.json", {"pid": 1 << 80, "finished": False,
+                            "failed": True}),
+        ):
+            with self.subTest(name=name):
+                marker = Path(self.b) / name
+                C.write_exclusive_marker(marker, document)
+                with self.assertRaisesRegex(ValueError, "invalid carrier lifecycle marker schema"):
+                    C.admitted_lifecycle_marker(marker)
+
     @unittest.skipIf(os.name == "nt", "POSIX marker epoch mutation fixture")
     def test_lifecycle_marker_rejects_inplace_mutation_during_admission(self):
         # A marker rewritten in place can retain its inode, owner, ACL and

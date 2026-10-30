@@ -797,16 +797,20 @@ def admitted_lifecycle_marker(path, return_pid=False, return_document=False):
         # Only serve() writes these two exact event shapes. In particular,
         # an incomplete ready marker must not be reported as a live carrier,
         # and a contradictory end marker must not certify completion.
+        # Native process identifiers fit a 32-bit POSIX pid_t/Windows DWORD.
+        # A huge JSON integer is not a credible socket-lifetime identity.
         if path.name == "ready.json":
             valid = (set(document) == {"mode", "port", "pid", "bound"}
                      and document["mode"] in ("accept", "dial")
                      and type(document["port"]) is int
                      and 1024 <= document["port"] <= 65535
-                     and type(document["pid"]) is int and document["pid"] > 0
+                     and type(document["pid"]) is int
+                     and 0 < document["pid"] < (1 << 32)
                      and document["bound"] == "127.0.0.1")
         elif path.name == "ended.json":
             valid = (set(document) == {"pid", "finished", "failed"}
-                     and type(document["pid"]) is int and document["pid"] > 0
+                     and type(document["pid"]) is int
+                     and 0 < document["pid"] < (1 << 32)
                      and type(document["finished"]) is bool
                      and type(document["failed"]) is bool
                      and document["finished"] != document["failed"])

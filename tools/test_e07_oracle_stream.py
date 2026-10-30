@@ -57,6 +57,38 @@ class OracleCarrierContract(unittest.TestCase):
         finally:
             root.chmod(0o700)
 
+    @unittest.skipIf(os.name == "nt", "POSIX replacement-inode fixture")
+    def test_dbconnect_rejects_database_replacement_after_root_custody(self):
+        # The database pathname can be replaced after its first identity
+        # check, even when the state root and replacement are both private.
+        from unittest.mock import patch
+        import shutil
+
+        root = Path(self.a)
+        database = root / "carrier.sqlite3"
+        original = C.require_private_custody
+        seen_database = False
+        swapped = False
+
+        def swap_after_database_custody(path, identity, label):
+            nonlocal seen_database, swapped
+            original(path, identity, label)
+            if label == "database":
+                seen_database = True
+            elif label == "state directory" and seen_database and not swapped:
+                replacement = root / "replacement.sqlite3"
+                shutil.copy2(database, replacement)
+                os.replace(replacement, database)
+                swapped = True
+
+        with patch.object(C, "require_private_custody",
+                          side_effect=swap_after_database_custody):
+            with patch.object(C.sqlite3, "connect",
+                              side_effect=AssertionError("SQLite opened swapped database")):
+                with self.assertRaisesRegex(ValueError, "carrier database identity changed"):
+                    C.pull(self.a, "outbound", 0, 1)
+        self.assertTrue(swapped)
+
     def test_serve_rejects_noninteger_endpoint_before_socket_claim(self):
         # Direct native callers must not consume a one-shot carrier lifetime
         # for a float or text port that cannot bind an IPv4 socket. Argparse

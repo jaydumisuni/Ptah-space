@@ -322,6 +322,24 @@ def _dbconnect_locked(state, create=False):
             or root_epoch(current_root) != root_epoch(root_identity)):
         raise ValueError("carrier state directory identity changed")
     require_private_custody(root, current_root, "state directory")
+    # The database may have been replaced after its initial lstat while
+    # checking SQLite sidecars and the state root. Rebind the final named
+    # database to the originally admitted inode and observed epoch before
+    # SQLite follows the pathname. This is an observed-change guard, not
+    # race-free dirfd-relative filesystem custody.
+    try:
+        current_db = db_path.lstat()
+    except OSError as error:
+        raise ValueError("carrier database identity changed") from error
+    def database_epoch(value):
+        return (value.st_dev, value.st_ino, value.st_mode, value.st_nlink,
+                value.st_uid, value.st_gid, value.st_size,
+                value.st_mtime_ns, value.st_ctime_ns)
+    if (not stat.S_ISREG(current_db.st_mode) or current_db.st_nlink != 1
+            or is_path_alias(db_path)
+            or database_epoch(current_db) != database_epoch(identity)):
+        raise ValueError("carrier database identity changed")
+    require_private_custody(db_path, current_db, "database")
     conn = sqlite3.connect(str(db_path), timeout=7)
     try:
         # Schema/PRAGMA/commit failures must close the handle before the

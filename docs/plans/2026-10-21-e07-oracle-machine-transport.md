@@ -338,3 +338,15 @@ adversarial regression and native carrier/Node Link suites pass. This is an
 observed-epoch safeguard, not race-free filesystem authority, Windows
 ACL/physical qualification, unattended off-LAN proof, or an independent
 E02/A05 effect witness. No Oracle production runtime was changed.
+## E07 final database-path identity recheck — 30 October 2026
+
+After initial database-file admission, sidecar and state-root custody
+inspection could outlive the admitted database pathname. A deterministic
+POSIX regression replaced the private database with a different private
+inode after root custody; the predecessor still called sqlite3.connect.
+The bounded source-only correction rechecks the named database inode,
+mode, ownership, link count, size and observed modification/change epoch
+before SQLite follows the path. The adversarial regression now rejects
+the substitution. This is observed-epoch validation, not race-free
+filesystem authority, independent Windows/roaming execution proof,
+or permission to change Oracle runtime or release gates.

@@ -149,8 +149,15 @@ def join(
     Records wire evidence, does not make caller permission decisions or
     claim E02 remote dispatch.
     """
-    if not 1 <= heartbeats <= 10:
-        raise ValueError("heartbeats must be 1..10")
+    # Reject noncanonical caller values before TLS setup or network access.
+    # bool is an int subclass, but is not a valid E01 sequence count or port.
+    if type(heartbeats) is not int or not 1 <= heartbeats <= 10:
+        raise ValueError("heartbeats must be an integer in 1..10")
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ValueError("port must be an integer in 1..65535")
+    if (type(timeout) not in (int, float)
+            or not 0 < timeout <= 300 or not math.isfinite(timeout)):
+        raise ValueError("timeout must be finite seconds in (0, 300]")
     _validate_node_hello(hello, expected_node_id)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_3

@@ -89,6 +89,35 @@ class NodeLinkProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(link.LinkFailure,"invalid_incoming_frame"):
             link._read_frame(MemorySocket(struct.pack(">I",len(payload))+payload))
 
+    def test_excessive_outgoing_json_nesting_is_bounded_before_wire_write(self):
+        # The incoming E01 decoder has a 32-level limit. An otherwise
+        # valid, size-bounded outgoing object must not escape as a raw
+        # RecursionError or emit a partial frame.
+        for depth in (33, 1200):
+            with self.subTest(depth=depth):
+                nested = 0
+                for _ in range(depth):
+                    nested = [nested]
+                wire = MemorySocket()
+                with self.assertRaisesRegex(link.LinkFailure, "invalid_outgoing_frame"):
+                    link._write_frame(wire, {"kind": "hello", "payload": nested})
+                self.assertEqual(wire.sent, bytearray())
+
+    def test_outgoing_nesting_boundary_and_quoted_delimiters(self):
+        nested = "quoted " + "[" * 100 + "]" * 100 + ' \" escaped'
+        for _ in range(31):
+            nested = [nested]
+        wire = MemorySocket()
+        link._write_frame(wire, {"kind": "hello", "payload": nested})
+        raw = bytes(wire.sent)
+        self.assertEqual(struct.unpack(">I", raw[:4])[0], len(raw) - 4)
+        self.assertEqual(link._read_frame(MemorySocket(raw))["kind"], "hello")
+        # One more list exceeds the shared 32-level E01 budget.
+        wire = MemorySocket()
+        with self.assertRaisesRegex(link.LinkFailure, "excessive JSON nesting"):
+            link._write_frame(wire, {"kind": "hello", "payload": [nested]})
+        self.assertEqual(wire.sent, bytearray())
+
     def test_oversized_outgoing_refused(self):
         with self.assertRaisesRegex(link.LinkFailure,"invalid_frame_size"):
             link._write_frame(MemorySocket(),{"payload":"x"*1_048_577})

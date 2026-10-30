@@ -60,8 +60,11 @@ def _write_frame(connection: ssl.SSLSocket, message: dict) -> None:
     # numbers accepted by the E01 Rust peer. Reject before sending any bytes.
     # Normalize unsupported values into a bounded protocol failure as well.
     try:
+        # Serialize Unicode scalars directly: strict UTF-8 encoding then
+        # rejects lone surrogate code points that Python's default ASCII
+        # escaping would send but the Rust E01 peer cannot deserialize.
         text = json.dumps(message, separators=(",", ":"), sort_keys=True,
-                          allow_nan=False)
+                          allow_nan=False, ensure_ascii=False)
         _require_json_nesting_budget(text, "outgoing")
         data = text.encode("utf-8")
     except (TypeError, ValueError, OverflowError, RecursionError,

@@ -133,6 +133,22 @@ class NodeLinkProtocolTests(unittest.TestCase):
                         "node_id": "test-node", "nested": [value]}})
                 self.assertEqual(wire.sent, bytearray())
 
+    def test_outgoing_frame_rejects_unpaired_unicode_surrogates_before_wire_write(self):
+        # Python's ensure_ascii JSON encoder accepts lone UTF-16 surrogates,
+        # but the E01 Rust serde_json peer rejects them as invalid strings.
+        for value in ("\ud800", "\udfff", "prefix\ud800suffix"):
+            with self.subTest(value=ascii(value)):
+                wire = MemorySocket()
+                with self.assertRaisesRegex(link.LinkFailure, "invalid_outgoing_frame"):
+                    link._write_frame(wire, {"kind": "hello", "payload": {
+                        "node_id": "test-node", "metadata": {"label": value}}})
+                self.assertEqual(wire.sent, bytearray())
+        # Valid supplementary Unicode must continue to round-trip.
+        wire = MemorySocket()
+        msg = {"kind": "hello", "payload": {"label": "\U0001f680"}}
+        link._write_frame(wire, msg)
+        self.assertEqual(link._read_frame(MemorySocket(bytes(wire.sent))), msg)
+
     def test_outgoing_frame_rejects_non_json_objects_before_wire_write(self):
         wire = MemorySocket()
         with self.assertRaisesRegex(link.LinkFailure, "invalid_outgoing_frame"):

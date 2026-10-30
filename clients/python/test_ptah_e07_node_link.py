@@ -146,6 +146,42 @@ class NodeLinkProtocolTests(unittest.TestCase):
         self.assertIn("ptah_second_user_login",source)
 
 
+    def test_join_rejects_noncanonical_call_arguments_before_transport(self):
+        from unittest.mock import patch
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        cases = (
+            ("heartbeats", True, "heartbeats must"),
+            ("heartbeats", 2.0, "heartbeats must"),
+            ("heartbeats", "2", "heartbeats must"),
+            ("timeout", True, "timeout must"),
+            ("timeout", 0, "timeout must"),
+            ("timeout", 301, "timeout must"),
+            ("timeout", float("nan"), "timeout must"),
+            ("timeout", float("inf"), "timeout must"),
+            ("timeout", "7", "timeout must"),
+            ("port", True, "port must"),
+            ("port", 0, "port must"),
+            ("port", 443.0, "port must"),
+            ("port", 65536, "port must"),
+        )
+        for name, value, expected in cases:
+            with self.subTest(name=name, value=repr(value)):
+                kwargs = {"heartbeats": 2, "timeout": 7.0}
+                port = 2345
+                if name == "port":
+                    port = value
+                else:
+                    kwargs[name] = value
+                # Invalid caller arguments must fail before TLS context
+                # setup, credential loading or any network interaction.
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS setup started")):
+                    with self.assertRaisesRegex(ValueError, expected):
+                        link.join("localhost", port, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node", **kwargs)
+
     def test_join_rejects_noncanonical_hello_counters_before_transport(self):
         from unittest.mock import patch
         good = {"node_id": "test-node", "node_generation": 1, "connection_epoch": 2}

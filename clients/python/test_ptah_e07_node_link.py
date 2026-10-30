@@ -252,5 +252,48 @@ class NodeLinkProtocolTests(unittest.TestCase):
         self.assertEqual(kinds, ["hello", "heartbeat", "heartbeat", "close"])
 
 
+    def test_hello_file_preflight_rejects_ambiguous_unbounded_and_malformed_input(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hello.json"
+            valid = b'{"node_id":"test-node","node_generation":1,"connection_epoch":2}'
+            cases = (
+                valid[:-1] + b',"node_id":"test-node"}',
+                valid[:-1] + b',"ignored":NaN}',
+                valid[:-1] + b',"ignored":1e999}',
+                b'{"node_id":' + b'[' * 33 + b'0' + b']' * 33 + b'}',
+                b'{"node_id":"test-node",',
+                b'{"node_id":"\xff"}',
+                valid + b" " * 1_048_577,
+            )
+            for data in cases:
+                with self.subTest(data=data[:70]):
+                    path.write_bytes(data)
+                    with self.assertRaises(link.LinkFailure):
+                        link._load_hello_json(path)
+            path.write_bytes(valid)
+            self.assertEqual(link._load_hello_json(path),
+                             {"node_id": "test-node", "node_generation": 1,
+                              "connection_epoch": 2})
+
+    def test_cli_invalid_hello_returns_structured_failure_before_transport(self):
+        import tempfile
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hello.json"
+            path.write_text('{"node_id":', encoding="utf-8")
+            argv = ["ptah_e07_node_link", "--address", "localhost", "--port",
+                    "1", "--ca", "ca", "--client-cert", "cert",
+                    "--client-key", "key", "--hello-json", str(path)]
+            output = io.StringIO()
+            with patch("sys.argv", argv), patch.object(
+                    link, "join", side_effect=AssertionError("transport invoked")):
+                with redirect_stdout(output):
+                    self.assertEqual(link.main(), 2)
+            self.assertEqual(json.loads(output.getvalue())["result"],
+                             "e07_connection_failed")
+
+
 if __name__=="__main__":
     unittest.main()

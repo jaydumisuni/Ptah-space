@@ -1290,6 +1290,39 @@ with carrier.carrier_admission_lock(sys.argv[2]):
             lock_path.write_bytes(original)
         self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
 
+    @unittest.skipIf(os.name == "nt", "POSIX post-read state custody fixture")
+    def test_admission_lock_root_mode_changed_after_sentinel_read_fails_closed(self):
+        # The state root can lose its private mode after the post-flock
+        # identity check but before the final lock sentinel read. A private
+        # lock inode alone must not pass the admission-lock boundary when
+        # the root's observed custody epoch has changed.
+        from unittest.mock import patch
+
+        root = Path(self.b)
+        original_mode = root.stat().st_mode & 0o777
+        original_read = os.read
+        changed = []
+
+        def expose_root_after_read(fd, size):
+            result = original_read(fd, size)
+            if size == 2 and not changed:
+                os.chmod(root, 0o755)
+                changed.append(True)
+            return result
+
+        try:
+            with patch.object(C.os, "read", side_effect=expose_root_after_read):
+                with patch.object(C, "dbconnect",
+                                  side_effect=AssertionError(
+                                      "DB admission reached after root custody changed")):
+                    with self.assertRaisesRegex(
+                            ValueError, "carrier state directory identity changed"):
+                        C.pull(self.b, "inbound", 0, 1)
+            self.assertEqual(changed, [True])
+        finally:
+            os.chmod(root, original_mode)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
     @unittest.skipIf(os.name == "nt", "POSIX deterministic lock pathname fixture")
     def test_admission_lock_path_swap_after_sentinel_read_fails_closed(self):
         from unittest.mock import patch

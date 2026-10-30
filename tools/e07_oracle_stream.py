@@ -212,6 +212,26 @@ def carrier_admission_lock(state, preparing=False):
             # observed descriptor and pathname epochs while retaining flock.
             # This detects observed mutation, not adversarial ABA or a
             # race-free dirfd-relative filesystem seal.
+            # A root may lose its private custody after the post-flock
+            # check while the lock inode itself remains unchanged. Reject
+            # the observed root epoch before handing control to dbconnect;
+            # this remains an observation, not race-free directory custody.
+            try:
+                after_read_root = root.lstat()
+            except OSError as error:
+                if error.errno not in (errno.ENOENT, errno.ENOTDIR,
+                                       getattr(errno, "ELOOP", None)):
+                    raise
+                raise ValueError("carrier state directory identity changed") from error
+            if (not stat.S_ISDIR(after_read_root.st_mode) or is_path_alias(root)
+                    or (after_read_root.st_dev, after_read_root.st_ino,
+                        after_read_root.st_mode, after_read_root.st_uid,
+                        after_read_root.st_gid, after_read_root.st_nlink)
+                    != (root_identity.st_dev, root_identity.st_ino,
+                        root_identity.st_mode, root_identity.st_uid,
+                        root_identity.st_gid, root_identity.st_nlink)):
+                raise ValueError("carrier state directory identity changed")
+            require_private_custody(root, after_read_root, "state directory")
             try:
                 after_read_fd = os.fstat(fd)
                 after_read_path = path.lstat()

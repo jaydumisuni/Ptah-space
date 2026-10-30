@@ -28,6 +28,26 @@ class OracleCarrierContract(unittest.TestCase):
         if os.name == "nt":
             C.windows_claim_new_owner(path)
 
+    def test_serve_rejects_noninteger_endpoint_before_socket_claim(self):
+        # Direct native callers must not consume a one-shot carrier lifetime
+        # for a float or text port that cannot bind an IPv4 socket. Argparse
+        # validates CLI integers, but serve() is also a callable boundary.
+        from unittest.mock import patch
+
+        for index, port in enumerate((41321.0, 41321.5, "41321")):
+            with self.subTest(port=port):
+                state = str(Path(self.temp.name) / f"invalid-port-{index}")
+                C.prepare(state)
+                with patch.object(C.socket, "socket",
+                                  side_effect=AssertionError("socket allocated")):
+                    with patch.object(C.socket, "create_connection",
+                                      side_effect=AssertionError("dial attempted")):
+                        with self.assertRaisesRegex(ValueError, "invalid endpoint"):
+                            C.serve(state, "accept", port)
+                self.assertFalse((Path(state) / "serve.claim").exists())
+                self.assertFalse((Path(state) / "ended.json").exists())
+                self.assertFalse((Path(state) / "ready.json").exists())
+
     def test_serve_rejects_corrupt_prepared_history_before_socket_claim(self):
         # A prepared SQLite schema can retain a damaged durable TLS prefix.
         # Never consume the one-shot claim or open a native socket before

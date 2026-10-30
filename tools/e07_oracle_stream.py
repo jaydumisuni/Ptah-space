@@ -888,7 +888,10 @@ def seal_failed_post_ready_lifetime(root):
 
 
 def serve(state, mode, port):
-    if mode not in ("accept","dial") or not 1024<=port<=65535:
+    # Validate the native port domain before consuming the one-shot socket
+    # claim. A float can pass range comparisons but cannot bind a socket.
+    if (mode not in ("accept", "dial") or type(port) is not int
+            or not 1024 <= port <= 65535):
         raise ValueError("invalid endpoint")
     root=require_unaliased_state_path(state)
     # A prepared carrier belongs to exactly one TLS socket lifetime.

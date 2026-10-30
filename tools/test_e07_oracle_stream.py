@@ -20,6 +20,225 @@ class OracleCarrierContract(unittest.TestCase):
         self.b=str(Path(self.temp.name)/"athena")
         C.prepare(self.a)
         C.prepare(self.b)
+    def claim_socket_lifetime_for_status_fixture(self):
+        # Status fixtures emulate a native serve() claim without a real socket.
+        path = Path(self.b) / "serve.claim"
+        fd = os.open(path, C.exclusive_open_flags(os.O_WRONLY), 0o600)
+        os.close(fd)
+        if os.name == "nt":
+            C.windows_claim_new_owner(path)
+
+    @unittest.skipIf(os.name == "nt", "POSIX mode-custody adversarial fixture")
+    def test_dbconnect_rechecks_state_root_before_sqlite_open(self):
+        # The state root can lose private custody after its first stat and
+        # before SQLite opens the database pathname. An admitted lock does not
+        # authorize opening SQLite under a newly shared root.
+        from unittest.mock import patch
+
+        root = Path(self.a)
+        original = C.require_private_custody
+        changed = []
+
+        def downgrade_after_database_custody(path, identity, label):
+            original(path, identity, label)
+            if label == "database" and not changed:
+                root.chmod(0o770)
+                changed.append(True)
+
+        try:
+            with patch.object(C, "require_private_custody",
+                              side_effect=downgrade_after_database_custody):
+                with patch.object(C.sqlite3, "connect",
+                                  side_effect=AssertionError("SQLite opened shared root")):
+                    with self.assertRaisesRegex(
+                            ValueError, "carrier state directory identity changed"):
+                        C.pull(self.a, "outbound", 0, 1)
+            self.assertTrue(changed)
+        finally:
+            root.chmod(0o700)
+
+    @unittest.skipIf(os.name == "nt", "POSIX replacement-inode fixture")
+    def test_dbconnect_rejects_database_replacement_after_root_custody(self):
+        # The database pathname can be replaced after its first identity
+        # check, even when the state root and replacement are both private.
+        from unittest.mock import patch
+        import shutil
+
+        root = Path(self.a)
+        database = root / "carrier.sqlite3"
+        original = C.require_private_custody
+        seen_database = False
+        swapped = False
+
+        def swap_after_database_custody(path, identity, label):
+            nonlocal seen_database, swapped
+            original(path, identity, label)
+            if label == "database":
+                seen_database = True
+            elif label == "state directory" and seen_database and not swapped:
+                replacement = root / "replacement.sqlite3"
+                shutil.copy2(database, replacement)
+                os.replace(replacement, database)
+                swapped = True
+
+        with patch.object(C, "require_private_custody",
+                          side_effect=swap_after_database_custody):
+            with patch.object(C.sqlite3, "connect",
+                              side_effect=AssertionError("SQLite opened swapped database")):
+                with self.assertRaisesRegex(ValueError, "carrier database identity changed"):
+                    C.pull(self.a, "outbound", 0, 1)
+        self.assertTrue(swapped)
+
+    def test_serve_rejects_noninteger_endpoint_before_socket_claim(self):
+        # Direct native callers must not consume a one-shot carrier lifetime
+        # for a float or text port that cannot bind an IPv4 socket. Argparse
+        # validates CLI integers, but serve() is also a callable boundary.
+        from unittest.mock import patch
+
+        for index, port in enumerate((41321.0, 41321.5, "41321")):
+            with self.subTest(port=port):
+                state = str(Path(self.temp.name) / f"invalid-port-{index}")
+                C.prepare(state)
+                with patch.object(C.socket, "socket",
+                                  side_effect=AssertionError("socket allocated")):
+                    with patch.object(C.socket, "create_connection",
+                                      side_effect=AssertionError("dial attempted")):
+                        with self.assertRaisesRegex(ValueError, "invalid endpoint"):
+                            C.serve(state, "accept", port)
+                self.assertFalse((Path(state) / "serve.claim").exists())
+                self.assertFalse((Path(state) / "ended.json").exists())
+                self.assertFalse((Path(state) / "ready.json").exists())
+
+    def test_serve_rejects_corrupt_prepared_history_before_socket_claim(self):
+        # A prepared SQLite schema can retain a damaged durable TLS prefix.
+        # Never consume the one-shot claim or open a native socket before
+        # verifying both directional histories under admission custody.
+        from unittest.mock import patch
+
+        cases = (
+            (self.a, "outbound", 2, b"missing-first"),
+            (self.b, "inbound", 1, "text-not-ciphertext"),
+        )
+        for state, table, seq, payload in cases:
+            with self.subTest(table=table):
+                with C.dbtransaction(state) as conn:
+                    conn.execute(
+                        f"INSERT INTO {table}(seq,content) VALUES (?,?)",
+                        (seq, payload),
+                    )
+                with patch.object(C.socket, "socket",
+                                  side_effect=AssertionError("native socket opened")):
+                    with patch.object(C.socket, "create_connection",
+                                      side_effect=AssertionError("native dial opened")):
+                        with self.assertRaisesRegex(
+                                ValueError,
+                                "carrier journal sequence gap|invalid durable carrier frame"):
+                            C.serve(state, "accept" if table == "outbound" else "dial",
+                                    41321)
+                self.assertFalse((Path(state) / "serve.claim").exists())
+                self.assertFalse((Path(state) / "ready.json").exists())
+
+    def test_replaced_durable_stream_schema_is_not_accepted(self):
+        # A same-name TABLE is insufficient custody. Removing the sequence
+        # primary key permits duplicate keys that defeat count=max checks;
+        # altered constraints and triggers can change append semantics.
+        import sqlite3
+        from contextlib import closing
+
+        path = str(Path(self.a) / "carrier.sqlite3")
+        for table in ("inbound", "outbound"):
+            other = "outbound" if table == "inbound" else "inbound"
+            cases = (
+                f"CREATE TABLE {table}(seq INTEGER, content BLOB NOT NULL)",
+                f"CREATE TABLE {table}(seq INTEGER PRIMARY KEY, content BLOB)",
+                f"CREATE TABLE {table}(seq INTEGER PRIMARY KEY, content BLOB NOT NULL, extra TEXT)",
+            )
+            for ddl in cases:
+                with self.subTest(table=table, ddl=ddl):
+                    with closing(sqlite3.connect(path)) as conn:
+                        conn.execute(f"DROP TABLE {table}")
+                        conn.execute(ddl)
+                        if "seq INTEGER," in ddl:
+                            conn.executemany(
+                                f"INSERT INTO {table}(seq,content) VALUES (?,?)",
+                                ((1, b"a"), (1, b"b"), (3, b"c")),
+                            )
+                        conn.commit()
+                    with self.assertRaisesRegex(ValueError, "carrier journal schema"):
+                        C.pull(self.a, other, 0, 1)
+                    with closing(sqlite3.connect(path)) as conn:
+                        conn.execute(f"DROP TABLE {table}")
+                        conn.execute(
+                            f"CREATE TABLE {table}(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)"
+                        )
+                        conn.commit()
+
+            with self.subTest(table=table, ddl="trigger"):
+                with closing(sqlite3.connect(path)) as conn:
+                    conn.execute(
+                        f"CREATE TRIGGER unexpected_{table} AFTER INSERT ON {table} "
+                        f"BEGIN DELETE FROM {table} WHERE seq=NEW.seq; END"
+                    )
+                    conn.commit()
+                with self.assertRaisesRegex(ValueError, "carrier journal schema"):
+                    C.pull(self.a, other, 0, 1)
+                with closing(sqlite3.connect(path)) as conn:
+                    conn.execute(f"DROP TRIGGER unexpected_{table}")
+                    conn.commit()
+
+    def test_missing_durable_stream_table_is_not_silently_recreated(self):
+        # A missing journal is damaged custody, not an empty fresh stream.
+        # A read-only observation must not repair it or report healthy.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        for table in ("inbound", "outbound"):
+            with self.subTest(table=table):
+                with C.dbtransaction(self.a) as conn:
+                    conn.execute(f"DROP TABLE {table}")
+                output = StringIO()
+                with redirect_stdout(output):
+                    with self.assertRaisesRegex(ValueError, "carrier journal schema"):
+                        C.pull(self.a, "outbound", 0, 1)
+                    with patch("sys.argv", [
+                        "e07_oracle_stream.py", "status", "--state", self.a
+                    ]):
+                        with self.assertRaisesRegex(ValueError, "carrier journal schema"):
+                            C.main()
+                self.assertEqual(output.getvalue(), "")
+                # Verify the failed observation did not recreate the table.
+                import sqlite3
+                conn = sqlite3.connect(str(Path(self.a) / "carrier.sqlite3"))
+                try:
+                    self.assertIsNone(conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                        (table,),
+                    ).fetchone())
+                    conn.execute(
+                        f"CREATE TABLE {table}(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)"
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+
+    def test_durable_stream_view_cannot_impersonate_missing_table(self):
+        # SQLite IF NOT EXISTS accepts a preexisting VIEW of the same name.
+        # No transport observation may accept it as a durable frame journal.
+        import sqlite3
+        with C.dbtransaction(self.a) as conn:
+            conn.execute("DROP TABLE inbound")
+            conn.execute("CREATE VIEW inbound AS SELECT 1 AS seq, X'6162' AS content")
+        with self.assertRaisesRegex(ValueError, "carrier journal schema"):
+            C.pull(self.a, "outbound", 0, 1)
+        conn = sqlite3.connect(str(Path(self.a) / "carrier.sqlite3"))
+        try:
+            self.assertEqual(conn.execute(
+                "SELECT type FROM sqlite_master WHERE name='inbound'"
+            ).fetchone(), ("view",))
+        finally:
+            conn.close()
+
     @unittest.skipUnless(os.name == "nt", "Windows ACL integration")
     def test_windows_real_acl_custody_allows_fresh_private_carrier(self):
         # Real native owner/DACL admission is exercised, not mocked.
@@ -97,20 +316,60 @@ class OracleCarrierContract(unittest.TestCase):
                     [(1, b"valid-ciphertext")],
                 )
 
+    def test_publish_rejects_sparse_historical_journal_before_append(self):
+        # A valid new frame must not extend a journal whose earlier sequence
+        # is missing, zero or negative. This applies to both stream directions.
+        damaged = (
+            ((1, b"one"), (3, b"three")),
+            ((2, b"two"),),
+            ((0, b"zero"), (1, b"one")),
+            ((-1, b"negative"), (1, b"one")),
+        )
+        for table in ("outbound", "inbound"):
+            for history in damaged:
+                with self.subTest(table=table, seqs=[x[0] for x in history]):
+                    with C.dbtransaction(self.a) as conn:
+                        conn.execute(f"DELETE FROM {table}")
+                        conn.executemany(
+                            f"INSERT INTO {table}(seq,content) VALUES (?,?)",
+                            history,
+                        )
+                    with self.assertRaisesRegex(
+                        ValueError, "carrier journal sequence gap"
+                    ):
+                        C.publish(self.a, table, b"new-ciphertext")
+                    with C.dbtransaction(self.a) as conn:
+                        self.assertEqual(
+                            conn.execute(
+                                f"SELECT seq,content FROM {table} ORDER BY seq"
+                            ).fetchall(),
+                            list(history),
+                        )
+            with C.dbtransaction(self.a) as conn:
+                conn.execute(f"DELETE FROM {table}")
+            C.publish(self.a, table, b"valid-ciphertext")
+            self.assertEqual(len(C.pull(self.a, table, 0, 1)), 1)
+
     def test_outbound_sequence_exhaustion_is_controlled_before_sqlite_bind(self):
-        # A valid final signed-64-bit key may be written, but no successor
-        # can be bound to SQLite. Failed publication preserves prior bytes.
+        # A fabricated near-limit history is sparse, so reject its append
+        # rather than issuing an undeliverable successor. A max-int key also
+        # produces a controlled overflow error without SQLite binding.
         maximum = (1 << 63) - 1
         with C.dbtransaction(self.a) as conn:
             conn.execute("INSERT INTO outbound(seq,content) VALUES (?,?)",
                          (maximum - 1, b"penultimate"))
-        C.publish(self.a, "outbound", b"last")
-        self.assertEqual(C.pull(self.a, "outbound", maximum - 1, 1),
-                         [{"seq": maximum, "b64": "bGFzdA=="}])
+        with self.assertRaisesRegex(ValueError, "carrier journal sequence gap"):
+            C.publish(self.a, "outbound", b"last")
+        with C.dbtransaction(self.a) as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM outbound").fetchone()[0], 1)
+            conn.execute("DELETE FROM outbound")
+            conn.execute("INSERT INTO outbound(seq,content) VALUES (?,?)",
+                         (maximum, b"last"))
         with self.assertRaisesRegex(ValueError, "carrier sequence exhausted"):
             C.publish(self.a, "outbound", b"overflow")
-        self.assertEqual(C.pull(self.a, "outbound", maximum - 1, 2),
-                         [{"seq": maximum, "b64": "bGFzdA=="}])
+        with C.dbtransaction(self.a) as conn:
+            self.assertEqual(conn.execute("SELECT seq,content FROM outbound").fetchall(),
+                             [(maximum, b"last")])
 
     def test_pull_rejects_cursor_beyond_durable_journal(self):
         # An impossible local cursor must not silently hide queued TLS bytes.
@@ -143,6 +402,58 @@ class OracleCarrierContract(unittest.TestCase):
                         C.snapshot(self.a, 0)
                 with C.dbtransaction(self.a) as conn:
                     conn.execute(f"DELETE FROM {table}")
+
+    def test_resumed_reads_reject_corrupt_historical_prefix(self):
+        # A valid acknowledged cursor and suffix must not conceal an earlier
+        # missing sequence or invalid frame in the same durable TLS stream.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        histories = (
+            ((1, b"one"), (3, b"three"), (4, b"four")),
+            ((1, b""), (2, b"two"), (3, b"three"), (4, b"four")),
+        )
+        for table in ("outbound", "inbound"):
+            for history in histories:
+                with self.subTest(table=table, history=history):
+                    with C.dbtransaction(self.a) as conn:
+                        conn.execute(f"DELETE FROM {table}")
+                        conn.executemany(
+                            f"INSERT INTO {table}(seq,content) VALUES (?,?)",
+                            history,
+                        )
+                    for after in (3, 4):
+                        with self.subTest(after=after):
+                            with self.assertRaisesRegex(
+                                ValueError,
+                                "carrier journal sequence gap|invalid durable carrier frame",
+                            ):
+                                C.pull(self.a, table, after, 1)
+                            if table == "outbound":
+                                output = StringIO()
+                                with redirect_stdout(output):
+                                    with self.assertRaisesRegex(
+                                        ValueError,
+                                        "carrier journal sequence gap|invalid durable carrier frame",
+                                    ):
+                                        C.snapshot(self.a, after)
+                                self.assertEqual(output.getvalue(), "")
+                    if table == "outbound":
+                        output = StringIO()
+                        with patch("sys.argv", [
+                            "e07_oracle_stream.py", "exchange",
+                            "--state", self.a, "--after", "3",
+                            "--packets", '[{"seq":1,"b64":"YWJj"}]',
+                        ]):
+                            with redirect_stdout(output):
+                                with self.assertRaisesRegex(
+                                    ValueError,
+                                    "carrier journal sequence gap|invalid durable carrier frame",
+                                ):
+                                    C.main()
+                        self.assertEqual(output.getvalue(), "")
+                        self.assertEqual(C.pull(self.a, "inbound", 0, 1), [])
 
     def test_historical_inbound_gap_rejects_new_delivery_and_exchange(self):
         # A previously damaged durable inbound journal must never advance its
@@ -458,6 +769,59 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertEqual(C.pull(self.b, "inbound", 0, 10),
                          [{"seq": 1, "b64": "YWJj"}])
 
+    def test_corrupt_acknowledged_outbound_cursor_never_commits_inbound(self):
+        # A cursor is an assertion that the caller already received this
+        # ciphertext. A damaged acknowledged row must not be silently skipped
+        # merely because the subsequent outbound window is still healthy.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        incoming = '[{"seq":1,"b64":"YWJj"}]'
+        for damaged in (b"", "not-a-blob", b"x" * (C.MAX_CHUNK + 1)):
+            for cursor in (1, 2):
+                with self.subTest(kind=type(damaged).__name__, cursor=cursor):
+                    with C.dbtransaction(self.b) as conn:
+                        conn.execute("DELETE FROM outbound")
+                        conn.execute("DELETE FROM inbound")
+                        conn.executemany(
+                            "INSERT INTO outbound(seq,content) VALUES (?,?)",
+                            [(1, b"first"), (2, b"second")])
+                        conn.execute(
+                            "UPDATE outbound SET content=? WHERE seq=?",
+                            (damaged, cursor))
+                    with self.assertRaisesRegex(
+                            ValueError, "invalid durable carrier frame"):
+                        C.pull(self.b, "outbound", cursor, C.MAX_BATCH)
+                    output = StringIO()
+                    with redirect_stdout(output):
+                        with self.assertRaisesRegex(
+                                ValueError, "invalid durable carrier frame"):
+                            C.snapshot(self.b, cursor)
+                    self.assertEqual(output.getvalue(), "")
+                    output = StringIO()
+                    with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                            "--state", self.b, "--after",
+                                            str(cursor), "--packets", incoming]):
+                        with redirect_stdout(output):
+                            with self.assertRaisesRegex(
+                                    ValueError, "invalid durable carrier frame"):
+                                C.main()
+                    self.assertEqual(output.getvalue(), "")
+                    self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+        with C.dbtransaction(self.b) as conn:
+            conn.execute("UPDATE outbound SET content=? WHERE seq=2", (b"second",))
+        output = StringIO()
+        with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                "--state", self.b, "--after", "2",
+                                "--packets", incoming]):
+            with redirect_stdout(output):
+                C.main()
+        self.assertEqual(json.loads(output.getvalue())["packets"], [])
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1),
+                         [{"seq": 1, "b64": "YWJj"}])
+
     def test_corrupt_durable_ciphertext_frames_rejected_before_exchange_commit(self):
         # A damaged SQLite BLOB can pass sequence continuity but cannot be
         # delivered as a TLS frame. Reject it before accepting inbound bytes.
@@ -543,6 +907,36 @@ class OracleCarrierContract(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["packets"], [])
         self.assertEqual(C.pull(self.b, "inbound", 0, 10), [])
 
+    def test_empty_exchange_rejects_damaged_inbound_history(self):
+        # An empty Oracle poll still represents a usable bidirectional TLS
+        # transport. It must not report success over a broken inbound prefix.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        histories = (
+            [(1, b"one"), (3, b"missing-two")],
+            [(1, "text-instead-of-ciphertext")],
+            [(1, b"")],
+        )
+        for history in histories:
+            with self.subTest(history=history):
+                with C.dbtransaction(self.b) as conn:
+                    conn.execute("DELETE FROM inbound")
+                    conn.executemany(
+                        "INSERT INTO inbound(seq,content) VALUES (?,?)", history
+                    )
+                output = StringIO()
+                with patch("sys.argv", ["e07_oracle_stream.py", "exchange",
+                                        "--state", self.b, "--packets", "[]"]):
+                    with redirect_stdout(output):
+                        with self.assertRaisesRegex(
+                            ValueError,
+                            "carrier journal sequence gap|invalid durable inbound carrier frame",
+                        ):
+                            C.main()
+                self.assertEqual(output.getvalue(), "")
+
     def test_sqlite_wal_fallback_is_rejected_before_schema_admission(self):
         # A filesystem refusing WAL must not silently switch carrier journal
         # semantics while the admission lock and sidecar contract assume WAL.
@@ -590,6 +984,17 @@ class OracleCarrierContract(unittest.TestCase):
                             class Cursor:
                                 def fetchone(self):
                                     return ("wal",)
+                            return Cursor()
+                        if "FROM sqlite_master" in _sql:
+                            if "tbl_name" in _sql:
+                                class Cursor:
+                                    def fetchone(self):
+                                        return None
+                                return Cursor()
+                            class Cursor:
+                                def fetchall(self):
+                                    return [(name, "table", ddl)
+                                            for name, ddl in C._CARRIER_TABLE_DDL.items()]
                             return Cursor()
 
                     def commit(self):
@@ -914,6 +1319,121 @@ with carrier.carrier_admission_lock(sys.argv[2]):
             with self.assertRaisesRegex(ValueError, "prepared carrier admission lock required"):
                 C.pull(self.b, "inbound", 0, 1)
 
+    def test_mutated_admission_lock_sentinel_fails_before_sqlite_open(self):
+        # A private regular inode is not enough: prepare seals a one-byte
+        # NUL lock sentinel. Truncation, rewriting, or extension must not
+        # admit a different lock generation into a SQLite transaction.
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        original = lock_path.read_bytes()
+        self.assertEqual(original, b"\x00")
+        try:
+            for payload in (b"", b"\x01", b"\x00\x00"):
+                with self.subTest(payload=payload):
+                    lock_path.write_bytes(payload)
+                    with patch.object(C.sqlite3, "connect", side_effect=AssertionError("opened mutated lock")):
+                        with self.assertRaisesRegex(ValueError, "carrier admission lock content changed"):
+                            C.pull(self.b, "inbound", 0, 1)
+        finally:
+            lock_path.write_bytes(original)
+
+    @unittest.skipIf(os.name == "nt", "POSIX deterministic lock epoch fixture")
+    def test_admission_lock_inplace_rewrite_after_sentinel_read_fails_closed(self):
+        # The already locked inode can change after its one-byte NUL is read.
+        # Do not enter SQLite on a stale admission-lock observation.
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        original_read = os.read
+        original = lock_path.read_bytes()
+        observed = []
+
+        def rewrite_after_read(fd, size):
+            result = original_read(fd, size)
+            if not observed and size == 2:
+                observed.append(True)
+                with lock_path.open("r+b") as handle:
+                    handle.write(b"\x01")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                before = lock_path.stat()
+                os.utime(lock_path, ns=(before.st_atime_ns,
+                                        before.st_mtime_ns + 1_000_000_000))
+            return result
+
+        try:
+            with patch.object(C.os, "read", side_effect=rewrite_after_read):
+                with patch.object(C.sqlite3, "connect",
+                                  side_effect=AssertionError("SQLite opened after lock epoch changed")):
+                    with self.assertRaisesRegex(ValueError, "carrier admission lock identity changed"):
+                        C.pull(self.b, "inbound", 0, 1)
+            self.assertEqual(observed, [True])
+        finally:
+            lock_path.write_bytes(original)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+    @unittest.skipIf(os.name == "nt", "POSIX post-read state custody fixture")
+    def test_admission_lock_root_mode_changed_after_sentinel_read_fails_closed(self):
+        # The state root can lose its private mode after the post-flock
+        # identity check but before the final lock sentinel read. A private
+        # lock inode alone must not pass the admission-lock boundary when
+        # the root's observed custody epoch has changed.
+        from unittest.mock import patch
+
+        root = Path(self.b)
+        original_mode = root.stat().st_mode & 0o777
+        original_read = os.read
+        changed = []
+
+        def expose_root_after_read(fd, size):
+            result = original_read(fd, size)
+            if size == 2 and not changed:
+                os.chmod(root, 0o755)
+                changed.append(True)
+            return result
+
+        try:
+            with patch.object(C.os, "read", side_effect=expose_root_after_read):
+                with patch.object(C, "dbconnect",
+                                  side_effect=AssertionError(
+                                      "DB admission reached after root custody changed")):
+                    with self.assertRaisesRegex(
+                            ValueError, "carrier state directory identity changed"):
+                        C.pull(self.b, "inbound", 0, 1)
+            self.assertEqual(changed, [True])
+        finally:
+            os.chmod(root, original_mode)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+    @unittest.skipIf(os.name == "nt", "POSIX deterministic lock pathname fixture")
+    def test_admission_lock_path_swap_after_sentinel_read_fails_closed(self):
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        detached = Path(self.temp.name) / "detached-admission-lock"
+        original_read = os.read
+        observed = []
+
+        def swap_after_read(fd, size):
+            result = original_read(fd, size)
+            if not observed and size == 2:
+                observed.append(True)
+                lock_path.rename(detached)
+                lock_path.write_bytes(b"\x00")
+                os.chmod(lock_path, 0o600)
+            return result
+
+        try:
+            with patch.object(C.os, "read", side_effect=swap_after_read):
+                with patch.object(C.sqlite3, "connect",
+                                  side_effect=AssertionError("SQLite opened after lock path changed")):
+                    with self.assertRaisesRegex(ValueError, "carrier admission lock identity changed"):
+                        C.pull(self.b, "inbound", 0, 1)
+            self.assertEqual(observed, [True])
+        finally:
+            lock_path.unlink(missing_ok=True)
+            if detached.exists():
+                detached.rename(lock_path)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
     @unittest.skipIf(os.name == "nt", "POSIX mode fixture")
     def test_shared_admission_lock_fails_closed_before_sqlite_open(self):
         from unittest.mock import patch
@@ -951,9 +1471,111 @@ with carrier.carrier_admission_lock(sys.argv[2]):
     def test_private_lifecycle_marker_status_and_missing_marker(self):
         marker = Path(self.b) / "ready.json"
         self.assertFalse(C.admitted_lifecycle_marker(marker))
-        C.write_exclusive_marker(marker, {"mode": "accept", "pid": 1})
+        C.write_exclusive_marker(marker, {"mode": "accept", "port": 41321, "pid": 1, "bound": "127.0.0.1"})
         self.assertTrue(C.admitted_lifecycle_marker(marker))
         self.assertFalse(C.admitted_lifecycle_marker(Path(self.b) / "ended.json"))
+
+    def test_lifecycle_marker_requires_actual_transport_event_schema(self):
+        # A private, valid JSON file is not proof that a native carrier ever
+        # became ready or ended. Reject incomplete and contradictory events.
+        valid_ready = {"mode": "accept", "port": 41321, "pid": 1,
+                       "bound": "127.0.0.1"}
+        valid_ended = {"pid": 1, "finished": True, "failed": False}
+        cases = (
+            ("ready.json", {"unrelated": True}),
+            ("ready.json", {"mode": "dial", "pid": 1}),
+            ("ready.json", {**valid_ready, "port": 443}),
+            ("ready.json", {**valid_ready, "bound": "0.0.0.0"}),
+            ("ready.json", {**valid_ready, "pid": True}),
+            ("ended.json", {"unrelated": True}),
+            ("ended.json", {**valid_ended, "finished": True, "failed": True}),
+            ("ended.json", {**valid_ended, "finished": 1}),
+        )
+        for name, document in cases:
+            with self.subTest(name=name, document=document):
+                marker = Path(self.b) / name
+                if marker.exists():
+                    marker.unlink()
+                C.write_exclusive_marker(marker, document)
+                try:
+                    with self.assertRaisesRegex(ValueError, "invalid carrier lifecycle marker schema"):
+                        C.admitted_lifecycle_marker(marker)
+                finally:
+                    marker.unlink()
+        for name, document in (("ready.json", valid_ready),
+                               ("ended.json", valid_ended)):
+            marker = Path(self.b) / name
+            C.write_exclusive_marker(marker, document)
+            self.assertTrue(C.admitted_lifecycle_marker(marker))
+
+    def test_lifecycle_marker_rejects_non_native_process_identity(self):
+        # A marker cannot attest a native socket process using an arbitrary
+        # precision JSON integer outside the operating-system PID domain.
+        for name, document in (
+            ("ready.json", {"mode": "accept", "port": 41321,
+                            "pid": 1 << 32, "bound": "127.0.0.1"}),
+            ("ended.json", {"pid": 1 << 80, "finished": False,
+                            "failed": True}),
+        ):
+            with self.subTest(name=name):
+                marker = Path(self.b) / name
+                C.write_exclusive_marker(marker, document)
+                with self.assertRaisesRegex(ValueError, "invalid carrier lifecycle marker schema"):
+                    C.admitted_lifecycle_marker(marker)
+
+    @unittest.skipIf(os.name == "nt", "POSIX marker epoch mutation fixture")
+    def test_lifecycle_marker_rejects_inplace_mutation_during_admission(self):
+        # A marker rewritten in place can retain its inode, owner, ACL and
+        # valid JSON schema. Neither a pre-read pathname check nor an
+        # unverified descriptor read proves that the observed epoch is stable.
+        from unittest.mock import patch
+
+        cases = (
+            ("ready.json", {"mode": "accept", "port": 41321,
+                            "pid": 1, "bound": "127.0.0.1"}),
+            ("ended.json", {"pid": 1, "finished": True, "failed": False}),
+        )
+        for name, document in cases:
+            marker = Path(self.b) / name
+            for phase in ("after_fstat", "after_read"):
+                with self.subTest(name=name, phase=phase):
+                    if marker.exists():
+                        marker.unlink()
+                    C.write_exclusive_marker(marker, document)
+                    self.assertTrue(C.admitted_lifecycle_marker(marker))
+                    real_fstat = os.fstat
+                    real_read = os.read
+                    mutated = [False]
+
+                    def change_epoch():
+                        if mutated[0]:
+                            return
+                        mutated[0] = True
+                        old = marker.stat()
+                        payload = marker.read_bytes()
+                        marker.write_bytes(payload)
+                        os.utime(marker, ns=(
+                            old.st_atime_ns, old.st_mtime_ns + 2_000_000_000))
+
+                    def after_fstat(fd):
+                        result = real_fstat(fd)
+                        if phase == "after_fstat":
+                            change_epoch()
+                        return result
+
+                    def after_read(fd, length):
+                        result = real_read(fd, length)
+                        if phase == "after_read":
+                            change_epoch()
+                        return result
+
+                    with patch.object(C.os, "fstat", side_effect=after_fstat):
+                        with patch.object(C.os, "read", side_effect=after_read):
+                            with self.assertRaisesRegex(
+                                    ValueError, "lifecycle marker identity changed"):
+                                C.admitted_lifecycle_marker(marker)
+                    self.assertTrue(mutated[0])
+                    marker.unlink()
 
     @unittest.skipIf(os.name == "nt", "POSIX inode replacement fixture")
     def test_lifecycle_marker_regular_file_swap_is_rejected(self):
@@ -1203,6 +1825,27 @@ with carrier.carrier_admission_lock(sys.argv[2]):
                 finally:
                     sidecar.unlink()
 
+    def test_batch_sequence_must_increase_before_sqlite_admission(self):
+        # A single Oracle packet batch is an ordered TLS stream window.
+        # An out-of-order replay or duplicate within that window must not
+        # become an acknowledged transport delivery, even if SQLite could
+        # ultimately sort the durable rows by their primary keys.
+        for sequences in ((2, 1), (1, 1), (1, 3, 2)):
+            with self.subTest(sequences=sequences):
+                document = json.dumps([
+                    {"seq": seq, "b64": "YWJj"} for seq in sequences
+                ])
+                with self.assertRaisesRegex(ValueError, "strictly increasing"):
+                    C.admit_packet_batch(document)
+        # A repeated *complete* ordered batch remains idempotent.
+        ordered = json.dumps([
+            {"seq": seq, "b64": "YWJj"} for seq in (1, 2, 3)
+        ])
+        C.deliver(self.b, ordered)
+        C.deliver(self.b, ordered)
+        self.assertEqual([row["seq"] for row in C.pull(self.b, "inbound", 0, 32)],
+                         [1, 2, 3])
+
     def test_gap_and_conflicting_replay_rejected(self):
         C.deliver(self.b,'[{"seq":1,"b64":"YWJj"}]')
         with self.assertRaisesRegex(ValueError,"out-of-order"):
@@ -1297,6 +1940,305 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         self.assertIn("E07_CARRIER_PUMP_FAILED:writer",caught[0])
         self.assertFalse(json.loads((Path(self.b)/"ended.json").read_text())["finished"])
 
+    def test_writer_send_failure_cannot_certify_inbound_delivery(self):
+        # A failed local socket send is not an E07 transport completion,
+        # even when the Oracle inbound journal already durably holds bytes.
+        from unittest.mock import MagicMock, patch
+        C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
+        listener = MagicMock()
+        client = MagicMock()
+        client.recv.side_effect = socket.timeout("poll while writer runs")
+        client.sendall.side_effect = BrokenPipeError("injected local send failure")
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        with patch.object(C.socket, "socket", return_value=listener):
+            with self.assertRaisesRegex(
+                    RuntimeError, "E07_CARRIER_PUMP_FAILED:writer:BrokenPipeError"):
+                C.serve(self.b, "accept", 41321)
+        client.sendall.assert_called_once_with(b"tls-frame")
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+        self.assertEqual(
+            [frame["seq"] for frame in C.pull(self.b, "inbound", 0, 32)], [1])
+
+    def test_post_pump_socket_close_errors_still_seal_failed_lifetime(self):
+        # A socket close failure after the pumps stop must not bypass the
+        # admission-locked finalizer or leave an apparently live carrier.
+        from unittest.mock import MagicMock, patch
+        for state, failed_endpoint in ((self.a, "client"), (self.b, "listener")):
+            with self.subTest(endpoint=failed_endpoint):
+                listener = MagicMock()
+                client = MagicMock()
+                client.recv.return_value = b""
+                listener.accept.return_value = (client, ("127.0.0.1", 41322))
+                endpoint = client if failed_endpoint == "client" else listener
+                endpoint.close.side_effect = OSError("injected final socket close failure")
+                with patch.object(C.socket, "socket", return_value=listener):
+                    with self.assertRaisesRegex(
+                        RuntimeError, "E07_CARRIER_PUMP_FAILED:shutdown:OSError"
+                    ):
+                        C.serve(state, "accept", 41321)
+                client.close.assert_called_once_with()
+                listener.close.assert_called_once_with()
+                ended = json.loads((Path(state) / "ended.json").read_text())
+                self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+                with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+                    C.deliver(state, '[{"seq":1,"b64":"eA=="}]')
+
+    def test_socket_eof_with_undelivered_inbound_is_not_finished(self):
+        # The native peer can close before the writer drains already admitted
+        # Oracle ciphertext. A clean EOF is not proof those bytes reached it.
+        from unittest.mock import patch
+        C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        errors = []
+
+        def run():
+            try:
+                C.serve(self.b, "accept", port)
+            except Exception as error:
+                errors.append(str(error))
+
+        # Model a writer whose poll has not yet observed the inbound frame.
+        # The durable queue still contains the frame when the reader sees EOF.
+        with patch.object(C, "pull", return_value=[]):
+            worker = threading.Thread(target=run)
+            worker.start()
+            deadline = time.monotonic() + 3
+            while not (Path(self.b) / "ready.json").exists() and time.monotonic() < deadline:
+                time.sleep(.01)
+            with socket.create_connection(("127.0.0.1", port), timeout=2):
+                pass
+            worker.join(timeout=4)
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(errors, "undelivered durable inbound bytes must fail closed")
+        self.assertIn("E07_CARRIER_PUMP_FAILED:undelivered", errors[0])
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertFalse(ended["finished"])
+        self.assertTrue(ended["failed"])
+        self.assertEqual([p["seq"] for p in C.pull(self.b, "inbound", 0, 32)], [1])
+
+    def test_socket_eof_after_inbound_forwarding_can_finish(self):
+        # A completed local sendall is eligible for a local pump success
+        # claim; it is not a remote TLS or application effect witness.
+        C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        errors = []
+
+        def run():
+            try:
+                C.serve(self.b, "accept", port)
+            except Exception as error:
+                errors.append(str(error))
+
+        worker = threading.Thread(target=run)
+        worker.start()
+        deadline = time.monotonic() + 3
+        while not (Path(self.b) / "ready.json").exists() and time.monotonic() < deadline:
+            time.sleep(.01)
+        with socket.create_connection(("127.0.0.1", port), timeout=2) as sock:
+            sock.settimeout(2)
+            self.assertEqual(sock.recv(32), b"tls-frame")
+        worker.join(timeout=4)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, [])
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertTrue(ended["finished"])
+        self.assertFalse(ended["failed"])
+
+    def test_ended_carrier_rejects_late_native_outbound_publish(self):
+        # A pump thread that survives the bounded shutdown join must not
+        # append outbound TLS ciphertext after the finalizer seals the
+        # claimed socket lifetime. Already durable bytes stay drainable.
+        for state, finished in ((self.a, True), (self.b, False)):
+            with self.subTest(finished=finished):
+                C.publish(state, "outbound", b"durable-before-end")
+                C.write_exclusive_marker(
+                    Path(state) / "ended.json",
+                    {"pid": 1, "finished": finished, "failed": not finished})
+                with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+                    C.publish(state, "outbound", b"late-native-tls")
+                packets = C.pull(state, "outbound", 0, 2)
+                self.assertEqual(len(packets), 1)
+                import base64
+                self.assertEqual(base64.b64decode(packets[0]["b64"]),
+                                 b"durable-before-end")
+
+    def test_ended_carrier_rejects_late_deliver_and_exchange(self):
+        # A finished native socket cannot receive another TLS ciphertext
+        # frame through a delayed Oracle RPC. Snapshot reads remain allowed.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+        import base64
+
+        C.publish(self.b, "outbound", b"outbound-drainable")
+        C.write_exclusive_marker(Path(self.b) / "ended.json",
+                                 {"pid": 1, "finished": True, "failed": False})
+        packet = json.dumps([{"seq": 1, "b64": base64.b64encode(
+            b"late-tls-frame").decode("ascii")}])
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.b, packet)
+        with patch.object(C.sys, "argv", ["e07_oracle_stream.py",
+                                          "exchange", "--state", self.b,
+                                          "--after", "0", "--packets", packet]):
+            with redirect_stdout(StringIO()):
+                with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+                    C.main()
+        with C.dbtransaction(self.b) as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM inbound").fetchone()[0], 0)
+        self.assertEqual(C.pull(self.b, "outbound", 0, 1)[0]["seq"], 1)
+
+    def test_end_marker_admission_is_serialized_against_late_rpc(self):
+        # The final EOF check and ended marker must share the admission lock.
+        # A concurrent RPC attempting delivery while the marker is being
+        # written must not slip into the now-closed TLS session.
+        from unittest.mock import patch
+        import base64
+
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        marker_started = threading.Event()
+        release_marker = threading.Event()
+        result = []
+        late = []
+        original = C.write_exclusive_marker
+
+        def delayed_marker(path, document):
+            if Path(path).name == "ended.json":
+                marker_started.set()
+                if not release_marker.wait(timeout=4):
+                    raise TimeoutError("test marker barrier")
+            return original(path, document)
+
+        def run_server():
+            try:
+                C.serve(self.b, "accept", port)
+                result.append("finished")
+            except Exception as error:
+                result.append(str(error))
+
+        def late_delivery():
+            packet = json.dumps([{"seq": 1, "b64": base64.b64encode(
+                b"late-tls-frame").decode("ascii")}])
+            try:
+                C.deliver(self.b, packet)
+                late.append("accepted")
+            except Exception as error:
+                late.append(str(error))
+
+        with patch.object(C, "write_exclusive_marker", side_effect=delayed_marker):
+            server = threading.Thread(target=run_server)
+            server.start()
+            try:
+                deadline = time.monotonic() + 3
+                while not (Path(self.b) / "ready.json").exists() and time.monotonic() < deadline:
+                    time.sleep(.01)
+                with socket.create_connection(("127.0.0.1", port), timeout=2):
+                    pass
+                self.assertTrue(marker_started.wait(timeout=3))
+                sender = threading.Thread(target=late_delivery)
+                sender.start()
+                time.sleep(.05)
+                release_marker.set()
+                sender.join(timeout=4)
+                server.join(timeout=4)
+                self.assertFalse(sender.is_alive())
+                self.assertFalse(server.is_alive())
+                self.assertEqual(result, ["finished"])
+                self.assertEqual(len(late), 1)
+                self.assertIn("carrier lifetime ended", late[0])
+            finally:
+                release_marker.set()
+                server.join(timeout=4)
+
+    def test_end_marker_admission_serializes_exchange_snapshot_and_commit(self):
+        # The combined Oracle exchange must not commit inbound ciphertext or
+        # return an outbound window after the native EOF finalizer seals life.
+        # This is a separate concurrency path from deliver(), not just a
+        # static already-ended marker check.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+        import base64
+
+        C.publish(self.a, "outbound", b"drain-after-end")
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        marker_started = threading.Event()
+        release_marker = threading.Event()
+        server_result = []
+        exchange_result = []
+        original_marker = C.write_exclusive_marker
+
+        def held_end_marker(path, document):
+            if Path(path).name == "ended.json":
+                marker_started.set()
+                if not release_marker.wait(timeout=4):
+                    raise TimeoutError("test exchange marker barrier")
+            return original_marker(path, document)
+
+        def run_server():
+            try:
+                C.serve(self.a, "accept", port)
+                server_result.append("finished")
+            except Exception as error:
+                server_result.append(str(error))
+
+        def run_exchange():
+            packet = json.dumps([{"seq": 1, "b64": base64.b64encode(
+                b"late-exchange-tls").decode("ascii")}])
+            output = StringIO()
+            try:
+                with patch.object(C.sys, "argv", [
+                    "e07_oracle_stream.py", "exchange", "--state", self.a,
+                    "--after", "0", "--packets", packet,
+                ]), redirect_stdout(output):
+                    C.main()
+                exchange_result.append(("accepted", output.getvalue()))
+            except Exception as error:
+                exchange_result.append((str(error), output.getvalue()))
+
+        with patch.object(C, "write_exclusive_marker", side_effect=held_end_marker):
+            server = threading.Thread(target=run_server)
+            server.start()
+            try:
+                deadline = time.monotonic() + 3
+                while not (Path(self.a) / "ready.json").exists() and time.monotonic() < deadline:
+                    time.sleep(.01)
+                with socket.create_connection(("127.0.0.1", port), timeout=2):
+                    pass
+                self.assertTrue(marker_started.wait(timeout=3))
+                exchange = threading.Thread(target=run_exchange)
+                exchange.start()
+                time.sleep(.08)
+                release_marker.set()
+                exchange.join(timeout=4)
+                server.join(timeout=4)
+                self.assertFalse(exchange.is_alive())
+                self.assertFalse(server.is_alive())
+                self.assertEqual(server_result, ["finished"])
+                self.assertEqual(len(exchange_result), 1)
+                self.assertIn("carrier lifetime ended", exchange_result[0][0])
+                self.assertEqual(exchange_result[0][1], "")
+            finally:
+                release_marker.set()
+                server.join(timeout=4)
+        with C.dbtransaction(self.a) as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM inbound").fetchone()[0], 0)
+        self.assertEqual(C.pull(self.a, "outbound", 0, 1)[0]["seq"], 1)
+
     def test_spent_carrier_state_cannot_reopen_a_socket_and_replay_tls_bytes(self):
         # The same SQLite queue must never be attached to a second TLS session.
         C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
@@ -1305,6 +2247,403 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         with patch.object(C.socket, "socket", side_effect=AssertionError("reopened spent carrier")):
             with self.assertRaisesRegex(ValueError, "newly prepared carrier state"):
                 C.serve(self.b, "accept", 41321)
+
+    def test_post_ready_failure_seals_under_inbound_admission_lock(self):
+        # A late Oracle delivery must not race either post-ready failure
+        # marker. Both socket setup and byte-pump launch consume the claim.
+        from contextlib import contextmanager
+        from unittest.mock import MagicMock, patch
+
+        original_lock = C.carrier_admission_lock
+        original_marker = C.write_exclusive_marker
+        held = [0]
+
+        @contextmanager
+        def traced_lock(*args, **kwargs):
+            with original_lock(*args, **kwargs):
+                held[0] += 1
+                try:
+                    yield
+                finally:
+                    held[0] -= 1
+
+        def require_locked_end(path, document):
+            if Path(path).name == "ended.json":
+                self.assertGreater(held[0], 0, "failed end marker outside admission lock")
+            return original_marker(path, document)
+
+        listener = MagicMock()
+        client = MagicMock()
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        client.settimeout.side_effect = OSError("injected post-ready setup failure")
+        with patch.object(C, "carrier_admission_lock", side_effect=traced_lock):
+            with patch.object(C, "write_exclusive_marker", side_effect=require_locked_end):
+                with patch.object(C.socket, "socket", return_value=listener):
+                    with self.assertRaisesRegex(OSError, "post-ready setup failure"):
+                        C.serve(self.a, "accept", 41321)
+        ended = json.loads((Path(self.a) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+
+        listener = MagicMock()
+        client = MagicMock()
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        thread = MagicMock()
+        thread.start.side_effect = RuntimeError("injected post-ready thread failure")
+        with patch.object(C, "carrier_admission_lock", side_effect=traced_lock):
+            with patch.object(C, "write_exclusive_marker", side_effect=require_locked_end):
+                with patch.object(C.socket, "socket", return_value=listener):
+                    with patch.object(C.threading, "Thread", return_value=thread):
+                        with self.assertRaisesRegex(RuntimeError, "post-ready thread failure"):
+                            C.serve(self.b, "accept", 41321)
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+
+    def test_carrier_thread_launch_failure_closes_sockets_and_seals_lifetime(self):
+        # Ready is already durable; a failed byte-pump launch must not
+        # advertise a live carrier or leave a native socket open.
+        from unittest.mock import MagicMock, patch
+        listener = MagicMock()
+        client = MagicMock()
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        thread = MagicMock()
+        thread.start.side_effect = RuntimeError("injected thread launch failure")
+        with patch.object(C.socket, "socket", return_value=listener):
+            with patch.object(C.threading, "Thread", return_value=thread):
+                with self.assertRaisesRegex(RuntimeError, "injected thread launch failure"):
+                    C.serve(self.b, "accept", 41321)
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+
+    def test_second_carrier_thread_launch_failure_stops_first_and_seals_lifetime(self):
+        # The reader may already have started when the writer cannot launch.
+        from unittest.mock import MagicMock, patch
+        listener = MagicMock()
+        client = MagicMock()
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        reader = MagicMock()
+        writer = MagicMock()
+        writer.start.side_effect = RuntimeError("injected writer launch failure")
+        with patch.object(C.socket, "socket", return_value=listener):
+            with patch.object(C.threading, "Thread", side_effect=[reader, writer]):
+                with self.assertRaisesRegex(RuntimeError, "injected writer launch failure"):
+                    C.serve(self.b, "accept", 41321)
+        reader.start.assert_called_once_with()
+        reader.join.assert_called_once_with(timeout=3)
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+
+    def test_accept_socket_creation_failure_seals_claimed_lifetime(self):
+        # A failed socket constructor occurs after serve.claim but before
+        # ready.json. It must still end the spent lifetime and reject late
+        # Oracle ciphertext instead of leaving an ambiguous claimed state.
+        from unittest.mock import patch
+
+        with patch.object(C.socket, "socket",
+                          side_effect=OSError("injected listener allocation failure")):
+            with self.assertRaisesRegex(OSError, "injected listener allocation failure"):
+                C.serve(self.b, "accept", 41321)
+        root = Path(self.b)
+        self.assertTrue((root / "serve.claim").exists())
+        self.assertFalse((root / "ready.json").exists())
+        ended = root / "ended.json"
+        self.assertTrue(ended.exists(), "spent socket claim lacks failed end marker")
+        status = json.loads(ended.read_text())
+        self.assertEqual((status["finished"], status["failed"]), (False, True))
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
+
+    def test_accept_bind_failure_closes_listener_and_seals_claimed_lifetime(self):
+        # Binding can fail after the claim but before a ready marker exists.
+        from unittest.mock import MagicMock, patch
+
+        listener = MagicMock()
+        listener.bind.side_effect = OSError("injected loopback bind failure")
+        with patch.object(C.socket, "socket", return_value=listener):
+            with self.assertRaisesRegex(OSError, "injected loopback bind failure"):
+                C.serve(self.b, "accept", 41321)
+        listener.close.assert_called_once_with()
+        root = Path(self.b)
+        self.assertTrue((root / "serve.claim").exists())
+        self.assertFalse((root / "ready.json").exists())
+        ended = json.loads((root / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
+
+    def test_unexpected_dial_attempt_failure_seals_claimed_lifetime(self):
+        # Unexpected errors during the bounded dial retry loop occur AFTER
+        # serve.claim. They must not leave a spent state open to late RPC bytes.
+        from unittest.mock import patch
+
+        for state, interrupted_sleep in ((self.a, False), (self.b, True)):
+            with self.subTest(interrupted_sleep=interrupted_sleep):
+                with patch.object(C.socket, "create_connection",
+                                  side_effect=OSError("Control unavailable") if interrupted_sleep
+                                  else RuntimeError("injected dial setup failure")):
+                    if interrupted_sleep:
+                        with patch.object(C.time, "sleep",
+                                          side_effect=RuntimeError("injected dial retry failure")):
+                            with self.assertRaisesRegex(RuntimeError, "injected dial retry failure"):
+                                C.serve(state, "dial", 41321)
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "injected dial setup failure"):
+                            C.serve(state, "dial", 41321)
+                root = Path(state)
+                self.assertTrue((root / "serve.claim").exists())
+                self.assertFalse((root / "ready.json").exists())
+                self.assertTrue(C.admitted_lifecycle_marker(root / "ended.json"))
+                self.assertEqual(json.loads((root / "ended.json").read_text()),
+                                 {"pid": os.getpid(), "finished": False, "failed": True})
+                with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+                    C.deliver(state, '[{"seq":1,"b64":"eA=="}]')
+
+    def test_accept_bind_cleanup_failure_preserves_original_and_seals_lifetime(self):
+        # A failed close must not mask the original post-claim bind error or
+        # prevent the admission-locked failure marker from rejecting late bytes.
+        from unittest.mock import MagicMock, patch
+        listener = MagicMock()
+        listener.bind.side_effect = OSError("injected bind failure")
+        listener.close.side_effect = OSError("injected listener close failure")
+        with patch.object(C.socket, "socket", return_value=listener):
+            with self.assertRaisesRegex(OSError, "injected bind failure"):
+                C.serve(self.b, "accept", 41321)
+        listener.close.assert_called_once_with()
+        root = Path(self.b)
+        self.assertTrue((root / "serve.claim").exists())
+        self.assertFalse((root / "ready.json").exists())
+        self.assertEqual(json.loads((root / "ended.json").read_text()),
+                         {"pid": os.getpid(), "finished": False, "failed": True})
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.b, '[{"seq":1,"b64":"eA=="}]')
+
+    def test_dial_ready_marker_cleanup_failure_preserves_original_and_seals_lifetime(self):
+        # Closing a connected socket can itself fail; never let that skip
+        # sealing the consumed lifetime after ready publication fails.
+        from unittest.mock import MagicMock, patch
+        client = MagicMock()
+        client.close.side_effect = OSError("injected client close failure")
+        original = C.write_exclusive_marker
+
+        def fail_ready(path, document):
+            if Path(path).name == "ready.json":
+                raise OSError("injected ready marker failure")
+            return original(path, document)
+
+        with patch.object(C.socket, "create_connection", return_value=client):
+            with patch.object(C, "write_exclusive_marker", side_effect=fail_ready):
+                with self.assertRaisesRegex(OSError, "injected ready marker failure"):
+                    C.serve(self.a, "dial", 41321)
+        client.close.assert_called_once_with()
+        root = Path(self.a)
+        self.assertTrue((root / "serve.claim").exists())
+        self.assertFalse((root / "ready.json").exists())
+        self.assertEqual(json.loads((root / "ended.json").read_text()),
+                         {"pid": os.getpid(), "finished": False, "failed": True})
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.a, '[{"seq":1,"b64":"eA=="}]')
+
+    def test_dial_ready_marker_failure_seals_spent_socket_lifetime(self):
+        # A successful native dial followed by a failed ready-marker write
+        # must not leave a claimed but apparently unended Oracle carrier.
+        from unittest.mock import MagicMock, patch
+
+        client = MagicMock()
+        original_marker = C.write_exclusive_marker
+
+        def fail_ready_only(path, document):
+            if Path(path).name == "ready.json":
+                raise OSError("injected dial ready marker failure")
+            return original_marker(path, document)
+
+        with patch.object(C.socket, "create_connection", return_value=client):
+            with patch.object(C, "write_exclusive_marker",
+                              side_effect=fail_ready_only):
+                with self.assertRaisesRegex(OSError, "injected dial ready marker failure"):
+                    C.serve(self.b, "dial", 41321)
+        client.close.assert_called_once_with()
+        root = Path(self.b)
+        self.assertTrue((root / "serve.claim").exists())
+        self.assertFalse((root / "ready.json").exists())
+        ended = json.loads((root / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
+
+    def test_accept_closes_listener_when_ready_marker_creation_fails(self):
+        from unittest.mock import MagicMock, patch
+        listener = MagicMock()
+        with patch.object(C.socket, "socket", return_value=listener):
+            with patch.object(C, "write_exclusive_marker",
+                              side_effect=OSError("ready marker refused")):
+                with self.assertRaisesRegex(OSError, "ready marker refused"):
+                    C.serve(self.b, "accept", 41321)
+        listener.close.assert_called_once_with()
+        self.assertFalse((Path(self.b) / "ready.json").exists())
+        self.assertTrue((Path(self.b) / "serve.claim").exists())
+
+    def test_accept_timeout_closes_listener_and_records_failed_lifetime(self):
+        from unittest.mock import MagicMock, patch
+        listener = MagicMock()
+        listener.accept.side_effect = socket.timeout("control never connected")
+        with patch.object(C.socket, "socket", return_value=listener):
+            with self.assertRaisesRegex(socket.timeout, "control never connected"):
+                C.serve(self.b, "accept", 41321)
+        listener.close.assert_called_once_with()
+        self.assertTrue((Path(self.b) / "ready.json").exists())
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+
+    def test_post_ready_setup_cleanup_errors_do_not_skip_lifetime_seal(self):
+        # Both close operations may fail after readiness; preserve the setup
+        # error and serialize a failed end marker before accepting late bytes.
+        from unittest.mock import MagicMock, patch
+        listener = MagicMock()
+        client = MagicMock()
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        client.settimeout.side_effect = OSError("original timeout setup failure")
+        client.close.side_effect = OSError("client cleanup failed")
+        listener.close.side_effect = OSError("listener cleanup failed")
+        with patch.object(C.socket, "socket", return_value=listener):
+            with self.assertRaisesRegex(OSError, "original timeout setup failure"):
+                C.serve(self.a, "accept", 41321)
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
+        root = Path(self.a)
+        self.assertEqual(json.loads((root / "ended.json").read_text()),
+                         {"pid": os.getpid(), "finished": False, "failed": True})
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.a, '[{"seq":1,"b64":"eA=="}]')
+
+    def test_thread_launch_cleanup_errors_do_not_skip_lifetime_seal(self):
+        # A failed byte-pump launch is the primary error, not socket close.
+        from unittest.mock import MagicMock, patch
+        listener = MagicMock()
+        client = MagicMock()
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        client.close.side_effect = OSError("client cleanup failed")
+        listener.close.side_effect = OSError("listener cleanup failed")
+        thread = MagicMock()
+        thread.start.side_effect = RuntimeError("original thread launch failure")
+        with patch.object(C.socket, "socket", return_value=listener):
+            with patch.object(C.threading, "Thread", return_value=thread):
+                with self.assertRaisesRegex(RuntimeError, "original thread launch failure"):
+                    C.serve(self.b, "accept", 41321)
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
+        root = Path(self.b)
+        self.assertEqual(json.loads((root / "ended.json").read_text()),
+                         {"pid": os.getpid(), "finished": False, "failed": True})
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.b, '[{"seq":1,"b64":"eA=="}]')
+
+    def test_accept_socket_timeout_setup_failure_closes_both_sockets_and_seals_failure(self):
+        # Readiness was already published; a failed pump setup must not
+        # leave a bound listener or advertise an unfinished live carrier.
+        from unittest.mock import MagicMock, patch
+        listener = MagicMock()
+        client = MagicMock()
+        client.settimeout.side_effect = OSError("test socket timeout setup failure")
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        with patch.object(C.socket, "socket", return_value=listener):
+            with self.assertRaisesRegex(OSError, "test socket timeout setup failure"):
+                C.serve(self.b, "accept", 41321)
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
+        self.assertTrue((Path(self.b) / "ready.json").exists())
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+
+    def test_dial_socket_timeout_setup_failure_closes_client_and_seals_failure(self):
+        from unittest.mock import MagicMock, patch
+        client = MagicMock()
+        client.settimeout.side_effect = OSError("test socket timeout setup failure")
+        with patch.object(C.socket, "create_connection", return_value=client):
+            with self.assertRaisesRegex(OSError, "test socket timeout setup failure"):
+                C.serve(self.b, "dial", 41321)
+        client.close.assert_called_once_with()
+        self.assertTrue((Path(self.b) / "ready.json").exists())
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+
+    def test_dial_does_not_advertise_ready_before_control_connects(self):
+        # A dialer has no local Control socket until create_connection succeeds.
+        # The exclusive claim remains fail-closed even when connection fails.
+        from unittest.mock import patch
+        marker = Path(self.b) / "ready.json"
+        observed = []
+
+        def unavailable_control(address, timeout=None):
+            observed.append(marker.exists())
+            raise RuntimeError("test dial unavailable")
+
+        with patch.object(C.socket, "create_connection", side_effect=unavailable_control):
+            with self.assertRaisesRegex(RuntimeError, "test dial unavailable"):
+                C.serve(self.b, "dial", 41321)
+        self.assertEqual(observed, [False])
+        self.assertFalse(marker.exists())
+        self.assertTrue((Path(self.b) / "serve.claim").exists())
+
+    def test_dial_timeout_records_failed_lifetime_without_ready(self):
+        # A claimed carrier that exhausted its local Control dial budget
+        # must leave an explicit failed lifetime, never a ready event.
+        from unittest.mock import patch
+        marker = Path(self.b) / "ready.json"
+        ended = Path(self.b) / "ended.json"
+        attempts = [0]
+        def unavailable(*args, **kwargs):
+            attempts[0] += 1
+            raise ConnectionRefusedError("no Control")
+        with patch.object(C.time, "monotonic",
+                          side_effect=lambda: 121 if attempts[0] else 0):
+            with patch.object(C.time, "sleep", return_value=None):
+                with patch.object(C.socket, "create_connection",
+                                  side_effect=unavailable) as connect:
+                    with self.assertRaisesRegex(RuntimeError, "local Control unavailable"):
+                        C.serve(self.b, "dial", 41321)
+        connect.assert_called_once_with(("127.0.0.1", 41321), timeout=3)
+        self.assertFalse(marker.exists())
+        self.assertTrue((Path(self.b) / "serve.claim").exists())
+        self.assertEqual(
+            (json.loads(ended.read_text())["finished"],
+             json.loads(ended.read_text())["failed"]), (False, True))
+        self.assertTrue(C.admitted_lifecycle_marker(ended))
+        with self.assertRaisesRegex(ValueError, "carrier lifetime ended"):
+            C.deliver(self.b, '[{"seq":1,"b64":"dGxzLWZyYW1l"}]')
+
+    def test_dial_marks_ready_after_local_control_connects(self):
+        from unittest.mock import patch
+        marker = Path(self.b) / "ready.json"
+        client, peer = socket.socketpair()
+        peer.close()
+        observed = []
+
+        def connected_control(address, timeout=None):
+            observed.append(marker.exists())
+            return client
+
+        with patch.object(C.socket, "create_connection", side_effect=connected_control):
+            C.serve(self.b, "dial", 41321)
+        self.assertEqual(observed, [False])
+        self.assertTrue(marker.exists())
+        self.assertTrue(json.loads((Path(self.b) / "ended.json").read_text())["finished"])
+
+    def test_dial_closes_connected_socket_if_ready_marker_fails(self):
+        from unittest.mock import patch
+        client, peer = socket.socketpair()
+        try:
+            with patch.object(C.socket, "create_connection", return_value=client):
+                with patch.object(C, "write_exclusive_marker",
+                                  side_effect=OSError("test marker failure")):
+                    with self.assertRaisesRegex(OSError, "test marker failure"):
+                        C.serve(self.b, "dial", 41321)
+            self.assertEqual(client.fileno(), -1)
+            self.assertFalse((Path(self.b) / "ready.json").exists())
+        finally:
+            peer.close()
 
     def test_claimed_carrier_cannot_start_a_second_socket(self):
         # The exclusive claim survives a crash before ready.json is published.
@@ -1367,6 +2706,345 @@ with carrier.carrier_admission_lock(sys.argv[2]):
                 finally:
                     marker.unlink()
 
+    def test_status_rejects_corrupt_durable_history_before_reporting_ready(self):
+        # A ready marker and plausible row counts must not present a broken
+        # TLS journal as usable transport state. Validate both directions.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        self.claim_socket_lifetime_for_status_fixture()
+        C.write_exclusive_marker(Path(self.b) / "ready.json",
+                                 {"mode": "accept", "port": 41321,
+                                  "pid": 1, "bound": "127.0.0.1"})
+        damaged = (
+            ("outbound", 1, "not-ciphertext"),
+            ("inbound", 1, b""),
+            ("outbound", 2, b"skipped-first"),
+            ("inbound", 0, b"invalid-sequence"),
+        )
+        for table, seq, content in damaged:
+            with self.subTest(table=table, seq=seq):
+                with C.dbtransaction(self.b) as conn:
+                    conn.execute("DELETE FROM outbound")
+                    conn.execute("DELETE FROM inbound")
+                    conn.execute(f"INSERT INTO {table}(seq,content) VALUES (?,?)",
+                                 (seq, content))
+                output = StringIO()
+                with patch.object(C.sys, "argv", ["e07_oracle_stream.py",
+                                                  "status", "--state", self.b]):
+                    with redirect_stdout(output):
+                        with self.assertRaisesRegex(
+                                ValueError,
+                                "invalid durable carrier frame|carrier journal sequence gap"):
+                            C.main()
+                self.assertEqual(output.getvalue(), "")
+        with C.dbtransaction(self.b) as conn:
+            conn.execute("DELETE FROM outbound")
+            conn.execute("DELETE FROM inbound")
+        C.publish(self.b, "outbound", b"valid")
+        output = StringIO()
+        with patch.object(C.sys, "argv", ["e07_oracle_stream.py",
+                                          "status", "--state", self.b]):
+            with redirect_stdout(output):
+                C.main()
+        self.assertTrue(json.loads(output.getvalue())["ready"])
+
+    def test_lifecycle_markers_reject_malformed_content_before_reporting_ready(self):
+        # A private inode alone does not establish a complete lifecycle event.
+        # A crash can leave a newly created marker empty or partially written.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        bad = (b"", b'{"bound":', b"true",
+               b'{"finished":true,"finished":false}',
+               b'{"finished":NaN}', b'{"port":1e999}',
+               b'{"nested":[{"duration":-1e999}]}',
+               b'{"pad":"' + b"x" * 4096 + b'"}')
+        for name in ("ready.json", "ended.json"):
+            marker = Path(self.b) / name
+            # Use the same private-owner/ACL creation path as the real pump.
+            # A new Path.write_bytes file is 0644 on POSIX and may have the
+            # wrong TokenUser owner on hosted Windows, failing custody first.
+            C.write_exclusive_marker(marker, {"prepared": True})
+            for payload in bad:
+                with self.subTest(name=name, payload=payload[:40]):
+                    marker.write_bytes(payload)
+                    with self.assertRaisesRegex(ValueError, "invalid carrier lifecycle marker"):
+                        C.admitted_lifecycle_marker(marker)
+                    output = StringIO()
+                    with patch.object(C.sys, "argv", ["e07_oracle_stream.py",
+                                                      "status", "--state", self.b]):
+                        with redirect_stdout(output):
+                            with self.assertRaisesRegex(ValueError, "invalid carrier lifecycle marker"):
+                                C.main()
+                    self.assertEqual(output.getvalue(), "")
+            marker.unlink()
+
+    def test_status_rejects_conflicting_ready_and_ended_process_identity(self):
+        # Both markers may be independently valid but cannot attest one
+        # native socket lifetime when their creator PIDs disagree.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        root = Path(self.b)
+        self.claim_socket_lifetime_for_status_fixture()
+        C.write_exclusive_marker(
+            root / "ready.json",
+            {"mode": "accept", "port": 41321, "pid": 111,
+             "bound": "127.0.0.1"},
+        )
+        C.write_exclusive_marker(
+            root / "ended.json",
+            {"pid": 222, "finished": True, "failed": False},
+        )
+        output = StringIO()
+        with patch.object(C.sys, "argv", [
+            "e07_oracle_stream.py", "status", "--state", self.b
+        ]):
+            with redirect_stdout(output):
+                with self.assertRaisesRegex(
+                        ValueError, "carrier lifecycle process identity mismatch"):
+                    C.main()
+        self.assertEqual(output.getvalue(), "")
+
+        # A matching lifetime remains observable, without weakening either
+        # marker's existing private-inode and schema admission.
+        (root / "ended.json").unlink()
+        C.write_exclusive_marker(
+            root / "ended.json",
+            {"pid": 111, "finished": True, "failed": False},
+        )
+        with patch.object(C.sys, "argv", [
+            "e07_oracle_stream.py", "status", "--state", self.b
+        ]):
+            with redirect_stdout(output):
+                C.main()
+        status = json.loads(output.getvalue())
+        self.assertTrue(status["ready"])
+        self.assertTrue(status["ended"])
+
+    def test_status_rejects_lifecycle_marker_without_native_socket_claim(self):
+        # A JSON marker alone is not a claimed native TLS socket lifetime.
+        # A prepared but never-served carrier must not advertise readiness or
+        # a completed/failed socket event merely because a marker was planted.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        root = Path(self.b)
+        self.assertFalse((root / "serve.claim").exists())
+        cases = (
+            ("ready.json", {"mode": "accept", "port": 41321,
+                            "pid": 101, "bound": "127.0.0.1"}),
+            ("ended.json", {"pid": 101, "finished": False,
+                            "failed": True}),
+        )
+        for name, document in cases:
+            with self.subTest(name=name):
+                marker = root / name
+                C.write_exclusive_marker(marker, document)
+                try:
+                    output = StringIO()
+                    with patch.object(C.sys, "argv", [
+                            "e07_oracle_stream.py", "status", "--state", self.b]):
+                        with redirect_stdout(output):
+                            with self.assertRaisesRegex(
+                                    ValueError, "carrier lifecycle missing socket claim"):
+                                C.main()
+                    self.assertEqual(output.getvalue(), "")
+                finally:
+                    marker.unlink()
+
+    @unittest.skipIf(os.name == "nt", "POSIX socket-claim alias fixture")
+    def test_status_rejects_invalid_claim_even_before_lifecycle_markers(self):
+        # serve.claim is the irreversible one-shot socket reservation.
+        # A damaged claim without ready/ended markers must not look like an
+        # untouched prepared state; an intact in-flight claim stays observable.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        root = Path(self.b)
+        claim = root / "serve.claim"
+        outside = Path(self.temp.name) / "outside-pre-ready-claim"
+        outside.write_bytes(b"")
+        os.chmod(outside, 0o600)
+
+        def status():
+            output = StringIO()
+            with patch.object(C.sys, "argv", [
+                    "e07_oracle_stream.py", "status", "--state", self.b]):
+                with redirect_stdout(output):
+                    C.main()
+            return json.loads(output.getvalue())
+
+        self.assertFalse(status()["ready"])
+        self.assertFalse(status()["ended"])
+        self.claim_socket_lifetime_for_status_fixture()
+        self.assertFalse(status()["ready"])
+        self.assertFalse(status()["ended"])
+        claim.unlink()
+
+        for kind in ("symlink", "hardlink", "nonempty"):
+            with self.subTest(kind=kind):
+                if kind == "symlink":
+                    claim.symlink_to(outside)
+                elif kind == "hardlink":
+                    os.link(outside, claim)
+                else:
+                    claim.write_bytes(b"forged")
+                    os.chmod(claim, 0o600)
+                try:
+                    with self.assertRaisesRegex(ValueError, "socket claim"):
+                        status()
+                finally:
+                    claim.unlink()
+
+    @unittest.skipIf(os.name == "nt", "POSIX socket-claim alias fixture")
+    def test_status_rejects_aliased_or_nonempty_socket_claim(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        root = Path(self.b)
+        claim = root / "serve.claim"
+        outside = Path(self.temp.name) / "outside-claim"
+        outside.write_bytes(b"")
+        os.chmod(outside, 0o600)
+        C.write_exclusive_marker(root / "ready.json",
+                                 {"mode": "accept", "port": 41321,
+                                  "pid": 101, "bound": "127.0.0.1"})
+        for kind in ("symlink", "hardlink", "nonempty"):
+            with self.subTest(kind=kind):
+                if kind == "symlink":
+                    claim.symlink_to(outside)
+                elif kind == "hardlink":
+                    os.link(outside, claim)
+                else:
+                    claim.write_bytes(b"forged")
+                    os.chmod(claim, 0o600)
+                try:
+                    output = StringIO()
+                    with patch.object(C.sys, "argv", [
+                            "e07_oracle_stream.py", "status", "--state", self.b]):
+                        with redirect_stdout(output):
+                            with self.assertRaisesRegex(
+                                    ValueError, "socket claim"):
+                                C.main()
+                    self.assertEqual(output.getvalue(), "")
+                finally:
+                    claim.unlink()
+
+    @unittest.skipIf(os.name == "nt", "POSIX claim metadata race fixture")
+    def test_socket_claim_rejects_inplace_change_between_descriptor_and_path_stat(self):
+        # A one-shot empty claim must remain the same immutable inode epoch.
+        # fstat can observe the original empty descriptor before another
+        # writer changes the named file; later lstat must not certify it.
+        from unittest.mock import patch
+
+        claim = Path(self.b) / "serve.claim"
+        for kind in ("append", "rewrite_empty"):
+            with self.subTest(kind=kind):
+                self.claim_socket_lifetime_for_status_fixture()
+                original_fstat = os.fstat
+                invoked = [False]
+
+                def changed_after_fstat(fd):
+                    before = original_fstat(fd)
+                    if not invoked[0]:
+                        invoked[0] = True
+                        if kind == "append":
+                            claim.write_bytes(b"forged")
+                        else:
+                            claim.write_bytes(b"changed")
+                            claim.write_bytes(b"")
+                            os.utime(claim, ns=(
+                                before.st_atime_ns,
+                                before.st_mtime_ns + 2_000_000_000,
+                            ))
+                    return before
+
+                try:
+                    with patch.object(C.os, "fstat", side_effect=changed_after_fstat):
+                        with self.assertRaisesRegex(ValueError, "socket claim identity changed"):
+                            C.require_admitted_socket_claim(Path(self.b))
+                    self.assertTrue(invoked[0])
+                finally:
+                    claim.unlink()
+
+    @unittest.skipIf(os.name == "nt", "POSIX socket-claim epoch fixture")
+    def test_socket_claim_rejects_postcustody_rewrite(self):
+        # Even a zero-length claim can be rewritten after the first pathname
+        # identity comparison. The final custody call must not certify the
+        # previous epoch as the current native socket claim.
+        from unittest.mock import patch
+
+        claim = Path(self.b) / "serve.claim"
+        self.claim_socket_lifetime_for_status_fixture()
+        original_custody = C.require_private_custody
+        calls = [0]
+
+        def rewrite_during_final_custody(path, identity, label):
+            original_custody(path, identity, label)
+            if label == "socket claim":
+                calls[0] += 1
+                if calls[0] == 3:
+                    claim.write_bytes(b"changed")
+                    claim.write_bytes(b"")
+                    os.utime(claim, ns=(identity.st_atime_ns,
+                                        identity.st_mtime_ns + 2_000_000_000))
+
+        try:
+            with patch.object(C, "require_private_custody",
+                              side_effect=rewrite_during_final_custody):
+                with self.assertRaisesRegex(
+                        ValueError, "socket claim identity changed"):
+                    C.require_admitted_socket_claim(Path(self.b))
+            self.assertEqual(calls, [3])
+        finally:
+            claim.unlink()
+
+    def test_status_rejects_success_without_ready_marker(self):
+        # A failed socket attempt can seal before ready, but a successful
+        # native TLS lifetime cannot end without having become ready.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        root = Path(self.b)
+        marker = root / "ended.json"
+        self.claim_socket_lifetime_for_status_fixture()
+        C.write_exclusive_marker(
+            marker, {"pid": 101, "finished": True, "failed": False},
+        )
+        output = StringIO()
+        with patch.object(C.sys, "argv", [
+            "e07_oracle_stream.py", "status", "--state", self.b
+        ]):
+            with redirect_stdout(output):
+                with self.assertRaisesRegex(
+                        ValueError, "successful carrier missing ready marker"):
+                    C.main()
+        self.assertEqual(output.getvalue(), "")
+
+        # An attempt that failed before readiness legitimately has only an
+        # ended marker; preserve its observable failed-lifetime evidence.
+        marker.unlink()
+        C.write_exclusive_marker(
+            marker, {"pid": 101, "finished": False, "failed": True},
+        )
+        with patch.object(C.sys, "argv", [
+            "e07_oracle_stream.py", "status", "--state", self.b
+        ]):
+            with redirect_stdout(output):
+                C.main()
+        status = json.loads(output.getvalue())
+        self.assertFalse(status["ready"])
+        self.assertTrue(status["ended"])
+
     def test_status_only_reports_admitted_lifecycle_markers(self):
         from contextlib import redirect_stdout
         from io import StringIO
@@ -1382,11 +3060,55 @@ with carrier.carrier_admission_lock(sys.argv[2]):
 
         self.assertFalse(status()["ready"])
         self.assertFalse(status()["ended"])
-        C.write_exclusive_marker(Path(self.b) / "ready.json", {"bound": "127.0.0.1"})
+        self.claim_socket_lifetime_for_status_fixture()
+        C.write_exclusive_marker(Path(self.b) / "ready.json", {"mode": "accept", "port": 41321, "pid": 1, "bound": "127.0.0.1"})
         self.assertTrue(status()["ready"])
         self.assertFalse(status()["ended"])
-        C.write_exclusive_marker(Path(self.b) / "ended.json", {"finished": True})
+        C.write_exclusive_marker(Path(self.b) / "ended.json", {"pid": 1, "finished": True, "failed": False})
         self.assertTrue(status()["ended"])
+
+    def test_status_lifecycle_markers_share_durable_admission_transaction(self):
+        # A status snapshot must not release the admission lock between
+        # journal verification and lifecycle-marker readback. The finalizer
+        # writes ended.json while holding that same lock.
+        from contextlib import contextmanager, redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        original_transaction = C.dbtransaction
+        original_marker = C.admitted_lifecycle_marker
+        inside_transaction = [False]
+
+        @contextmanager
+        def tracked_transaction(state):
+            with original_transaction(state) as conn:
+                inside_transaction[0] = True
+                try:
+                    yield conn
+                finally:
+                    inside_transaction[0] = False
+
+        def checked_marker(path, return_pid=False, return_document=False):
+            self.assertTrue(inside_transaction[0],
+                            "status marker read escaped durable admission lock")
+            return original_marker(path, return_pid=return_pid,
+                                   return_document=return_document)
+
+        self.claim_socket_lifetime_for_status_fixture()
+        C.write_exclusive_marker(
+            Path(self.b) / "ready.json",
+            {"mode": "accept", "port": 41321, "pid": 1,
+             "bound": "127.0.0.1"},
+        )
+        output = StringIO()
+        with patch.object(C, "dbtransaction", tracked_transaction):
+            with patch.object(C, "admitted_lifecycle_marker", checked_marker):
+                with patch.object(C.sys, "argv", [
+                        "e07_oracle_stream.py", "status", "--state", self.b]):
+                    with redirect_stdout(output):
+                        C.main()
+        self.assertTrue(json.loads(output.getvalue())["ready"])
+        self.assertFalse(json.loads(output.getvalue())["ended"])
 
     @unittest.skipIf(os.name == "nt", "POSIX symlink/hardlink/mode fixtures")
     def test_status_rejects_aliased_and_shared_lifecycle_markers(self):
@@ -1465,5 +3187,84 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         status = json.loads((Path(self.b) / "ended.json").read_text())
         self.assertTrue(status["finished"])
         self.assertFalse(status["failed"])
+
+    def test_finalize_commit_failure_cannot_publish_success_marker(self):
+        # A durable transaction failure after the final history check must
+        # never leave a successful ended marker for Oracle-side observers.
+        from unittest.mock import MagicMock, patch
+
+        listener = MagicMock()
+        client = MagicMock()
+        client.recv.return_value = b""
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        original_connect = C.dbconnect
+
+        class FailedFinalizeCommit:
+            def __init__(self, connection):
+                self.connection = connection
+
+            def __enter__(self):
+                self.connection.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                self.connection.__exit__(*args)
+                raise OSError("injected final SQLite commit failure")
+
+            def execute(self, *args, **kwargs):
+                return self.connection.execute(*args, **kwargs)
+
+            def close(self):
+                self.connection.close()
+
+        def connect_with_final_commit_failure(state, create=False):
+            connection = original_connect(state, create)
+            if (Path(state) / "ready.json").exists() and (
+                    threading.current_thread() is threading.main_thread()):
+                return FailedFinalizeCommit(connection)
+            return connection
+
+        with patch.object(C.socket, "socket", return_value=listener):
+            with patch.object(C, "dbconnect", side_effect=connect_with_final_commit_failure):
+                with self.assertRaisesRegex(RuntimeError, "E07_CARRIER_PUMP_FAILED:finalize:OSError"):
+                    C.serve(self.b, "accept", 41321)
+        ended = json.loads((Path(self.b) / "ended.json").read_text())
+        self.assertEqual((ended["finished"], ended["failed"]), (False, True))
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
+
+
+    def test_finalizer_lock_timeout_cannot_publish_unlocked_failed_marker(self):
+        # Review regression: a held inbound admission lock must not permit
+        # finalization to seal ended.json outside the serialization boundary.
+        from contextlib import contextmanager
+        from unittest.mock import MagicMock, patch
+
+        listener = MagicMock()
+        client = MagicMock()
+        client.recv.return_value = b""
+        listener.accept.return_value = (client, ("127.0.0.1", 41322))
+        original_lock = C.carrier_admission_lock
+
+        @contextmanager
+        def finalizer_lock_busy(state):
+            if (Path(state) / "ready.json").exists() and (
+                    threading.current_thread() is threading.main_thread()):
+                raise TimeoutError("injected admission lock busy")
+            with original_lock(state):
+                yield
+
+        with patch.object(C.socket, "socket", return_value=listener):
+            with patch.object(C, "carrier_admission_lock",
+                              side_effect=finalizer_lock_busy):
+                with self.assertRaisesRegex(
+                        RuntimeError, "E07_CARRIER_PUMP_FAILED:finalize:TimeoutError"):
+                    C.serve(self.b, "accept", 41321)
+        self.assertTrue((Path(self.b) / "serve.claim").exists())
+        self.assertTrue((Path(self.b) / "ready.json").exists())
+        self.assertFalse((Path(self.b) / "ended.json").exists(),
+                         "never seal an ended marker without admission lock")
+        client.close.assert_called_once_with()
+        listener.close.assert_called_once_with()
 
 if __name__=="__main__": unittest.main()

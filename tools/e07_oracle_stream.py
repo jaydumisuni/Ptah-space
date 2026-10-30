@@ -14,6 +14,7 @@ import binascii
 import errno
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import socket
@@ -39,6 +40,12 @@ MAX_ENCODED_CHUNK = 4 * ((MAX_CHUNK + 2) // 3)
 MAX_BATCH = 32
 MAX_TOTAL = 8 * 1024 * 1024
 MAX_RUNTIME = 300
+# The only admitted durable TLS journal layouts. A same-name SQLite TABLE
+# without the sequence primary key can hide duplicate frames from count=max.
+_CARRIER_TABLE_DDL = {
+    name: f"CREATE TABLE {name}(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)"
+    for name in ("outbound", "inbound")
+}
 
 def is_path_alias(path):
     """Reject symlinks and Windows junction/reparse aliases before path I/O."""
@@ -125,6 +132,10 @@ def carrier_admission_lock(state, preparing=False):
         if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1
                 or (opened.st_dev, opened.st_ino) != (identity.st_dev, identity.st_ino)):
             raise ValueError("carrier admission lock identity changed")
+        # On Windows a zero-length file may not support the one-byte
+        # msvcrt lock. Reject malformed sentinels before trying to lock it.
+        if opened.st_size != 1:
+            raise ValueError("carrier admission lock content changed")
         require_private_custody(path, opened, "admission lock")
         # Bound contention rather than hanging an Oracle RPC indefinitely.
         deadline = time.monotonic() + 7
@@ -188,6 +199,61 @@ def carrier_admission_lock(state, preparing=False):
                     or (locked.st_dev, locked.st_ino) != (opened.st_dev, opened.st_ino)):
                 raise ValueError("carrier admission lock identity changed")
             require_private_custody(path, current, "admission lock")
+            # prepare() creates exactly one NUL byte. A private, single-link
+            # inode with mutated contents is not the prepared lock sentinel.
+            # Inspect the already locked descriptor before SQLite admission;
+            # do not repair a corrupted lock or claim race-free path custody.
+            if locked.st_size != 1:
+                raise ValueError("carrier admission lock content changed")
+            os.lseek(fd, 0, os.SEEK_SET)
+            sentinel = os.read(fd, 2)
+            # A same-inode, same-length rewrite or a pathname replacement
+            # after the sentinel read must not authorize SQLite. Compare the
+            # observed descriptor and pathname epochs while retaining flock.
+            # This detects observed mutation, not adversarial ABA or a
+            # race-free dirfd-relative filesystem seal.
+            # A root may lose its private custody after the post-flock
+            # check while the lock inode itself remains unchanged. Reject
+            # the observed root epoch before handing control to dbconnect;
+            # this remains an observation, not race-free directory custody.
+            try:
+                after_read_root = root.lstat()
+            except OSError as error:
+                if error.errno not in (errno.ENOENT, errno.ENOTDIR,
+                                       getattr(errno, "ELOOP", None)):
+                    raise
+                raise ValueError("carrier state directory identity changed") from error
+            if (not stat.S_ISDIR(after_read_root.st_mode) or is_path_alias(root)
+                    or (after_read_root.st_dev, after_read_root.st_ino,
+                        after_read_root.st_mode, after_read_root.st_uid,
+                        after_read_root.st_gid, after_read_root.st_nlink)
+                    != (root_identity.st_dev, root_identity.st_ino,
+                        root_identity.st_mode, root_identity.st_uid,
+                        root_identity.st_gid, root_identity.st_nlink)):
+                raise ValueError("carrier state directory identity changed")
+            require_private_custody(root, after_read_root, "state directory")
+            try:
+                after_read_fd = os.fstat(fd)
+                after_read_path = path.lstat()
+            except OSError as error:
+                if error.errno not in (errno.ENOENT, errno.ENOTDIR,
+                                       getattr(errno, "ELOOP", None)):
+                    raise
+                raise ValueError("carrier admission lock identity changed") from error
+            def lock_epoch(value):
+                return (value.st_dev, value.st_ino, value.st_mode,
+                        value.st_nlink, value.st_uid, value.st_gid,
+                        value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+            if (not stat.S_ISREG(after_read_fd.st_mode)
+                    or not stat.S_ISREG(after_read_path.st_mode)
+                    or lock_epoch(locked) != lock_epoch(after_read_fd)
+                    or lock_epoch(current) != lock_epoch(after_read_path)
+                    or is_path_alias(path)):
+                raise ValueError("carrier admission lock identity changed")
+            require_private_custody(path, after_read_fd, "admission lock")
+            require_private_custody(path, after_read_path, "admission lock")
+            if sentinel != b"\x00":
+                raise ValueError("carrier admission lock content changed")
             yield
         finally:
             if os.name == "nt":
@@ -241,6 +307,39 @@ def _dbconnect_locked(state, create=False):
                 or is_path_alias(sidecar)):
             raise ValueError("real unaliased carrier sidecar required")
         require_private_custody(sidecar, sidecar_identity, "sidecar")
+    # Sidecar custody checks can run after the initial root admission.
+    # Recheck the named directory before SQLite follows its database path:
+    # a now-shared or replaced root cannot inherit the earlier approval.
+    # This detects observed changes, not a race-free dirfd-based seal.
+    try:
+        current_root = root.lstat()
+    except OSError as error:
+        raise ValueError("carrier state directory identity changed") from error
+    def root_epoch(value):
+        return (value.st_dev, value.st_ino, value.st_mode, value.st_uid,
+                value.st_gid, value.st_nlink)
+    if (not stat.S_ISDIR(current_root.st_mode) or is_path_alias(root)
+            or root_epoch(current_root) != root_epoch(root_identity)):
+        raise ValueError("carrier state directory identity changed")
+    require_private_custody(root, current_root, "state directory")
+    # The database may have been replaced after its initial lstat while
+    # checking SQLite sidecars and the state root. Rebind the final named
+    # database to the originally admitted inode and observed epoch before
+    # SQLite follows the pathname. This is an observed-change guard, not
+    # race-free dirfd-relative filesystem custody.
+    try:
+        current_db = db_path.lstat()
+    except OSError as error:
+        raise ValueError("carrier database identity changed") from error
+    def database_epoch(value):
+        return (value.st_dev, value.st_ino, value.st_mode, value.st_nlink,
+                value.st_uid, value.st_gid, value.st_size,
+                value.st_mtime_ns, value.st_ctime_ns)
+    if (not stat.S_ISREG(current_db.st_mode) or current_db.st_nlink != 1
+            or is_path_alias(db_path)
+            or database_epoch(current_db) != database_epoch(identity)):
+        raise ValueError("carrier database identity changed")
+    require_private_custody(db_path, current_db, "database")
     conn = sqlite3.connect(str(db_path), timeout=7)
     try:
         # Schema/PRAGMA/commit failures must close the handle before the
@@ -254,8 +353,28 @@ def _dbconnect_locked(state, create=False):
                 or journal_mode[0].lower() != "wal"):
             raise ValueError("carrier WAL journal mode required")
         conn.execute("PRAGMA busy_timeout=7000")
-        conn.execute("CREATE TABLE IF NOT EXISTS outbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
-        conn.execute("CREATE TABLE IF NOT EXISTS inbound(seq INTEGER PRIMARY KEY, content BLOB NOT NULL)")
+        if create:
+            # Only the one-shot prepare path may establish durable journals.
+            for ddl in _CARRIER_TABLE_DDL.values():
+                conn.execute(ddl)
+        else:
+            # A same-name TABLE is not sufficient: a missing INTEGER PRIMARY
+            # KEY can conceal duplicate sequences behind count=max checks.
+            # Pin the exact prepared DDL and reject triggers/indexes that
+            # could change append behavior without altering the table names.
+            tables = set(conn.execute(
+                "SELECT name,type,sql FROM sqlite_master "
+                "WHERE name IN ('outbound','inbound')"
+            ).fetchall())
+            expected = {(name, "table", ddl)
+                        for name, ddl in _CARRIER_TABLE_DDL.items()}
+            extras = conn.execute(
+                "SELECT 1 FROM sqlite_master "
+                "WHERE tbl_name IN ('outbound','inbound') "
+                "AND type IN ('trigger','index') LIMIT 1"
+            ).fetchone()
+            if tables != expected or extras:
+                raise ValueError("carrier journal schema missing or replaced")
         conn.commit()
         if os.name == "nt":
             # SQLite may create WAL/SHM files after the pre-open check.
@@ -318,15 +437,46 @@ def require_carrier_stream_table(table):
         raise ValueError("invalid carrier stream table")
 
 
+def require_healthy_carrier_history(conn, table):
+    """Reject a damaged durable prefix before any resumed TLS read.
+
+    Checking only the acknowledged cursor and next batch can conceal an
+    earlier missing sequence or invalid BLOB. The bounded SQLite journal is
+    inspected within the same transaction as the read/exchange.
+    """
+    require_carrier_stream_table(table)
+    count, first, latest, total, invalid = conn.execute(
+        f"SELECT count(*),coalesce(min(seq),0),coalesce(max(seq),0),"
+        f"coalesce(sum(length(content)),0),"
+        f"coalesce(sum(CASE WHEN typeof(content) != 'blob' "
+        f"OR length(content) NOT BETWEEN 1 AND ? THEN 1 ELSE 0 END),0) "
+        f"FROM {table}",
+        (MAX_CHUNK,),
+    ).fetchone()
+    if count and (first != 1 or count != latest):
+        raise ValueError("carrier journal sequence gap")
+    if invalid or total > MAX_TOTAL:
+        raise ValueError("invalid durable carrier frame")
+
+
 def require_contiguous_carrier_rows(conn, table, after, rows):
     """Fail closed if a resumed opaque byte stream would silently skip a frame.
 
-    This checks the requested window, not a full historical journal audit.
+    This checks the acknowledged cursor and requested window. Callers also
+    validate the complete bounded historical prefix before resuming.
     The only admitted table names are the carrier's fixed internal journals.
     """
     require_carrier_stream_table(table)
-    if after and conn.execute(f"SELECT 1 FROM {table} WHERE seq=?", (after,)).fetchone() is None:
-        raise ValueError("carrier journal sequence gap")
+    if after:
+        # The caller's cursor acknowledges the immediately preceding durable
+        # frame. Even if the next window is valid (or empty), a corrupted
+        # acknowledged frame must not be silently treated as delivered.
+        cursor = conn.execute(
+            f"SELECT content FROM {table} WHERE seq=?", (after,)).fetchone()
+        if cursor is None:
+            raise ValueError("carrier journal sequence gap")
+        if type(cursor[0]) is not bytes or not 1 <= len(cursor[0]) <= MAX_CHUNK:
+            raise ValueError("invalid durable carrier frame")
     expected = after + 1
     for seq, payload in rows:
         if seq != expected:
@@ -348,26 +498,38 @@ def publish(state, table, payload):
     if type(payload) is not bytes or not 1 <= len(payload) <= MAX_CHUNK:
         raise ValueError("invalid outbound carrier frame")
     with dbtransaction(state) as conn:
+        # A reader pump may outlive the bounded shutdown join. The ended
+        # marker and this check share the cross-process admission lock:
+        # never append native outbound bytes after a claimed TLS lifetime
+        # has been sealed, even when the failed socket still has a thread.
+        require_open_carrier_lifetime(state)
         # A historical journal containing TEXT, an empty BLOB or an
         # oversized frame cannot be extended into a supposedly usable TLS
         # stream. Validate durable payload custody in the same transaction
         # as the append; quota and sequence checks alone are insufficient.
-        row = conn.execute(
-            f"SELECT coalesce(sum(length(content)),0), coalesce(max(seq),0), "
+        count, first, latest, total, invalid = conn.execute(
+            f"SELECT count(*), coalesce(min(seq),0), coalesce(max(seq),0), "
+            f"coalesce(sum(length(content)),0), "
             f"coalesce(sum(CASE WHEN typeof(content) != 'blob' "
             f"OR length(content) NOT BETWEEN 1 AND ? THEN 1 ELSE 0 END),0) "
             f"FROM {table}",
             (MAX_CHUNK,),
         ).fetchone()
-        if row[2]:
-            raise ValueError("invalid durable carrier frame")
-        if row[0]+len(payload)>MAX_TOTAL:
-            raise RuntimeError("bounded carrier byte quota exhausted")
         # SQLite sequence keys are signed 64-bit. Exhaustion must be a
         # controlled carrier rejection, not a Python-to-SQLite OverflowError.
-        if row[1] >= (1 << 63) - 1:
+        if latest >= (1 << 63) - 1:
             raise ValueError("carrier sequence exhausted")
-        conn.execute(f"INSERT INTO {table}(seq,content) VALUES (?,?)",(row[1]+1,payload))
+        # A damaged historical stream must not be extended: a new append
+        # cannot repair missing, zero, or negative sequence identities.
+        # Check within the same transaction as the new ciphertext write.
+        if count and (first != 1 or count != latest):
+            raise ValueError("carrier journal sequence gap")
+        if invalid:
+            raise ValueError("invalid durable carrier frame")
+        if total + len(payload) > MAX_TOTAL:
+            raise RuntimeError("bounded carrier byte quota exhausted")
+        conn.execute(f"INSERT INTO {table}(seq,content) VALUES (?,?)",
+                     (latest + 1, payload))
 
 def pull(state, table, after, limit):
     require_carrier_stream_table(table)
@@ -376,6 +538,7 @@ def pull(state, table, after, limit):
     if type(limit) is not int or not 1 <= limit <= MAX_BATCH:
         raise ValueError("invalid carrier batch limit")
     with dbtransaction(state) as conn:
+        require_healthy_carrier_history(conn, table)
         # A cursor ahead of this durable journal cannot be a successful
         # resume. Silently returning [] would conceal missing TLS frames.
         latest = conn.execute(f"SELECT coalesce(max(seq),0) FROM {table}").fetchone()[0]
@@ -396,8 +559,9 @@ def require_durable_outbound_cursor(conn, after):
 
 
 def outbound_snapshot_rows(conn, after):
-    """Validate the exact outbound window before acknowledging inbound bytes."""
+    """Validate the durable outbound history before acknowledging inbound bytes."""
     require_durable_outbound_cursor(conn, after)
+    require_healthy_carrier_history(conn, "outbound")
     rows = conn.execute(
         "SELECT seq,content FROM outbound WHERE seq>? ORDER BY seq LIMIT ?",
         (after, MAX_BATCH),
@@ -465,12 +629,20 @@ def admit_packet_batch(document):
     if not isinstance(rows, list) or len(rows) > MAX_BATCH:
         raise ValueError("invalid packet batch")
     decoded = []
+    previous_seq = 0
     for row in rows:
         if (not isinstance(row, dict) or set(row) != {"seq", "b64"}
                 or type(row["seq"]) is not int
                 or not 1 <= row["seq"] <= (1 << 63) - 1
                 or not isinstance(row["b64"], str)):
             raise ValueError("invalid packet schema")
+        # The caller's array is a transport-order window, not a set of
+        # SQLite keys. Reject intra-batch duplicates and reversed replay
+        # before acquiring durable state; complete ordered replays remain
+        # idempotent in commit_admitted_inbound.
+        if row["seq"] <= previous_seq:
+            raise ValueError("packet batch sequence must be strictly increasing")
+        previous_seq = row["seq"]
         if len(row["b64"]) > MAX_ENCODED_CHUNK:
             raise ValueError("invalid packet size")
         try:
@@ -531,6 +703,8 @@ def deliver(state, document):
     # Reject untrusted RPC bytes before acquiring SQLite custody.
     rows, packets = admit_packet_batch(document)
     with dbtransaction(state) as conn:
+        if rows:
+            require_open_carrier_lifetime(state)
         latest = commit_admitted_inbound(conn, rows, packets)
     print(json.dumps({"accepted_through":latest,"authority":"none","transport":"external_oracle_rpc"}))
 
@@ -539,6 +713,18 @@ def deliver_quiet(state, packets):
     from io import StringIO
     with redirect_stdout(StringIO()):
         deliver(state,json.dumps(packets,separators=(",",":")))
+
+def require_open_carrier_lifetime(state):
+    """Reject delayed inbound RPCs after the native TLS socket has ended.
+
+    Called under the cross-process admission lock. The final EOF check and
+    ended-marker creation hold that same lock, so a concurrent RPC cannot
+    commit a new ciphertext frame between successful closure and its marker.
+    Read-only snapshots remain available to drain already durable outbound.
+    """
+    if admitted_lifecycle_marker(Path(state) / "ended.json"):
+        raise ValueError("carrier lifetime ended")
+
 
 def write_exclusive_marker(path, document):
     """Create a private lifecycle marker without following or replacing aliases."""
@@ -553,12 +739,12 @@ def write_exclusive_marker(path, document):
         windows_claim_new_owner(path)
 
 
-def admitted_lifecycle_marker(path):
+def admitted_lifecycle_marker(path, return_pid=False, return_document=False):
     """Admit a lifecycle marker only while its named inode matches an open handle."""
     try:
         identity = path.lstat()
     except FileNotFoundError:
-        return False
+        return None if (return_pid or return_document) else False
     if (not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1
             or is_path_alias(path)):
         raise ValueError("real unaliased carrier lifecycle marker required")
@@ -580,8 +766,12 @@ def admitted_lifecycle_marker(path):
             # error, not escape the Oracle RPC as an unhandled filesystem race.
             raise ValueError("carrier lifecycle marker identity changed") from error
         def marker_identity(value):
+            # A same-inode, same-length rewrite is still a new lifecycle
+            # observation epoch. Compare content metadata as well as inode
+            # identity; this detects observed changes, not a race-free seal.
             return (value.st_dev, value.st_ino, value.st_mode,
-                    value.st_nlink, value.st_uid, value.st_gid)
+                    value.st_nlink, value.st_uid, value.st_gid,
+                    value.st_size, value.st_mtime_ns, value.st_ctime_ns)
         if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1
                 or not stat.S_ISREG(current.st_mode) or current.st_nlink != 1
                 or marker_identity(identity) != marker_identity(opened)
@@ -590,13 +780,163 @@ def admitted_lifecycle_marker(path):
             raise ValueError("carrier lifecycle marker identity changed")
         require_private_custody(path, opened, "lifecycle marker")
         require_private_custody(path, current, "lifecycle marker")
+        # An exclusive marker may be observed between O_EXCL creation and
+        # fsync, or after a crash left a truncated document. A private inode
+        # alone cannot attest a ready/ended lifecycle event. Read only from
+        # the already admitted descriptor, with a small fixed size ceiling.
+        payload = os.read(fd, 4097)
+        # A writer can rewrite the still-open marker after our first fstat
+        # and pathname check, including with a valid same-length JSON body.
+        # Revalidate the descriptor and named inode epoch after the read
+        # before treating those bytes as a native lifecycle observation.
+        try:
+            after_read_fd = os.fstat(fd)
+            after_read_path = path.lstat()
+        except OSError as error:
+            raise ValueError("carrier lifecycle marker identity changed") from error
+        if (marker_identity(opened) != marker_identity(after_read_fd)
+                or marker_identity(current) != marker_identity(after_read_path)
+                or is_path_alias(path)):
+            raise ValueError("carrier lifecycle marker identity changed")
+        require_private_custody(path, after_read_fd, "lifecycle marker")
+        require_private_custody(path, after_read_path, "lifecycle marker")
+        if not payload or len(payload) > 4096:
+            raise ValueError("invalid carrier lifecycle marker content")
+        def unique_fields(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("duplicate carrier lifecycle marker key")
+                result[key] = value
+            return result
+        def reject_nonfinite(value):
+            raise ValueError("nonfinite carrier lifecycle marker value")
+        def finite_float(token):
+            # json.loads accepts 1e999 as float("inf") without calling
+            # parse_constant. Reject overflow at every nesting depth.
+            value = float(token)
+            if not math.isfinite(value):
+                raise ValueError("nonfinite carrier lifecycle marker value")
+            return value
+        try:
+            document = json.loads(payload, object_pairs_hook=unique_fields,
+                                  parse_constant=reject_nonfinite,
+                                  parse_float=finite_float)
+        except (ValueError, UnicodeError) as error:
+            raise ValueError("invalid carrier lifecycle marker content") from error
+        if type(document) is not dict or not document:
+            raise ValueError("invalid carrier lifecycle marker content")
+        # Private JSON alone is not evidence of a native TLS socket event.
+        # Only serve() writes these two exact event shapes. In particular,
+        # an incomplete ready marker must not be reported as a live carrier,
+        # and a contradictory end marker must not certify completion.
+        # Native process identifiers fit a 32-bit POSIX pid_t/Windows DWORD.
+        # A huge JSON integer is not a credible socket-lifetime identity.
+        if path.name == "ready.json":
+            valid = (set(document) == {"mode", "port", "pid", "bound"}
+                     and document["mode"] in ("accept", "dial")
+                     and type(document["port"]) is int
+                     and 1024 <= document["port"] <= 65535
+                     and type(document["pid"]) is int
+                     and 0 < document["pid"] < (1 << 32)
+                     and document["bound"] == "127.0.0.1")
+        elif path.name == "ended.json":
+            valid = (set(document) == {"pid", "finished", "failed"}
+                     and type(document["pid"]) is int
+                     and 0 < document["pid"] < (1 << 32)
+                     and type(document["finished"]) is bool
+                     and type(document["failed"]) is bool
+                     and document["finished"] != document["failed"])
+        else:
+            valid = False
+        if not valid:
+            raise ValueError("invalid carrier lifecycle marker schema")
     finally:
         os.close(fd)
-    return True
+    if return_document:
+        return document
+    return document["pid"] if return_pid else True
+
+
+def require_admitted_socket_claim(root):
+    """Bind reported native lifecycle markers to a private one-shot claim.
+
+    The claim is created before any socket is opened. A standalone ready or
+    ended JSON file in a merely prepared state is not native-lifetime evidence.
+    """
+    path = root / "serve.claim"
+    try:
+        original = path.lstat()
+    except FileNotFoundError:
+        raise ValueError("carrier lifecycle missing socket claim") from None
+    if (not stat.S_ISREG(original.st_mode) or original.st_nlink != 1
+            or is_path_alias(path)):
+        raise ValueError("real unaliased carrier socket claim required")
+    require_private_custody(path, original, "socket claim")
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                     | getattr(os, "O_NONBLOCK", 0))
+    except OSError as error:
+        raise ValueError("carrier socket claim changed during admission") from error
+    try:
+        opened = os.fstat(fd)
+        try:
+            current = path.lstat()
+        except OSError as error:
+            raise ValueError("carrier socket claim identity changed") from error
+        def identity(value):
+            # The one-shot claim is an immutable empty file. An in-place
+            # rewrite can preserve inode, ownership, mode and even length
+            # while changing the claim's epoch between descriptor and path
+            # admission. Do not mistake that for the claimed socket lifetime.
+            return (value.st_dev, value.st_ino, value.st_mode,
+                    value.st_nlink, value.st_uid, value.st_gid,
+                    value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1
+                or not stat.S_ISREG(current.st_mode) or current.st_nlink != 1
+                or original.st_size != 0 or opened.st_size != 0
+                or current.st_size != 0
+                or identity(original) != identity(opened)
+                or identity(opened) != identity(current)
+                or is_path_alias(path)):
+            raise ValueError("carrier socket claim identity changed")
+        require_private_custody(path, opened, "socket claim")
+        require_private_custody(path, current, "socket claim")
+        # Custody inspection itself may take place after an in-place rewrite.
+        # Observe the same empty claim epoch once more before admission; this
+        # closes the post-custody gap without claiming a race-free filesystem.
+        try:
+            final_opened = os.fstat(fd)
+            final_current = path.lstat()
+        except OSError as error:
+            raise ValueError("carrier socket claim identity changed") from error
+        if (identity(opened) != identity(final_opened)
+                or identity(current) != identity(final_current)
+                or is_path_alias(path)):
+            raise ValueError("carrier socket claim identity changed")
+    finally:
+        os.close(fd)
+
+
+def seal_failed_post_ready_lifetime(root):
+    """Serialize failed post-ready socket closure with inbound RPC admission.
+
+    An ended marker written without the carrier admission lock could race a
+    delayed Oracle delivery and leave ciphertext committed after socket loss.
+    Never write an unlocked fallback marker if custody cannot be obtained.
+    """
+    with carrier_admission_lock(root):
+        if not os.path.lexists(root / "ended.json"):
+            write_exclusive_marker(root / "ended.json",
+                                   {"pid": os.getpid(), "finished": False,
+                                    "failed": True})
 
 
 def serve(state, mode, port):
-    if mode not in ("accept","dial") or not 1024<=port<=65535:
+    # Validate the native port domain before consuming the one-shot socket
+    # claim. A float can pass range comparisons but cannot bind a socket.
+    if (mode not in ("accept", "dial") or type(port) is not int
+            or not 1024 <= port <= 65535):
         raise ValueError("invalid endpoint")
     root=require_unaliased_state_path(state)
     # A prepared carrier belongs to exactly one TLS socket lifetime.
@@ -604,10 +944,13 @@ def serve(state, mode, port):
     if (not root.is_dir() or is_path_alias(root)
             or any(os.path.lexists(root / name) for name in ("ready.json", "ended.json"))):
         raise ValueError("newly prepared carrier state required")
-    # Never claim a TLS socket for an unprepared or non-private state. Reuse
-    # the same SQLite custody checks as snapshot/deliver before any side effect.
-    with dbtransaction(root):
-        pass
+    # Never consume the one-shot socket claim for a damaged prepared TLS
+    # journal. Schema/ACL admission alone is insufficient: both directional
+    # histories must be contiguous, bounded ciphertext before native I/O.
+    # Keep the checks inside the existing cross-process admission transaction.
+    with dbtransaction(root) as conn:
+        require_healthy_carrier_history(conn, "outbound")
+        require_healthy_carrier_history(conn, "inbound")
     try:
         claim_fd=os.open(root/"serve.claim", exclusive_open_flags(os.O_WRONLY), 0o600)
     except FileExistsError:
@@ -619,27 +962,127 @@ def serve(state, mode, port):
     listener=None
     started=time.monotonic()
     if mode=="accept":
-        listener=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        listener.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-        listener.bind(("127.0.0.1",port))
-        listener.listen(1)
-        listener.settimeout(120)
-        write_exclusive_marker(marker, {"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"})
-        sock,_=listener.accept()
+        try:
+            # Socket allocation itself happens after serve.claim. Failure
+            # here consumes the lifetime just like bind/accept failure.
+            listener=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+            listener.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+            listener.bind(("127.0.0.1",port))
+            listener.listen(1)
+            listener.settimeout(120)
+            write_exclusive_marker(marker, {"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"})
+            sock,_=listener.accept()
+        except BaseException:
+            # Attempt listener closure, then seal the spent lifetime even
+            # if cleanup fails before ready.json is published.
+            if listener is not None:
+                try:
+                    listener.close()
+                except Exception:
+                    # Preserve the original post-claim failure and continue
+                    # sealing; serve.claim still prohibits lifetime reuse.
+                    pass
+            if not os.path.lexists(root/"ended.json"):
+                try:
+                    with carrier_admission_lock(root):
+                        write_exclusive_marker(root/"ended.json",
+                                               {"pid":os.getpid(),"finished":False,"failed":True})
+                except (OSError, ValueError):
+                    # Preserve the original failure. The exclusive claim
+                    # still prevents a second socket on this state.
+                    pass
+            raise
     else:
-        write_exclusive_marker(marker, {"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"})
-        while time.monotonic()-started<120:
+        # Dial mode is not ready until a real local Control socket exists.
+        # A failed dial retains serve.claim, but must not advertise a ready
+        # transport marker that could mislead Oracle-side observations.
+        try:
+            while time.monotonic()-started<120:
+                try:
+                    sock=socket.create_connection(("127.0.0.1",port),timeout=3)
+                    break
+                except OSError:
+                    time.sleep(.1)
+        except BaseException:
+            # Unexpected socket/retry failures also consume serve.claim.
+            # Seal under the inbound admission lock before returning the
+            # original failure, or delayed Oracle bytes could be admitted.
+            if sock is not None:
+                sock.close()
             try:
-                sock=socket.create_connection(("127.0.0.1",port),timeout=3)
-                break
-            except OSError:
-                time.sleep(.1)
+                seal_failed_post_ready_lifetime(root)
+            except Exception:
+                # The exclusive claim still prevents socket reuse.
+                pass
+            raise
         if sock is None:
+            # The exclusive claim has consumed this carrier lifetime even
+            # though no Control socket became ready. Seal the failed attempt
+            # under the same admission lock as inbound Oracle RPCs so status
+            # cannot leave an exhausted dialer looking merely unstarted.
+            try:
+                with carrier_admission_lock(root):
+                    write_exclusive_marker(root / "ended.json",
+                                           {"pid": os.getpid(), "finished": False,
+                                            "failed": True})
+            except OSError:
+                # Preserve the actual unavailable-Control failure. The
+                # exclusive serve.claim still prevents lifetime reuse.
+                pass
             raise RuntimeError("local Control unavailable")
-    sock.settimeout(.1)
+        try:
+            write_exclusive_marker(marker, {"mode":mode,"port":port,"pid":os.getpid(),"bound":"127.0.0.1"})
+        except BaseException:
+            # A connected socket must not leak when marker admission fails.
+            # The exclusive claim has also consumed this lifetime: seal it
+            # under the Oracle inbound admission lock so a late RPC cannot
+            # append ciphertext to a spent, possibly unclosed socket.
+            try:
+                sock.close()
+            except Exception:
+                # Cleanup failure must not mask marker failure or bypass
+                # the admission-locked failed-lifetime seal.
+                pass
+            try:
+                with carrier_admission_lock(root):
+                    if not os.path.lexists(root / "ended.json"):
+                        write_exclusive_marker(root / "ended.json",
+                                               {"pid": os.getpid(), "finished": False,
+                                                "failed": True})
+            except Exception:
+                # Preserve the original ready-marker error. The exclusive
+                # claim still prevents a second native socket lifetime.
+                pass
+            raise
+    try:
+        sock.settimeout(.1)
+    except BaseException:
+        # The ready marker already exists. A socket setup failure before
+        # pump threads start must release both endpoints and seal a failed
+        # lifetime rather than leaving an apparently live carrier.
+        # Cleanup is best-effort after the claimed lifetime has failed.
+        # A close exception must neither replace the setup error nor bypass
+        # the admission-locked failed marker and late-inbound rejection.
+        for endpoint in (sock, listener):
+            if endpoint is not None:
+                try:
+                    endpoint.close()
+                except Exception:
+                    pass
+        if os.path.lexists(marker):
+            try:
+                seal_failed_post_ready_lifetime(root)
+            except (OSError, ValueError):
+                # Preserve the setup error; never write an unlocked marker.
+                # The exclusive claim prevents socket-lifetime reuse.
+                pass
+        raise
     completed=threading.Event()
     failures=[]
     failure_lock=threading.Lock()
+    # A clean native socket EOF does not imply that the writer forwarded all
+    # durable Oracle inbound ciphertext before the reader stopped both pumps.
+    delivered_through = [0]
     def record_failure(role,exc):
         with failure_lock:
             failures.append((role,type(exc).__name__,str(exc)))
@@ -672,6 +1115,7 @@ def serve(state, mode, port):
                 for p in packets:
                     sock.sendall(base64.b64decode(p["b64"]))
                     cursor=p["seq"]
+                    delivered_through[0] = cursor
                 time.sleep(.015)
         except Exception as error:
             record_failure("writer",error)
@@ -679,8 +1123,38 @@ def serve(state, mode, port):
             completed.set()
     a=threading.Thread(target=reader,daemon=True)
     b=threading.Thread(target=writer,daemon=True)
-    a.start()
-    b.start()
+    launched = []
+    try:
+        a.start()
+        launched.append(a)
+        b.start()
+        launched.append(b)
+    except BaseException:
+        # Readiness precedes the byte pumps. A failed thread launch must
+        # terminate any already-started pump and seal the claimed lifetime.
+        completed.set()
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        # Preserve the launch error and continue sealing even if a native
+        # endpoint refuses to close; serve.claim still prevents reuse.
+        for endpoint in (sock, listener):
+            if endpoint is not None:
+                try:
+                    endpoint.close()
+                except Exception:
+                    pass
+        for thread in launched:
+            thread.join(timeout=3)
+        if os.path.lexists(marker):
+            try:
+                seal_failed_post_ready_lifetime(root)
+            except (OSError, ValueError):
+                # Retain the launch error; never seal outside admission lock.
+                # The exclusive claim prevents another socket lifetime.
+                pass
+        raise
     while not completed.is_set():
         if time.monotonic()-started>=MAX_RUNTIME:
             record_failure("timeout", TimeoutError("carrier runtime budget exhausted"))
@@ -691,15 +1165,61 @@ def serve(state, mode, port):
         sock.shutdown(socket.SHUT_RDWR)
     except OSError:
         pass
-    sock.close()
-    if listener is not None:
-        listener.close()
+    # Native endpoint cleanup is part of the claimed socket lifetime.
+    # A close exception must not skip the admission-locked finalizer or
+    # certify a completed transport. Attempt both closes and seal failure.
+    for endpoint in (sock, listener):
+        if endpoint is not None:
+            try:
+                endpoint.close()
+            except Exception as error:
+                record_failure("shutdown", error)
     a.join(timeout=3)
     b.join(timeout=3)
     if a.is_alive() or b.is_alive():
         record_failure("shutdown",RuntimeError("carrier byte pump did not terminate"))
-    status={"pid":os.getpid(),"finished":not failures,"failed":bool(failures)}
-    write_exclusive_marker(root/"ended.json", status)
+    # The reader can observe EOF before the writer polls already admitted
+    # inbound TLS bytes. The final history check and ended marker MUST share
+    # the same admission lock as deliver/exchange. Otherwise an Oracle RPC
+    # can commit a new frame after the check but before the marker, producing
+    # a false successful socket-lifetime record.
+    try:
+        # Keep the cross-process admission lock through BOTH SQLite commit
+        # and lifecycle sealing. A successful marker written inside an
+        # uncommitted transaction can survive a failed commit and falsely
+        # certify the socket lifetime. Do not publish until commit succeeds.
+        with _DB_OPEN_LOCK:
+            with carrier_admission_lock(state):
+                conn = None
+                try:
+                    conn = dbconnect(state)
+                    with conn:
+                        if not failures:
+                            try:
+                                require_healthy_carrier_history(conn, "inbound")
+                                latest = conn.execute(
+                                    "SELECT coalesce(max(seq),0) FROM inbound").fetchone()[0]
+                                if latest > delivered_through[0]:
+                                    record_failure("undelivered", RuntimeError(
+                                        "durable inbound frames not forwarded to native socket"))
+                            except Exception as error:
+                                record_failure("finalize", error)
+                except Exception as error:
+                    # Rollback/commit failure must be recorded BEFORE the
+                    # ended marker is created, while late delivery is locked.
+                    record_failure("finalize", error)
+                finally:
+                    if conn is not None:
+                        conn.close()
+                status={"pid":os.getpid(),"finished":not failures,"failed":bool(failures)}
+                write_exclusive_marker(root/"ended.json", status)
+    except Exception as error:
+        record_failure("finalize", error)
+        # Never seal outside the inbound admission lock, including when the
+        # lock itself is busy. A concurrent deliver/exchange may have passed
+        # its open-lifetime check and still be committing ciphertext. The
+        # consumed serve.claim prevents socket reuse; leave ended.json absent
+        # rather than publish a falsely serialized failure marker.
     if failures:
         first=failures[0]
         raise RuntimeError("E07_CARRIER_PUMP_FAILED:"+first[0]+":"+first[1]+":"+first[2])
@@ -734,18 +1254,53 @@ def main():
         # fail on a changed journal despite inbound bytes already persisting.
         with dbtransaction(a.state) as conn:
             rows = outbound_snapshot_rows(conn, a.after)
+            # Even an empty polling window must validate the inbound prefix.
+            # Otherwise a damaged TLS journal can be reported as a healthy
+            # bidirectional exchange without any durable admission check.
             if data:
-                commit_admitted_inbound(conn, data, packets)
+                require_open_carrier_lifetime(a.state)
+            commit_admitted_inbound(conn, data, packets)
         emit_outbound_snapshot(rows, a.after)
     elif a.command=="serve": serve(a.state,a.mode,a.port)
     elif a.command=="status":
         with dbtransaction(a.state) as db:
+            # Status is a transport-readiness observation, not merely a row
+            # counter. A ready marker cannot rehabilitate a corrupt durable
+            # TLS prefix. Validate both streams under the same admission lock
+            # and transaction before reporting apparently usable state.
+            require_healthy_carrier_history(db, "outbound")
+            require_healthy_carrier_history(db, "inbound")
             n1=db.execute("SELECT count(*),coalesce(sum(length(content)),0) FROM outbound").fetchone()
             n2=db.execute("SELECT count(*),coalesce(sum(length(content)),0) FROM inbound").fetchone()
-        root = require_unaliased_state_path(a.state)
+            # End-of-lifetime sealing uses this same cross-process admission
+            # lock. Observe the admitted markers before releasing it, so the
+            # journal and lifecycle status describe one consistent snapshot.
+            root = require_unaliased_state_path(a.state)
+            ready_pid = admitted_lifecycle_marker(root / "ready.json", return_pid=True)
+            ended_document = admitted_lifecycle_marker(
+                root / "ended.json", return_document=True)
+            ended_pid = ended_document["pid"] if ended_document else None
+            # A one-shot claim can exist before ready.json is published.
+            # Its absence of markers does not make an aliased or corrupted
+            # claim equivalent to an untouched prepared carrier.
+            if (ready_pid is not None or ended_pid is not None
+                    or os.path.lexists(root / "serve.claim")):
+                require_admitted_socket_claim(root)
+            # A failed pre-ready socket claim can end without ready.json. A
+            # successful native lifetime cannot: serve() publishes ready
+            # before any successful finalizer can publish ended.json.
+            if (ended_document is not None and ended_document["finished"]
+                    and ready_pid is None):
+                raise ValueError("successful carrier missing ready marker")
+            # Independently valid markers must describe the SAME claimed
+            # native socket lifetime. A mismatched creator cannot certify
+            # that a different process finished the advertised transport.
+            if (ready_pid is not None and ended_pid is not None
+                    and ready_pid != ended_pid):
+                raise ValueError("carrier lifecycle process identity mismatch")
         print(json.dumps({"outbound": n1, "inbound": n2,
-                          "ready": admitted_lifecycle_marker(root / "ready.json"),
-                          "ended": admitted_lifecycle_marker(root / "ended.json")}))
+                          "ready": ready_pid is not None,
+                          "ended": ended_pid is not None}))
 
 if __name__=="__main__":
     try: main()

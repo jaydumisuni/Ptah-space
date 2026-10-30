@@ -110,3 +110,243 @@ No production ATHENA config, scheduled task, Knights system, firewall,
 router, or Oracle configuration changed in this work. Unavailable transport
 only affects the E07 operation attempted; ordinary Ptah capabilities stay
 available. Prime OS integration LAST.
+
+## Pre-pump socket setup failure custody — 28 October 2026
+
+Source-only E07 preparation now closes the accepted/dialed native socket
+and any listener if socket timeout configuration fails after readiness
+was published but before either byte-pump thread starts. The existing
+exclusive claim remains in place; a private failed ended.json marker
+records the unsuccessful lifetime without impersonating a successful
+E01/E02/A05 exchange. Two adversarial regression cases reproduced the
+previous leaked-socket condition before the correction. This does not
+qualify unattended roaming or Windows-native acceptance.
+
+### E07 lifecycle-marker event-schema custody (2026-10-28)
+
+A private, inode-verified JSON marker is not by itself evidence that a native TLS socket became ready or ended. The carrier now admits only the exact `ready.json` event (accept/dial, loopback bound, admitted port, positive PID) or the exact `ended.json` event (positive PID, complementary boolean finished/failed). Incomplete, contradictory, or unexpected-key markers fail closed in status and delayed-inbound admission. This is source-level transport custody only; it does not qualify unattended off-LAN execution, Windows-native acceptance, or protected promotion.
+
+## Byte-pump thread-launch failure custody — 28 October 2026
+
+If the native carrier publishes ready.json but the reader or writer thread
+cannot start, the adapter must set the stop event, close the native socket
+and listener, join any successfully launched pump, and write a failed
+ended.json marker. It must propagate the original launch exception.
+Adversarial cases cover both the first-thread and second-thread failure.
+This is source-only lifecycle correctness, not an E01/E02/A05 effect
+witness or Windows/off-LAN acceptance.
+
+## E07 final SQLite commit and lifecycle-marker ordering — 28 October 2026
+
+A successful `ended.json` must not be published before the final SQLite
+transaction commits. The earlier finalizer wrote the success marker *inside*
+the transaction; an injected commit failure left that marker falsely reporting
+`finished=true` even though the finalization failed. A predecessor regression
+reproduced the incorrect marker. The corrected finalizer retains the existing
+cross-process admission lock through final journal validation, SQLite commit,
+connection closure, and exclusive marker creation. Commit/open failures are
+recorded as `finished=false, failed=true` before the lock is released.
+
+This is source-level carrier lifecycle custody. It is not an independent
+E02/A05 effect witness and does not establish unattended off-LAN or
+Windows-native physical acceptance.
+
+## E07 exhausted dialer failure custody — 28 October 2026
+
+A dial-mode carrier that exhausts its bounded local Control connection
+window has already consumed its exclusive serve.claim, even though it
+never published ready.json. Previously it raised local Control unavailable
+without sealing the lifetime, leaving status ambiguous and allowing a
+late inbound packet to be admitted to the abandoned journal. The carrier
+now writes a private ended.json with finished=false, failed=true
+under the cross-process admission lock before reporting the original
+connection failure. A predecessor regression reproduced the absent
+failure marker; the corrected test verifies marker admission and rejects
+late inbound delivery. This is Ptah E07 source-level custody only, not
+Windows-native, unattended off-LAN, or independently witnessed E02/A05
+qualification.
+
+
+## E07 pre-ready listener failure custody — 29 October 2026
+
+A claimed accept-mode carrier can fail before publishing `ready.json`: the
+native listener constructor or loopback bind can raise after `serve.claim`
+is created. Previously the constructor failure escaped the listener cleanup
+handler, and a bind failure closed the socket but left no `ended.json`.
+Both cases stranded an ambiguous consumed lifetime that could still admit
+late inbound Oracle ciphertext. The corrected source handles allocation and
+bind failures under one post-claim failure path, closes any allocated
+listener, and writes the private failed `ended.json` under the existing
+cross-process admission lock. The original socket error remains observable.
+Adversarial native regressions cover both pre-ready cases and reject late
+inbound delivery. This does not establish Windows-native or unattended
+off-LAN acceptance, nor any independent E02/A05 effect witness.
+
+
+## E07 dial ready-marker failure custody — 29 October 2026
+
+A dial-mode carrier can connect to a real local Control socket but fail
+while publishing its private ready.json. Previously the socket was
+closed and the exclusive serve.claim remained, yet no failed ended.json
+was written. Oracle-side status could therefore report an apparently
+unended carrier, and delayed inbound ciphertext was not rejected by
+lifecycle admission. The corrected dial exception path closes the socket,
+seals the consumed lifetime with finished=false, failed=true under the
+existing cross-process admission lock, and preserves the original marker
+failure. The regression was RED against the predecessor and PASS after
+correction. This is source-only lifecycle custody; Windows-native,
+unattended off-LAN, and independent E02/A05 effect acceptance remain held.
+
+## Finalizer admission-lock timeout review correction — 29 October 2026
+
+A finalizer that times out acquiring the cross-process inbound admission lock
+must not write a failed `ended.json` without that lock. A concurrently admitted
+`deliver` or `exchange` may still be committing TLS ciphertext; publishing an
+unlocked ended marker would falsely imply the inbound journal and socket-lifetime
+state were serialized. The fallback is removed. Finalization reports failure,
+retains the exclusive `serve.claim` to prevent socket reuse, and leaves
+`ended.json` absent if the lock could not be obtained. A regression injects a
+finalizer-only admission-lock timeout and verifies no unlocked end marker.
+This is source-level lifecycle custody, not an independent A05 effect witness
+or unattended Windows/off-LAN acceptance.
+
+## E07 unexpected dial retry failure custody — 29 October 2026
+
+An unexpected non-OS error during the dial-mode local Control connection
+attempt or its retry delay previously escaped after the exclusive
+`serve.claim` without an `ended.json` marker. Late inbound Oracle
+ciphertext could still be admitted into that consumed carrier state.
+The bounded source correction seals the failed lifetime under the existing
+cross-process admission lock and propagates the original error; it never
+opens a second socket lifetime. Two predecessor RED adversarial variants
+(connection setup and interrupted retry delay) became GREEN; this is
+KRATOS source-only evidence, not unattended off-LAN or independent
+Windows-native E02/A05 acceptance.
+
+## E07 cleanup-exception lifetime custody — 29 October 2026
+
+A native socket close may itself raise while the carrier is already
+handling an accept-mode bind failure or dial-mode ready-marker failure.
+Previously the cleanup exception replaced the original failure and skipped
+the admission-locked failed ended.json seal after serve.claim. The bounded
+correction preserves the original failure and attempts the same guarded
+failure seal even if close raises. The exclusive claim continues to prevent
+lifetime reuse; a failed close is not evidence that the OS released a
+socket. Two predecessor adversarial regressions were RED and now require
+a failed ended.json plus rejection of delayed inbound ciphertext.
+This is KRATOS source-only custody; Windows-native, unattended off-LAN,
+and independent E02/A05 effect acceptance remain unproven.
+
+## E07 post-ready cleanup-exception failure sealing — 29 October 2026
+
+A socket timeout setup error or byte-pump thread-launch error after `ready.json` previously allowed a secondary `close()` exception to replace the primary failure and skip the cross-process admission-locked `ended.json` failure seal. Two adversarial native regressions first reproduced these failures. Cleanup now attempts both endpoint closes independently, preserves the primary error, and continues the admission-locked failed-lifetime seal, rejecting delayed inbound Oracle ciphertext. The exclusive `serve.claim` remains consumed; a failed close does not prove the OS released a socket. This is source-only KRATOS custody, not Windows-native, unattended off-LAN, or independent E02/A05 effect acceptance.
+
+
+## E07 post-pump endpoint close failure sealing — 29 October 2026
+
+Once both native byte pumps stop, an exception from either the connected
+socket close or the listener close must not bypass the final SQLite and
+lifecycle-marker transaction. The post-pump cleanup now attempts both
+endpoint closes, records a shutdown failure for any close exception,
+and proceeds to the admission-locked finalizer. A test-first two-endpoint
+regression reproduced the old missing-marker behavior and now requires a
+failed ended.json and rejection of late inbound ciphertext. A failed
+close is not proof that the OS released a socket. This is source-only
+lifecycle custody, not unattended off-LAN or independent E02/A05 effect
+qualification; no Oracle runtime or production node was modified.
+
+
+## E07 post-ended native outbound admission — 29 October 2026
+
+A native reader pump can survive the bounded shutdown join after the
+finalizer records a failed socket lifetime. Previously the outbound
+publish path checked SQLite sequence and quota but did not check the
+admission-locked ended.json; late native ciphertext could therefore
+extend the journal after finished or failed had been sealed. A
+test-first regression reproduced two unauthorized appends (successful
+and failed ended markers). The corrected publish transaction now
+rejects either sealed lifetime under the same cross-process admission
+lock as finalization. Previously durable outbound bytes remain
+drainable; the exclusive claim is not reset. This is source-only
+lifecycle custody, not Windows-native/off-LAN or independent E02/A05
+effect qualification. Oracle production and devices remain untouched.
+
+## E07 durable journal schema custody — 29 October 2026
+
+A resumed carrier must never treat missing SQLite inbound/outbound tables
+as an empty, freshly prepared TLS journal. The previous shared database
+open path used `CREATE TABLE IF NOT EXISTS` for both preparation and
+read/append/status operations, silently recreating a dropped journal; a
+same-name SQLite view was also accepted by that statement. The project-owned
+source-only correction restricts table creation to one-shot prepare and
+requires both named durable stream objects to be real tables on every
+subsequent database open. Test-first regressions reproduced three RED
+observations (missing inbound, missing outbound, substituted view); after
+correction they PASS, and the failed observations leave damaged schema
+unchanged. Native carrier and Node Link suites pass with expected Windows
+skips. This is local E07 evidence-fidelity preparation, not Oracle runtime
+authorization, Windows-native/off-LAN proof, or an independent E02/A05
+effect witness.
+
+
+## E07 durable journal schema identity custody — 30 October 2026
+
+A prepared SQLite carrier with the right `outbound`/`inbound` table
+names could previously substitute a table lacking the `seq INTEGER PRIMARY
+KEY` constraint. Duplicate sequence 1 twice plus sequence 3 satisfies the
+historical count=max aggregate despite missing sequence 2. The carrier also
+accepted changed column constraints and triggers on either journal. Eight
+adversarial subcases were RED on the predecessor.
+
+Only one-shot prepare now creates the two canonical journal DDLs. Every
+subsequent SQLite open verifies both exact table definitions and rejects
+additional indexes/triggers bound to either journal before read, append,
+status, or native socket use. Focused regression PASS; complete E07
+carrier suite 120 tests, 3 Windows-only skips, 0 failures; Node Link 12/12
+PASS; Python compilation and git diff check PASS. This is source-only
+evidence integrity, not unattended roaming, Windows-native acceptance,
+an independent E02/A05 effect witness, or Oracle runtime authorization.
+
+## E07 admission-lock post-read epoch custody — 30 October 2026
+
+The one-byte private NUL admission-lock sentinel was checked after flock,
+but a same-inode rewrite or pathname replacement immediately after
+the sentinel read could still reach SQLite. Two deterministic adversarial
+regressions reproduced this behavior RED on the predecessor: an in-place
+content/epoch change and a same-content new-inode pathname swap.
+
+The source-only correction rechecks both the locked descriptor and named
+path epoch (identity, ownership, mode, link count, size and observed
+mtime/ctime) before yielding SQLite custody. Both cases now fail closed;
+normal prepared-lock reads remain admitted. Native carrier suite: 124
+executions, three expected Windows-only skips, zero failures; Python Node
+Link 12/12 PASS. This detects observed mutation only; it does not prove
+race-free filesystem sealing against adversarial ABA or establish Windows
+physical/off-LAN E02/A05 effect qualification. No Oracle runtime,
+credentials, production service or stolen device was modified.
+
+## E07 pre-SQLite state-root custody recheck — 30 October 2026
+
+The E07 carrier checked the private state directory at database-open entry, but
+sidecar and database-file custody inspection could finish after that directory
+lost its private permissions. A deterministic POSIX adversarial regression
+downgraded the state root to group-writable after database-file custody and
+proved the predecessor reached the native SQLite opener. The bounded
+source-only correction rechecks the named root's inode, owner, mode, link
+count, and private custody immediately before sqlite3.connect. The
+adversarial regression and native carrier/Node Link suites pass. This is an
+observed-epoch safeguard, not race-free filesystem authority, Windows
+ACL/physical qualification, unattended off-LAN proof, or an independent
+E02/A05 effect witness. No Oracle production runtime was changed.
+## E07 final database-path identity recheck — 30 October 2026
+
+After initial database-file admission, sidecar and state-root custody
+inspection could outlive the admitted database pathname. A deterministic
+POSIX regression replaced the private database with a different private
+inode after root custody; the predecessor still called sqlite3.connect.
+The bounded source-only correction rechecks the named database inode,
+mode, ownership, link count, size and observed modification/change epoch
+before SQLite follows the path. The adversarial regression now rejects
+the substitution. This is observed-epoch validation, not race-free
+filesystem authority, independent Windows/roaming execution proof,
+or permission to change Oracle runtime or release gates.

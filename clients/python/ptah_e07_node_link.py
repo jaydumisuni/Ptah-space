@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import socket
 import ssl
 import struct
@@ -28,7 +29,14 @@ def _receive_exact(connection: ssl.SSLSocket, count: int) -> bytes:
 
 
 def _write_frame(connection: ssl.SSLSocket, message: dict) -> None:
-    data = json.dumps(message, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    # Python emits NaN and Infinity by default, although they are not JSON
+    # numbers accepted by the E01 Rust peer. Reject before sending any bytes.
+    # Normalize unsupported values into a bounded protocol failure as well.
+    try:
+        data = json.dumps(message, separators=(",", ":"), sort_keys=True,
+                          allow_nan=False).encode("utf-8")
+    except (TypeError, ValueError, OverflowError) as error:
+        raise LinkFailure("invalid_outgoing_frame") from error
     if not data or len(data) > 1_048_576:
         raise LinkFailure("invalid_frame_size")
     connection.sendall(struct.pack(">I", len(data)) + data)
@@ -38,7 +46,33 @@ def _read_frame(connection: ssl.SSLSocket) -> dict:
     size = struct.unpack(">I", _receive_exact(connection, 4))[0]
     if not 0 < size <= 1_048_576:
         raise LinkFailure("invalid_incoming_frame_size")
-    obj = json.loads(_receive_exact(connection, size).decode("utf-8"))
+    # The TLS peer is authenticated, but ambiguous JSON is not an admitted
+    # E01 frame: Python otherwise keeps the last duplicate identity field and
+    # accepts NaN/Infinity or exponent-overflow values as ordinary floats.
+    def unique_fields(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise LinkFailure("invalid_incoming_frame: duplicate JSON field")
+            result[key] = value
+        return result
+
+    def reject_nonfinite(_token):
+        raise LinkFailure("invalid_incoming_frame: nonfinite JSON number")
+
+    def finite_float(token):
+        value = float(token)
+        if not math.isfinite(value):
+            raise LinkFailure("invalid_incoming_frame: nonfinite JSON number")
+        return value
+
+    try:
+        obj = json.loads(_receive_exact(connection, size).decode("utf-8"),
+                         object_pairs_hook=unique_fields,
+                         parse_constant=reject_nonfinite,
+                         parse_float=finite_float)
+    except (ValueError, UnicodeError) as error:
+        raise LinkFailure("invalid_incoming_frame: malformed JSON") from error
     if not isinstance(obj, dict):
         raise LinkFailure("invalid_incoming_frame")
     return obj

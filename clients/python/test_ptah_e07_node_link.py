@@ -31,6 +31,22 @@ class NodeLinkProtocolTests(unittest.TestCase):
         self.assertEqual(json.loads(raw[4:].decode("utf-8")),msg)
         self.assertEqual(link._read_frame(MemorySocket(raw)),msg)
 
+    def test_noncanonical_incoming_json_cannot_become_e01_hello_ack(self):
+        # Ambiguous duplicate identities and non-finite JSON numbers must not
+        # be normalized into a seemingly authenticated E01 acknowledgement.
+        cases = (
+            b'{"kind":"hello_ack","kind":"close","payload":{}}',
+            b'{"kind":"hello_ack","payload":{"node_id":"trusted","node_id":"other"}}',
+            b'{"kind":"hello_ack","payload":{"node_generation":NaN}}',
+            b'{"kind":"hello_ack","payload":{"connection_epoch":Infinity}}',
+            b'{"kind":"hello_ack","payload":{"connection_epoch":1e999}}',
+        )
+        for payload in cases:
+            with self.subTest(payload=payload):
+                wire = struct.pack(">I", len(payload)) + payload
+                with self.assertRaisesRegex(link.LinkFailure, "invalid_incoming_frame"):
+                    link._read_frame(MemorySocket(wire))
+
     def test_zero_and_oversize_incoming_rejected_before_allocation(self):
         for count in (0,1_048_577,0xFFFFFFFF):
             with self.subTest(count=count):
@@ -49,6 +65,23 @@ class NodeLinkProtocolTests(unittest.TestCase):
     def test_oversized_outgoing_refused(self):
         with self.assertRaisesRegex(link.LinkFailure,"invalid_frame_size"):
             link._write_frame(MemorySocket(),{"payload":"x"*1_048_577})
+
+    def test_outgoing_frame_rejects_nonfinite_json_before_wire_write(self):
+        # Python json.dumps emits NaN/Infinity by default, but the E01
+        # Rust/JSON peer cannot admit those tokens as canonical JSON.
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=repr(value)):
+                wire = MemorySocket()
+                with self.assertRaisesRegex(link.LinkFailure, "invalid_outgoing_frame"):
+                    link._write_frame(wire, {"kind": "hello", "payload": {
+                        "node_id": "test-node", "nested": [value]}})
+                self.assertEqual(wire.sent, bytearray())
+
+    def test_outgoing_frame_rejects_non_json_objects_before_wire_write(self):
+        wire = MemorySocket()
+        with self.assertRaisesRegex(link.LinkFailure, "invalid_outgoing_frame"):
+            link._write_frame(wire, {"kind": "hello", "payload": {"bad": object()}})
+        self.assertEqual(wire.sent, bytearray())
 
     def test_no_second_workspace_user_approval_in_client(self):
         source=Path(link.__file__).read_text()

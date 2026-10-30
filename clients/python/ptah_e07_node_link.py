@@ -28,14 +28,44 @@ def _receive_exact(connection: ssl.SSLSocket, count: int) -> bytes:
     return bytes(output)
 
 
+def _require_json_nesting_budget(text: str, direction: str) -> None:
+    # E01 has shallow, versioned JSON frames in either direction. Scan the
+    # encoded structure iteratively: brackets inside escaped JSON strings
+    # must not consume the nesting budget.
+    depth = 0
+    quoted = False
+    escaped = False
+    for char in text:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char in "[{":
+            depth += 1
+            if depth > 32:
+                raise LinkFailure(f"invalid_{direction}_frame: excessive JSON nesting")
+        elif char in "]}":
+            depth -= 1
+            if depth < 0:
+                raise LinkFailure(f"invalid_{direction}_frame: malformed JSON")
+
+
 def _write_frame(connection: ssl.SSLSocket, message: dict) -> None:
     # Python emits NaN and Infinity by default, although they are not JSON
     # numbers accepted by the E01 Rust peer. Reject before sending any bytes.
     # Normalize unsupported values into a bounded protocol failure as well.
     try:
-        data = json.dumps(message, separators=(",", ":"), sort_keys=True,
-                          allow_nan=False).encode("utf-8")
-    except (TypeError, ValueError, OverflowError) as error:
+        text = json.dumps(message, separators=(",", ":"), sort_keys=True,
+                          allow_nan=False)
+        _require_json_nesting_budget(text, "outgoing")
+        data = text.encode("utf-8")
+    except (TypeError, ValueError, OverflowError, RecursionError,
+            UnicodeError) as error:
         raise LinkFailure("invalid_outgoing_frame") from error
     if not data or len(data) > 1_048_576:
         raise LinkFailure("invalid_frame_size")
@@ -70,31 +100,8 @@ def _read_frame(connection: ssl.SSLSocket) -> dict:
         text = _receive_exact(connection, size).decode("utf-8")
     except UnicodeError as error:
         raise LinkFailure("invalid_incoming_frame: malformed JSON") from error
-    # A byte-size limit alone does not bound JSON nesting. E01 frames have
-    # shallow, versioned shapes; reject excessive nesting before the decoder
-    # can consume an attacker-controlled recursion budget. Ignore delimiters
-    # in strings, including strings containing escaped quotes.
-    depth = 0
-    quoted = False
-    escaped = False
-    for char in text:
-        if quoted:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                quoted = False
-        elif char == '"':
-            quoted = True
-        elif char in "[{":
-            depth += 1
-            if depth > 32:
-                raise LinkFailure("invalid_incoming_frame: excessive JSON nesting")
-        elif char in "]}":
-            depth -= 1
-            if depth < 0:
-                raise LinkFailure("invalid_incoming_frame: malformed JSON")
+    # Keep the incoming peer on the same structural budget as outbound E01.
+    _require_json_nesting_budget(text, "incoming")
     try:
         obj = json.loads(text, object_pairs_hook=unique_fields,
                          parse_constant=reject_nonfinite,

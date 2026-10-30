@@ -1330,6 +1330,60 @@ with carrier.carrier_admission_lock(sys.argv[2]):
             C.write_exclusive_marker(marker, document)
             self.assertTrue(C.admitted_lifecycle_marker(marker))
 
+    @unittest.skipIf(os.name == "nt", "POSIX marker epoch mutation fixture")
+    def test_lifecycle_marker_rejects_inplace_mutation_during_admission(self):
+        # A marker rewritten in place can retain its inode, owner, ACL and
+        # valid JSON schema. Neither a pre-read pathname check nor an
+        # unverified descriptor read proves that the observed epoch is stable.
+        from unittest.mock import patch
+
+        cases = (
+            ("ready.json", {"mode": "accept", "port": 41321,
+                            "pid": 1, "bound": "127.0.0.1"}),
+            ("ended.json", {"pid": 1, "finished": True, "failed": False}),
+        )
+        for name, document in cases:
+            marker = Path(self.b) / name
+            for phase in ("after_fstat", "after_read"):
+                with self.subTest(name=name, phase=phase):
+                    if marker.exists():
+                        marker.unlink()
+                    C.write_exclusive_marker(marker, document)
+                    self.assertTrue(C.admitted_lifecycle_marker(marker))
+                    real_fstat = os.fstat
+                    real_read = os.read
+                    mutated = [False]
+
+                    def change_epoch():
+                        if mutated[0]:
+                            return
+                        mutated[0] = True
+                        old = marker.stat()
+                        payload = marker.read_bytes()
+                        marker.write_bytes(payload)
+                        os.utime(marker, ns=(
+                            old.st_atime_ns, old.st_mtime_ns + 2_000_000_000))
+
+                    def after_fstat(fd):
+                        result = real_fstat(fd)
+                        if phase == "after_fstat":
+                            change_epoch()
+                        return result
+
+                    def after_read(fd, length):
+                        result = real_read(fd, length)
+                        if phase == "after_read":
+                            change_epoch()
+                        return result
+
+                    with patch.object(C.os, "fstat", side_effect=after_fstat):
+                        with patch.object(C.os, "read", side_effect=after_read):
+                            with self.assertRaisesRegex(
+                                    ValueError, "lifecycle marker identity changed"):
+                                C.admitted_lifecycle_marker(marker)
+                    self.assertTrue(mutated[0])
+                    marker.unlink()
+
     @unittest.skipIf(os.name == "nt", "POSIX inode replacement fixture")
     def test_lifecycle_marker_regular_file_swap_is_rejected(self):
         from unittest.mock import patch

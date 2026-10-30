@@ -687,8 +687,12 @@ def admitted_lifecycle_marker(path, return_pid=False, return_document=False):
             # error, not escape the Oracle RPC as an unhandled filesystem race.
             raise ValueError("carrier lifecycle marker identity changed") from error
         def marker_identity(value):
+            # A same-inode, same-length rewrite is still a new lifecycle
+            # observation epoch. Compare content metadata as well as inode
+            # identity; this detects observed changes, not a race-free seal.
             return (value.st_dev, value.st_ino, value.st_mode,
-                    value.st_nlink, value.st_uid, value.st_gid)
+                    value.st_nlink, value.st_uid, value.st_gid,
+                    value.st_size, value.st_mtime_ns, value.st_ctime_ns)
         if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1
                 or not stat.S_ISREG(current.st_mode) or current.st_nlink != 1
                 or marker_identity(identity) != marker_identity(opened)
@@ -702,6 +706,21 @@ def admitted_lifecycle_marker(path, return_pid=False, return_document=False):
         # alone cannot attest a ready/ended lifecycle event. Read only from
         # the already admitted descriptor, with a small fixed size ceiling.
         payload = os.read(fd, 4097)
+        # A writer can rewrite the still-open marker after our first fstat
+        # and pathname check, including with a valid same-length JSON body.
+        # Revalidate the descriptor and named inode epoch after the read
+        # before treating those bytes as a native lifecycle observation.
+        try:
+            after_read_fd = os.fstat(fd)
+            after_read_path = path.lstat()
+        except OSError as error:
+            raise ValueError("carrier lifecycle marker identity changed") from error
+        if (marker_identity(opened) != marker_identity(after_read_fd)
+                or marker_identity(current) != marker_identity(after_read_path)
+                or is_path_alias(path)):
+            raise ValueError("carrier lifecycle marker identity changed")
+        require_private_custody(path, after_read_fd, "lifecycle marker")
+        require_private_custody(path, after_read_path, "lifecycle marker")
         if not payload or len(payload) > 4096:
             raise ValueError("invalid carrier lifecycle marker content")
         def unique_fields(pairs):

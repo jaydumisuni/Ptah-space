@@ -307,6 +307,21 @@ def _dbconnect_locked(state, create=False):
                 or is_path_alias(sidecar)):
             raise ValueError("real unaliased carrier sidecar required")
         require_private_custody(sidecar, sidecar_identity, "sidecar")
+    # Sidecar custody checks can run after the initial root admission.
+    # Recheck the named directory before SQLite follows its database path:
+    # a now-shared or replaced root cannot inherit the earlier approval.
+    # This detects observed changes, not a race-free dirfd-based seal.
+    try:
+        current_root = root.lstat()
+    except OSError as error:
+        raise ValueError("carrier state directory identity changed") from error
+    def root_epoch(value):
+        return (value.st_dev, value.st_ino, value.st_mode, value.st_uid,
+                value.st_gid, value.st_nlink)
+    if (not stat.S_ISDIR(current_root.st_mode) or is_path_alias(root)
+            or root_epoch(current_root) != root_epoch(root_identity)):
+        raise ValueError("carrier state directory identity changed")
+    require_private_custody(root, current_root, "state directory")
     conn = sqlite3.connect(str(db_path), timeout=7)
     try:
         # Schema/PRAGMA/commit failures must close the handle before the

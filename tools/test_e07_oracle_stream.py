@@ -28,6 +28,35 @@ class OracleCarrierContract(unittest.TestCase):
         if os.name == "nt":
             C.windows_claim_new_owner(path)
 
+    @unittest.skipIf(os.name == "nt", "POSIX mode-custody adversarial fixture")
+    def test_dbconnect_rechecks_state_root_before_sqlite_open(self):
+        # The state root can lose private custody after its first stat and
+        # before SQLite opens the database pathname. An admitted lock does not
+        # authorize opening SQLite under a newly shared root.
+        from unittest.mock import patch
+
+        root = Path(self.a)
+        original = C.require_private_custody
+        changed = []
+
+        def downgrade_after_database_custody(path, identity, label):
+            original(path, identity, label)
+            if label == "database" and not changed:
+                root.chmod(0o770)
+                changed.append(True)
+
+        try:
+            with patch.object(C, "require_private_custody",
+                              side_effect=downgrade_after_database_custody):
+                with patch.object(C.sqlite3, "connect",
+                                  side_effect=AssertionError("SQLite opened shared root")):
+                    with self.assertRaisesRegex(
+                            ValueError, "carrier state directory identity changed"):
+                        C.pull(self.a, "outbound", 0, 1)
+            self.assertTrue(changed)
+        finally:
+            root.chmod(0o700)
+
     def test_serve_rejects_noninteger_endpoint_before_socket_claim(self):
         # Direct native callers must not consume a one-shot carrier lifetime
         # for a float or text port that cannot bind an IPv4 socket. Argparse

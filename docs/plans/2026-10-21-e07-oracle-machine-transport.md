@@ -324,3 +324,17 @@ Link 12/12 PASS. This detects observed mutation only; it does not prove
 race-free filesystem sealing against adversarial ABA or establish Windows
 physical/off-LAN E02/A05 effect qualification. No Oracle runtime,
 credentials, production service or stolen device was modified.
+
+## E07 pre-SQLite state-root custody recheck — 30 October 2026
+
+The E07 carrier checked the private state directory at database-open entry, but
+sidecar and database-file custody inspection could finish after that directory
+lost its private permissions. A deterministic POSIX adversarial regression
+downgraded the state root to group-writable after database-file custody and
+proved the predecessor reached the native SQLite opener. The bounded
+source-only correction rechecks the named root's inode, owner, mode, link
+count, and private custody immediately before sqlite3.connect. The
+adversarial regression and native carrier/Node Link suites pass. This is an
+observed-epoch safeguard, not race-free filesystem authority, Windows
+ACL/physical qualification, unattended off-LAN proof, or an independent
+E02/A05 effect witness. No Oracle production runtime was changed.

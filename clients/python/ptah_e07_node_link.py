@@ -67,11 +67,39 @@ def _read_frame(connection: ssl.SSLSocket) -> dict:
         return value
 
     try:
-        obj = json.loads(_receive_exact(connection, size).decode("utf-8"),
-                         object_pairs_hook=unique_fields,
+        text = _receive_exact(connection, size).decode("utf-8")
+    except UnicodeError as error:
+        raise LinkFailure("invalid_incoming_frame: malformed JSON") from error
+    # A byte-size limit alone does not bound JSON nesting. E01 frames have
+    # shallow, versioned shapes; reject excessive nesting before the decoder
+    # can consume an attacker-controlled recursion budget. Ignore delimiters
+    # in strings, including strings containing escaped quotes.
+    depth = 0
+    quoted = False
+    escaped = False
+    for char in text:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char in "[{":
+            depth += 1
+            if depth > 32:
+                raise LinkFailure("invalid_incoming_frame: excessive JSON nesting")
+        elif char in "]}":
+            depth -= 1
+            if depth < 0:
+                raise LinkFailure("invalid_incoming_frame: malformed JSON")
+    try:
+        obj = json.loads(text, object_pairs_hook=unique_fields,
                          parse_constant=reject_nonfinite,
                          parse_float=finite_float)
-    except (ValueError, UnicodeError) as error:
+    except (ValueError, UnicodeError, RecursionError) as error:
         raise LinkFailure("invalid_incoming_frame: malformed JSON") from error
     if not isinstance(obj, dict):
         raise LinkFailure("invalid_incoming_frame")

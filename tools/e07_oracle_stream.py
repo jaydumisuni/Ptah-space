@@ -206,7 +206,33 @@ def carrier_admission_lock(state, preparing=False):
             if locked.st_size != 1:
                 raise ValueError("carrier admission lock content changed")
             os.lseek(fd, 0, os.SEEK_SET)
-            if os.read(fd, 2) != b"\x00":
+            sentinel = os.read(fd, 2)
+            # A same-inode, same-length rewrite or a pathname replacement
+            # after the sentinel read must not authorize SQLite. Compare the
+            # observed descriptor and pathname epochs while retaining flock.
+            # This detects observed mutation, not adversarial ABA or a
+            # race-free dirfd-relative filesystem seal.
+            try:
+                after_read_fd = os.fstat(fd)
+                after_read_path = path.lstat()
+            except OSError as error:
+                if error.errno not in (errno.ENOENT, errno.ENOTDIR,
+                                       getattr(errno, "ELOOP", None)):
+                    raise
+                raise ValueError("carrier admission lock identity changed") from error
+            def lock_epoch(value):
+                return (value.st_dev, value.st_ino, value.st_mode,
+                        value.st_nlink, value.st_uid, value.st_gid,
+                        value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+            if (not stat.S_ISREG(after_read_fd.st_mode)
+                    or not stat.S_ISREG(after_read_path.st_mode)
+                    or lock_epoch(locked) != lock_epoch(after_read_fd)
+                    or lock_epoch(current) != lock_epoch(after_read_path)
+                    or is_path_alias(path)):
+                raise ValueError("carrier admission lock identity changed")
+            require_private_custody(path, after_read_fd, "admission lock")
+            require_private_custody(path, after_read_path, "admission lock")
+            if sentinel != b"\x00":
                 raise ValueError("carrier admission lock content changed")
             yield
         finally:

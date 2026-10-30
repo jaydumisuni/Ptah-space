@@ -1256,6 +1256,70 @@ with carrier.carrier_admission_lock(sys.argv[2]):
         finally:
             lock_path.write_bytes(original)
 
+    @unittest.skipIf(os.name == "nt", "POSIX deterministic lock epoch fixture")
+    def test_admission_lock_inplace_rewrite_after_sentinel_read_fails_closed(self):
+        # The already locked inode can change after its one-byte NUL is read.
+        # Do not enter SQLite on a stale admission-lock observation.
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        original_read = os.read
+        original = lock_path.read_bytes()
+        observed = []
+
+        def rewrite_after_read(fd, size):
+            result = original_read(fd, size)
+            if not observed and size == 2:
+                observed.append(True)
+                with lock_path.open("r+b") as handle:
+                    handle.write(b"\x01")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                before = lock_path.stat()
+                os.utime(lock_path, ns=(before.st_atime_ns,
+                                        before.st_mtime_ns + 1_000_000_000))
+            return result
+
+        try:
+            with patch.object(C.os, "read", side_effect=rewrite_after_read):
+                with patch.object(C.sqlite3, "connect",
+                                  side_effect=AssertionError("SQLite opened after lock epoch changed")):
+                    with self.assertRaisesRegex(ValueError, "carrier admission lock identity changed"):
+                        C.pull(self.b, "inbound", 0, 1)
+            self.assertEqual(observed, [True])
+        finally:
+            lock_path.write_bytes(original)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
+    @unittest.skipIf(os.name == "nt", "POSIX deterministic lock pathname fixture")
+    def test_admission_lock_path_swap_after_sentinel_read_fails_closed(self):
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        detached = Path(self.temp.name) / "detached-admission-lock"
+        original_read = os.read
+        observed = []
+
+        def swap_after_read(fd, size):
+            result = original_read(fd, size)
+            if not observed and size == 2:
+                observed.append(True)
+                lock_path.rename(detached)
+                lock_path.write_bytes(b"\x00")
+                os.chmod(lock_path, 0o600)
+            return result
+
+        try:
+            with patch.object(C.os, "read", side_effect=swap_after_read):
+                with patch.object(C.sqlite3, "connect",
+                                  side_effect=AssertionError("SQLite opened after lock path changed")):
+                    with self.assertRaisesRegex(ValueError, "carrier admission lock identity changed"):
+                        C.pull(self.b, "inbound", 0, 1)
+            self.assertEqual(observed, [True])
+        finally:
+            lock_path.unlink(missing_ok=True)
+            if detached.exists():
+                detached.rename(lock_path)
+        self.assertEqual(C.pull(self.b, "inbound", 0, 1), [])
+
     @unittest.skipIf(os.name == "nt", "POSIX mode fixture")
     def test_shared_admission_lock_fails_closed_before_sqlite_open(self):
         from unittest.mock import patch

@@ -306,3 +306,21 @@ carrier suite 120 tests, 3 Windows-only skips, 0 failures; Node Link 12/12
 PASS; Python compilation and git diff check PASS. This is source-only
 evidence integrity, not unattended roaming, Windows-native acceptance,
 an independent E02/A05 effect witness, or Oracle runtime authorization.
+
+## E07 admission-lock post-read epoch custody — 30 October 2026
+
+The one-byte private NUL admission-lock sentinel was checked after flock,
+but a same-inode rewrite or pathname replacement immediately after
+the sentinel read could still reach SQLite. Two deterministic adversarial
+regressions reproduced this behavior RED on the predecessor: an in-place
+content/epoch change and a same-content new-inode pathname swap.
+
+The source-only correction rechecks both the locked descriptor and named
+path epoch (identity, ownership, mode, link count, size and observed
+mtime/ctime) before yielding SQLite custody. Both cases now fail closed;
+normal prepared-lock reads remain admitted. Native carrier suite: 124
+executions, three expected Windows-only skips, zero failures; Python Node
+Link 12/12 PASS. This detects observed mutation only; it does not prove
+race-free filesystem sealing against adversarial ABA or establish Windows
+physical/off-LAN E02/A05 effect qualification. No Oracle runtime,
+credentials, production service or stolen device was modified.

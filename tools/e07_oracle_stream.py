@@ -132,6 +132,10 @@ def carrier_admission_lock(state, preparing=False):
         if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1
                 or (opened.st_dev, opened.st_ino) != (identity.st_dev, identity.st_ino)):
             raise ValueError("carrier admission lock identity changed")
+        # On Windows a zero-length file may not support the one-byte
+        # msvcrt lock. Reject malformed sentinels before trying to lock it.
+        if opened.st_size != 1:
+            raise ValueError("carrier admission lock content changed")
         require_private_custody(path, opened, "admission lock")
         # Bound contention rather than hanging an Oracle RPC indefinitely.
         deadline = time.monotonic() + 7
@@ -195,6 +199,15 @@ def carrier_admission_lock(state, preparing=False):
                     or (locked.st_dev, locked.st_ino) != (opened.st_dev, opened.st_ino)):
                 raise ValueError("carrier admission lock identity changed")
             require_private_custody(path, current, "admission lock")
+            # prepare() creates exactly one NUL byte. A private, single-link
+            # inode with mutated contents is not the prepared lock sentinel.
+            # Inspect the already locked descriptor before SQLite admission;
+            # do not repair a corrupted lock or claim race-free path custody.
+            if locked.st_size != 1:
+                raise ValueError("carrier admission lock content changed")
+            os.lseek(fd, 0, os.SEEK_SET)
+            if os.read(fd, 2) != b"\x00":
+                raise ValueError("carrier admission lock content changed")
             yield
         finally:
             if os.name == "nt":

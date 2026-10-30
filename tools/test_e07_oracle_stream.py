@@ -1238,6 +1238,24 @@ with carrier.carrier_admission_lock(sys.argv[2]):
             with self.assertRaisesRegex(ValueError, "prepared carrier admission lock required"):
                 C.pull(self.b, "inbound", 0, 1)
 
+    def test_mutated_admission_lock_sentinel_fails_before_sqlite_open(self):
+        # A private regular inode is not enough: prepare seals a one-byte
+        # NUL lock sentinel. Truncation, rewriting, or extension must not
+        # admit a different lock generation into a SQLite transaction.
+        from unittest.mock import patch
+        lock_path = Path(self.b) / C._ADMISSION_LOCK_NAME
+        original = lock_path.read_bytes()
+        self.assertEqual(original, b"\x00")
+        try:
+            for payload in (b"", b"\x01", b"\x00\x00"):
+                with self.subTest(payload=payload):
+                    lock_path.write_bytes(payload)
+                    with patch.object(C.sqlite3, "connect", side_effect=AssertionError("opened mutated lock")):
+                        with self.assertRaisesRegex(ValueError, "carrier admission lock content changed"):
+                            C.pull(self.b, "inbound", 0, 1)
+        finally:
+            lock_path.write_bytes(original)
+
     @unittest.skipIf(os.name == "nt", "POSIX mode fixture")
     def test_shared_admission_lock_fails_closed_before_sqlite_open(self):
         from unittest.mock import patch

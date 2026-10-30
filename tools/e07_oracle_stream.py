@@ -869,6 +869,18 @@ def require_admitted_socket_claim(root):
             raise ValueError("carrier socket claim identity changed")
         require_private_custody(path, opened, "socket claim")
         require_private_custody(path, current, "socket claim")
+        # Custody inspection itself may take place after an in-place rewrite.
+        # Observe the same empty claim epoch once more before admission; this
+        # closes the post-custody gap without claiming a race-free filesystem.
+        try:
+            final_opened = os.fstat(fd)
+            final_current = path.lstat()
+        except OSError as error:
+            raise ValueError("carrier socket claim identity changed") from error
+        if (identity(opened) != identity(final_opened)
+                or identity(current) != identity(final_current)
+                or is_path_alias(path)):
+            raise ValueError("carrier socket claim identity changed")
     finally:
         os.close(fd)
 

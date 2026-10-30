@@ -2869,6 +2869,38 @@ with carrier.carrier_admission_lock(sys.argv[2]):
                 finally:
                     claim.unlink()
 
+    @unittest.skipIf(os.name == "nt", "POSIX socket-claim epoch fixture")
+    def test_socket_claim_rejects_postcustody_rewrite(self):
+        # Even a zero-length claim can be rewritten after the first pathname
+        # identity comparison. The final custody call must not certify the
+        # previous epoch as the current native socket claim.
+        from unittest.mock import patch
+
+        claim = Path(self.b) / "serve.claim"
+        self.claim_socket_lifetime_for_status_fixture()
+        original_custody = C.require_private_custody
+        calls = [0]
+
+        def rewrite_during_final_custody(path, identity, label):
+            original_custody(path, identity, label)
+            if label == "socket claim":
+                calls[0] += 1
+                if calls[0] == 3:
+                    claim.write_bytes(b"changed")
+                    claim.write_bytes(b"")
+                    os.utime(claim, ns=(identity.st_atime_ns,
+                                        identity.st_mtime_ns + 2_000_000_000))
+
+        try:
+            with patch.object(C, "require_private_custody",
+                              side_effect=rewrite_during_final_custody):
+                with self.assertRaisesRegex(
+                        ValueError, "socket claim identity changed"):
+                    C.require_admitted_socket_claim(Path(self.b))
+            self.assertEqual(calls, [3])
+        finally:
+            claim.unlink()
+
     def test_status_rejects_success_without_ready_marker(self):
         # A failed socket attempt can seal before ready, but a successful
         # native TLS lifetime cannot end without having become ready.

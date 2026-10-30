@@ -1247,7 +1247,11 @@ def main():
             ended_document = admitted_lifecycle_marker(
                 root / "ended.json", return_document=True)
             ended_pid = ended_document["pid"] if ended_document else None
-            if ready_pid is not None or ended_pid is not None:
+            # A one-shot claim can exist before ready.json is published.
+            # Its absence of markers does not make an aliased or corrupted
+            # claim equivalent to an untouched prepared carrier.
+            if (ready_pid is not None or ended_pid is not None
+                    or os.path.lexists(root / "serve.claim")):
                 require_admitted_socket_claim(root)
             # A failed pre-ready socket claim can end without ready.json. A
             # successful native lifetime cannot: serve() publishes ready

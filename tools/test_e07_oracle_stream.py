@@ -2798,6 +2798,51 @@ with carrier.carrier_admission_lock(sys.argv[2]):
                     marker.unlink()
 
     @unittest.skipIf(os.name == "nt", "POSIX socket-claim alias fixture")
+    def test_status_rejects_invalid_claim_even_before_lifecycle_markers(self):
+        # serve.claim is the irreversible one-shot socket reservation.
+        # A damaged claim without ready/ended markers must not look like an
+        # untouched prepared state; an intact in-flight claim stays observable.
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+
+        root = Path(self.b)
+        claim = root / "serve.claim"
+        outside = Path(self.temp.name) / "outside-pre-ready-claim"
+        outside.write_bytes(b"")
+        os.chmod(outside, 0o600)
+
+        def status():
+            output = StringIO()
+            with patch.object(C.sys, "argv", [
+                    "e07_oracle_stream.py", "status", "--state", self.b]):
+                with redirect_stdout(output):
+                    C.main()
+            return json.loads(output.getvalue())
+
+        self.assertFalse(status()["ready"])
+        self.assertFalse(status()["ended"])
+        self.claim_socket_lifetime_for_status_fixture()
+        self.assertFalse(status()["ready"])
+        self.assertFalse(status()["ended"])
+        claim.unlink()
+
+        for kind in ("symlink", "hardlink", "nonempty"):
+            with self.subTest(kind=kind):
+                if kind == "symlink":
+                    claim.symlink_to(outside)
+                elif kind == "hardlink":
+                    os.link(outside, claim)
+                else:
+                    claim.write_bytes(b"forged")
+                    os.chmod(claim, 0o600)
+                try:
+                    with self.assertRaisesRegex(ValueError, "socket claim"):
+                        status()
+                finally:
+                    claim.unlink()
+
+    @unittest.skipIf(os.name == "nt", "POSIX socket-claim alias fixture")
     def test_status_rejects_aliased_or_nonempty_socket_claim(self):
         from contextlib import redirect_stdout
         from io import StringIO

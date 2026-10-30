@@ -47,6 +47,33 @@ class NodeLinkProtocolTests(unittest.TestCase):
                 with self.assertRaisesRegex(link.LinkFailure, "invalid_incoming_frame"):
                     link._read_frame(MemorySocket(wire))
 
+    def test_excessive_incoming_json_nesting_is_a_protocol_failure(self):
+        # A size-valid frame can still exceed E01's bounded nesting budget.
+        # No native TLS socket or host state is involved in this regression.
+        payload = b'{"kind":' + b'[' * 1200 + b'0' + b']' * 1200 + b'}'
+        wire = struct.pack(">I", len(payload)) + payload
+        with self.assertRaisesRegex(link.LinkFailure, "invalid_incoming_frame"):
+            link._read_frame(MemorySocket(wire))
+
+    def test_incoming_json_nesting_boundary(self):
+        # The top-level E01 object consumes one of the 32 nesting levels.
+        for arrays in (30, 31):
+            with self.subTest(arrays=arrays):
+                payload = b'{"kind":' + b'[' * arrays + b'0' + b']' * arrays + b'}'
+                wire = struct.pack(">I", len(payload)) + payload
+                self.assertIsInstance(link._read_frame(MemorySocket(wire)), dict)
+        payload = b'{"kind":' + b'[' * 32 + b'0' + b']' * 32 + b'}'
+        wire = struct.pack(">I", len(payload)) + payload
+        with self.assertRaisesRegex(link.LinkFailure, "excessive JSON nesting"):
+            link._read_frame(MemorySocket(wire))
+
+    def test_quoted_brackets_do_not_consume_json_nesting_budget(self):
+        msg = {"kind": "hello", "payload": {
+            "node_id": 'quoted \" and ' + '[' * 150 + ']' * 150}}
+        payload = json.dumps(msg).encode("utf-8")
+        wire = struct.pack(">I", len(payload)) + payload
+        self.assertEqual(link._read_frame(MemorySocket(wire)), msg)
+
     def test_zero_and_oversize_incoming_rejected_before_allocation(self):
         for count in (0,1_048_577,0xFFFFFFFF):
             with self.subTest(count=count):

@@ -219,7 +219,9 @@ def join(
     ctx.load_verify_locations(cafile=str(ca))
     ctx.load_cert_chain(certfile=str(client_cert), keyfile=str(client_key))
     with socket.create_connection((address, port), timeout=timeout) as sock:
-        with ctx.wrap_socket(sock, server_hostname="localhost") as tls:
+        # Verify the selected TLS endpoint, not an unrelated loopback name.
+        # The E01 NodeId/Generation/Epoch remain separately authenticated.
+        with ctx.wrap_socket(sock, server_hostname=address) as tls:
             tls.settimeout(timeout)
             if tls.version() != "TLSv1.3":
                 raise LinkFailure("tls13_required")

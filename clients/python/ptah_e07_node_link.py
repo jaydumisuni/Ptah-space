@@ -63,6 +63,10 @@ def _write_frame(connection: ssl.SSLSocket, message: dict) -> None:
     # Preserve the source identity of every nested E01 object before
     # serialization, including objects inside arrays. Cyclic references
     # remain rejected by the JSON encoder below.
+    # E01 uses a tagged JSON object. The incoming decoder rejects bare
+    # arrays/scalars; reject them here before any wire effect as well.
+    if not isinstance(message, dict):
+        raise LinkFailure("invalid_outgoing_frame: expected JSON object")
     pending = [message]
     seen = set()
     while pending:

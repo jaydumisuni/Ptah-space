@@ -12,6 +12,7 @@ import socket
 import ssl
 import struct
 import unicodedata
+import uuid
 from pathlib import Path
 
 
@@ -166,6 +167,21 @@ def _canonical_u64(value: object) -> bool:
     # E01 NodeGeneration and ConnectionEpoch are serde-transparent Rust u64.
     # Python bool and float compare equal to integers but are not wire-equivalent.
     return type(value) is int and 0 <= value <= (1 << 64) - 1
+
+
+def _validate_canonical_native_node_id(value: object) -> None:
+    # ptah-identifiers::NodeId wraps EntityId, whose frozen Rust contract
+    # admits only lowercase hyphenated RFC-variant UUIDv7 identities.
+    # Keep this CLI admission separate from legacy Python codec fixtures.
+    if type(value) is not str:
+        raise LinkFailure("invalid_node_hello: noncanonical UUIDv7")
+    try:
+        parsed = uuid.UUID(value)
+    except (ValueError, AttributeError) as error:
+        raise LinkFailure("invalid_node_hello: noncanonical UUIDv7") from error
+    if (str(parsed) != value or parsed.version != 7
+            or parsed.variant != uuid.RFC_4122):
+        raise LinkFailure("invalid_node_hello: noncanonical UUIDv7")
 
 
 def _validate_node_hello(hello: dict, expected_node_id: str) -> None:
@@ -328,6 +344,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         hello = _load_hello_json(args.hello_json)
+        _validate_canonical_native_node_id(hello["node_id"])
         result = join(args.address,args.port,args.ca,args.client_cert,args.client_key,
                       hello=hello,expected_node_id=hello["node_id"],heartbeats=args.heartbeats)
     except (LinkFailure, ValueError, OSError, ssl.SSLError, json.JSONDecodeError) as error:

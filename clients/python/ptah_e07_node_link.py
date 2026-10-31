@@ -11,6 +11,7 @@ import math
 import socket
 import ssl
 import struct
+import unicodedata
 from pathlib import Path
 
 
@@ -193,10 +194,14 @@ def join(
     # A malformed destination must not reach certificate loading or socket
     # setup. Preserve ordinary DNS, IPv4 and IPv6 names without normalizing
     # the caller's address into a different transport target.
+    # Socket/IDNA libraries can normalize compatibility host aliases into a
+    # different destination. Do not silently reinterpret the caller's host.
+    # Reject invisible formatting controls before certificate or socket setup.
     if (type(address) is not str or not address
-            or any(char.isspace() or ord(char) < 32 or ord(char) == 127
-                   for char in address)):
-        raise ValueError("address must be a nonempty host without whitespace/control characters")
+            or unicodedata.normalize("NFKC", address) != address
+            or any(char.isspace() or unicodedata.category(char) in
+                   {"Cc", "Cf", "Cs"} for char in address)):
+        raise ValueError("address must be a nonempty canonical host without whitespace/control characters")
     # bool is an int subclass, but is not a valid E01 sequence count or port.
     if type(heartbeats) is not int or not 1 <= heartbeats <= 10:
         raise ValueError("heartbeats must be an integer in 1..10")

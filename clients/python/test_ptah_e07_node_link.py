@@ -234,6 +234,30 @@ class NodeLinkProtocolTests(unittest.TestCase):
         self.assertIn("ptah_second_user_login",source)
 
 
+    def test_join_rejects_noncanonical_address_before_tls_setup(self):
+        from unittest.mock import patch
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        for address in ("", None, 7, b"localhost", " localhost",
+                        "localhost ", "bad\x00host", "\tlocalhost",
+                        "localhost\n", "host\x7f"):
+            with self.subTest(address=repr(address)):
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS setup started")):
+                    with self.assertRaisesRegex(ValueError, "address must"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+        # Ordinary DNS, IPv4 and IPv6 targets remain admissible to TLS setup.
+        for address in ("localhost", "127.0.0.1", "::1", "example.com"):
+            with self.subTest(valid_address=address):
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS setup started")):
+                    with self.assertRaisesRegex(AssertionError, "TLS setup started"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+
     def test_join_rejects_noncanonical_call_arguments_before_transport(self):
         from unittest.mock import patch
         hello = {"node_id": "test-node", "node_generation": 1,

@@ -190,6 +190,13 @@ def join(
     claim E02 remote dispatch.
     """
     # Reject noncanonical caller values before TLS setup or network access.
+    # A malformed destination must not reach certificate loading or socket
+    # setup. Preserve ordinary DNS, IPv4 and IPv6 names without normalizing
+    # the caller's address into a different transport target.
+    if (type(address) is not str or not address
+            or any(char.isspace() or ord(char) < 32 or ord(char) == 127
+                   for char in address)):
+        raise ValueError("address must be a nonempty host without whitespace/control characters")
     # bool is an int subclass, but is not a valid E01 sequence count or port.
     if type(heartbeats) is not int or not 1 <= heartbeats <= 10:
         raise ValueError("heartbeats must be an integer in 1..10")

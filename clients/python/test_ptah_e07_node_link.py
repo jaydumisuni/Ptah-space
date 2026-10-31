@@ -281,6 +281,51 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   Path("key"), hello=hello,
                                   expected_node_id="test-node")
 
+    def test_join_binds_tls_verification_to_selected_endpoint(self):
+        # A TLS certificate for localhost must not authenticate a different
+        # selected network endpoint. Canonical NodeId is checked separately.
+        from contextlib import nullcontext
+        from unittest.mock import patch
+
+        class FakeTLS(MemorySocket):
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def settimeout(self, value):
+                pass
+            def version(self):
+                return "TLSv1.3"
+
+        class FakeContext:
+            observed_names = []
+            def __init__(self, *args):
+                pass
+            def load_verify_locations(self, **kwargs):
+                pass
+            def load_cert_chain(self, **kwargs):
+                pass
+            def wrap_socket(self, sock, *, server_hostname):
+                self.observed_names.append(server_hostname)
+                return sock
+
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        ack = {"kind": "hello_ack", "payload": {
+            **hello, "selected_version": {"major": 1, "minor": 0}}}
+        payload = json.dumps(ack).encode("utf-8")
+        for endpoint in ("ptah-node.example", "192.0.2.25"):
+            with self.subTest(endpoint=endpoint):
+                FakeContext.observed_names.clear()
+                tls = FakeTLS(struct.pack(">I", len(payload)) + payload)
+                with patch.object(link.ssl, "SSLContext", FakeContext), patch.object(
+                    link.socket, "create_connection", return_value=nullcontext(tls)):
+                    result = link.join(endpoint, 2345, Path("ca"), Path("cert"),
+                                       Path("key"), hello=hello,
+                                       expected_node_id="test-node", heartbeats=1)
+                self.assertEqual(FakeContext.observed_names, [endpoint])
+                self.assertEqual(result["heartbeats_sent"], 1)
+
     def test_join_rejects_noncanonical_call_arguments_before_transport(self):
         from unittest.mock import patch
         hello = {"node_id": "test-node", "node_generation": 1,

@@ -212,6 +212,21 @@ class NodeLinkProtocolTests(unittest.TestCase):
         link._write_frame(wire, valid)
         self.assertEqual(link._read_frame(MemorySocket(bytes(wire.sent))), valid)
 
+    def test_outgoing_frame_rejects_non_object_root_before_wire_write(self):
+        # The E01 tagged frame is a JSON object, never a bare JSON
+        # scalar or array. Incoming decoding already enforces this.
+        for invalid in ([], ["hello"], "hello", None, False, 7):
+            with self.subTest(invalid=repr(invalid)):
+                wire = MemorySocket()
+                with self.assertRaisesRegex(link.LinkFailure, "invalid_outgoing_frame"):
+                    link._write_frame(wire, invalid)
+                self.assertEqual(wire.sent, bytearray())
+        # A valid object still round-trips without a network transport.
+        valid = {"kind": "close"}
+        wire = MemorySocket()
+        link._write_frame(wire, valid)
+        self.assertEqual(link._read_frame(MemorySocket(bytes(wire.sent))), valid)
+
     def test_no_second_workspace_user_approval_in_client(self):
         source=Path(link.__file__).read_text()
         self.assertNotIn("PTAH_OWNER_LOGIN",source)

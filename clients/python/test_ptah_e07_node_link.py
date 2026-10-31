@@ -639,5 +639,28 @@ class NodeLinkProtocolTests(unittest.TestCase):
                              "e07_connection_failed")
 
 
+    def test_hello_ack_refuses_unbound_envelope_and_body_fields(self):
+        # The Rust E01 HelloAck has exactly four fields. Unknown members
+        # must not masquerade as additional authenticated control authority.
+        hello_ack = {"kind": "hello_ack", "payload": {
+            "node_id": "test-node", "node_generation": 1,
+            "connection_epoch": 2,
+            "selected_version": {"major": 1, "minor": 0}}}
+        link._validate_hello_ack(hello_ack, "test-node", 1, 2)
+        variants = (
+            ("outer", {**hello_ack, "dispatch_authorized": True}),
+            ("body", {**hello_ack, "payload": {
+                **hello_ack["payload"], "lease_ref": "unbound"}}),
+            ("missing", {**hello_ack, "payload": {
+                key: value for key, value in hello_ack["payload"].items()
+                if key != "selected_version"}}),
+            ("scalar", {**hello_ack, "payload": "trusted"}),
+        )
+        for label, ack in variants:
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(
+                        link.LinkFailure, "missing_canonical_hello_ack"):
+                    link._validate_hello_ack(ack, "test-node", 1, 2)
+
 if __name__=="__main__":
     unittest.main()

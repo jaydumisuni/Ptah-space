@@ -698,5 +698,48 @@ class NodeLinkProtocolTests(unittest.TestCase):
                     self.assertIn("noncanonical UUIDv7", result["detail"])
 
 
+    def test_cli_rejects_unbound_native_hello_members_before_transport(self):
+        # The native Rust NodeHello ignores unknown Serde fields. An input
+        # file must not smuggle an apparent approval or dispatch decision.
+        import tempfile
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        canonical = "018f0f4e-7b5c-7abc-8abc-0123456789ab"
+        base = {"node_id": canonical, "node_generation": 1,
+                "connection_epoch": 2}
+        argv_prefix = ["ptah_e07_node_link", "--address", "localhost",
+                       "--port", "1", "--ca", "ca", "--client-cert", "cert",
+                       "--client-key", "key", "--hello-json"]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hello.json"
+            for field, value in (
+                ("dispatch_authorized", True),
+                ("lease_ref", "fake-lease"),
+                ("approval", {"granted": True}),
+                ("unexpected", None),
+            ):
+                with self.subTest(field=field):
+                    path.write_text(json.dumps({**base, field: value}),
+                                    encoding="utf-8")
+                    output = io.StringIO()
+                    with patch("sys.argv", argv_prefix + [str(path)]), patch.object(
+                            link, "join", side_effect=AssertionError(
+                                "transport invoked before native Hello custody")):
+                        with redirect_stdout(output):
+                            self.assertEqual(link.main(), 2)
+                    result = json.loads(output.getvalue())
+                    self.assertEqual(result["result"], "e07_connection_failed")
+                    self.assertIn("unbound native Hello field", result["detail"])
+
+        # Every documented native NodeHello member remains admissible; this
+        # source-only preflight does not invent a new enrollment requirement.
+        link._validate_native_node_hello_fields({
+            **base, "supported_major": 1, "minimum_minor": 0,
+            "maximum_minor": 0, "enrollment_ref": "reference",
+            "agent_revision": "revision", "capability_snapshot_ref": None,
+        })
+        link._validate_native_node_hello_fields(base)
+
+
 if __name__=="__main__":
     unittest.main()

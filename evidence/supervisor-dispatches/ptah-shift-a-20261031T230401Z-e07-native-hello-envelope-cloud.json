@@ -1,0 +1,57 @@
+{
+  "schema": "ttg.supervisor.cloud-dispatch.v1",
+  "project": "ptah",
+  "shift": "A",
+  "frontier": "E07 Python CLI native Hello field custody (non-promoting source maintenance)",
+  "observed_at_utc": "2026-10-31T23:04:01Z",
+  "canonical_authority": {
+    "registry": "jaydumisuni/cookpit main:registry.json",
+    "registry_blob": "b3d88fe65be9b5514b46d1b8d028c844bc4b78eb",
+    "enabled": true,
+    "profile": "profiles/ptah.json",
+    "roadmap": "jaydumisuni/ptah-roadmap- main:IMPLEMENTATION_ROADMAP.md",
+    "e07_standalone": "DONE",
+    "prime_f04_f07": "DOWNSTREAM_OS_OWNED"
+  },
+  "before_head": "1706ec2b8d7a2ce36d26f0fb409c9e5ddec4871f",
+  "source_after_head": "c2dff9dc6799b16ac6596a77a348a52ca80219bf",
+  "pr": "https://github.com/jaydumisuni/Ptah-space/pull/203",
+  "worker": "Shift A GitHub cloud source-only fallback; Oracle Live node roster and KRATOS terminal failed internally",
+  "action": "Reject unknown native Rust NodeHello JSON members at Python CLI boundary before join/TLS, preserving nine known fields and direct join fixtures; add four adversarial and positive allowed-field regressions",
+  "movement": {
+    "state": "MATERIAL_SOURCE_PUBLISHED",
+    "source_files_changed": 2,
+    "source_additions": 60,
+    "source_deletions": 0,
+    "head_advanced": true
+  },
+  "proof": {
+    "native_node_hello_contract": "crates/ptah-node-link/src/protocol.rs (nine declared members)",
+    "github_compare": "ahead_by=2 behind_by=0",
+    "source_blob": "b5a35498d993ff4943be41fb49d6b5e36e30a727",
+    "test_blob": "33775c44745423d63ee662de9d0427756755c18e",
+    "source_test_readback": "MATCH",
+    "native_python": "UNVERIFIED",
+    "patrol": "UNVERIFIED",
+    "hosted_exact_head": "QUEUED_AT_OBSERVATION",
+    "independent_review": "PENDING",
+    "physical": "NOT_ATTEMPTED"
+  },
+  "health": {
+    "nodie_roster": "UNVERIFIED_Oracle_roster_internal_error",
+    "supervisors": "A current slot within grace; B/C/D/E HEALTHY; 0 confirmed missed; schedules unchanged",
+    "kratos": "UNVERIFIED_Oracle_terminal_internal_error",
+    "local_attention": "QUEUED_KRATOS_RECONCILIATION",
+    "worker_lease": "UNVERIFIED"
+  },
+  "dependency_linkage": {
+    "upstream": "Ptah E07 Rust NodeHello contract; PR #202 exact-head Python CLI UUIDv7 custody",
+    "downstream": "Prime OS F04-F07 remains OS-owned"
+  },
+  "limitations": "Source-only candidate; hosted and native tests/review pending. No E07 milestone reopening or runtime admission. Canonical Cookpit Ptah profile still binds historical E06 workspace; guarded rebound requires live path verification and independent control-plane review.",
+  "disposition": "SOURCE_PUBLISHED_NATIVE_PROOF_AND_REVIEW_PENDING",
+  "reconcile_on_kratos": "Fetch PR #203 and this cloud receipt; run Patrol/preflight in Ptah-owned workspace, Python E07 unittest/compile, inspect current worker/lease, reconcile attention/dispatches, review obsolete E06 binding through guarded Cookpit PR only.",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false
+}

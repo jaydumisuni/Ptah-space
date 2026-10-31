@@ -1,0 +1,48 @@
+{
+  "schema": "ttg.supervisor.cloud-dispatch.v1",
+  "project": "ptah",
+  "shift": "E",
+  "frontier": "E07 Python Node-Link hosted acceptance wiring on Linux and Windows (non-promoting maintenance)",
+  "observed_at_utc": "2026-10-31T16:50:33Z",
+  "canonical_authority": {
+    "cookpit_registry": "jaydumisuni/cookpit main:registry.json",
+    "enabled": true,
+    "profile": "profiles/ptah.json",
+    "profile_path": "/home/kratos/projects/Ptah-space/.workspace/incoming/e06-intermittent-local-first",
+    "note": "Canonical main profile remains E06; no live binding modification. Ptah controlling roadmap E07 tested standalone DONE; Prime F04-F07 last."
+  },
+  "before_head": "a7c9310c217c8345baf77925707245a3c7dacf19",
+  "source_after_head": "c0776d3d362f58b2920b9b00d4ac3ff3aca613fb",
+  "pr_url": "https://github.com/jaydumisuni/Ptah-space/pull/200",
+  "worker": "Shift E authenticated GitHub cloud fallback; KRATOS terminal not verified",
+  "action": "Changed existing shared-workspace-python-client.yml compile and unittest commands to run E07 Node-Link Python module/tests in Python 3.11/3.13 Linux and Python 3.13 Windows; no new workflow",
+  "movement": {
+    "state": "MATERIAL_CI_ACCEPTANCE_IMPLEMENTATION_PUBLISHED",
+    "source_files_changed": 1,
+    "additions": 4,
+    "deletions": 4,
+    "head_advanced": true
+  },
+  "proof": {
+    "github_compare": "ahead_by=1,behind_by=0,files=1",
+    "readback": "Exact content and blob SHA 7a0c6fa95cffa16a3081177740e5e2a7989109b4 MATCH",
+    "source_compile_tests": "UNVERIFIED_not_executed_locally",
+    "hosted_ci": "QUEUED_at_observation",
+    "independent_review": "PENDING",
+    "patrol": "UNVERIFIED_Oracle_terminal_unavailable",
+    "physical": "NOT_ATTEMPTED"
+  },
+  "health": {
+    "oracle_roster": "UNVERIFIED_internal_error_twice",
+    "supervisors": "A LATE-but-completed; B/C/D HEALTHY; E within grace; schedules unchanged",
+    "local_attention": "PENDING_KRATOS_RECONCILIATION"
+  },
+  "dependency_linkage": {
+    "upstream": "Ptah PR #199 exact E07 Hello freeze source",
+    "downstream": "Prime OS F04-F07 OS-owned integration; no new E07 critical-path requirement"
+  },
+  "disposition": "DRAFT_CI_GATE_PUBLISHED_HOSTED_PROOF_PENDING",
+  "reconcile_on_kratos": "Recover cloud PR #200 exact head and this receipt; run Patrol in project-owned workspace; run Python E07 unittest and diff check; reconcile local attention/dispatches without duplicate PASS marker.",
+  "production_touched": false,
+  "stolen_device_touched": false
+}

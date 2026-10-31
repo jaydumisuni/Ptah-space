@@ -461,6 +461,35 @@ class NodeLinkProtocolTests(unittest.TestCase):
         self.assertEqual(heartbeat["payload"]["connection_epoch"], 2)
         self.assertEqual(result["heartbeats_sent"], 1)
 
+    def test_join_rejects_identity_mutation_during_hello_freeze(self):
+        # Interleaving a caller mutation between initial validation and
+        # serialization must fail before TLS or credential loading.
+        from unittest.mock import patch
+
+        original_encode = link._encode_frame
+        changes = (
+            {"node_id": "other-node"},
+            {"node_generation": 99},
+            {"connection_epoch": 99},
+        )
+        for mutation in changes:
+            with self.subTest(mutation=mutation):
+                hello = {"node_id": "test-node", "node_generation": 1,
+                         "connection_epoch": 2}
+
+                def mutate_then_encode(frame):
+                    hello.update(mutation)
+                    return original_encode(frame)
+
+                with patch.object(link, "_encode_frame",
+                                  side_effect=mutate_then_encode), patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS setup started")):
+                    with self.assertRaisesRegex(link.LinkFailure, "invalid_node_hello"):
+                        link.join("localhost", 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+
     def test_join_rejects_noncanonical_hello_counters_before_transport(self):
         from unittest.mock import patch
         good = {"node_id": "test-node", "node_generation": 1, "connection_epoch": 2}

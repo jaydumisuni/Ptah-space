@@ -224,9 +224,15 @@ def join(
     _validate_node_hello(hello, expected_node_id)
     node_generation = hello["node_generation"]
     connection_epoch = hello["connection_epoch"]
-    # Freeze and validate the complete E01 Hello before credential loading.
-    # Direct join() callers bypass the strict Hello-file JSON decoder.
+    # The caller may mutate Hello while it is being encoded. Revalidate the
+    # exact bounded bytes that will be sent, not just the earlier dict view.
     hello_frame = _encode_frame({"kind": "hello", "payload": hello})
+    frozen = _decode_strict_json(hello_frame[4:].decode("utf-8"), "outgoing")
+    frozen_hello = frozen["payload"]
+    _validate_node_hello(frozen_hello, expected_node_id)
+    if (frozen_hello["node_generation"] != node_generation
+            or frozen_hello["connection_epoch"] != connection_epoch):
+        raise LinkFailure("invalid_node_hello: identity changed during freeze")
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_3
     ctx.maximum_version = ssl.TLSVersion.TLSv1_3

@@ -1,0 +1,57 @@
+{
+  "schema": "ttg.supervisor.cloud-dispatch.v1",
+  "project": "ptah",
+  "shift": "C",
+  "frontier": "E07 HelloAck exact schema custody before heartbeat (non-promoting source maintenance)",
+  "observed_at_utc": "2026-10-31T18:26:15Z",
+  "canonical_authority": {
+    "registry": "jaydumisuni/cookpit main:registry.json",
+    "registry_blob": "b3d88fe65be9b5514b46d1b8d028c844bc4b78eb",
+    "enabled": true,
+    "profile": "profiles/ptah.json",
+    "profile_blob": "7d0e81679b3b15f543b2038a5afa3d8656ae58d3",
+    "profile_still_e06": true,
+    "roadmap": "jaydumisuni/ptah-roadmap- main:IMPLEMENTATION_ROADMAP.md",
+    "roadmap_blob": "4c2b2a5346da0aa54bb962bffa69fe6bf6fe07cd"
+  },
+  "before_head": "57823b4d54e20997ce9f33bca588204c27ec4b41",
+  "source_after_head": "73ba01a7002e828e7eab0772252c8f8d8fea682b",
+  "worker": "Shift C authenticated GitHub cloud fallback; Oracle Live KRATOS terminal unavailable",
+  "action": "Enforce exact frozen Rust E01 HelloAck envelope and four body fields before Python E07 heartbeats; add canonical and four adversarial tests in existing suite",
+  "movement": {
+    "state": "MATERIAL_SOURCE_PUBLISHED",
+    "source_files_changed": 2,
+    "additions": 54,
+    "deletions": 17,
+    "head_advanced": true
+  },
+  "proof": {
+    "predecessor": "Static source inspection confirmed extra fields accepted; not a native runtime reproduction",
+    "github_compare": "ahead_by=1 behind_by=0",
+    "source_blobs": [
+      "a39faff182e694a7e0c0013735d41cebdca941c1",
+      "b930388c34b9003539932e563f51aa96ad715dc5"
+    ],
+    "readback": "MATCH",
+    "native_python": "UNVERIFIED",
+    "patrol": "UNVERIFIED",
+    "hosted_exact_head": "PENDING",
+    "independent_review": "PENDING",
+    "physical": "NOT_ATTEMPTED"
+  },
+  "health": {
+    "nodie_roster": "UNVERIFIED_Oracle_cloud_roster_internal_error",
+    "supervisors": "A HEALTHY B HEALTHY C within grace D HEALTHY E HEALTHY; zero missed; unchanged",
+    "kratos": "UNVERIFIED_terminal_internal_error",
+    "local_attention": "QUEUED_KRATOS_RECONCILIATION"
+  },
+  "dependency_linkage": {
+    "upstream": "Ptah E07 frozen Rust protocol and PR #200 hosted Python CI wiring",
+    "downstream": "Prime OS F04-F07 OS-owned integration remains next; E07 standalone already done"
+  },
+  "disposition": "SOURCE_PUBLISHED_NATIVE_PROOF_PENDING",
+  "reconcile_on_kratos": "Recover PR #201 exact head and this receipt; Patrol/preflight on actual Ptah-owned workspace; run Python E07 unittest and compile; reconcile local attention/dispatches and existing E06 control binding through guarded review only",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false
+}

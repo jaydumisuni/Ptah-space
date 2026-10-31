@@ -184,6 +184,35 @@ def _validate_node_hello(hello: dict, expected_node_id: str) -> None:
         raise LinkFailure("invalid_node_hello") from error
 
 
+def _validate_hello_ack(
+    ack: dict, expected_node_id: str,
+    node_generation: int, connection_epoch: int,
+) -> None:
+    # The frozen E01 Rust HelloAck has exactly four fields. Refuse extra
+    # envelope or body members rather than admitting an unbound authority
+    # projection that the Rust peer would silently ignore.
+    if (type(ack) is not dict or set(ack) != {"kind", "payload"}
+            or ack["kind"] != "hello_ack"):
+        raise LinkFailure("missing_canonical_hello_ack")
+    body = ack["payload"]
+    if (type(body) is not dict or set(body) != {
+            "selected_version", "node_id", "node_generation", "connection_epoch"}):
+        raise LinkFailure("missing_canonical_hello_ack")
+    if body["node_id"] != expected_node_id:
+        raise LinkFailure("wrong_node_ack")
+    for field in ("node_generation", "connection_epoch"):
+        expected_value = (node_generation if field == "node_generation"
+                          else connection_epoch)
+        if not _canonical_u64(body[field]) or body[field] != expected_value:
+            raise LinkFailure("mismatched_" + field)
+    selected = body["selected_version"]
+    if (type(selected) is not dict or set(selected) != {"major", "minor"}
+            or type(selected["major"]) is not int
+            or type(selected["minor"]) is not int
+            or selected != {"major": 1, "minor": 0}):
+        raise LinkFailure("wrong_e01_version")
+
+
 def join(
     address: str,
     port: int,
@@ -249,23 +278,8 @@ def join(
                 raise LinkFailure("tls13_required")
             tls.sendall(hello_frame)
             ack = _read_frame(tls)
-            body = ack.get("payload")
-            if ack.get("kind") != "hello_ack" or not isinstance(body, dict):
-                raise LinkFailure("missing_canonical_hello_ack")
-            if body.get("node_id") != expected_node_id:
-                raise LinkFailure("wrong_node_ack")
-            for field in ("node_generation", "connection_epoch"):
-                expected_value = (node_generation if field == "node_generation"
-                                  else connection_epoch)
-                if not _canonical_u64(body.get(field)) or body[field] != expected_value:
-                    raise LinkFailure("mismatched_" + field)
-            selected = body.get("selected_version")
-            if (not isinstance(selected, dict)
-                    or set(selected) != {"major", "minor"}
-                    or type(selected["major"]) is not int
-                    or type(selected["minor"]) is not int
-                    or selected != {"major": 1, "minor": 0}):
-                raise LinkFailure("wrong_e01_version")
+            _validate_hello_ack(ack, expected_node_id,
+                                node_generation, connection_epoch)
             for sequence in range(1, heartbeats + 1):
                 _write_frame(tls, {"kind": "heartbeat", "payload": {
                     "node_id": expected_node_id,

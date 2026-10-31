@@ -190,6 +190,28 @@ class NodeLinkProtocolTests(unittest.TestCase):
             link._write_frame(wire, {"kind": "hello", "payload": {"bad": object()}})
         self.assertEqual(wire.sent, bytearray())
 
+    def test_outgoing_frame_rejects_nonstring_object_keys_before_wire_write(self):
+        # Python JSON silently coerces integer, boolean, null and float
+        # object keys to strings; a native E01 peer must not receive an
+        # identity that was never represented by a string source key.
+        cases = (
+            {7: "numeric"},
+            {False: "boolean"},
+            {None: "null"},
+            {3.5: "float"},
+            {"nested": [{"inner": {2: "numeric"}}]},
+        )
+        for payload in cases:
+            with self.subTest(payload=repr(payload)):
+                wire = MemorySocket()
+                with self.assertRaisesRegex(link.LinkFailure, "invalid_outgoing_frame"):
+                    link._write_frame(wire, {"kind": "hello", "payload": payload})
+                self.assertEqual(wire.sent, bytearray())
+        valid = {"kind": "hello", "payload": {"7": "text", "nested": [{"2": "text"}]}}
+        wire = MemorySocket()
+        link._write_frame(wire, valid)
+        self.assertEqual(link._read_frame(MemorySocket(bytes(wire.sent))), valid)
+
     def test_no_second_workspace_user_approval_in_client(self):
         source=Path(link.__file__).read_text()
         self.assertNotIn("PTAH_OWNER_LOGIN",source)

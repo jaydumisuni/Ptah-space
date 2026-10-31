@@ -378,6 +378,89 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   Path("key"), hello=hello,
                                   expected_node_id=node_id)
 
+    def test_join_preflights_complete_hello_payload_before_tls(self):
+        # Direct join() bypasses the Hello-file decoder. Malformed nested
+        # metadata must never trigger credential loading or TLS setup.
+        from unittest.mock import patch
+        valid = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        cyclic = []
+        cyclic.append(cyclic)
+        nested = 0
+        for _ in range(33):
+            nested = [nested]
+        cases = (
+            ("surrogate", {"label": "\ud800"}),
+            ("nonfinite", {"confidence": float("nan")}),
+            ("nonstring_key", {7: "alias"}),
+            ("cyclic", cyclic),
+            ("too_deep", nested),
+        )
+        for name, metadata in cases:
+            with self.subTest(case=name):
+                hello = dict(valid, metadata=metadata)
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS setup started")):
+                    with self.assertRaises(link.LinkFailure):
+                        link.join("localhost", 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+
+    def test_join_sends_preflighted_hello_snapshot_after_credential_loading(self):
+        # The caller's mutable Hello must not change between validation and
+        # the first authenticated E01 write.
+        from contextlib import nullcontext
+        from unittest.mock import patch
+
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2, "metadata": {"label": "original"}}
+        ack = {"kind": "hello_ack", "payload": {
+            "node_id": "test-node", "node_generation": 1,
+            "connection_epoch": 2, "selected_version": {"major": 1, "minor": 0}}}
+        data = json.dumps(ack).encode("utf-8")
+
+        class FakeTLS(MemorySocket):
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def settimeout(self, value):
+                pass
+            def version(self):
+                return "TLSv1.3"
+
+        class FakeContext:
+            def __init__(self, *args):
+                pass
+            def load_verify_locations(self, **kwargs):
+                pass
+            def load_cert_chain(self, **kwargs):
+                hello["metadata"]["label"] = "mutated-after-preflight"
+                hello["node_generation"] = 99
+                hello["connection_epoch"] = 99
+            def wrap_socket(self, sock, **kwargs):
+                return sock
+
+        tls = FakeTLS(struct.pack(">I", len(data)) + data)
+        with patch.object(link.ssl, "SSLContext", FakeContext), patch.object(
+                link.socket, "create_connection", return_value=nullcontext(tls)):
+            result = link.join("localhost", 2345, Path("ca"), Path("cert"),
+                               Path("key"), hello=hello,
+                               expected_node_id="test-node", heartbeats=1)
+        first_length = struct.unpack(">I", tls.sent[:4])[0]
+        first = json.loads(bytes(tls.sent[4:4 + first_length]))
+        self.assertEqual(first["payload"]["metadata"]["label"], "original")
+        self.assertEqual(first["payload"]["node_generation"], 1)
+        self.assertEqual(first["payload"]["connection_epoch"], 2)
+        self.assertEqual(hello["metadata"]["label"], "mutated-after-preflight")
+        second_offset = 4 + first_length
+        heartbeat_length = struct.unpack(">I", tls.sent[second_offset:second_offset + 4])[0]
+        heartbeat = json.loads(bytes(tls.sent[second_offset + 4:
+                                              second_offset + 4 + heartbeat_length]))
+        self.assertEqual(heartbeat["payload"]["node_generation"], 1)
+        self.assertEqual(heartbeat["payload"]["connection_epoch"], 2)
+        self.assertEqual(result["heartbeats_sent"], 1)
+
     def test_join_rejects_noncanonical_hello_counters_before_transport(self):
         from unittest.mock import patch
         good = {"node_id": "test-node", "node_generation": 1, "connection_epoch": 2}

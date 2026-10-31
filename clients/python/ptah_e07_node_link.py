@@ -56,7 +56,7 @@ def _require_json_nesting_budget(text: str, direction: str) -> None:
                 raise LinkFailure(f"invalid_{direction}_frame: malformed JSON")
 
 
-def _write_frame(connection: ssl.SSLSocket, message: dict) -> None:
+def _encode_frame(message: dict) -> bytes:
     # Python emits NaN and Infinity by default, although they are not JSON
     # numbers accepted by the E01 Rust peer. Reject before sending any bytes.
     # Normalize unsupported values into a bounded protocol failure as well.
@@ -95,7 +95,11 @@ def _write_frame(connection: ssl.SSLSocket, message: dict) -> None:
         raise LinkFailure("invalid_outgoing_frame") from error
     if not data or len(data) > 1_048_576:
         raise LinkFailure("invalid_frame_size")
-    connection.sendall(struct.pack(">I", len(data)) + data)
+    return struct.pack(">I", len(data)) + data
+
+
+def _write_frame(connection: ssl.SSLSocket, message: dict) -> None:
+    connection.sendall(_encode_frame(message))
 
 
 def _decode_strict_json(text: str, direction: str) -> object:
@@ -218,6 +222,11 @@ def join(
             or not 0 < timeout <= 300 or not math.isfinite(timeout)):
         raise ValueError("timeout must be finite seconds in (0, 300]")
     _validate_node_hello(hello, expected_node_id)
+    node_generation = hello["node_generation"]
+    connection_epoch = hello["connection_epoch"]
+    # Freeze and validate the complete E01 Hello before credential loading.
+    # Direct join() callers bypass the strict Hello-file JSON decoder.
+    hello_frame = _encode_frame({"kind": "hello", "payload": hello})
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_3
     ctx.maximum_version = ssl.TLSVersion.TLSv1_3
@@ -232,7 +241,7 @@ def join(
             tls.settimeout(timeout)
             if tls.version() != "TLSv1.3":
                 raise LinkFailure("tls13_required")
-            _write_frame(tls, {"kind": "hello", "payload": hello})
+            tls.sendall(hello_frame)
             ack = _read_frame(tls)
             body = ack.get("payload")
             if ack.get("kind") != "hello_ack" or not isinstance(body, dict):
@@ -240,7 +249,9 @@ def join(
             if body.get("node_id") != expected_node_id:
                 raise LinkFailure("wrong_node_ack")
             for field in ("node_generation", "connection_epoch"):
-                if not _canonical_u64(body.get(field)) or body[field] != hello[field]:
+                expected_value = (node_generation if field == "node_generation"
+                                  else connection_epoch)
+                if not _canonical_u64(body.get(field)) or body[field] != expected_value:
                     raise LinkFailure("mismatched_" + field)
             selected = body.get("selected_version")
             if (not isinstance(selected, dict)
@@ -252,8 +263,8 @@ def join(
             for sequence in range(1, heartbeats + 1):
                 _write_frame(tls, {"kind": "heartbeat", "payload": {
                     "node_id": expected_node_id,
-                    "node_generation": hello["node_generation"],
-                    "connection_epoch": hello["connection_epoch"],
+                    "node_generation": node_generation,
+                    "connection_epoch": connection_epoch,
                     "sequence": sequence,
                 }})
             _write_frame(tls, {"kind": "close"})

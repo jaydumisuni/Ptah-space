@@ -1,0 +1,58 @@
+{
+  "schema": "ttg.supervisor.cloud-dispatch.v1",
+  "project": "ptah",
+  "shift": "C",
+  "frontier": "E07 Python CLI native UUIDv7 NodeId preflight (non-promoting maintenance)",
+  "observed_at_utc": "2026-10-31T21:23:56Z",
+  "canonical_authority": {
+    "registry": "jaydumisuni/cookpit main:registry.json",
+    "registry_blob": "b3d88fe65be9b5514b46d1b8d028c844bc4b78eb",
+    "enabled": true,
+    "profile": "profiles/ptah.json",
+    "roadmap": "jaydumisuni/ptah-roadmap- main:IMPLEMENTATION_ROADMAP.md",
+    "roadmap_blob": "4c2b2a5346da0aa54bb962bffa69fe6bf6fe07cd",
+    "e07_standalone": "DONE",
+    "prime_f04_f07": "DOWNSTREAM_OS_OWNED"
+  },
+  "before_head": "68f88e47f9dfe0b40ffa72fe788a4ee43aadc189",
+  "source_after_head": "33a1f4d78f52613b3057a658a47fb65efeeba47f",
+  "worker": "Shift C GitHub cloud source-only fallback; Oracle Live terminal failed internally",
+  "action": "Require canonical lowercase hyphenated RFC-variant UUIDv7 in Python E07 CLI Hello NodeId before join, TLS credential loading or socket access; add canonical and five adversarial regression cases",
+  "movement": {
+    "state": "MATERIAL_SOURCE_PUBLISHED",
+    "source_files_changed": 2,
+    "additions": 53,
+    "deletions": 0,
+    "head_advanced": true
+  },
+  "proof": {
+    "rust_authority": "crates/ptah-identifiers/src/lib.rs NodeId/EntityId canonical UUIDv7 parser",
+    "github_compare": "ahead_by=2 behind_by=0",
+    "source_blob": "fdc7db0bd0274605b6db788a4e844ffa2f33efc6",
+    "test_blob": "b22827accf2d59c622fb03c21be44ca92f90fe70",
+    "readback": "MATCH",
+    "isolated_python_predicate": "5/5 invalid denied; canonical accepted (not native repository qualification)",
+    "native_python": "UNVERIFIED",
+    "patrol": "UNVERIFIED",
+    "hosted_exact_head": "PENDING",
+    "independent_review": "PENDING",
+    "physical": "NOT_ATTEMPTED"
+  },
+  "health": {
+    "nodie_roster": "UNVERIFIED_Oracle_roster_internal_error",
+    "supervisors": "A HEALTHY; B HEALTHY; C current slot within grace; D HEALTHY; E LATE-but-completed; no confirmed missed slots; schedules unchanged",
+    "kratos": "UNVERIFIED_Oracle_terminal_internal_error",
+    "local_attention": "QUEUED_KRATOS_RECONCILIATION",
+    "worker_lease": "UNVERIFIED"
+  },
+  "dependency_linkage": {
+    "upstream": "Ptah E07 frozen Rust NodeId contract and PR #201 exact-head source",
+    "downstream": "Prime OS F04-F07 remains OS-owned integration"
+  },
+  "limitations": "CLI-only preflight; generic Python join() caller contract unchanged; native full suite and Patrol require restored KRATOS or hosted exact-head CI; no E07 milestone reopening",
+  "disposition": "SOURCE_PUBLISHED_NATIVE_PROOF_PENDING",
+  "reconcile_on_kratos": "Fetch PR #202 exact head and cloud receipt, Patrol/preflight on project-owned workspace, run Python E07 unittest and compile, reconcile local attention/dispatches, and inspect obsolete E06 Cookpit profile for guarded reviewed rebind only",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false
+}

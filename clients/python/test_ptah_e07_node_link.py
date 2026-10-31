@@ -662,5 +662,41 @@ class NodeLinkProtocolTests(unittest.TestCase):
                         link.LinkFailure, "missing_canonical_hello_ack"):
                     link._validate_hello_ack(ack, "test-node", 1, 2)
 
+    def test_cli_rejects_noncanonical_native_node_id_before_transport(self):
+        # Rust ptah-identifiers::NodeId is a lowercase canonical UUIDv7,
+        # not an arbitrary nonempty UTF-8 string accepted by codec fixtures.
+        import tempfile
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        canonical = "018f0f4e-7b5c-7abc-8abc-0123456789ab"
+        link._validate_canonical_native_node_id(canonical)
+        invalid = (
+            "test-node",
+            canonical.upper(),
+            "{" + canonical + "}",
+            "018f0f4e-7b5c-4abc-8abc-0123456789ab",  # UUIDv4
+            "018f0f4e-7b5c-7abc-0abc-0123456789ab",  # wrong variant
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hello.json"
+            argv = ["ptah_e07_node_link", "--address", "localhost",
+                    "--port", "1", "--ca", "ca", "--client-cert", "cert",
+                    "--client-key", "key", "--hello-json", str(path)]
+            for node_id in invalid:
+                with self.subTest(node_id=node_id):
+                    path.write_text(json.dumps({
+                        "node_id": node_id, "node_generation": 1,
+                        "connection_epoch": 2}), encoding="utf-8")
+                    output = io.StringIO()
+                    with patch("sys.argv", argv), patch.object(
+                            link, "join",
+                            side_effect=AssertionError("transport invoked")):
+                        with redirect_stdout(output):
+                            self.assertEqual(link.main(), 2)
+                    result = json.loads(output.getvalue())
+                    self.assertEqual(result["result"], "e07_connection_failed")
+                    self.assertIn("noncanonical UUIDv7", result["detail"])
+
+
 if __name__=="__main__":
     unittest.main()

@@ -171,6 +171,13 @@ def _validate_node_hello(hello: dict, expected_node_id: str) -> None:
             or not all(_canonical_u64(hello.get(field))
                        for field in ("node_generation", "connection_epoch"))):
         raise LinkFailure("invalid_node_hello")
+    # The Rust E01 NodeId is a UTF-8 scalar string. Direct join() callers
+    # bypass the local JSON Hello loader, so reject surrogate identities
+    # before TLS credential loading or any network connection.
+    try:
+        expected_node_id.encode("utf-8", errors="strict")
+    except UnicodeError as error:
+        raise LinkFailure("invalid_node_hello") from error
 
 
 def join(

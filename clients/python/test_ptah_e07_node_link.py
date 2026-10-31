@@ -362,6 +362,22 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   Path("key"), hello=hello,
                                   expected_node_id="test-node", **kwargs)
 
+    def test_join_rejects_non_scalar_node_identity_before_tls_setup(self):
+        # Rust's E01 NodeId is UTF-8. A direct Python join() caller must
+        # not open TLS with a lone UTF-16 surrogate identity, even when
+        # the caller-provided expected identity matches the Hello.
+        from unittest.mock import patch
+        for node_id in ("\ud800", "\udfff", "node-\ud800"):
+            with self.subTest(node_id=ascii(node_id)):
+                hello = {"node_id": node_id, "node_generation": 1,
+                         "connection_epoch": 2}
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS setup started")):
+                    with self.assertRaisesRegex(link.LinkFailure, "invalid_node_hello"):
+                        link.join("localhost", 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id=node_id)
+
     def test_join_rejects_noncanonical_hello_counters_before_transport(self):
         from unittest.mock import patch
         good = {"node_id": "test-node", "node_generation": 1, "connection_epoch": 2}

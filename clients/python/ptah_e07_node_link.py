@@ -99,9 +99,24 @@ def _decode_strict_json(text: str, direction: str) -> object:
         return value
 
     try:
-        return json.loads(text, object_pairs_hook=unique_fields,
-                          parse_constant=reject_nonfinite,
-                          parse_float=finite_float)
+        decoded = json.loads(text, object_pairs_hook=unique_fields,
+                             parse_constant=reject_nonfinite,
+                             parse_float=finite_float)
+        # Python accepts lone UTF-16 surrogate escapes as str values and
+        # object keys, but the native Rust E01 JSON peer rejects them.
+        # Check every decoded scalar iteratively (the frame is size-bounded)
+        # so local Hello and authenticated incoming wire use identical rules.
+        pending = [decoded]
+        while pending:
+            value = pending.pop()
+            if type(value) is str:
+                value.encode("utf-8", errors="strict")
+            elif isinstance(value, dict):
+                pending.extend(value.keys())
+                pending.extend(value.values())
+            elif isinstance(value, list):
+                pending.extend(value)
+        return decoded
     except (ValueError, UnicodeError, RecursionError) as error:
         raise LinkFailure(f"invalid_{direction}_frame: malformed JSON") from error
 

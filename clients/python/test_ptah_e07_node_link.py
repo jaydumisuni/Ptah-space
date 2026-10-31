@@ -47,6 +47,41 @@ class NodeLinkProtocolTests(unittest.TestCase):
                 with self.assertRaisesRegex(link.LinkFailure, "invalid_incoming_frame"):
                     link._read_frame(MemorySocket(wire))
 
+    def test_incoming_json_rejects_unpaired_surrogate_escapes(self):
+        # Python accepts escaped lone UTF-16 surrogates; the Rust serde_json
+        # E01 peer rejects them. The authenticated wire and local Hello must
+        # share the same scalar-value custody.
+        invalid = (
+            b'{"kind":"hello_ack","payload":{"node_id":"\\ud800"}}',
+            b'{"kind":"hello_ack","payload":{"\\udfff":"value"}}',
+            b'{"kind":"hello_ack","payload":{"node_id":"x\\ud800y"}}',
+        )
+        for payload in invalid:
+            with self.subTest(payload=payload):
+                frame = struct.pack(">I", len(payload)) + payload
+                with self.assertRaisesRegex(link.LinkFailure, "invalid_incoming_frame"):
+                    link._read_frame(MemorySocket(frame))
+        # A valid escaped surrogate pair is one Unicode scalar and remains
+        # admissible on the same strict wire decoder.
+        valid = b'{"kind":"hello_ack","payload":{"node_id":"\\ud83d\\ude80"}}'
+        frame = struct.pack(">I", len(valid)) + valid
+        self.assertEqual(link._read_frame(MemorySocket(frame))["payload"]["node_id"],
+                         "\U0001f680")
+
+        # Local Hello preflight must reject the same invalid scalar before
+        # join() can load TLS credentials or open a network connection.
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            hello_path = Path(directory) / "hello.json"
+            hello_path.write_bytes(
+                b'{"node_id":"\\ud800","node_generation":1,"connection_epoch":2}')
+            with self.assertRaisesRegex(link.LinkFailure, "invalid_hello_frame"):
+                link._load_hello_json(hello_path)
+            hello_path.write_bytes(
+                b'{"node_id":"\\ud83d\\ude80","node_generation":1,"connection_epoch":2}')
+            self.assertEqual(link._load_hello_json(hello_path)["node_id"],
+                             "\U0001f680")
+
     def test_excessive_incoming_json_nesting_is_a_protocol_failure(self):
         # A size-valid frame can still exceed E01's bounded nesting budget.
         # No native TLS socket or host state is involved in this regression.

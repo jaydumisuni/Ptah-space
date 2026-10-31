@@ -184,6 +184,22 @@ def _validate_canonical_native_node_id(value: object) -> None:
         raise LinkFailure("invalid_node_hello: noncanonical UUIDv7")
 
 
+_NATIVE_NODE_HELLO_FIELDS = frozenset({
+    "supported_major", "minimum_minor", "maximum_minor",
+    "node_id", "node_generation", "connection_epoch",
+    "enrollment_ref", "agent_revision", "capability_snapshot_ref",
+})
+
+
+def _validate_native_node_hello_fields(hello: object) -> None:
+    # The native Rust NodeHello contains only these nine members. Its Serde
+    # decoder ignores unknown fields; never let a CLI file attach apparent
+    # dispatch, enrollment or approval authority that the peer did not bind.
+    # Legacy direct join() fixtures retain their existing separate contract.
+    if type(hello) is not dict or not set(hello).issubset(_NATIVE_NODE_HELLO_FIELDS):
+        raise LinkFailure("invalid_node_hello: unbound native Hello field")
+
+
 def _validate_node_hello(hello: dict, expected_node_id: str) -> None:
     if (not isinstance(hello, dict) or type(expected_node_id) is not str
             or not expected_node_id or type(hello.get("node_id")) is not str
@@ -345,6 +361,7 @@ def main() -> int:
     try:
         hello = _load_hello_json(args.hello_json)
         _validate_canonical_native_node_id(hello["node_id"])
+        _validate_native_node_hello_fields(hello)
         result = join(args.address,args.port,args.ca,args.client_cert,args.client_key,
                       hello=hello,expected_node_id=hello["node_id"],heartbeats=args.heartbeats)
     except (LinkFailure, ValueError, OSError, ssl.SSLError, json.JSONDecodeError) as error:

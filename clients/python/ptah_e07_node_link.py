@@ -59,6 +59,24 @@ def _write_frame(connection: ssl.SSLSocket, message: dict) -> None:
     # Python emits NaN and Infinity by default, although they are not JSON
     # numbers accepted by the E01 Rust peer. Reject before sending any bytes.
     # Normalize unsupported values into a bounded protocol failure as well.
+    # json.dumps silently coerces non-string dict keys into JSON strings.
+    # Preserve the source identity of every nested E01 object before
+    # serialization, including objects inside arrays. Cyclic references
+    # remain rejected by the JSON encoder below.
+    pending = [message]
+    seen = set()
+    while pending:
+        value = pending.pop()
+        if isinstance(value, (dict, list, tuple)):
+            if id(value) in seen:
+                continue
+            seen.add(id(value))
+            if isinstance(value, dict):
+                if any(type(key) is not str for key in value):
+                    raise LinkFailure("invalid_outgoing_frame: nonstring JSON object key")
+                pending.extend(value.values())
+            else:
+                pending.extend(value)
     try:
         # Serialize Unicode scalars directly: strict UTF-8 encoding then
         # rejects lone surrogate code points that Python's default ASCII

@@ -1,0 +1,42 @@
+{
+  "schema": "ttg.supervisor.cloud-dispatch.v1",
+  "project": "ptah",
+  "frontier": "E07 exact-wire Hello identity freeze, source-only",
+  "before_head": "18ed352a665fbb47fcb36c695954e56b633a48a9",
+  "source_after_head": "91bc3d0dffe939580157096fe6461aa5750010b2",
+  "action": "Authenticated GitHub connector: created project-owned isolated branch, changed two Python source/test files, opened draft PR #199 stacked on PR #198",
+  "worker": "Shift B cloud fallback; KRATOS Oracle terminal unavailable",
+  "observed_at_utc": "2026-10-31T15:12:03Z",
+  "movement": {
+    "state": "MATERIAL_SOURCE_DELTA_PUBLISHED",
+    "source_files_changed": 2,
+    "additions": 37,
+    "deletions": 2,
+    "head_advanced": true,
+    "pr_url": "https://github.com/jaydumisuni/Ptah-space/pull/199"
+  },
+  "health": {
+    "oracle_cloud_roster": "UNVERIFIED_tool_internal_failure",
+    "kratos_terminal": "UNVERIFIED_tool_internal_failure",
+    "patrol": "UNVERIFIED_not_run",
+    "native_python": "UNVERIFIED_not_run",
+    "hosted_ci": "QUEUED_at_initial_inspection",
+    "independent_review": "PENDING",
+    "physical_e02_a05": "NOT_PROVEN"
+  },
+  "proof": {
+    "github_compare": "ahead_by=2,behind_by=0,files=2",
+    "pr_head_match": true,
+    "regression": "Three deterministic interleavings encoded in source; predecessor RED inferred by code inspection, not executed",
+    "ci_runs": "13 workflows queued/in_progress at initial inspection"
+  },
+  "disposition": "DRAFT_SOURCE_PUBLISHED_REVIEW_AND_PROOF_PENDING",
+  "dependency_linkage": {
+    "upstream": "Ptah E07 PR #198 exact head 18ed352a665fbb47fcb36c695954e56b633a48a9",
+    "downstream": "E02/A05 physical acceptance and Prime consumption remain gated"
+  },
+  "control_binding": "Canonical Cookpit main Ptah profile remains E06; proposed PR #100 is not admitted. No worker/timer rebind.",
+  "reconcile_on_kratos": "Fetch cloud branch, verify exact source and receipt, run Patrol preflight, native Python suite and Git diff, then write local supervisor dispatch receipt with truthful results. Do not duplicate a PASS receipt.",
+  "production_touched": false,
+  "stolen_device_touched": false
+}

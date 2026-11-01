@@ -835,6 +835,59 @@ class NodeLinkProtocolTests(unittest.TestCase):
                     })
 
 
+    def test_cli_rejects_reversed_native_minor_interval_before_transport(self):
+        # Rust's u16 fields can deserialize individually while describing
+        # an empty protocol interval. Fail before credentials or TLS; do not
+        # invent a policy about remote minor-version compatibility.
+        import tempfile
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        canonical = "018f0f4e-7b5c-7abc-8abc-0123456789ab"
+        complete = {
+            "node_id": canonical, "node_generation": 1,
+            "connection_epoch": 2, "supported_major": 1,
+            "minimum_minor": 0, "maximum_minor": 0,
+            "enrollment_ref": {
+                "entity_id": canonical, "entity_kind": "ptah.enrollment",
+            },
+            "agent_revision": "revision",
+        }
+        argv_prefix = [
+            "ptah_e07_node_link", "--address", "localhost",
+            "--port", "1", "--ca", "ca", "--client-cert", "cert",
+            "--client-key", "key", "--hello-json",
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hello.json"
+            for minimum, maximum in ((1, 0), (5, 4), (65535, 65534)):
+                with self.subTest(minimum=minimum, maximum=maximum):
+                    hello = {
+                        **complete, "minimum_minor": minimum,
+                        "maximum_minor": maximum,
+                    }
+                    with self.assertRaisesRegex(
+                            link.LinkFailure, "impossible native minor version interval"):
+                        link._validate_native_node_hello_fields(hello)
+                    path.write_text(json.dumps(hello), encoding="utf-8")
+                    output = io.StringIO()
+                    with patch("sys.argv", argv_prefix + [str(path)]), patch.object(
+                            link, "join", side_effect=AssertionError(
+                                "reversed native interval reached transport")):
+                        with redirect_stdout(output):
+                            self.assertEqual(link.main(), 2)
+                    result = json.loads(output.getvalue())
+                    self.assertEqual(result["result"], "e07_connection_failed")
+                    self.assertIn("impossible native minor version interval",
+                                  result["detail"])
+
+        for minimum, maximum in ((0, 0), (0, 65535), (65535, 65535)):
+            with self.subTest(valid_minimum=minimum, valid_maximum=maximum):
+                link._validate_native_node_hello_fields({
+                    **complete, "minimum_minor": minimum,
+                    "maximum_minor": maximum,
+                })
+
+
     def test_cli_rejects_non_string_native_agent_revision_before_transport(self):
         # Rust NodeHello.agent_revision is a Serde String. Python JSON
         # booleans, numbers, arrays, objects and null must fail before TLS.

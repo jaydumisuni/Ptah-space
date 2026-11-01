@@ -731,14 +731,63 @@ class NodeLinkProtocolTests(unittest.TestCase):
                     self.assertEqual(result["result"], "e07_connection_failed")
                     self.assertIn("unbound native Hello field", result["detail"])
 
-        # Every documented native NodeHello member remains admissible; this
-        # source-only preflight does not invent a new enrollment requirement.
-        link._validate_native_node_hello_fields({
+        # The eight non-Option Rust NodeHello members are required. Only
+        # capability_snapshot_ref may be absent, matching Serde Option.
+        complete = {
             **base, "supported_major": 1, "minimum_minor": 0,
             "maximum_minor": 0, "enrollment_ref": "reference",
             "agent_revision": "revision", "capability_snapshot_ref": None,
+        }
+        link._validate_native_node_hello_fields(complete)
+        link._validate_native_node_hello_fields({
+            key: value for key, value in complete.items()
+            if key != "capability_snapshot_ref"
         })
-        link._validate_native_node_hello_fields(base)
+        with self.assertRaisesRegex(link.LinkFailure, "missing native Hello field"):
+            link._validate_native_node_hello_fields(base)
+        for required in sorted(link._NATIVE_NODE_HELLO_REQUIRED_FIELDS):
+            with self.subTest(required=required):
+                with self.assertRaisesRegex(
+                        link.LinkFailure, "missing native Hello field"):
+                    link._validate_native_node_hello_fields({
+                        key: value for key, value in complete.items()
+                        if key != required
+                    })
+
+    def test_cli_rejects_missing_rust_hello_fields_before_transport(self):
+        # The native Rust Serde NodeHello requires eight members. Missing
+        # protocol or enrollment fields must fail before TLS or join().
+        import tempfile
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        complete = {
+            "node_id": "018f0f4e-7b5c-7abc-8abc-0123456789ab",
+            "node_generation": 1, "connection_epoch": 2,
+            "supported_major": 1, "minimum_minor": 0, "maximum_minor": 0,
+            "enrollment_ref": "reference", "agent_revision": "revision",
+        }
+        argv_prefix = ["ptah_e07_node_link", "--address", "localhost",
+                       "--port", "1", "--ca", "ca", "--client-cert", "cert",
+                       "--client-key", "key", "--hello-json"]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hello.json"
+            for required in ("supported_major", "minimum_minor",
+                             "maximum_minor", "enrollment_ref",
+                             "agent_revision"):
+                with self.subTest(required=required):
+                    path.write_text(json.dumps({
+                        key: value for key, value in complete.items()
+                        if key != required
+                    }), encoding="utf-8")
+                    output = io.StringIO()
+                    with patch("sys.argv", argv_prefix + [str(path)]), patch.object(
+                            link, "join", side_effect=AssertionError(
+                                "transport invoked before required Hello custody")):
+                        with redirect_stdout(output):
+                            self.assertEqual(link.main(), 2)
+                    result = json.loads(output.getvalue())
+                    self.assertEqual(result["result"], "e07_connection_failed")
+                    self.assertIn("missing native Hello field", result["detail"])
 
 
 if __name__=="__main__":

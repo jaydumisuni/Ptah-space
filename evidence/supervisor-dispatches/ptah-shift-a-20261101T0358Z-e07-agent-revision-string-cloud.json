@@ -1,0 +1,62 @@
+{
+  "schema": "ttg.supervisor.cloud-dispatch.v1",
+  "project": "ptah",
+  "shift": "A",
+  "frontier": "E07 Python CLI native Rust NodeHello agent_revision String pre-TLS custody (non-promoting maintenance)",
+  "observed_at_utc": "2026-11-01T03:58:16Z",
+  "canonical_authority": {
+    "registry": "jaydumisuni/cookpit main:registry.json",
+    "registry_blob": "b3d88fe65be9b5514b46d1b8d028c844bc4b78eb",
+    "enabled": true,
+    "profile": "profiles/ptah.json",
+    "roadmap": "jaydumisuni/ptah-roadmap- main:IMPLEMENTATION_ROADMAP.md",
+    "e07_standalone": "DONE",
+    "prime_f04_f07": "DOWNSTREAM_OS_OWNED"
+  },
+  "before_head": "5629932b616300ba63e017852093033560f87283",
+  "source_after_head": "1ade860499b5a90a7f896c3005d3d6f6546c0c27",
+  "source_commit": "6ea2d8479d7a2e4db95a3018f71ba9f122162af0",
+  "test_commit": "1ade860499b5a90a7f896c3005d3d6f6546c0c27",
+  "pr": "https://github.com/jaydumisuni/Ptah-space/pull/206",
+  "worker": "Shift A authenticated GitHub cloud source-only fallback; Oracle Live roster and KRATOS terminal returned internal errors",
+  "action": "Reject non-string native Rust NodeHello agent_revision before Python CLI join/TLS; add ten CLI and ten direct helper negative cases and two valid String controls",
+  "movement": {
+    "state": "MATERIAL_SOURCE_PUBLISHED",
+    "source_files_changed": 2,
+    "source_additions": 55,
+    "source_deletions": 0,
+    "head_advanced": true,
+    "last_material_head": "1ade860499b5a90a7f896c3005d3d6f6546c0c27",
+    "health_is_not_movement": true
+  },
+  "proof": {
+    "rust_contract": "crates/ptah-node-link/src/protocol.rs: NodeHello.agent_revision is Serde String",
+    "github_compare": "ahead_by=2 behind_by=0",
+    "source_blob": "7ed2f6487f93e8efb05fed80ee9249d196c712ea",
+    "test_blob": "2ec975ce59c73e13475d4ba1e81a2511bc609cbf",
+    "source_test_readback": "MATCH",
+    "isolated_predicate": "10/10 invalid rejected, 2/2 String controls admitted; not native repository test",
+    "native_python": "UNVERIFIED",
+    "patrol": "UNVERIFIED",
+    "hosted_exact_source_head": "QUEUED_OR_IN_PROGRESS_AT_OBSERVATION_NOT_PASS",
+    "independent_review": "PENDING_ZERO_REVIEWS",
+    "physical": "NOT_ATTEMPTED"
+  },
+  "health": {
+    "nodie_roster": "UNVERIFIED_Oracle_roster_internal_error",
+    "supervisors": "A/B/C/D/E HEALTHY for latest due slots at 05:56 CAT; zero confirmed missed; schedules unchanged",
+    "kratos": "UNVERIFIED_Oracle_terminal_internal_error",
+    "local_attention": "QUEUED_KRATOS_RECONCILIATION",
+    "worker_lease": "UNVERIFIED"
+  },
+  "dependency_linkage": {
+    "upstream": "Ptah E07 native Rust NodeHello Serde String contract and PR #205 u16 preflight exact-head",
+    "downstream": "Prime OS F04–F07 OS-owned, no direct integration or release authority"
+  },
+  "limitations": "Source-only candidate. Native Ptah tests, local Patrol and exact-head independent review pending. Historical E06 Cookpit profile path cannot be rebound without live workspace proof and guarded independent review.",
+  "disposition": "SOURCE_PUBLISHED_ISOLATED_PROOF_PASS_NATIVE_REVIEW_PENDING",
+  "reconcile_on_kratos": "Fetch Ptah PR #206 and this cloud receipt, run project-owned Patrol and Python E07 unittest/compile, verify actual candidate and worker lease, update local attention and dispatch receipt, independently review obsolete E06 control binding.",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false
+}

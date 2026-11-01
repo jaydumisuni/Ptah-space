@@ -939,6 +939,60 @@ class NodeLinkProtocolTests(unittest.TestCase):
                 })
 
 
+    def test_native_entity_kind_first_segment_matches_rust_grammar(self):
+        # ptah-identifiers::valid_kind_segment(first, false) allows ASCII
+        # digits after the initial lowercase letter. Python must not reject
+        # a Rust-valid reference before credentials or TLS.
+        import tempfile
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        canonical = "018f0f4e-7b5c-7abc-8abc-0123456789ab"
+        reference = {"entity_id": canonical, "entity_kind": "ptah.enrollment"}
+        complete = {
+            "node_id": canonical, "node_generation": 1, "connection_epoch": 2,
+            "supported_major": 1, "minimum_minor": 0, "maximum_minor": 0,
+            "enrollment_ref": reference, "agent_revision": "revision",
+        }
+        valid = ("core2.node", "a1.b2", "core9.node9_part-2",
+                 "core.node", "ptah.enrollment")
+        invalid = ("2core.node", "core-.node", "core.2node",
+                   "core..node", "Core2.node", "core.node?", "core.node.")
+        for field in ("enrollment_ref", "capability_snapshot_ref"):
+            for kind in valid:
+                with self.subTest(field=field, valid_kind=kind):
+                    link._validate_native_node_hello_fields({
+                        **complete, field: {**reference, "entity_kind": kind}
+                    })
+            for kind in invalid:
+                with self.subTest(field=field, invalid_kind=kind):
+                    with self.assertRaisesRegex(
+                            link.LinkFailure, "noncanonical native EntityRef"):
+                        link._validate_native_node_hello_fields({
+                            **complete, field: {**reference, "entity_kind": kind}
+                        })
+
+        # The real CLI preflight must accept a Rust-valid digit-bearing
+        # namespace without opening a socket or loading credentials here.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hello.json"
+            path.write_text(json.dumps({
+                **complete, "enrollment_ref": {
+                    **reference, "entity_kind": "core2.node"
+                }
+            }), encoding="utf-8")
+            argv = ["ptah_e07_node_link", "--address", "localhost",
+                    "--port", "1", "--ca", "ca", "--client-cert", "cert",
+                    "--client-key", "key", "--hello-json", str(path)]
+            output = io.StringIO()
+            with patch("sys.argv", argv), patch.object(
+                    link, "join", return_value={"result": "preflight_only"}) as joined:
+                with redirect_stdout(output):
+                    self.assertEqual(link.main(), 0)
+            joined.assert_called_once()
+            self.assertEqual(json.loads(output.getvalue())["result"],
+                             "preflight_only")
+
+
     def test_cli_rejects_noncanonical_native_entity_refs_before_transport(self):
         # Rust ptah-identifiers::EntityRef is a structured object with a
         # canonical UUIDv7, validated namespaced kind and bounded counters.

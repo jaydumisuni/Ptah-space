@@ -1,0 +1,66 @@
+{
+  "schema": "ttg.supervisor.cloud-dispatch.v1",
+  "project": "ptah",
+  "shift": "E",
+  "observed_at_utc": "2026-11-01T08:55:08.737Z",
+  "frontier": "E07 Python EntityKind first namespace segment parity with frozen Rust ptah-identifiers grammar",
+  "canonical_authority": {
+    "registry": "jaydumisuni/cookpit main:registry.json",
+    "registry_head": "aa49182ce91c5261ac49d04d9d297fea6fe39b8d",
+    "registry_blob": "b3d88fe65be9b5514b46d1b8d028c844bc4b78eb",
+    "enabled": true,
+    "profile": "profiles/ptah.json",
+    "profile_candidate_path": "/home/kratos/projects/Ptah-space/.workspace/incoming/e06-intermittent-local-first",
+    "profile_rebind": "UNVERIFIED_NO_CHANGE",
+    "roadmap": "jaydumisuni/ptah-roadmap- main:IMPLEMENTATION_ROADMAP.md",
+    "roadmap_blob": "4c2b2a5346da0aa54bb962bffa69fe6bf6fe07cd",
+    "standalone_e07": "DONE",
+    "prime_f04_f07": "DOWNSTREAM_OS_OWNED"
+  },
+  "before": {
+    "head": "9c9529039561c3b571950fcc8184f21b91f2120c",
+    "state": "PR208 draft, source-only; 13 hosted workflows PASS, no independent review"
+  },
+  "after": {
+    "source_commit": "b7e17eb159a0dbf9265d9c02720c23d4279d78f8",
+    "test_commit": "072a3069726bc40fa0713bb1a576029002329864",
+    "source_blob": "61d3358f7e83d5b21953b95c6c09a43c1c90192c",
+    "test_blob": "bea54f4c664929423cf69a2b624032c23739af68",
+    "state": "PR209 draft open; source and regression published, independent review pending"
+  },
+  "worker": "Shift E authenticated GitHub source-only fallback; Oracle Live roster and KRATOS terminal returned internal errors",
+  "action": "Align Python E07 EntityRef namespace first segment with Rust valid_kind_segment(first,false), allowing ASCII digits after initial lowercase letter; add 24 helper regression subcases and one mocked CLI preflight; no TLS/network/device action",
+  "movement": {
+    "state": "MATERIAL_SOURCE_PUBLISHED",
+    "last_material_head": "072a3069726bc40fa0713bb1a576029002329864",
+    "head_advanced": true,
+    "health_is_not_movement": true
+  },
+  "proof": {
+    "exact_source_test_blob_readback": "MATCH",
+    "git_ancestry": "2 ahead, 0 behind exact PR208 head",
+    "isolated_predicate": "3 formerly rejected Rust-valid kinds accepted; 7 invalid controls remain rejected; isolated only",
+    "native_python": "NOT_RUN",
+    "hosted_exact_head": "NO_RUN_RETURNED_AT_INITIAL_CHECK",
+    "kratos_patrol": "UNVERIFIED",
+    "worker_lease": "UNVERIFIED",
+    "independent_review": "PENDING",
+    "physical": "NOT_ATTEMPTED"
+  },
+  "health": {
+    "nodie_roster": "UNVERIFIED_ORACLE_INTERNAL_ERROR",
+    "supervisor_pool": "A LATE-but-completed; B/C/D HEALTHY; E current within grace, previous HEALTHY; no confirmed missed slots",
+    "kratos": "UNVERIFIED_ORACLE_TERMINAL_INTERNAL_ERROR",
+    "local_attention": "QUEUED_KRATOS_RECONCILIATION"
+  },
+  "dependency_linkage": {
+    "upstream": "Ptah frozen Rust EntityKind grammar and E07 native NodeHello contract; PR208 exact predecessor",
+    "downstream": "Prime OS F04–F07 OS-owned integration; no Ptah runtime integration or promotion authority"
+  },
+  "pr": "https://github.com/jaydumisuni/Ptah-space/pull/209",
+  "disposition": "SOURCE_PUBLISHED_EXACT_HEAD_READBACK_REVIEW_PENDING",
+  "reconcile_on_kratos": "Fetch PR209 exact head and receipt, Patrol/preflight Ptah-owned workspace, run focused python3 -m unittest discover -s clients/python -p test_ptah_e07_node_link.py and compile, inspect worker/lease and E06 profile binding, reconcile local attention/dispatch without duplicate PASS receipt; independent review required.",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false
+}

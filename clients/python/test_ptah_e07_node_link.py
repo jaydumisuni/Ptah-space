@@ -825,14 +825,15 @@ class NodeLinkProtocolTests(unittest.TestCase):
                         self.assertIn("noncanonical native protocol u16",
                                       result["detail"])
 
-        # Native u16 extrema are syntactically admissible. Protocol
-        # compatibility negotiation is the separate control-plane gate.
+        # Native u16 extrema remain admissible when the advertised minor
+        # interval is ordered. Remote compatibility is a separate gate.
         for field in ("supported_major", "minimum_minor", "maximum_minor"):
             for value in (0, 65535):
                 with self.subTest(valid_field=field, valid_value=value):
-                    link._validate_native_node_hello_fields({
-                        **complete, field: value
-                    })
+                    candidate = {**complete, field: value}
+                    if field == "minimum_minor":
+                        candidate["maximum_minor"] = value
+                    link._validate_native_node_hello_fields(candidate)
 
 
     def test_cli_rejects_reversed_native_minor_interval_before_transport(self):

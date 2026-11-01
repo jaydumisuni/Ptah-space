@@ -1,0 +1,32 @@
+{
+  "after_state": "reject U+034F, U+180B..U+180D and U+FE00..U+FE0F before TLS; preserve ordinary DNS/IPv4/IPv6 and visible Unicode",
+  "before_head": "97b3da10b741456a542c5f178d82a41bc2425988",
+  "before_state": "direct E07 join accepted four IDNA-erased Unicode hostname scalars until TLS setup",
+  "branch": "supervisor/shift-d-e07-idna-ignored-20261101-1736",
+  "dependency_linkage": "Ptah E07 native source safety; Prime OS F04-F07 downstream OS-owned; physical roaming/Oracle runtime not changed",
+  "disposition": "MATERIAL_SOURCE_COMMITTED_REVIEW_PENDING",
+  "frontier": "E07_IDNA_IGNORED_HOST_DESTINATION_PREFLIGHT",
+  "health_fact": "NATIVE_46_PASS_HOSTED_UNVERIFIED_REVIEW_PENDING_PHYSICAL_HOLD",
+  "movement_fact": "BOUNDED_SOURCE_TEST_COMMIT_CREATED; publication and final receipt pending",
+  "production_touched": false,
+  "project": "ptah",
+  "proof": {
+    "git_diff_check": "PASS",
+    "hosted_exact_head_ci": "UNVERIFIED",
+    "idna_collision": "4/4 source hostnames encode to host.example on KRATOS Python IDNA",
+    "independent_review": "PENDING",
+    "native_python": "46/46 PASS",
+    "patrol": "exit 0; no explicit ALLOW text",
+    "physical_off_lan": "NOT REQUALIFIED",
+    "predecessor_adversarial": "4/4 RED, reached mocked TLS setup",
+    "python_compile": "PASS"
+  },
+  "schema": "ttg.cookpit.supervisor-dispatch.v1",
+  "shift": "D",
+  "source_implementation_head": "16dcebbc8af5b44e7028040ee0567b6a01fc544b",
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false,
+  "time_utc": "2026-11-01T15:43:15Z",
+  "worker_action": "Patrol-preflighted project-owned isolated Ptah source/test change; no live network or device interaction",
+  "workspace": "/home/kratos/projects/Ptah-space/.workspace/worktrees/e07-idna-ignored-shift-d-20261101-1736"
+}

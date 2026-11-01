@@ -1,0 +1,28 @@
+{
+  "schema": "ttg.ptah.supervisor-dispatch.v1",
+  "shift": "D",
+  "project": "ptah",
+  "frontier": "E07_CANONICAL_LDH_DNS_ENDPOINT_HOST_PREFLIGHT",
+  "time_utc": "2026-11-01T23:37:39.948255+00:00",
+  "before_head": "e1a72707ad6a509dbae5474ca5707bd365ba4c75",
+  "implementation_head": "d02e1188f5182e048ee09b1df97dc8d52b8d3e35",
+  "before_state": "Ten invalid DNS endpoint label spellings passed preflight and reached mocked TLS setup",
+  "after_state": "IDNA-encoded TLS hostname labels require ASCII letters/digits with internal hyphens only; 10 rejected and 7 valid DNS/IP/IDN controls preserved",
+  "worker_action": "Patrol ALLOW; isolated Ptah-owned worktree; test-first 10 RED; bounded source/test patch; focused/full Python proof; draft PR after push",
+  "proof": {
+    "predecessor_adversarial": "10/10 RED before correction",
+    "corrected_focused": "1 test PASS, 17 subtests",
+    "native_python_client": "80/80 PASS",
+    "python_compile": "PASS",
+    "git_diff_check": "PASS",
+    "patrol": "ALLOW on exact project worktree",
+    "hosted_exact_head_ci": "UNVERIFIED",
+    "independent_review": "PENDING",
+    "physical_off_lan": "NOT REQUALIFIED"
+  },
+  "dependency_linkage": "Ptah E07 transport -> Prime OS F04-F07 OS-owned; Cookpit guarded PR100 remains unadmitted",
+  "disposition": "MATERIAL_SOURCE_CANDIDATE_REVIEW_PENDING",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false
+}

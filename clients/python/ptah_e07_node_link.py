@@ -189,15 +189,22 @@ _NATIVE_NODE_HELLO_FIELDS = frozenset({
     "node_id", "node_generation", "connection_epoch",
     "enrollment_ref", "agent_revision", "capability_snapshot_ref",
 })
+# The Rust NodeHello serde contract requires all non-Option members.
+# Only capability_snapshot_ref is Option<EntityRef> and may be omitted.
+_NATIVE_NODE_HELLO_REQUIRED_FIELDS = (
+    _NATIVE_NODE_HELLO_FIELDS - {"capability_snapshot_ref"}
+)
 
 
 def _validate_native_node_hello_fields(hello: object) -> None:
-    # The native Rust NodeHello contains only these nine members. Its Serde
-    # decoder ignores unknown fields; never let a CLI file attach apparent
-    # dispatch, enrollment or approval authority that the peer did not bind.
+    # Rust Serde ignores unknown members but rejects absent required members.
+    # Reject both before credential loading or TLS, so a CLI cannot present
+    # an unbound authority field or attempt a handshake that Rust cannot parse.
     # Legacy direct join() fixtures retain their existing separate contract.
     if type(hello) is not dict or not set(hello).issubset(_NATIVE_NODE_HELLO_FIELDS):
         raise LinkFailure("invalid_node_hello: unbound native Hello field")
+    if not _NATIVE_NODE_HELLO_REQUIRED_FIELDS.issubset(hello):
+        raise LinkFailure("invalid_node_hello: missing native Hello field")
 
 
 def _validate_node_hello(hello: dict, expected_node_id: str) -> None:

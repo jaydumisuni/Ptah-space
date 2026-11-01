@@ -331,6 +331,15 @@ def _validate_hello_ack(
             raise LinkFailure("hello_ack_version_not_advertised")
 
 
+
+def _idna_ignored_host_scalar(char: str) -> bool:
+    # Python's IDNA codec silently drops these non-Cf format/variation
+    # scalars. Keep the caller's reviewed endpoint identity unchanged.
+    point = ord(char)
+    return (point == 0x034f or 0x180b <= point <= 0x180d
+            or 0xfe00 <= point <= 0xfe0f)
+
+
 def join(
     address: str,
     port: int,
@@ -357,8 +366,9 @@ def join(
     # Reject invisible formatting controls before certificate or socket setup.
     if (type(address) is not str or not address
             or unicodedata.normalize("NFKC", address) != address
-            or any(char.isspace() or unicodedata.category(char) in
-                   {"Cc", "Cf", "Cs"} for char in address)):
+            or any(char.isspace()
+                   or unicodedata.category(char) in {"Cc", "Cf", "Cs"}
+                   or _idna_ignored_host_scalar(char) for char in address)):
         raise ValueError("address must be a nonempty canonical host without whitespace/control characters")
     # bool is an int subclass, but is not a valid E01 sequence count or port.
     if type(heartbeats) is not int or not 1 <= heartbeats <= 10:

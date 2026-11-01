@@ -257,6 +257,24 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   Path("key"), hello=hello,
                                   expected_node_id="test-node")
 
+    def test_join_rejects_idna_ignored_unicode_host_aliases_before_tls(self):
+        # Python's built-in IDNA codec erases these Unicode scalars. A
+        # displayed host must not silently resolve to another host identity.
+        from unittest.mock import patch
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        for address in ("host\u034f.example", "host\u180b.example",
+                        "host\ufe0f.example", "host\ufe00.example"):
+            with self.subTest(address=repr(address)):
+                self.assertEqual(address.encode("idna"), b"host.example")
+                with patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(ValueError, "address must"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+
     def test_join_rejects_noncanonical_address_before_tls_setup(self):
         from unittest.mock import patch
         hello = {"node_id": "test-node", "node_generation": 1,

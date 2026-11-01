@@ -283,7 +283,6 @@ class NodeLinkProtocolTests(unittest.TestCase):
                  "connection_epoch": 2}
         aliases = (
             ("fa\u00df.example", "fass.example"),
-            ("fa\u1e9e.example", "fass.example"),
             ("host\u03c2.example", "host\u03c3.example"),
             ("host\u3002example", "host.example"),
         )
@@ -298,6 +297,25 @@ class NodeLinkProtocolTests(unittest.TestCase):
                         link.join(address, 2345, Path("ca"), Path("cert"),
                                   Path("key"), hello=hello,
                                   expected_node_id="test-node")
+        # Unicode's capital sharp S has changed IDNA mapping across
+        # supported Python versions. Verify the actual codec's identity
+        # mapping instead of asserting one version's encoded spelling.
+        capital_sharp_s = "fa\u1e9e.example"
+        rewritten = (capital_sharp_s.encode("idna").decode("idna")
+                     != capital_sharp_s)
+        with patch.object(
+                link.ssl, "SSLContext",
+                side_effect=AssertionError("TLS_SETUP_REACHED")):
+            if rewritten:
+                with self.assertRaisesRegex(ValueError, "address must"):
+                    link.join(capital_sharp_s, 2345, Path("ca"),
+                              Path("cert"), Path("key"), hello=hello,
+                              expected_node_id="test-node")
+            else:
+                with self.assertRaisesRegex(AssertionError, "TLS_SETUP_REACHED"):
+                    link.join(capital_sharp_s, 2345, Path("ca"),
+                              Path("cert"), Path("key"), hello=hello,
+                              expected_node_id="test-node")
         for address in ("caf\u00e9.example", "b\u00fccher.example",
                         "host\u03c3.example", "CLOUD.caf\u00e9.example",
                         "xn--caf-dma.example", "::1"):

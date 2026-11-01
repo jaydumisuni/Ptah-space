@@ -1,0 +1,31 @@
+{
+  "after_state": "shared native u16/ordered-interval preflight, 8 adversarial negative and 4 positive cases; draft PR212 review pending",
+  "before_head": "813cadc50be8530ce60821d0c33a10c13b598a43",
+  "before_state": "PR211 exact head; direct join accepted complete malformed native version offers until TLS setup",
+  "branch": "supervisor/shift-b-e07-join-native-interval-20261101-1612",
+  "dependency_linkage": "Ptah E07 source hardening; Prime OS F04-F07 remains OS-owned downstream; physical roaming/owner acceptance unchanged",
+  "disposition": "MATERIAL_SOURCE_PUBLISHED_REVIEW_PENDING",
+  "frontier": "E07_DIRECT_JOIN_COMPLETE_NATIVE_VERSION_OFFER_PRETLS",
+  "health_fact": "FOCUSED_NATIVE_PASS_REVIEW_PENDING_PHYSICAL_HOLD",
+  "movement_fact": "SOURCE_IMPLEMENTATION_HEAD_ADVANCED_AND_PUSHED",
+  "pr": "https://github.com/jaydumisuni/Ptah-space/pull/212",
+  "production_touched": false,
+  "project": "ptah",
+  "proof": {
+    "baseline": "8/8 invalid offers reached mocked TLS; regression RED",
+    "focused_native": "45/45 PASS",
+    "git_diff_check": "PASS",
+    "hosted_exact_head_ci": "UNVERIFIED",
+    "independent_review": "PENDING",
+    "patrol": "ALLOW project-owned path",
+    "physical_two_host": "NOT REQUALIFIED"
+  },
+  "schema": "ttg.cookpit.supervisor-dispatch.v1",
+  "shift": "B",
+  "source_implementation_head": "bc09155",
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false,
+  "time_utc": "2026-11-01T14:20:43.025864+00:00",
+  "worker_action": "Ptah-owned isolated worktree source-only patch; no physical execution",
+  "workspace": "/home/kratos/projects/Ptah-space/.workspace/worktrees/e07-join-native-interval-shift-b-20261101-1612"
+}

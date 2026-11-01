@@ -1170,5 +1170,47 @@ class NodeLinkProtocolTests(unittest.TestCase):
         link._validate_hello_ack(ack, "test-node", 1, 2, offered_hello={})
 
 
+    def test_join_complete_native_offer_is_validated_before_tls(self):
+        # Direct join() must enforce the same native u16 and interval
+        # preflight as the CLI, not defer malformed offers until ACK.
+        from unittest.mock import patch
+        base = {"node_id": "test-node", "node_generation": 1,
+                "connection_epoch": 2}
+        offers = (
+            {"supported_major": True, "minimum_minor": 0, "maximum_minor": 0},
+            {"supported_major": -1, "minimum_minor": 0, "maximum_minor": 0},
+            {"supported_major": 65536, "minimum_minor": 0, "maximum_minor": 0},
+            {"supported_major": 1, "minimum_minor": "0", "maximum_minor": 0},
+            {"supported_major": 1, "minimum_minor": 0.0, "maximum_minor": 0},
+            {"supported_major": 1, "minimum_minor": 0, "maximum_minor": 65536},
+            {"supported_major": 1, "minimum_minor": 2, "maximum_minor": 1},
+            {"supported_major": 1, "minimum_minor": 65535, "maximum_minor": 0},
+        )
+        for offer in offers:
+            with self.subTest(offer=offer):
+                with patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(
+                            link.LinkFailure,
+                            "noncanonical native protocol u16|impossible native minor version interval"):
+                        link.join("localhost", 1234, Path("ca"), Path("cert"),
+                                  Path("key"), hello={**base, **offer},
+                                  expected_node_id="test-node")
+
+    def test_direct_join_native_offer_positive_preflight(self):
+        base = {"node_id": "test-node", "node_generation": 1,
+                "connection_epoch": 2}
+        # Compatibility negotiation is still decided by the peer.
+        for offer in (
+            {},
+            {"supported_major": 1, "minimum_minor": 0, "maximum_minor": 0},
+            {"supported_major": 2, "minimum_minor": 1, "maximum_minor": 2},
+            {"supported_major": 65535, "minimum_minor": 0, "maximum_minor": 65535},
+        ):
+            with self.subTest(offer=offer):
+                link._validate_node_hello({**base, **offer}, "test-node")
+
+
 if __name__=="__main__":
     unittest.main()

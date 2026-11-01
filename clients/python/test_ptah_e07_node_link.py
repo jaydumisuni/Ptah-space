@@ -790,5 +790,50 @@ class NodeLinkProtocolTests(unittest.TestCase):
                     self.assertIn("missing native Hello field", result["detail"])
 
 
+    def test_cli_rejects_non_u16_native_protocol_fields_before_transport(self):
+        # Rust NodeHello uses u16 for all three version members. Python
+        # booleans, numeric strings, floats and out-of-range ints are not
+        # wire-equivalent even when they compare equal to ordinary integers.
+        import tempfile
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        complete = {
+            "node_id": "018f0f4e-7b5c-7abc-8abc-0123456789ab",
+            "node_generation": 1, "connection_epoch": 2,
+            "supported_major": 1, "minimum_minor": 0, "maximum_minor": 0,
+            "enrollment_ref": "reference", "agent_revision": "revision",
+        }
+        argv_prefix = ["ptah_e07_node_link", "--address", "localhost",
+                       "--port", "1", "--ca", "ca", "--client-cert", "cert",
+                       "--client-key", "key", "--hello-json"]
+        invalid = (True, False, -1, 65536, 1.0, "1", None)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hello.json"
+            for field in ("supported_major", "minimum_minor", "maximum_minor"):
+                for value in invalid:
+                    with self.subTest(field=field, value=repr(value)):
+                        path.write_text(json.dumps({**complete, field: value}),
+                                        encoding="utf-8")
+                        output = io.StringIO()
+                        with patch("sys.argv", argv_prefix + [str(path)]), patch.object(
+                                link, "join", side_effect=AssertionError(
+                                    "transport invoked before native u16 custody")):
+                            with redirect_stdout(output):
+                                self.assertEqual(link.main(), 2)
+                        result = json.loads(output.getvalue())
+                        self.assertEqual(result["result"], "e07_connection_failed")
+                        self.assertIn("noncanonical native protocol u16",
+                                      result["detail"])
+
+        # Native u16 extrema are syntactically admissible. Protocol
+        # compatibility negotiation is the separate control-plane gate.
+        for field in ("supported_major", "minimum_minor", "maximum_minor"):
+            for value in (0, 65535):
+                with self.subTest(valid_field=field, valid_value=value):
+                    link._validate_native_node_hello_fields({
+                        **complete, field: value
+                    })
+
+
 if __name__=="__main__":
     unittest.main()

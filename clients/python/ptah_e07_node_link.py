@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import socket
 import ssl
 import struct
@@ -196,6 +197,38 @@ _NATIVE_NODE_HELLO_REQUIRED_FIELDS = (
 )
 
 
+_NATIVE_ENTITY_REF_KEYS = frozenset({
+    "entity_id", "entity_kind", "record_revision", "node_generation",
+    "provider_generation", "workload_generation", "connection_epoch",
+})
+
+
+def _validate_native_entity_ref(value: object, field: str) -> None:
+    # Rust ptah-identifiers::EntityRef is a structured Serde object, not
+    # an opaque string or an arbitrary JSON mapping. Refuse unknown apparent
+    # authority members and noncanonical identity/counter aliases before TLS.
+    failure = f"invalid_node_hello: noncanonical native EntityRef {field}"
+    if (type(value) is not dict
+            or not {"entity_id", "entity_kind"}.issubset(value)
+            or not set(value).issubset(_NATIVE_ENTITY_REF_KEYS)):
+        raise LinkFailure(failure)
+    try:
+        _validate_canonical_native_node_id(value["entity_id"])
+    except LinkFailure as error:
+        raise LinkFailure(failure) from error
+    kind = value["entity_kind"]
+    if (type(kind) is not str
+            or re.fullmatch(r"[a-z]+\.[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*", kind) is None):
+        raise LinkFailure(failure)
+    for key in _NATIVE_ENTITY_REF_KEYS - {"entity_id", "entity_kind"}:
+        if key not in value or value[key] is None:
+            continue  # Serde Option<u64> accepts absent/null.
+        if not _canonical_u64(value[key]):
+            raise LinkFailure(failure)
+        if key == "record_revision" and value[key] == 0:
+            raise LinkFailure(failure)
+
+
 def _validate_native_node_hello_fields(hello: object) -> None:
     # Rust Serde ignores unknown members but rejects absent required members.
     # Reject both before credential loading or TLS, so a CLI cannot present
@@ -217,6 +250,10 @@ def _validate_native_node_hello_fields(hello: object) -> None:
     # credentials, transport, or native deserialization.
     if type(hello["agent_revision"]) is not str:
         raise LinkFailure("invalid_node_hello: noncanonical native agent revision string")
+    _validate_native_entity_ref(hello["enrollment_ref"], "enrollment_ref")
+    snapshot = hello.get("capability_snapshot_ref")
+    if snapshot is not None:
+        _validate_native_entity_ref(snapshot, "capability_snapshot_ref")
 
 
 def _validate_node_hello(hello: dict, expected_node_id: str) -> None:

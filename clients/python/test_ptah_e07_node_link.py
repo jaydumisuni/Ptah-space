@@ -735,7 +735,7 @@ class NodeLinkProtocolTests(unittest.TestCase):
         # capability_snapshot_ref may be absent, matching Serde Option.
         complete = {
             **base, "supported_major": 1, "minimum_minor": 0,
-            "maximum_minor": 0, "enrollment_ref": "reference",
+            "maximum_minor": 0, "enrollment_ref": {"entity_id": "018f0f4e-7b5c-7abc-8abc-0123456789ab", "entity_kind": "ptah.enrollment"},
             "agent_revision": "revision", "capability_snapshot_ref": None,
         }
         link._validate_native_node_hello_fields(complete)
@@ -764,7 +764,7 @@ class NodeLinkProtocolTests(unittest.TestCase):
             "node_id": "018f0f4e-7b5c-7abc-8abc-0123456789ab",
             "node_generation": 1, "connection_epoch": 2,
             "supported_major": 1, "minimum_minor": 0, "maximum_minor": 0,
-            "enrollment_ref": "reference", "agent_revision": "revision",
+            "enrollment_ref": {"entity_id": "018f0f4e-7b5c-7abc-8abc-0123456789ab", "entity_kind": "ptah.enrollment"}, "agent_revision": "revision",
         }
         argv_prefix = ["ptah_e07_node_link", "--address", "localhost",
                        "--port", "1", "--ca", "ca", "--client-cert", "cert",
@@ -801,7 +801,7 @@ class NodeLinkProtocolTests(unittest.TestCase):
             "node_id": "018f0f4e-7b5c-7abc-8abc-0123456789ab",
             "node_generation": 1, "connection_epoch": 2,
             "supported_major": 1, "minimum_minor": 0, "maximum_minor": 0,
-            "enrollment_ref": "reference", "agent_revision": "revision",
+            "enrollment_ref": {"entity_id": "018f0f4e-7b5c-7abc-8abc-0123456789ab", "entity_kind": "ptah.enrollment"}, "agent_revision": "revision",
         }
         argv_prefix = ["ptah_e07_node_link", "--address", "localhost",
                        "--port", "1", "--ca", "ca", "--client-cert", "cert",
@@ -845,7 +845,7 @@ class NodeLinkProtocolTests(unittest.TestCase):
             "node_id": "018f0f4e-7b5c-7abc-8abc-0123456789ab",
             "node_generation": 1, "connection_epoch": 2,
             "supported_major": 1, "minimum_minor": 0, "maximum_minor": 0,
-            "enrollment_ref": "reference", "agent_revision": "revision",
+            "enrollment_ref": {"entity_id": "018f0f4e-7b5c-7abc-8abc-0123456789ab", "entity_kind": "ptah.enrollment"}, "agent_revision": "revision",
         }
         invalid = (None, True, False, 0, 1, 1.0, [], ["rev"], {},
                    {"version": "rev"})
@@ -883,6 +883,69 @@ class NodeLinkProtocolTests(unittest.TestCase):
                 link._validate_native_node_hello_fields({
                     **complete, "agent_revision": revision
                 })
+
+
+    def test_cli_rejects_noncanonical_native_entity_refs_before_transport(self):
+        # Rust ptah-identifiers::EntityRef is a structured object with a
+        # canonical UUIDv7, validated namespaced kind and bounded counters.
+        # Both mandatory enrollment and optional snapshot references must
+        # be preflighted before credentials or network transport.
+        import tempfile
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        canonical = "018f0f4e-7b5c-7abc-8abc-0123456789ab"
+        reference = {"entity_id": canonical, "entity_kind": "ptah.enrollment"}
+        complete = {
+            "node_id": canonical, "node_generation": 1, "connection_epoch": 2,
+            "supported_major": 1, "minimum_minor": 0, "maximum_minor": 0,
+            "enrollment_ref": reference, "agent_revision": "revision",
+        }
+        invalid = (
+            None, "reference", True, [], {},
+            {"entity_id": canonical},
+            {"entity_kind": "ptah.enrollment"},
+            {"entity_id": "018f0f4e-7b5c-4abc-8abc-0123456789ab",
+             "entity_kind": "ptah.enrollment"},
+            {**reference, "entity_kind": "ptah..enrollment"},
+            {**reference, "record_revision": 0},
+            {**reference, "node_generation": True},
+            {**reference, "connection_epoch": -1},
+            {**reference, "dispatch_authorized": True},
+        )
+        argv_prefix = ["ptah_e07_node_link", "--address", "localhost",
+                       "--port", "1", "--ca", "ca", "--client-cert", "cert",
+                       "--client-key", "key", "--hello-json"]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hello.json"
+            for field in ("enrollment_ref", "capability_snapshot_ref"):
+                for value in invalid:
+                    if field == "capability_snapshot_ref" and value is None:
+                        continue  # Optional Rust EntityRef accepts null.
+                    with self.subTest(field=field, value=repr(value)):
+                        hello = {**complete, field: value}
+                        with self.assertRaisesRegex(
+                                link.LinkFailure, "noncanonical native EntityRef"):
+                            link._validate_native_node_hello_fields(hello)
+                        path.write_text(json.dumps(hello), encoding="utf-8")
+                        output = io.StringIO()
+                        with patch("sys.argv", argv_prefix + [str(path)]), patch.object(
+                                link, "join", side_effect=AssertionError(
+                                    "invalid EntityRef reached transport")):
+                            with redirect_stdout(output):
+                                self.assertEqual(link.main(), 2)
+                        result = json.loads(output.getvalue())
+                        self.assertEqual(result["result"], "e07_connection_failed")
+                        self.assertIn("noncanonical native EntityRef", result["detail"])
+
+        # Serde Option fields accept absent/null; a complete reference with
+        # a positive revision and zero-valued generation is also valid.
+        for snapshot in (None, reference, {
+                **reference, "record_revision": 1, "node_generation": 0}):
+            with self.subTest(valid_snapshot=snapshot):
+                link._validate_native_node_hello_fields({
+                    **complete, "capability_snapshot_ref": snapshot
+                })
+        link._validate_native_node_hello_fields(complete)
 
 
 if __name__=="__main__":

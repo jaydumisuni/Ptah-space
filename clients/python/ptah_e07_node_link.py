@@ -393,7 +393,14 @@ def _canonical_endpoint_host_syntax(address: str) -> bool:
         encoded_labels = [label.encode("idna") for label in labels]
     except UnicodeError:
         return False
-    return (all(0 < len(label) <= 63 for label in encoded_labels)
+    # A TLS endpoint host is an LDH hostname, not an arbitrary DNS owner
+    # name. Python's IDNA codec passes ASCII punctuation and leading or
+    # trailing hyphens through unchanged; refuse those before TLS setup.
+    # Check encoded labels so valid internationalized names remain accepted.
+    return (all(0 < len(label) <= 63
+                and re.fullmatch(
+                    rb"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", label)
+                for label in encoded_labels)
             and sum(map(len, encoded_labels)) + len(encoded_labels) - 1 <= 253)
 
 

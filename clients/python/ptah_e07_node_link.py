@@ -340,6 +340,22 @@ def _idna_ignored_host_scalar(char: str) -> bool:
             or 0xfe00 <= point <= 0xfe0f)
 
 
+def _idna_host_identity_is_canonical(address: str) -> bool:
+    # Python's IDNA2003 codec may rewrite NFKC-stable host labels (ß -> ss,
+    # final sigma -> sigma, ideographic full stop -> ASCII dot). Reject such
+    # Unicode aliases before credentials or TLS; keep ASCII DNS/IP literals
+    # and punycode names unchanged.
+    if address.isascii():
+        return True
+    try:
+        canonical = address.encode("idna").decode("idna")
+    except UnicodeError:
+        return False
+    # The codec preserves ASCII label case; require exact Unicode scalar
+    # identity rather than casefolding away a rewritten destination.
+    return canonical == address
+
+
 def join(
     address: str,
     port: int,
@@ -368,7 +384,8 @@ def join(
             or unicodedata.normalize("NFKC", address) != address
             or any(char.isspace()
                    or unicodedata.category(char) in {"Cc", "Cf", "Cs"}
-                   or _idna_ignored_host_scalar(char) for char in address)):
+                   or _idna_ignored_host_scalar(char) for char in address)
+            or not _idna_host_identity_is_canonical(address)):
         raise ValueError("address must be a nonempty canonical host without whitespace/control characters")
     # bool is an int subclass, but is not a valid E01 sequence count or port.
     if type(heartbeats) is not int or not 1 <= heartbeats <= 10:

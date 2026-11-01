@@ -275,6 +275,59 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   Path("key"), hello=hello,
                                   expected_node_id="test-node")
 
+    def test_join_rejects_idna_rewritten_host_identities_before_tls(self):
+        # Python's IDNA2003 mapping can rewrite otherwise NFKC-stable
+        # Unicode hostnames (including label separators) before TLS.
+        from unittest.mock import patch
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        aliases = (
+            ("fa\u00df.example", "fass.example"),
+            ("host\u03c2.example", "host\u03c3.example"),
+            ("host\u3002example", "host.example"),
+        )
+        for address, rewritten in aliases:
+            with self.subTest(address=repr(address)):
+                self.assertEqual(address.encode("idna"),
+                                 rewritten.encode("idna"))
+                with patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(ValueError, "address must"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+        # Unicode's capital sharp S has changed IDNA mapping across
+        # supported Python versions. Verify the actual codec's identity
+        # mapping instead of asserting one version's encoded spelling.
+        capital_sharp_s = "fa\u1e9e.example"
+        rewritten = (capital_sharp_s.encode("idna").decode("idna")
+                     != capital_sharp_s)
+        with patch.object(
+                link.ssl, "SSLContext",
+                side_effect=AssertionError("TLS_SETUP_REACHED")):
+            if rewritten:
+                with self.assertRaisesRegex(ValueError, "address must"):
+                    link.join(capital_sharp_s, 2345, Path("ca"),
+                              Path("cert"), Path("key"), hello=hello,
+                              expected_node_id="test-node")
+            else:
+                with self.assertRaisesRegex(AssertionError, "TLS_SETUP_REACHED"):
+                    link.join(capital_sharp_s, 2345, Path("ca"),
+                              Path("cert"), Path("key"), hello=hello,
+                              expected_node_id="test-node")
+        for address in ("caf\u00e9.example", "b\u00fccher.example",
+                        "host\u03c3.example", "CLOUD.caf\u00e9.example",
+                        "xn--caf-dma.example", "::1"):
+            with self.subTest(valid_address=repr(address)):
+                with patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(AssertionError, "TLS_SETUP_REACHED"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+
     def test_join_rejects_noncanonical_address_before_tls_setup(self):
         from unittest.mock import patch
         hello = {"node_id": "test-node", "node_generation": 1,

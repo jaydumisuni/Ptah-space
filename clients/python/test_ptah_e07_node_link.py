@@ -1056,5 +1056,84 @@ class NodeLinkProtocolTests(unittest.TestCase):
         link._validate_native_node_hello_fields(complete)
 
 
+
+    def test_ack_selected_version_must_belong_to_advertised_hello_range(self):
+        # A fixed E01 1.0 ACK is not authorized by an offered 1.1..1.2
+        # interval, even when its NodeId/Generation/Epoch are correct.
+        ack = {"kind": "hello_ack", "payload": {
+            "selected_version": {"major": 1, "minor": 0},
+            "node_id": "test-node", "node_generation": 1,
+            "connection_epoch": 2}}
+        invalid_offers = (
+            {"supported_major": 1, "minimum_minor": 1, "maximum_minor": 2},
+            {"supported_major": 2, "minimum_minor": 0, "maximum_minor": 0},
+            {"supported_major": True, "minimum_minor": 0, "maximum_minor": 0},
+            {"supported_major": 1, "minimum_minor": "0", "maximum_minor": 0},
+        )
+        for offered in invalid_offers:
+            with self.subTest(offered=offered):
+                with self.assertRaisesRegex(
+                        link.LinkFailure, "hello_ack_version_not_advertised"):
+                    link._validate_hello_ack(
+                        ack, "test-node", 1, 2, offered_hello=offered)
+        for offered in (
+                {"supported_major": 1, "minimum_minor": 0, "maximum_minor": 0},
+                {"supported_major": 1, "minimum_minor": 0, "maximum_minor": 2}):
+            with self.subTest(valid_offer=offered):
+                link._validate_hello_ack(
+                    ack, "test-node", 1, 2, offered_hello=offered)
+        # Older direct codec callers did not advertise a version range.
+        link._validate_hello_ack(ack, "test-node", 1, 2)
+
+
+
+    def test_join_rejects_unoffered_ack_before_heartbeat_or_close(self):
+        # Exercise the real join() call site: checking only the helper would
+        # not catch accidentally omitting the frozen Hello offer argument.
+        from contextlib import nullcontext
+        from unittest.mock import patch
+
+        class FakeTLS(MemorySocket):
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def settimeout(self, _value):
+                pass
+            def version(self):
+                return "TLSv1.3"
+
+        class FakeContext:
+            def __init__(self, *args):
+                pass
+            def load_verify_locations(self, **kwargs):
+                pass
+            def load_cert_chain(self, **kwargs):
+                pass
+            def wrap_socket(self, sock, *, server_hostname):
+                return sock
+
+        ack = {"kind": "hello_ack", "payload": {
+            "selected_version": {"major": 1, "minor": 0},
+            "node_id": "test-node", "node_generation": 1,
+            "connection_epoch": 2}}
+        payload = json.dumps(ack).encode("utf-8")
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2, "supported_major": 1,
+                 "minimum_minor": 1, "maximum_minor": 2}
+        tls = FakeTLS(struct.pack(">I", len(payload)) + payload)
+        with patch.object(link.ssl, "SSLContext", FakeContext), patch.object(
+                link.socket, "create_connection", return_value=nullcontext(tls)):
+            with self.assertRaisesRegex(
+                    link.LinkFailure, "hello_ack_version_not_advertised"):
+                link.join("localhost", 1234, Path("ca"), Path("cert"),
+                          Path("key"), hello=hello,
+                          expected_node_id="test-node", heartbeats=1)
+        sent = bytes(tls.sent)
+        first_frame_size = struct.unpack(">I", sent[:4])[0]
+        self.assertEqual(len(sent), first_frame_size + 4)
+        self.assertEqual(json.loads(sent[4:])["kind"], "hello")
+
+
 if __name__=="__main__":
     unittest.main()

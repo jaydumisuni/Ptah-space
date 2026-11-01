@@ -282,6 +282,7 @@ def _validate_node_hello(hello: dict, expected_node_id: str) -> None:
 def _validate_hello_ack(
     ack: dict, expected_node_id: str,
     node_generation: int, connection_epoch: int,
+    offered_hello: dict | None = None,
 ) -> None:
     # The frozen E01 Rust HelloAck has exactly four fields. Refuse extra
     # envelope or body members rather than admitting an unbound authority
@@ -306,6 +307,16 @@ def _validate_hello_ack(
             or type(selected["minor"]) is not int
             or selected != {"major": 1, "minor": 0}):
         raise LinkFailure("wrong_e01_version")
+    # The fixed E01 selection must also belong to the minor range the
+    # Node actually advertised. Otherwise a 1.1-only Node can accept 1.0.
+    # Legacy direct join() fixtures without version fields remain supported.
+    fields = ("supported_major", "minimum_minor", "maximum_minor")
+    if offered_hello is not None and all(key in offered_hello for key in fields):
+        major, lower, upper = (offered_hello[key] for key in fields)
+        if (any(type(value) is not int for value in (major, lower, upper))
+                or major != selected["major"]
+                or not lower <= selected["minor"] <= upper):
+            raise LinkFailure("hello_ack_version_not_advertised")
 
 
 def join(
@@ -374,7 +385,8 @@ def join(
             tls.sendall(hello_frame)
             ack = _read_frame(tls)
             _validate_hello_ack(ack, expected_node_id,
-                                node_generation, connection_epoch)
+                                node_generation, connection_epoch,
+                                offered_hello=frozen_hello)
             for sequence in range(1, heartbeats + 1):
                 _write_frame(tls, {"kind": "heartbeat", "payload": {
                     "node_id": expected_node_id,

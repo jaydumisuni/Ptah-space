@@ -1,0 +1,46 @@
+{
+  "schema": "ttg.cookpit.supervisor.dispatch.v1",
+  "shift": "A",
+  "project": "ptah",
+  "repository": "jaydumisuni/Ptah-space",
+  "observed_at_utc": "2026-11-01T11:06:46Z",
+  "frontier": "E07_NATIVE_HELLO_ACK_OFFERED_VERSION_CUSTODY",
+  "authority": {
+    "cookpit_origin_main": "aa49182ce91c5261ac49d04d9d297fea6fe39b8d",
+    "registry": "origin/main:registry.json",
+    "enabled": true,
+    "roadmap": "Ptah Programme E ends at E07; Prime F04-F07 OS-owned"
+  },
+  "before": {
+    "head": "6e82f8260baabe519aa2c4ba417c3e04e6dc66ff",
+    "pr": 209,
+    "state": "ACK 1.0 checked structurally but not against offered NodeHello minor range"
+  },
+  "worker_action": {
+    "transport": "Oracle Live authenticated KRATOS terminal plus GitHub source connector",
+    "workspace": "/home/kratos/projects/Ptah-space/.workspace/worktrees/e07-ack-offer-shift-a-20261101-1300",
+    "branch": "supervisor/shift-a-e07-ack-offer-20261101-1300",
+    "action": "Bind HelloAck 1.0 to frozen outgoing native Hello version offer; add direct helper and end-to-end mocked join regression",
+    "pr": 210
+  },
+  "after": {
+    "implementation_head": "cc4fcd0fbf60042569cce75c30d93d37c1fc6dca",
+    "state": "SOURCE_PUBLISHED_NATIVE_PASS_REVIEW_PENDING"
+  },
+  "proof": {
+    "preflight": "clean isolated exact-predecessor worktree; git diff --check PASS; baseline Node-Link 40/40",
+    "native_node_link": "42/42 PASS",
+    "native_stream": "131 tests OK, 3 expected skips",
+    "git_diff_check": "PASS",
+    "hosted_exact_receipt_head": "PENDING",
+    "independent_review": "PENDING",
+    "physical": "NOT_RUN"
+  },
+  "health": "SOURCE_AND_NATIVE_TESTS_PASS_REVIEW_PENDING",
+  "movement": "MATERIAL_PROJECT_SOURCE_HEAD_ADVANCED",
+  "dependency_linkage": "Prime OS F04-F07 remains downstream OS-owned; E07 standalone complete; no new E08",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false,
+  "protected_authority": "No merge, deployment, credentials, Oracle runtime, or device changes. Cookpit Ptah control rebind PR100 remains guarded and unadmitted."
+}

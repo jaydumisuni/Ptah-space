@@ -6,6 +6,7 @@ the optional protocol transport's peer integrity (not workspace admission).
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import math
 import re
@@ -356,6 +357,22 @@ def _idna_host_identity_is_canonical(address: str) -> bool:
     return canonical == address
 
 
+def _canonical_endpoint_host_syntax(address: str) -> bool:
+    # The port is supplied separately. A URL, userinfo, path, query,
+    # bracketed IPv6, or interface-scoped IPv6 is not a host identity.
+    if any(char in address for char in "/\\@?#[]%"):
+        return False
+    if ":" in address:
+        try:
+            return ipaddress.IPv6Address(address).scope_id is None
+        except ValueError:
+            return False
+    # A terminal dot denotes an absolute DNS name; an empty internal
+    # label cannot name a canonical DNS endpoint.
+    labels = (address[:-1] if address.endswith(".") else address).split(".")
+    return all(labels)
+
+
 def join(
     address: str,
     port: int,
@@ -385,8 +402,9 @@ def join(
             or any(char.isspace()
                    or unicodedata.category(char) in {"Cc", "Cf", "Cs"}
                    or _idna_ignored_host_scalar(char) for char in address)
-            or not _idna_host_identity_is_canonical(address)):
-        raise ValueError("address must be a nonempty canonical host without whitespace/control characters")
+            or not _idna_host_identity_is_canonical(address)
+            or not _canonical_endpoint_host_syntax(address)):
+        raise ValueError("address must be a canonical hostname or unscoped IP literal without URL syntax or controls")
     # bool is an int subclass, but is not a valid E01 sequence count or port.
     if type(heartbeats) is not int or not 1 <= heartbeats <= 10:
         raise ValueError("heartbeats must be an integer in 1..10")

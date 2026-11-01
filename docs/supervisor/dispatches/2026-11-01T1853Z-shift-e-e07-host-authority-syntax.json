@@ -1,0 +1,28 @@
+{
+  "after_state": "9 non-host authorities fail closed before TLS; 6 canonical host/IP controls preserved",
+  "before_head": "121e4462972939756f8e9916505e051bb05b0d80",
+  "before_state": "9 malformed endpoint authority strings passed pre-TLS address checks and reached mocked TLS setup",
+  "dependency_linkage": "Ptah E07 source-only preflight; Prime OS F04-F07 remains OS-owned; guarded Cookpit PR100 not admitted",
+  "disposition": "MATERIAL_SOURCE_COMMITTED_REVIEW_PENDING_PHYSICAL_HOLD",
+  "frontier": "E07_CANONICAL_ENDPOINT_HOST_SYNTAX_PREFLIGHT",
+  "implementation_head": "bc7d95ddcd4986cbd6dd83cb61cb21e859427cd5",
+  "production_touched": false,
+  "project": "ptah",
+  "proof": {
+    "focused_corrected": "1 PASS; 15 subtests PASS",
+    "git_diff_check": "PASS",
+    "hosted_exact_head_ci": "UNVERIFIED_NOT_RUN",
+    "independent_review": "PENDING",
+    "native_python_client": "77 PASS; 290 subtests PASS",
+    "patrol": "ALLOW",
+    "physical_cross_network": "NOT_REQUALIFIED",
+    "python_compile": "PASS",
+    "test_first": "9 negative subtests RED, 6 positive PASS"
+  },
+  "schema": "ttg.cookpit.supervisor-dispatch.v1",
+  "shift": "E",
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false,
+  "time_utc": "2026-11-01T18:53:58.246455+00:00",
+  "worker_action": "Shift E isolated Ptah-owned worktree, Patrol ALLOW, test-first RED, bounded Python source/test correction"
+}

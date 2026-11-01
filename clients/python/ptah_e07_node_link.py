@@ -370,7 +370,17 @@ def _canonical_endpoint_host_syntax(address: str) -> bool:
     # A terminal dot denotes an absolute DNS name; an empty internal
     # label cannot name a canonical DNS endpoint.
     labels = (address[:-1] if address.endswith(".") else address).split(".")
-    return all(labels)
+    if not all(labels):
+        return False
+    # DNS wire names are bounded by 63 octets per IDNA-encoded label and
+    # 253 octets without the optional terminal root dot. Check before TLS
+    # credential loading, preserving the caller's exact Unicode hostname.
+    try:
+        encoded_labels = [label.encode("idna") for label in labels]
+    except UnicodeError:
+        return False
+    return (all(0 < len(label) <= 63 for label in encoded_labels)
+            and sum(map(len, encoded_labels)) + len(encoded_labels) - 1 <= 253)
 
 
 def join(

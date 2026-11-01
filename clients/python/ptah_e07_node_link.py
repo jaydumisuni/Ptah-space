@@ -212,6 +212,11 @@ def _validate_native_node_hello_fields(hello: object) -> None:
         value = hello[field]
         if type(value) is not int or not 0 <= value <= 0xffff:
             raise LinkFailure("invalid_node_hello: noncanonical native protocol u16")
+    # Rust NodeHello.agent_revision is a Serde String, not a JSON scalar
+    # that Python may coerce or truth-test. Refuse mismatched types before
+    # credentials, transport, or native deserialization.
+    if type(hello["agent_revision"]) is not str:
+        raise LinkFailure("invalid_node_hello: noncanonical native agent revision string")
 
 
 def _validate_node_hello(hello: dict, expected_node_id: str) -> None:

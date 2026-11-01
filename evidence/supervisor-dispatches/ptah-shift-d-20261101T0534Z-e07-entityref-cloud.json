@@ -1,0 +1,62 @@
+{
+  "schema": "ttg.supervisor.cloud-dispatch.v1",
+  "project": "ptah",
+  "shift": "D",
+  "observed_at_utc": "2026-11-01T05:34:02Z",
+  "frontier": "E07 non-promoting Python CLI native EntityRef enrollment/snapshot pre-TLS custody",
+  "canonical_authority": {
+    "registry": "jaydumisuni/cookpit main:registry.json",
+    "enabled": true,
+    "profile": "profiles/ptah.json",
+    "roadmap": "jaydumisuni/ptah-roadmap- main:IMPLEMENTATION_ROADMAP.md",
+    "profile_candidate_path": "/home/kratos/projects/Ptah-space/.workspace/incoming/e06-intermittent-local-first",
+    "profile_rebind": "UNVERIFIED_DO_NOT_CHANGE",
+    "prime_f04_f07": "DOWNSTREAM_OS_OWNED"
+  },
+  "before": {
+    "head": "a72b6e230188135da069951c36e76d2b44ebd716",
+    "state": "PR206 draft open, no reviews, 13 completed successful hosted workflows, E07 source-only candidate"
+  },
+  "after": {
+    "source_commit": "6f3dc2c6a9c60d15f7f31f3363579773c33a0cb6",
+    "test_commit": "e1b92a86743a87ee945c7dcc5bc0680bc0816a8e",
+    "source_blob": "d5bee86e97d8a15e3640f39bba8fa317e125b4cf",
+    "test_blob": "daf8bf1088a134d6622a7cabaf686ea972de5f87",
+    "state": "PR207 draft, source/test published, independent review pending"
+  },
+  "worker": "Shift D authenticated GitHub source-only fallback; KRATOS Oracle terminal returned internal error",
+  "action": "Require canonical structured Rust EntityRef for mandatory enrollment_ref and optional capability_snapshot_ref before TLS; update four predecessor fixtures; add 25 negative field/value combinations and positive controls",
+  "movement": {
+    "state": "MATERIAL_SOURCE_PUBLISHED",
+    "last_material_head": "e1b92a86743a87ee945c7dcc5bc0680bc0816a8e",
+    "head_advanced": true,
+    "health_is_not_movement": true
+  },
+  "proof": {
+    "source_test_blob_readback": "MATCH",
+    "source_test_pr_head_readback": "MATCH",
+    "isolated_reference_model": "13/13 negative variants rejected; 2/2 positive controls accepted; model only, not native Python/Rust proof",
+    "native_python": "UNVERIFIED",
+    "hosted_exact_head": "QUEUED_NOT_PASS",
+    "kratos_patrol": "UNVERIFIED",
+    "worker_lease": "UNVERIFIED",
+    "independent_review": "PENDING",
+    "physical": "NOT_ATTEMPTED"
+  },
+  "health": {
+    "nodie_roster": "UNVERIFIED_Oracle_internal_error",
+    "supervisors": "A/B/C/D/E latest completed due slots HEALTHY at 07:32 CAT; zero confirmed missed",
+    "kratos": "UNVERIFIED_Oracle_terminal_internal_error",
+    "local_attention": "QUEUED_KRATOS_RECONCILIATION"
+  },
+  "dependency_linkage": {
+    "upstream": "Ptah E07 Rust NodeHello EntityRef Serde contract; PR206 exact head",
+    "downstream": "Prime OS F04–F07 OS-owned, no runtime integration or promotion authority"
+  },
+  "pr": "https://github.com/jaydumisuni/Ptah-space/pull/207",
+  "disposition": "SOURCE_PUBLISHED_CLOUD_READBACK_NATIVE_REVIEW_PENDING",
+  "reconcile_on_kratos": "Fetch PR207 exact head and receipt; run Patrol in Ptah-owned workspace and focused python unittest/compile; verify worker/lease and historical E06 binding; update local attention and dispatches without duplicate PASS receipt; independent review required.",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false
+}

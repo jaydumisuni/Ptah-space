@@ -328,6 +328,39 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   Path("key"), hello=hello,
                                   expected_node_id="test-node")
 
+    def test_join_rejects_non_host_endpoint_syntax_before_tls(self):
+        # The address parameter is a hostname/IP literal, not a URL,
+        # userinfo authority, embedded port, or interface-scoped address.
+        from unittest.mock import patch
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        invalid = (
+            "https://host.example", "host.example/path",
+            "user@host.example", "host.example:443",
+            "host..example", ".host.example",
+            "host.example?query", "[::1]", "fe80::1%eth0",
+        )
+        for address in invalid:
+            with self.subTest(invalid_address=address):
+                with patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(ValueError, "address must"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+        for address in ("host.example.", "localhost", "::1",
+                        "2001:db8::1", "café.example", "xn--caf-dma.example"):
+            with self.subTest(valid_address=address):
+                with patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(AssertionError,
+                                                "TLS_SETUP_REACHED"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+
     def test_join_rejects_noncanonical_address_before_tls_setup(self):
         from unittest.mock import patch
         hello = {"node_id": "test-node", "node_generation": 1,

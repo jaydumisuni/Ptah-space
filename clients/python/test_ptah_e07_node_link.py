@@ -328,6 +328,38 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   Path("key"), hello=hello,
                                   expected_node_id="test-node")
 
+    def test_join_bounds_dns_wire_name_before_tls(self):
+        # The endpoint is an exact DNS host identity, not an arbitrary
+        # oversized string passed through to TLS or the resolver.
+        from unittest.mock import patch
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        long_name = ".".join(("a" * 63, "b" * 63, "c" * 63, "d" * 62))
+        self.assertEqual(len(long_name), 254)
+        invalid = ("a" * 64 + ".example", long_name, long_name + ".")
+        for address in invalid:
+            with self.subTest(invalid_address=repr(address)):
+                with patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(ValueError, "address must"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+        valid = ("a" * 63 + ".example",
+                 ".".join(("a" * 63, "b" * 63, "c" * 63, "d" * 61)),
+                 "a" * 63 + ".example.", "café.example")
+        for address in valid:
+            with self.subTest(valid_address=repr(address)):
+                with patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(AssertionError,
+                                                "TLS_SETUP_REACHED"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+
     def test_join_rejects_non_host_endpoint_syntax_before_tls(self):
         # The address parameter is a hostname/IP literal, not a URL,
         # userinfo authority, embedded port, or interface-scoped address.

@@ -1,0 +1,28 @@
+{
+  "after_state": "Reject IDNA wire labels over 63 octets and DNS names over 253 octets before TLS while preserving valid 63/253-octet and Unicode hosts",
+  "before_head": "fdf5b167dc747ef0c395111f6fb97c9f4c0d3f16",
+  "before_state": "3 oversized ASCII DNS endpoint names passed host preflight and reached mocked TLS setup",
+  "dependency_linkage": "Ptah E07 source-only TLS client preflight; Prime OS F04-F07 remains OS-owned; guarded Cookpit PR100 not admitted",
+  "disposition": "MATERIAL_SOURCE_COMMITTED_REVIEW_PENDING_PHYSICAL_HOLD",
+  "frontier": "E07_DNS_HOST_WIRE_LENGTH_PREFLIGHT",
+  "implementation_head": "4762a5dec44539b43f03bbd29a46d079b4e3bd00",
+  "production_touched": false,
+  "project": "ptah",
+  "proof": {
+    "focused_corrected": "1 test PASS; 7 subtests PASS",
+    "git_diff_check": "PASS",
+    "hosted_exact_head_ci": "UNVERIFIED_NOT_RUN",
+    "independent_review": "PENDING",
+    "native_python_client": "78 tests PASS",
+    "patrol": "ALLOW",
+    "physical_cross_network": "NOT_REQUALIFIED",
+    "predecessor": "3 adversarial negative subtests RED; 4 positive subtests PASS",
+    "python_compile": "PASS"
+  },
+  "schema": "ttg.cookpit.supervisor-dispatch.v1",
+  "shift": "C",
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false,
+  "time_utc": "2026-11-01T20:30:09.187588+00:00",
+  "worker_action": "Project-owned isolated Ptah E07 worktree; Patrol ALLOW; test-first RED; bounded Python client/test correction"
+}

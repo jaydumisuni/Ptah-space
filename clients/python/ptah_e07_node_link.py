@@ -245,6 +245,11 @@ def _validate_native_node_hello_fields(hello: object) -> None:
         value = hello[field]
         if type(value) is not int or not 0 <= value <= 0xffff:
             raise LinkFailure("invalid_node_hello: noncanonical native protocol u16")
+    # A reversed interval cannot advertise any supported minor version.
+    # Reject it before loading credentials; this does not decide whether
+    # an otherwise well-formed interval is compatible with a remote peer.
+    if hello["minimum_minor"] > hello["maximum_minor"]:
+        raise LinkFailure("invalid_node_hello: impossible native minor version interval")
     # Rust NodeHello.agent_revision is a Serde String, not a JSON scalar
     # that Python may coerce or truth-test. Refuse mismatched types before
     # credentials, transport, or native deserialization.

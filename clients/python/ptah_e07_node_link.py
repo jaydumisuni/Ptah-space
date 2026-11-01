@@ -216,9 +216,11 @@ def _validate_native_entity_ref(value: object, field: str) -> None:
         _validate_canonical_native_node_id(value["entity_id"])
     except LinkFailure as error:
         raise LinkFailure(failure) from error
+    # Mirror Rust valid_kind_segment(first, false): the first namespace
+    # segment may contain ASCII digits after its initial lowercase letter.
     kind = value["entity_kind"]
     if (type(kind) is not str
-            or re.fullmatch(r"[a-z]+\.[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*", kind) is None):
+            or re.fullmatch(r"[a-z][a-z0-9]*\.[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*", kind) is None):
         raise LinkFailure(failure)
     for key in _NATIVE_ENTITY_REF_KEYS - {"entity_id", "entity_kind"}:
         if key not in value or value[key] is None:

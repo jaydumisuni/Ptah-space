@@ -1,0 +1,58 @@
+{
+  "schema": "ttg.supervisor.cloud-dispatch.v1",
+  "project": "ptah",
+  "shift": "C",
+  "frontier": "E07 Python CLI native Rust NodeHello u16 pre-TLS type/range custody (non-promoting maintenance)",
+  "observed_at_utc": "2026-11-01T02:21:02Z",
+  "canonical_authority": {
+    "registry": "jaydumisuni/cookpit main:registry.json",
+    "registry_blob": "b3d88fe65be9b5514b46d1b8d028c844bc4b78eb",
+    "enabled": true,
+    "profile": "profiles/ptah.json",
+    "roadmap": "jaydumisuni/ptah-roadmap- main:IMPLEMENTATION_ROADMAP.md",
+    "e07_standalone": "DONE",
+    "prime_f04_f07": "DOWNSTREAM_OS_OWNED"
+  },
+  "before_head": "20a1b203119e088464ef87345c3f39a64a50081d",
+  "source_after_head": "f5e9827068b0744e8818666ee788da054463f3a2",
+  "pr": "https://github.com/jaydumisuni/Ptah-space/pull/205",
+  "worker": "Shift C authenticated GitHub cloud source-only fallback; Oracle Live roster and KRATOS terminal failed internally",
+  "action": "Reject non-u16 native Rust NodeHello protocol fields before CLI join/TLS; add 21 adversarial pre-transport CLI cases and 6 native u16 boundary controls",
+  "movement": {
+    "state": "MATERIAL_SOURCE_PUBLISHED",
+    "source_files_changed": 2,
+    "source_additions": 52,
+    "source_deletions": 0,
+    "head_advanced": true
+  },
+  "proof": {
+    "rust_contract": "crates/ptah-node-link/src/protocol.rs: NodeHello supported_major/minimum_minor/maximum_minor are u16",
+    "github_compare": "ahead_by=2 behind_by=0",
+    "source_blob": "ed763718ae542db3e68436b68ededb9726dc8891",
+    "test_blob": "cf39846458d7eb0e4d1e348e182e32fca34dd2ca",
+    "source_test_readback": "MATCH",
+    "isolated_predicate": "21/21 invalid rejected, 6/6 boundary controls accepted (not native repository tests)",
+    "native_python": "UNVERIFIED",
+    "patrol": "UNVERIFIED",
+    "hosted_exact_head": "PENDING_AT_OBSERVATION",
+    "independent_review": "PENDING",
+    "physical": "NOT_ATTEMPTED"
+  },
+  "health": {
+    "nodie_roster": "UNVERIFIED_Oracle_roster_internal_error",
+    "supervisors": "A/C/D HEALTHY; E LATE-but-completed; B within grace; zero confirmed missed; schedules unchanged",
+    "kratos": "UNVERIFIED_Oracle_terminal_internal_error",
+    "local_attention": "QUEUED_KRATOS_RECONCILIATION",
+    "worker_lease": "UNVERIFIED"
+  },
+  "dependency_linkage": {
+    "upstream": "Ptah E07 Rust NodeHello Serde u16 contract and PR #204 exact-head required-field preflight",
+    "downstream": "Prime OS F04-F07 remains OS-owned; no direct integration authority"
+  },
+  "limitations": "Source-only candidate; hosted/native tests and independent review pending. No E07 milestone reopening or runtime admission. Canonical Cookpit Ptah profile still binds historical E06 workspace; guarded rebound requires live path verification and independent control-plane review.",
+  "disposition": "SOURCE_PUBLISHED_ISOLATED_PROOF_PASS_NATIVE_REVIEW_PENDING",
+  "reconcile_on_kratos": "Fetch PR #205 and cloud receipt; run Patrol in Ptah-owned E07 workspace, Python E07 unittest/compile, inspect worker/lease, reconcile local attention and dispatches; separately review obsolete E06 Cookpit binding under guarded rebind law.",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false
+}

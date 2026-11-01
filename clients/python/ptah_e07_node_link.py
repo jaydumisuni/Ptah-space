@@ -367,6 +367,20 @@ def _canonical_endpoint_host_syntax(address: str) -> bool:
             return ipaddress.IPv6Address(address).scope_id is None
         except ValueError:
             return False
+    # Legacy libc resolvers interpret numeric, shortened, octal and hex
+    # host spellings as IPv4 literals (for example 127.1 -> 127.0.0.1).
+    # Refuse those alternate identities before TLS or DNS. Use the strict
+    # dotted-decimal IPv4 parser for canonical literals and a lexical
+    # guard for resolver-dependent aliases; ordinary DNS remains allowed.
+    try:
+        ipv4 = ipaddress.IPv4Address(address)
+    except ipaddress.AddressValueError:
+        if (re.fullmatch(r"[0-9.]+", address)
+                or any(re.fullmatch(r"0[xX][0-9a-fA-F]+", part)
+                       for part in address.split("."))):
+            return False
+    else:
+        return str(ipv4) == address
     # A terminal dot denotes an absolute DNS name; an empty internal
     # label cannot name a canonical DNS endpoint.
     labels = (address[:-1] if address.endswith(".") else address).split(".")

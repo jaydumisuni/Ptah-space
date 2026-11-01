@@ -360,6 +360,33 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   Path("key"), hello=hello,
                                   expected_node_id="test-node")
 
+    def test_join_rejects_ipv4_numeric_aliases_before_tls(self):
+        # Numeric host spellings may be interpreted by OS resolvers as an
+        # IPv4 address different from the caller's reviewed textual identity.
+        # Reject before certificate loading, DNS, or TLS socket creation.
+        from unittest.mock import patch
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        aliases = ("127.1", "2130706433", "0x7f000001",
+                   "0177.0.0.1", "001.002.003.004", "127.0x0.0.1")
+        for address in aliases:
+            with self.subTest(alias=address):
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(ValueError, "address must"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+        for address in ("127.0.0.1", "192.0.2.10", "localhost",
+                        "example.123", "::1"):
+            with self.subTest(canonical=address):
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(AssertionError, "TLS_SETUP_REACHED"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+
     def test_join_rejects_non_host_endpoint_syntax_before_tls(self):
         # The address parameter is a hostname/IP literal, not a URL,
         # userinfo authority, embedded port, or interface-scoped address.

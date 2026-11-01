@@ -1,0 +1,33 @@
+{
+  "after_source_head": "5d9f6a18d95cbba6f4f7cacf705e7b934ac38a6f",
+  "after_state": "Unicode IDNA round-trip host identity validated before credential/TLS; six positive controls preserved",
+  "before_head": "4a1483fbb3630a927369637f4465ef612fa3cb57",
+  "before_state": "Four NFKC-stable IDNA2003 host aliases reached mocked TLS setup",
+  "branch": "supervisor/shift-b-e07-idna-roundtrip-20261101-1912",
+  "dependency_linkage": "Ptah E07 source-only -> Prime OS F04-F07 downstream; Cookpit guarded PR100 unadmitted",
+  "disposition": "MATERIAL_SOURCE_PUBLISHED_REVIEW_PENDING",
+  "frontier": "E07_IDNA_REWRITTEN_UNICODE_HOST_DESTINATION_PREFLIGHT",
+  "health_fact": "FOCUSED_NATIVE_PASS_HOSTED_PENDING_REVIEW_PENDING_PHYSICAL_HOLD",
+  "movement_fact": "SOURCE_COMMIT_ADVANCED_AND_PUSHED",
+  "pr": "https://github.com/jaydumisuni/Ptah-space/pull/214",
+  "production_touched": false,
+  "project": "ptah",
+  "proof": {
+    "baseline": "4/4 adversarial aliases reached TLS mock",
+    "git_diff_check": "PASS",
+    "hosted_ci": "PENDING_NOT_PASS",
+    "independent_review": "PENDING",
+    "native_python": "47/47 PASS",
+    "patrol": "exit 0; explicit ALLOW text not emitted",
+    "physical_roaming": "NOT_REQUALIFIED",
+    "positive_controls": "6/6 PASS",
+    "python_compile": "PASS"
+  },
+  "schema": "ttg.ptah.supervisor-dispatch.v1",
+  "shift": "B",
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false,
+  "time_utc": "2026-11-01T17:19:36.995107+00:00",
+  "worker_action": "Shift B isolated Ptah E07 source-only test-first correction",
+  "workspace": "/home/kratos/projects/Ptah-space/.workspace/worktrees/e07-idna-roundtrip-shift-b-20261101-1912"
+}

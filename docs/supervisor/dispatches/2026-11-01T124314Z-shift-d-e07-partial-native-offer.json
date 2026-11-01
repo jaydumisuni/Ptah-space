@@ -1,0 +1,33 @@
+{
+  "after_proof": {
+    "adversarial_partial_offers": "4/4 rejected",
+    "git_diff_check": "PASS",
+    "native_unittest": "43/43 PASS",
+    "patrol": "ALLOW",
+    "python_compile": "PASS"
+  },
+  "before_head": "93472d7abe8cc2cf245bdbb0de8c4d77c64b352e",
+  "before_proof": {
+    "adversarial_partial_offers": "4/4 admitted by predecessor (RED)",
+    "native_unittest": "42/42 PASS"
+  },
+  "branch": "supervisor/shift-d-e07-partial-offer-20261101-1436",
+  "dependency_linkage": "Ptah standalone E07 complete; Prime OS F04-F07 downstream OS-owned; no physical/production admission",
+  "disposition": "MATERIAL_SOURCE_COMMITTED_REVIEW_PENDING",
+  "frontier": "E07_PARTIAL_NATIVE_HELLO_VERSION_OFFER_CUSTODY",
+  "hosted_ci": "UNVERIFIED",
+  "implementation_head": "8fe96f600ebc4e56c056f61ef46faaca4f2d5b9b",
+  "independent_review": "PENDING",
+  "material_delta": "Partial native Hello version triples rejected before TLS and at HelloAck; fully absent legacy direct codec triple remains accepted",
+  "physical_proof": "NOT_CLAIMED",
+  "production_touched": false,
+  "project": "ptah",
+  "repository": "jaydumisuni/Ptah-space",
+  "schema": "ttg.cookpit.supervisor-dispatch.v1",
+  "shift": "D",
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false,
+  "time_utc": "2026-11-01T12:43:14.837472+00:00",
+  "worker_action": "Shift D isolated project-owned source and regression patch; no persistent worker claimed",
+  "workspace": "/home/kratos/projects/Ptah-space/.workspace/worktrees/e07-partial-offer-shift-d-20261101-1436"
+}

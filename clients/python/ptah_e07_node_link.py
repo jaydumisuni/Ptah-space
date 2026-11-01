@@ -277,6 +277,13 @@ def _validate_node_hello(hello: dict, expected_node_id: str) -> None:
         expected_node_id.encode("utf-8", errors="strict")
     except UnicodeError as error:
         raise LinkFailure("invalid_node_hello") from error
+    # Legacy direct codec callers may omit the entire version triple.
+    # A partially supplied native offer is neither legacy nor a complete
+    # Rust NodeHello: refuse it before credentials or TLS are opened.
+    version_fields = ("supported_major", "minimum_minor", "maximum_minor")
+    if (any(key in hello for key in version_fields)
+            and not all(key in hello for key in version_fields)):
+        raise LinkFailure("invalid_node_hello: missing native Hello field")
 
 
 def _validate_hello_ack(
@@ -311,7 +318,9 @@ def _validate_hello_ack(
     # Node actually advertised. Otherwise a 1.1-only Node can accept 1.0.
     # Legacy direct join() fixtures without version fields remain supported.
     fields = ("supported_major", "minimum_minor", "maximum_minor")
-    if offered_hello is not None and all(key in offered_hello for key in fields):
+    if offered_hello is not None and any(key in offered_hello for key in fields):
+        if not all(key in offered_hello for key in fields):
+            raise LinkFailure("hello_ack_version_not_advertised")
         major, lower, upper = (offered_hello[key] for key in fields)
         if (any(type(value) is not int for value in (major, lower, upper))
                 or major != selected["major"]

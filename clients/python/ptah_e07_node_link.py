@@ -197,6 +197,18 @@ _NATIVE_NODE_HELLO_REQUIRED_FIELDS = (
 )
 
 
+def _validate_native_version_offer(hello: dict) -> None:
+    # Shared by native CLI and direct join() callers: Rust serde u16 fields
+    # and nonempty advertised intervals are pre-TLS requirements, while
+    # actual peer compatibility remains a separate authenticated ACK gate.
+    for field in ("supported_major", "minimum_minor", "maximum_minor"):
+        value = hello[field]
+        if type(value) is not int or not 0 <= value <= 0xffff:
+            raise LinkFailure("invalid_node_hello: noncanonical native protocol u16")
+    if hello["minimum_minor"] > hello["maximum_minor"]:
+        raise LinkFailure("invalid_node_hello: impossible native minor version interval")
+
+
 _NATIVE_ENTITY_REF_KEYS = frozenset({
     "entity_id", "entity_kind", "record_revision", "node_generation",
     "provider_generation", "workload_generation", "connection_epoch",
@@ -240,18 +252,7 @@ def _validate_native_node_hello_fields(hello: object) -> None:
         raise LinkFailure("invalid_node_hello: unbound native Hello field")
     if not _NATIVE_NODE_HELLO_REQUIRED_FIELDS.issubset(hello):
         raise LinkFailure("invalid_node_hello: missing native Hello field")
-    # Rust ProtocolVersion/NodeHello protocol members are serde u16.
-    # Python bool, float and string aliases must not reach TLS as if they
-    # were native protocol integers. Keep negotiation separate from typing.
-    for field in ("supported_major", "minimum_minor", "maximum_minor"):
-        value = hello[field]
-        if type(value) is not int or not 0 <= value <= 0xffff:
-            raise LinkFailure("invalid_node_hello: noncanonical native protocol u16")
-    # A reversed interval cannot advertise any supported minor version.
-    # Reject it before loading credentials; this does not decide whether
-    # an otherwise well-formed interval is compatible with a remote peer.
-    if hello["minimum_minor"] > hello["maximum_minor"]:
-        raise LinkFailure("invalid_node_hello: impossible native minor version interval")
+    _validate_native_version_offer(hello)
     # Rust NodeHello.agent_revision is a Serde String, not a JSON scalar
     # that Python may coerce or truth-test. Refuse mismatched types before
     # credentials, transport, or native deserialization.
@@ -284,6 +285,8 @@ def _validate_node_hello(hello: dict, expected_node_id: str) -> None:
     if (any(key in hello for key in version_fields)
             and not all(key in hello for key in version_fields)):
         raise LinkFailure("invalid_node_hello: missing native Hello field")
+    if all(key in hello for key in version_fields):
+        _validate_native_version_offer(hello)
 
 
 def _validate_hello_ack(

@@ -1135,5 +1135,40 @@ class NodeLinkProtocolTests(unittest.TestCase):
         self.assertEqual(json.loads(sent[4:])["kind"], "hello")
 
 
+
+    def test_partial_native_version_offer_fails_before_tls_and_ack(self):
+        # Legacy direct codec callers may omit the entire version triple,
+        # but a partial native offer cannot silently bypass ACK membership.
+        from unittest.mock import patch
+        ack = {"kind": "hello_ack", "payload": {
+            "selected_version": {"major": 1, "minor": 0},
+            "node_id": "test-node", "node_generation": 1,
+            "connection_epoch": 2}}
+        for offered in (
+            {"supported_major": 1},
+            {"minimum_minor": 0, "maximum_minor": 0},
+            {"supported_major": 1, "minimum_minor": 0},
+            {"supported_major": 1, "maximum_minor": 0},
+        ):
+            with self.subTest(offered=offered):
+                with self.assertRaisesRegex(
+                        link.LinkFailure, "hello_ack_version_not_advertised"):
+                    link._validate_hello_ack(
+                        ack, "test-node", 1, 2, offered_hello=offered)
+                hello = {"node_id": "test-node", "node_generation": 1,
+                         "connection_epoch": 2, **offered}
+                with patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS setup reached")):
+                    with self.assertRaisesRegex(
+                            link.LinkFailure, "missing native Hello field"):
+                        link.join(
+                            "localhost", 1234, Path("ca"), Path("cert"),
+                            Path("key"), hello=hello,
+                            expected_node_id="test-node", heartbeats=1)
+        # Full absence is the documented direct-codec compatibility path.
+        link._validate_hello_ack(ack, "test-node", 1, 2, offered_hello={})
+
+
 if __name__=="__main__":
     unittest.main()

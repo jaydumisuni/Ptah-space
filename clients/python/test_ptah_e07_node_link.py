@@ -835,5 +835,55 @@ class NodeLinkProtocolTests(unittest.TestCase):
                     })
 
 
+    def test_cli_rejects_non_string_native_agent_revision_before_transport(self):
+        # Rust NodeHello.agent_revision is a Serde String. Python JSON
+        # booleans, numbers, arrays, objects and null must fail before TLS.
+        import tempfile
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        complete = {
+            "node_id": "018f0f4e-7b5c-7abc-8abc-0123456789ab",
+            "node_generation": 1, "connection_epoch": 2,
+            "supported_major": 1, "minimum_minor": 0, "maximum_minor": 0,
+            "enrollment_ref": "reference", "agent_revision": "revision",
+        }
+        invalid = (None, True, False, 0, 1, 1.0, [], ["rev"], {},
+                   {"version": "rev"})
+        argv_prefix = ["ptah_e07_node_link", "--address", "localhost",
+                       "--port", "1", "--ca", "ca", "--client-cert", "cert",
+                       "--client-key", "key", "--hello-json"]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hello.json"
+            for value in invalid:
+                with self.subTest(value=repr(value)):
+                    # Direct helper and CLI must agree on the native type.
+                    with self.assertRaisesRegex(
+                            link.LinkFailure, "noncanonical native agent revision"):
+                        link._validate_native_node_hello_fields({
+                            **complete, "agent_revision": value
+                        })
+                    path.write_text(json.dumps({
+                        **complete, "agent_revision": value
+                    }), encoding="utf-8")
+                    output = io.StringIO()
+                    with patch("sys.argv", argv_prefix + [str(path)]), patch.object(
+                            link, "join", side_effect=AssertionError(
+                                "transport invoked before native String custody")):
+                        with redirect_stdout(output):
+                            self.assertEqual(link.main(), 2)
+                    result = json.loads(output.getvalue())
+                    self.assertEqual(result["result"], "e07_connection_failed")
+                    self.assertIn("noncanonical native agent revision",
+                                  result["detail"])
+
+        # Serde String admits empty and ordinary UTF-8 text; do not invent
+        # a new revision-enrollment or semantic version policy.
+        for revision in ("", "revision-1"):
+            with self.subTest(valid_revision=revision):
+                link._validate_native_node_hello_fields({
+                    **complete, "agent_revision": revision
+                })
+
+
 if __name__=="__main__":
     unittest.main()

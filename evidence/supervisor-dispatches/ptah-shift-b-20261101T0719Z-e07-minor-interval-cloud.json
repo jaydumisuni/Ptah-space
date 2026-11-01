@@ -1,0 +1,65 @@
+{
+  "schema": "ttg.supervisor.cloud-dispatch.v1",
+  "project": "ptah",
+  "shift": "B",
+  "observed_at_utc": "2026-11-01T07:19:44Z",
+  "frontier": "E07 non-promoting native NodeHello minor-version interval pre-TLS custody",
+  "canonical_authority": {
+    "registry": "jaydumisuni/cookpit main:registry.json",
+    "registry_blob": "b3d88fe65be9b5514b46d1b8d028c844bc4b78eb",
+    "enabled": true,
+    "profile": "profiles/ptah.json",
+    "roadmap": "jaydumisuni/ptah-roadmap- main:IMPLEMENTATION_ROADMAP.md",
+    "standalone_e07": "DONE",
+    "profile_candidate_path": "/home/kratos/projects/Ptah-space/.workspace/incoming/e06-intermittent-local-first",
+    "profile_rebind": "UNVERIFIED_DO_NOT_CHANGE",
+    "prime_f04_f07": "DOWNSTREAM_OS_OWNED"
+  },
+  "before": {
+    "head": "e336516feaf3a206aee55af7ac4c00f0381edbe4",
+    "state": "PR207 draft open, no submitted reviews, 13 completed successful hosted workflows; source-only candidate"
+  },
+  "after": {
+    "source_commit": "1784b45b7a478d238f9f8ef9e52e851a68d917ae",
+    "test_commit": "d00a9d622e8276955d3a29fee31f5f92b04c39f4",
+    "source_blob": "6bf4feaf0bc6e0e6ebdefb44bf1ee923d12c9f59",
+    "test_blob": "f40a4466f6b04877b9984e320e70928ea0c224c7",
+    "state": "PR208 draft, two Ptah-owned Python files changed, source/test readback verified, independent review pending"
+  },
+  "worker": "Shift B authenticated GitHub source-only fallback; KRATOS Oracle terminal failed internally",
+  "action": "Reject reversed native NodeHello minimum_minor > maximum_minor before credentials/TLS; add three negative CLI+helper regressions and three positive equal/ordered controls; preserve separate remote compatibility negotiation",
+  "movement": {
+    "state": "MATERIAL_SOURCE_PUBLISHED",
+    "last_material_head": "d00a9d622e8276955d3a29fee31f5f92b04c39f4",
+    "head_advanced": true,
+    "health_is_not_movement": true
+  },
+  "proof": {
+    "source_test_blob_readback": "MATCH",
+    "source_test_pr_head_readback": "MATCH",
+    "ancestry": "2 ahead, 0 behind exact PR207 predecessor",
+    "isolated_reference_model": "3/3 invalid interval pairs rejected; 3/3 valid interval pairs preserved; isolated only",
+    "native_python": "UNVERIFIED",
+    "hosted_exact_source_head": "IN_PROGRESS_NOT_PASS",
+    "kratos_patrol": "UNVERIFIED",
+    "worker_lease": "UNVERIFIED",
+    "independent_review": "PENDING",
+    "physical": "NOT_ATTEMPTED"
+  },
+  "health": {
+    "nodie_roster": "UNVERIFIED_Oracle_internal_error",
+    "supervisors": "A/C/D/E latest judged slots HEALTHY, B current 09:12 CAT slot within grace; zero confirmed missed at initial assessment",
+    "kratos": "UNVERIFIED_Oracle_terminal_internal_error",
+    "local_attention": "QUEUED_KRATOS_RECONCILIATION"
+  },
+  "dependency_linkage": {
+    "upstream": "Ptah E07 Rust NodeHello u16 Serde contract; PR207 exact head",
+    "downstream": "Prime OS F04-F07 OS-owned, no Ptah runtime integration or promotion authority"
+  },
+  "pr": "https://github.com/jaydumisuni/Ptah-space/pull/208",
+  "disposition": "SOURCE_PUBLISHED_CLOUD_READBACK_NATIVE_REVIEW_PENDING",
+  "reconcile_on_kratos": "Fetch PR208 exact head and receipt; run Patrol in Ptah-owned workspace, focused python3 -m unittest discover -s clients/python -p test_ptah_e07_node_link.py and compile; inspect worker/lease and obsolete E06 binding, update local attention and dispatch without duplicate PASS receipt; require independent review.",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false
+}

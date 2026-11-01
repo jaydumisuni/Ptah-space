@@ -205,6 +205,13 @@ def _validate_native_node_hello_fields(hello: object) -> None:
         raise LinkFailure("invalid_node_hello: unbound native Hello field")
     if not _NATIVE_NODE_HELLO_REQUIRED_FIELDS.issubset(hello):
         raise LinkFailure("invalid_node_hello: missing native Hello field")
+    # Rust ProtocolVersion/NodeHello protocol members are serde u16.
+    # Python bool, float and string aliases must not reach TLS as if they
+    # were native protocol integers. Keep negotiation separate from typing.
+    for field in ("supported_major", "minimum_minor", "maximum_minor"):
+        value = hello[field]
+        if type(value) is not int or not 0 <= value <= 0xffff:
+            raise LinkFailure("invalid_node_hello: noncanonical native protocol u16")
 
 
 def _validate_node_hello(hello: dict, expected_node_id: str) -> None:

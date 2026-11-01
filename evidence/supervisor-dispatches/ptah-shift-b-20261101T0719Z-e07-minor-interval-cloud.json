@@ -21,16 +21,16 @@
   },
   "after": {
     "source_commit": "1784b45b7a478d238f9f8ef9e52e851a68d917ae",
-    "test_commit": "d00a9d622e8276955d3a29fee31f5f92b04c39f4",
+    "test_commit": "e383ce054e8e35d29d4dfae5c1e98b49aed70573",
     "source_blob": "6bf4feaf0bc6e0e6ebdefb44bf1ee923d12c9f59",
-    "test_blob": "f40a4466f6b04877b9984e320e70928ea0c224c7",
-    "state": "PR208 draft, two Ptah-owned Python files changed, source/test readback verified, independent review pending"
+    "test_blob": "f0e6489d0c0b31c43795907d8af1a843e69cc43d",
+    "state": "PR208 draft; implementation and updated tests published; hosted CI initially exposed stale u16-extrema fixture, corrected; independent review pending"
   },
   "worker": "Shift B authenticated GitHub source-only fallback; KRATOS Oracle terminal failed internally",
-  "action": "Reject reversed native NodeHello minimum_minor > maximum_minor before credentials/TLS; add three negative CLI+helper regressions and three positive equal/ordered controls; preserve separate remote compatibility negotiation",
+  "action": "Reject reversed native NodeHello minimum_minor > maximum_minor before credentials/TLS; add three negative CLI+helper regressions and three positive equal/ordered controls; preserve separate remote compatibility negotiation; consumed exact-head hosted CI failure by updating the pre-existing u16-extrema positive fixture to preserve ordered intervals",
   "movement": {
     "state": "MATERIAL_SOURCE_PUBLISHED",
-    "last_material_head": "d00a9d622e8276955d3a29fee31f5f92b04c39f4",
+    "last_material_head": "e383ce054e8e35d29d4dfae5c1e98b49aed70573",
     "head_advanced": true,
     "health_is_not_movement": true
   },
@@ -39,12 +39,14 @@
     "source_test_pr_head_readback": "MATCH",
     "ancestry": "2 ahead, 0 behind exact PR207 predecessor",
     "isolated_reference_model": "3/3 invalid interval pairs rejected; 3/3 valid interval pairs preserved; isolated only",
-    "native_python": "UNVERIFIED",
-    "hosted_exact_source_head": "IN_PROGRESS_NOT_PASS",
+    "native_python": "HOSTED_INITIAL_66_TESTS_1_ERROR_FIX_PUBLISHED_RETEST_PENDING",
+    "hosted_exact_source_head": "INITIAL_FAILED_FIX_PUBLISHED_NEW_CI_PENDING",
     "kratos_patrol": "UNVERIFIED",
     "worker_lease": "UNVERIFIED",
     "independent_review": "PENDING",
-    "physical": "NOT_ATTEMPTED"
+    "physical": "NOT_ATTEMPTED",
+    "hosted_initial_head": "d00a9d6 Shared Ptah Workspace Control Python Client FAILURE (run 41284309426): existing test valid_field=minimum_minor,value=65535 constructed reversed interval; native new regression passed",
+    "hosted_corrected_head": "e383ce0 QUEUED_OR_UNVERIFIED_NOT_PASS"
   },
   "health": {
     "nodie_roster": "UNVERIFIED_Oracle_internal_error",

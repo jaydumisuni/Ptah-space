@@ -1,0 +1,30 @@
+{
+  "schema": "ttg.cookpit.supervisor.dispatch.v1",
+  "shift": "C",
+  "project": "ptah",
+  "time_utc": "2026-11-02T04:26:31.011374+00:00",
+  "frontier": "E07_LOCAL_HELLO_SOURCE_REGULAR_INODE_PIN_BEFORE_READ",
+  "before_head": "48f15b137124f04cf792958103f0cfe5c9c5bc02",
+  "before_state": "CLI _load_hello_json Path.open on untrusted FIFO, directory or symlink before source type validation; three adversarial preflight subcases RED",
+  "worker_action": "Patrol-checked isolated Ptah E07 worktree; test-first source-only correction; regular-file O_PATH pin on Linux, descriptor-bound bounded read, guarded fallback",
+  "after_implementation_head": "aacb5e6e026b5d30322fe92a08f7268f1468621e",
+  "after_state": "nonregular and symlink Hello leaves rejected before effectful read; Linux pathname replacement cannot redirect pinned inode",
+  "proof": {
+    "predecessor_adversarial": "3 RED",
+    "focused": "1/1 PASS with three negative subcases and regular control",
+    "linux_path_replacement": "1/1 PASS",
+    "python_client": "84/84 PASS",
+    "python_compile": "PASS",
+    "git_diff_check": "PASS",
+    "patrol": "exit 0; explicit ALLOW text absent",
+    "hosted_ci": "UNVERIFIED",
+    "independent_review": "PENDING",
+    "physical_roaming": "NOT_REQUALIFIED"
+  },
+  "workspace": "/home/kratos/projects/Ptah-space/.workspace/worktrees/e07-hello-regular-file-shift-c-20261102-0624",
+  "dependency_linkage": "Ptah E07 optional native client -> Prime OS F04-F07 OS-owned; guarded Cookpit PR100 not admitted",
+  "disposition": "MATERIAL_SOURCE_LOCAL_COMMITTED_AWAITING_REMOTE_VERIFICATION",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false
+}

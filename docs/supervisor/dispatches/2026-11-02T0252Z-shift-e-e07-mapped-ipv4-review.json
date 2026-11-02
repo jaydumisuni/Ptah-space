@@ -1,0 +1,35 @@
+{
+  "schema": "ttg.ptah.supervisor.dispatch.v1",
+  "project": "ptah",
+  "shift": "E",
+  "time_utc": "2026-11-02T02:52:35.429323Z",
+  "frontier": "E07_IPV4_MAPPED_CANONICAL_ENDPOINT_PYTHON_VERSION_INDEPENDENCE",
+  "before_head": "ab439f244227e30b2404c65cb96e90f7285fe623",
+  "before_state": "CodeRabbit PR219 exact-head review identified Python-version-dependent IPv4-mapped IPv6 canonical host acceptance",
+  "worker_action": "consume independently checked review finding in project-owned Ptah E07 source; fixed dotted spelling and cross-runtime regression",
+  "implementation_head": "1b986d74e24368170324283e5be9a728265942a8",
+  "after_state": "mapped IPv4 canonical address ::ffff:192.0.2.1 accepted; hexadecimal alias rejected regardless of ipaddress renderer; pre-TLS only",
+  "proof": {
+    "patrol": "ALLOW",
+    "test_first": "2 adversarial subcases RED under simulated legacy renderer",
+    "focused_e07": "53/53 PASS",
+    "native_python": "82/82 PASS",
+    "python_compile": "PASS",
+    "git_diff_check": "PASS",
+    "remote_exact_head": "PENDING_FINAL_PUSH",
+    "hosted_exact_head": "PENDING",
+    "independent_review": "PENDING",
+    "physical_off_lan": "NOT_PROVEN"
+  },
+  "review_finding": {
+    "pr": "https://github.com/jaydumisuni/Ptah-space/pull/219",
+    "reviewer": "coderabbitai",
+    "reviewed_head": "ab439f244227e30b2404c65cb96e90f7285fe623",
+    "status": "CONSUMED_IN_IMPLEMENTATION"
+  },
+  "dependency_linkage": "Ptah E07 native E01 client preparation; Prime OS F04-F07 OS-owned, guarded Cookpit PR100 not admitted",
+  "disposition": "MATERIAL_SOURCE_LOCAL_COMMITTED_REVIEW_FINDING_CONSUMED_AWAITING_REMOTE_VERIFICATION",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false
+}

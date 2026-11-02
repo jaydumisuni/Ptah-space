@@ -19,6 +19,7 @@ test("ordinary Browser Provider compatibility is independent of exact A11 node p
   const evidence = await backend.assertRuntimeCompatible();
   assert.equal(evidence.nodeObserved, process.versions.node);
   assert.equal(evidence.nodeQualificationBaseline, LOCKED_RUNTIME.node);
+  assert.equal(evidence.operationalNodeFloor, "22.0.0");
   assert.equal(evidence.exactNodeQualificationMatch, process.versions.node === LOCKED_RUNTIME.node);
   assert.equal(evidence.playwright, LOCKED_RUNTIME.playwright);
   assert.equal(evidence.chromium, LOCKED_RUNTIME.chromiumVersion);
@@ -43,6 +44,7 @@ test("workspace descriptor reports observed runtime without inventing authority"
   const d = new PlaywrightBackend().describe();
   assert.equal(d.nodeObserved, process.versions.node);
   assert.equal(d.nodeQualificationBaseline, LOCKED_RUNTIME.node);
+  assert.equal(d.operationalNodeFloor, "22.0.0");
   assert.equal(d.exactNodeQualificationMatch, process.versions.node === LOCKED_RUNTIME.node);
   assert.equal(d.browserSource, "ptah_owned_chromium");
   assert.equal(d.sharesPersonalBrowser, false);
@@ -70,10 +72,10 @@ test("unowned executable override is still prohibited", async () => {
     (error) => error?.code === "external_browser_forbidden");
 });
 
-test("package and lockfile accept Node 22+ while preserving historical A11 baseline", () => {
+test("package and lockfile preserve frozen A01 proof while runtime accepts Node 22+", () => {
   const root = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"));
-  assert.equal(root.engines.node, ">=22.0.0");
+  assert.equal(root.engines.node, "24.18.0");
   assert.equal(lock.packages[""].engines.node, root.engines.node);
   assert.equal(LOCKED_RUNTIME.node, "24.18.0");
 });

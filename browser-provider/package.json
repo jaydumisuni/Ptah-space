@@ -3,15 +3,11 @@
   "version": "0.0.0-phase0c",
   "private": true,
   "description": "Ptah A11 mechanical Playwright Browser Provider.",
-  "engines": {
-    "node": ">=22.0.0"
-  },
+  "engines": { "node": "24.18.0" },
   "scripts": {
     "check": "node --check src/errors.mjs && node --check src/locks.mjs && node --check src/runtime_compat.mjs && node --check src/core.mjs && node --check src/owned_chromium.mjs && node --check src/playwright_backend.mjs && node --check src/server.mjs && node --check src/index.mjs",
     "test": "node --test",
     "start": "node src/server.mjs"
   },
-  "dependencies": {
-    "playwright": "1.60.0"
-  }
+  "dependencies": { "playwright": "1.60.0" }
 }

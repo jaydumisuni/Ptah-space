@@ -419,6 +419,39 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   Path("key"), hello=hello,
                                   expected_node_id="test-node")
 
+    def test_join_rejects_noncanonical_ipv6_spellings_before_tls(self):
+        # IPv6 parser accepts multiple spellings of the same endpoint.
+        # Preserve exact reviewed address identity before TLS credentials.
+        import ipaddress
+        from unittest.mock import patch
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        # Python 3.14 renders mapped IPv4 as dotted decimal; older Python
+        # renders the same address as hexadecimal. Test exact runtime
+        # canonicality without assuming either library spelling.
+        mapped = str(ipaddress.IPv6Address("::ffff:192.0.2.1"))
+        aliases = ("0:0:0:0:0:0:0:1", "2001:0DB8:0:0:0:0:0:1",
+                   "2001:db8:0:0:0:0:0:1", "::FFFF:c000:201",
+                   "FE80::1") + tuple(value for value in (
+                       "::ffff:192.0.2.1", "::ffff:c000:201")
+                       if value != mapped)
+        for address in aliases:
+            with self.subTest(alias=address):
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(ValueError, "address must"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+        for address in ("::1", "2001:db8::1", mapped, "fe80::1"):
+            with self.subTest(canonical=address):
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(AssertionError, "TLS_SETUP_REACHED"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+
     def test_join_rejects_non_host_endpoint_syntax_before_tls(self):
         # The address parameter is a hostname/IP literal, not a URL,
         # userinfo authority, embedded port, or interface-scoped address.

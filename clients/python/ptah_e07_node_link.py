@@ -279,7 +279,9 @@ def _node_id_nonrendering_scalar(char: str) -> bool:
             or 0xE0100 <= point <= 0xE01EF)
 
 
-def _validate_node_hello(hello: dict, expected_node_id: str) -> None:
+def _validate_node_hello(
+    hello: dict, expected_node_id: str, *, require_native: bool = False,
+) -> None:
     if (not isinstance(hello, dict) or type(expected_node_id) is not str
             or not expected_node_id or type(hello.get("node_id")) is not str
             or hello["node_id"] != expected_node_id
@@ -315,10 +317,10 @@ def _validate_node_hello(hello: dict, expected_node_id: str) -> None:
     # the presence of any native-only authority member declares a Rust
     # NodeHello: do not bypass the CLI's canonical UUID, complete Serde
     # field, or structured EntityRef checks on the direct Python path.
-    # _validate_node_hello() also runs on the frozen outgoing frame, so
-    # mutable caller dictionaries cannot smuggle a changed native identity
-    # or apparent authority member into the authenticated TLS handshake.
-    if any(key in hello for key in (
+    # Preserve initial native classification across frame freezing: an
+    # encoder must not downgrade a native Hello to a legacy fixture merely
+    # by dropping all its native-only authority members.
+    if require_native or any(key in hello for key in (
             "enrollment_ref", "agent_revision", "capability_snapshot_ref")):
         _validate_canonical_native_node_id(hello["node_id"])
         _validate_native_node_hello_fields(hello)
@@ -516,6 +518,8 @@ def join(
             or not 0 < timeout <= 300 or not math.isfinite(timeout)):
         raise ValueError("timeout must be finite seconds in (0, 300]")
     _validate_node_hello(hello, expected_node_id)
+    native_hello = any(key in hello for key in (
+        "enrollment_ref", "agent_revision", "capability_snapshot_ref"))
     node_generation = hello["node_generation"]
     connection_epoch = hello["connection_epoch"]
     # The caller may mutate Hello while it is being encoded. Revalidate the
@@ -523,7 +527,8 @@ def join(
     hello_frame = _encode_frame({"kind": "hello", "payload": hello})
     frozen = _decode_strict_json(hello_frame[4:].decode("utf-8"), "outgoing")
     frozen_hello = frozen["payload"]
-    _validate_node_hello(frozen_hello, expected_node_id)
+    _validate_node_hello(frozen_hello, expected_node_id,
+                         require_native=native_hello)
     if (frozen_hello["node_generation"] != node_generation
             or frozen_hello["connection_epoch"] != connection_epoch):
         raise LinkFailure("invalid_node_hello: identity changed during freeze")

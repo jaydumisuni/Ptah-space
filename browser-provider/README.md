@@ -30,7 +30,7 @@ On a Linux development workspace using existing free Playwright assets:
 
 ```bash
 cd browser-provider
-# Pinned Node.js 24.18.0 must be on the execution path.
+# Node.js 22 or newer; the exact Node 24.18.0 version is historical proof only.
 mkdir -p .workspace/browser-runtime
 # The source is Playwright's pinned revision 1223, NOT the user's Chrome browser.
 cp -a ~/.cache/ms-playwright/chromium-1223 .workspace/browser-runtime/
@@ -68,11 +68,11 @@ must be verified separately before claiming automatic Ptah routing.
 
 ## Ptah-native workspace operator (agent-accessible, read-only)
 
-Use the pinned Node 24.18.0 binary and this Ptah-owned entry point, not
+Use the compatible Node.js runtime and this Ptah-owned entry point, not
 `Oracle.browser_navigate`, when checking browser rendering for Ptah:
 
 ```bash
-/path/to/node-24.18.0 tools/ptah_workspace_browser.mjs read https://example.com/ --screenshot
+node tools/ptah_workspace_browser.mjs read https://example.com/ --screenshot
 ```
 
 Returns verified browser-rendered page state, accessible page text, source
@@ -94,8 +94,8 @@ For an agent or operator executing a **browser intent within this Ptah workspace
 use the Ptah-owned A11 route, never Oracle's shared browser:
 
 ```bash
-/path/to/node-24.18.0 tools/ptah_workspace.mjs https://example.com/
-/path/to/node-24.18.0 tools/ptah_workspace.mjs browser read https://example.com/
+node tools/ptah_workspace.mjs https://example.com/
+node tools/ptah_workspace.mjs browser read https://example.com/
 ```
 
 Both forms launch a **new ephemeral Ptah-managed Chromium session** and return
@@ -105,8 +105,9 @@ URLs, and headed desktop windows unless the caller explicitly sets
 The dedicated Playwright runtime and isolated profile boundaries are unchanged.
 
 This is the default *command-level* browser route, not an assertion of universal
-production AI-agent task dispatch. Production Node enrollment and canonical
-provider selection still require separate control-plane admission. Neither the
+production AI-agent task dispatch. Canonical browser lifecycle and provider selection remain owned by Ptah,
+but no Ptah-side second agent login, browser permission or Node-version
+enrollment is required for the ordinary workspace. Neither the
 operator CLI nor this wrapper grants persistent-profile leases or bypasses site
 authentication/captcha restrictions.
 
@@ -148,10 +149,11 @@ The A11 qualification proof remains exactly Node 24.18.0,
 Playwright/playwright-core 1.60.0 and Chromium revision 1223 / 148.0.7778.96.
 That historical baseline is never rewritten to imply a new qualification.
 
-The package manifest still records Node 24.18.0 because A01 uses it as
-the frozen historical dependency proof; it is not enforced by the browser
-provider at operational launch time. Development installs with Node 22/24.19
-can show an engine warning; this is separate from live runtime support.
+The package and lockfile declare Node >=22 for ordinary operations. The
+historical exact Node 24.18.0 proof is retained in A11's LOCKED_RUNTIME and
+its original physical qualification test. No ordinary install or browser
+launch requires the historical patch. That baseline is evidence, not an
+installation requirement or caller authorization.
 
 A normal Ptah workspace launch instead calls assertRuntimeCompatible(), not
 assertLockedRuntime(). Node >=22 can use the installed Playwright provider;

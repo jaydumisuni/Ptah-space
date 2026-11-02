@@ -53,7 +53,7 @@ export class PlaywrightBackend {
       "owned_chromium_bundle_unqualified", "Playwright Chromium does not match the qualified Ptah-owned bundle");
     return Object.freeze({
       nodeObserved: observed,
-      nodeQualificationBaseline: LOCKED_RUNTIME.node,
+      nodeQualificationBaseline: LOCKED_RUNTIME.node, operationalNodeFloor: "22.0.0",
       exactNodeQualificationMatch: observed === LOCKED_RUNTIME.node,
       playwright: playwrightPackage.version,
       chromium: entry.browserVersion,
@@ -78,7 +78,7 @@ export class PlaywrightBackend {
   }
 
   describe() {
-    return { implementation: "playwright", version: require("playwright/package.json").version, playwrightQualificationBaseline: LOCKED_RUNTIME.playwright, browser: "chromium", chromiumVersion: LOCKED_RUNTIME.chromiumVersion, chromiumRevision: LOCKED_RUNTIME.chromiumRevision, browserSource: BROWSER_SOURCE, sharesPersonalBrowser: false, dependsOnOracleBrowserControl: false, nodeObserved: process.versions.node, nodeQualificationBaseline: LOCKED_RUNTIME.node, exactNodeQualificationMatch: process.versions.node === LOCKED_RUNTIME.node };
+    return { implementation: "playwright", version: require("playwright/package.json").version, playwrightQualificationBaseline: LOCKED_RUNTIME.playwright, browser: "chromium", chromiumVersion: LOCKED_RUNTIME.chromiumVersion, chromiumRevision: LOCKED_RUNTIME.chromiumRevision, browserSource: BROWSER_SOURCE, sharesPersonalBrowser: false, dependsOnOracleBrowserControl: false, nodeObserved: process.versions.node, nodeQualificationBaseline: LOCKED_RUNTIME.node, operationalNodeFloor: "22.0.0", exactNodeQualificationMatch: process.versions.node === LOCKED_RUNTIME.node };
   }
 
   async launchProcess({ profileMode, userDataDir, readonly, launchOptions }) {

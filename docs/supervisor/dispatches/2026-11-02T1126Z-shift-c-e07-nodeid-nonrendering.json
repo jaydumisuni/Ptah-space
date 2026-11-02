@@ -1,0 +1,31 @@
+{
+  "schema": "ttg.supervisor.project-dispatch.v1",
+  "shift": "C",
+  "project": "ptah",
+  "frontier": "E07_OPTIONAL_PYTHON_NODE_LINK_NONRENDERING_NODEID_PREFLIGHT",
+  "time_utc": "2026-11-02T11:26:35Z",
+  "before_head": "0565f4757dddd7a9f4dd06f45219f306c8c8bad4",
+  "implementation_head": "1a7b89e4cc616dc07591bca570a35c7f13c04696",
+  "candidate_branch": "supervisor/shift-c-e07-nonrendering-nodeid-20261102-1324",
+  "workspace": "project-owned Ptah-space GitHub branch; KRATOS unavailable",
+  "worker_action": "bounded source-only NodeId pre-TLS admission correction with 8 hostile and 3 visible-text test cases",
+  "after_state": "Ptah draft PR #225 published on project-owned branch; source/test exact blobs verified; native qualification and independent review pending",
+  "proof": {
+    "cloud_readback": "VERIFIED: source blob a6f92612b8a5ad6290a9ba6ccce9cc7f50b06def and test blob 02492bd4dcc2c9a33949cbbd1596e3a5ebd54515 on PR #225; final receipt HEAD readback separately",
+    "predecessor": "static Python category check: 8/8 nonrendering Mn/Lo scalars bypass existing Cc/Cf/Cs/Cn/whitespace predicate",
+    "corrected_predicate": "static Python helper check: 8/8 rejected; 3/3 visible-text controls retained",
+    "native_python_tests": "UNVERIFIED; no KRATOS execution",
+    "patrol": "UNVERIFIED; KRATOS Oracle workstation transport failed",
+    "hosted_ci": "UNVERIFIED at final receipt HEAD; earlier PR head 68575ede had queued/in-progress workflows, not PASS",
+    "independent_review": "PENDING",
+    "physical_e07": "NOT_REQUALIFIED; standalone E07 previously completed"
+  },
+  "dependency_linkage": "Ptah E07 optional transport client hardening; Prime OS F04-F07 remain OS-owned; no new E07 admission gate",
+  "local_dispatch_reconciliation": "PENDING_KRATOS_TRANSPORT",
+  "oracle_cloud_roster": "UNVERIFIED; two direct calls failed",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "protected_promotion": false,
+  "disposition": "SOURCE_IMPLEMENTATION_PUBLISHED_NATIVE_UNVERIFIED_REVIEW_PENDING",
+  "review_url": "https://github.com/jaydumisuni/Ptah-space/pull/225"
+}

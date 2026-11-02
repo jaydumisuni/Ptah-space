@@ -267,6 +267,18 @@ def _validate_native_node_hello_fields(hello: object) -> None:
         _validate_native_entity_ref(snapshot, "capability_snapshot_ref")
 
 
+def _node_id_nonrendering_scalar(char: str) -> bool:
+    # Some nonrendering scalars are Mn/Lo, not Cf or whitespace. They can
+    # produce visually identical reviewed NodeIds with different wire bytes.
+    # Keep this bounded to known format/variation and Hangul filler ranges;
+    # ordinary combining accents and visible international text remain valid.
+    point = ord(char)
+    return (point in {0x034F, 0x115F, 0x1160, 0x3164, 0xFFA0}
+            or 0x180B <= point <= 0x180D
+            or 0xFE00 <= point <= 0xFE0F
+            or 0xE0100 <= point <= 0xE01EF)
+
+
 def _validate_node_hello(hello: dict, expected_node_id: str) -> None:
     if (not isinstance(hello, dict) or type(expected_node_id) is not str
             or not expected_node_id or type(hello.get("node_id")) is not str
@@ -287,6 +299,7 @@ def _validate_node_hello(hello: dict, expected_node_id: str) -> None:
     # while comparing byte-for-byte equal before credential/TLS setup.
     if any(char.isspace()
            or unicodedata.category(char) in {"Cc", "Cf", "Cs", "Cn"}
+           or _node_id_nonrendering_scalar(char)
            for char in expected_node_id):
         raise LinkFailure("invalid_node_hello: noncanonical identity scalar")
     # Legacy direct codec callers may omit the entire version triple.

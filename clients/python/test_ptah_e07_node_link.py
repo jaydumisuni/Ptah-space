@@ -1699,6 +1699,90 @@ class NodeLinkProtocolTests(unittest.TestCase):
                 link._validate_node_hello({**base, **offer}, "test-node")
 
 
+    def test_direct_join_native_hello_custody_precedes_tls(self):
+        # Direct Python callers can supply a complete native Rust NodeHello
+        # without using main()'s CLI validator. Native identity and authority
+        # members must be checked before credentials or TLS, including after
+        # the outbound frame is frozen. Legacy three-field test Hellos remain.
+        from unittest.mock import patch
+        canonical = "018f0f4e-7b5c-7abc-8abc-0123456789ab"
+        valid = {
+            "node_id": canonical, "node_generation": 1,
+            "connection_epoch": 2, "supported_major": 1,
+            "minimum_minor": 0, "maximum_minor": 0,
+            "enrollment_ref": {
+                "entity_id": canonical, "entity_kind": "ptah.enrollment",
+            },
+            "agent_revision": "revision",
+        }
+        invalid = (
+            ({**valid, "dispatch_authorized": True},
+             "unbound native Hello field"),
+            ({**valid, "agent_revision": 42},
+             "noncanonical native agent revision"),
+            ({**valid, "enrollment_ref": "opaque"},
+             "noncanonical native EntityRef"),
+            ({**valid, "node_id": "test-node"},
+             "noncanonical UUIDv7"),
+            ({key: value for key, value in valid.items()
+              if key != "agent_revision"},
+             "missing native Hello field"),
+            ({key: value for key, value in valid.items()
+              if key != "enrollment_ref"},
+             "missing native Hello field"),
+        )
+        for hello, failure in invalid:
+            with self.subTest(failure=failure, hello=hello):
+                with patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(link.LinkFailure, failure):
+                        link.join("localhost", 2345, Path("ca"),
+                                  Path("cert"), Path("key"), hello=hello,
+                                  expected_node_id=hello["node_id"])
+        # A native Hello must stay native even when encoding removes both
+        # required authority members from the frozen wire payload. The
+        # initial classification is authoritative; TLS must not start.
+        original_encode = link._encode_frame
+
+        def strip_native_authority(message):
+            if message.get("kind") == "hello":
+                message = {"kind": "hello", "payload": {
+                    key: value for key, value in message["payload"].items()
+                    if key not in ("enrollment_ref", "agent_revision")
+                }}
+            return original_encode(message)
+
+        with patch.object(link, "_encode_frame",
+                          side_effect=strip_native_authority):
+            with patch.object(
+                    link.ssl, "SSLContext",
+                    side_effect=AssertionError("TLS_SETUP_REACHED")):
+                with self.assertRaisesRegex(
+                        link.LinkFailure, "missing native Hello field"):
+                    link.join("localhost", 2345, Path("ca"),
+                              Path("cert"), Path("key"), hello=valid,
+                              expected_node_id=canonical)
+        # A complete canonical native Hello remains eligible for TLS.
+        with patch.object(
+                link.ssl, "SSLContext",
+                side_effect=AssertionError("TLS_SETUP_REACHED")):
+            with self.assertRaisesRegex(AssertionError, "TLS_SETUP_REACHED"):
+                link.join("localhost", 2345, Path("ca"), Path("cert"),
+                          Path("key"), hello=valid,
+                          expected_node_id=canonical)
+        # A legacy direct caller with a complete version triple still works.
+        legacy = {"node_id": "test-node", "node_generation": 1,
+                  "connection_epoch": 2, "supported_major": 1,
+                  "minimum_minor": 0, "maximum_minor": 0}
+        with patch.object(
+                link.ssl, "SSLContext",
+                side_effect=AssertionError("TLS_SETUP_REACHED")):
+            with self.assertRaisesRegex(AssertionError, "TLS_SETUP_REACHED"):
+                link.join("localhost", 2345, Path("ca"), Path("cert"),
+                          Path("key"), hello=legacy,
+                          expected_node_id="test-node")
+
     def test_local_hello_pinned_inode_survives_path_replacement(self):
         # Linux O_PATH pins the exact Hello source before the read open.
         import os

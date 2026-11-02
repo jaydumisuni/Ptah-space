@@ -1,0 +1,62 @@
+{
+  "schema": "ttg.cookpit.supervisor.dispatch.v1",
+  "observed_at_utc": "2026-11-02T20:13:06Z",
+  "shift": "B",
+  "project": "ptah",
+  "repository": "jaydumisuni/Ptah-space",
+  "frontier": "E07 optional source-only direct Python join() native NodeHello pre-TLS authority validation",
+  "selection": {
+    "basis": "oldest verified cloud material movement among inspected enabled projects; Ptah PR #228 last updated 2026-11-02T18:31:58Z",
+    "canonical_registry": {
+      "repository": "jaydumisuni/cookpit",
+      "ref": "main",
+      "head": "aa49182ce91c5261ac49d04d9d297fea6fe39b8d",
+      "profile": "profiles/ptah.json"
+    },
+    "project_authority": "jaydumisuni/ptah-roadmap- CURRENT_STATE.md / AI_HANDOFF.md / IMPLEMENTATION_ROADMAP.md: E07 tested and merged; optional source-only hardening, not new milestone or Prime OS F04-F07 authority",
+    "physical_lease_status": "UNVERIFIED_ORACLE_TRANSPORT_FAILURE",
+    "patrol_preflight": "UNVERIFIED_ORACLE_TRANSPORT_FAILURE",
+    "full_fleet_dispatch_fairness": "UNVERIFIED_LOCAL_LEDGER_UNAVAILABLE"
+  },
+  "before": {
+    "branch": "supervisor/shift-d-e07-alabel-decoded-scalar-20261102-1836",
+    "head": "20522c9e2d3b024fe4215f79bbc67aab07829ec3",
+    "review": "draft PR #228, review finding on uppercase A-label previously consumed",
+    "proof": "hosted exact predecessor workflows reported success; physical tests not rerun"
+  },
+  "action": {
+    "transport": "authenticated GitHub connector; cloud source-only",
+    "branch": "supervisor/shift-b-e07-direct-native-hello-custody-20261102-2012",
+    "test_first_commit": "16d3704e715ed88ca7970edbc962e9d851a8ea4c",
+    "implementation_commit": "5895d669b5e72afe02f6f91f117751f61d45f355",
+    "change": "Direct join() with native-only enrollment/agent/snapshot fields now validates canonical UUIDv7 and full native Serde Hello before TLS and after frame freeze; legacy direct fixture remains accepted.",
+    "tests": "Six invalid native Hello variants plus canonical native and legacy positive controls added; test execution not yet observed"
+  },
+  "after": {
+    "implementation_head": "5895d669b5e72afe02f6f91f117751f61d45f355",
+    "ancestry": "exact predecessor +2 commits, 0 behind",
+    "source_delta": "clients/python/ptah_e07_node_link.py +11 lines; clients/python/test_ptah_e07_node_link.py +61 lines",
+    "remote_head_readback": "VERIFIED"
+  },
+  "proof": {
+    "source_and_test_readback": "PASS",
+    "github_compare": "PASS",
+    "isolated_model": "NOT_RUN",
+    "hosted_exact_receipt_head_ci": "PENDING",
+    "kratos_native_python_tests": "UNVERIFIED",
+    "patrol": "UNVERIFIED",
+    "independent_review": "PENDING",
+    "physical_cross_host": "NOT_CLAIMED"
+  },
+  "dependency_linkage": {
+    "internal": "Prime OS owns F04-F07 OS integration; this E07 maintenance neither grants OS authority nor blocks Prime's safe frontier",
+    "blocked_milestone": "No new E07 milestone; unattended permanent cross-network forwarding is not claimed"
+  },
+  "disposition": "MATERIAL_SOURCE_PUBLISHED_REVIEW_AND_NATIVE_QUALIFICATION_PENDING",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "oracle_runtime_touched": false,
+  "protected_main_touched": false,
+  "supervisor_schedules_changed": false,
+  "local_dispatch_and_attention": "QUEUED_FOR_KRATOS_RECONCILIATION"
+}

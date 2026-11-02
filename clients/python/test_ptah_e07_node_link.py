@@ -419,6 +419,67 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   Path("key"), hello=hello,
                                   expected_node_id="test-node")
 
+    def test_join_rejects_noncanonical_ipv6_spellings_before_tls(self):
+        # IPv6 parser accepts multiple spellings of the same endpoint.
+        # Preserve exact reviewed address identity before TLS credentials.
+        from unittest.mock import patch
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        # Canonical mapped IPv4 identity is fixed across Python versions:
+        # dotted-decimal only, not the runtime-dependent hexadecimal alias.
+        mapped = "::ffff:192.0.2.1"
+        aliases = ("0:0:0:0:0:0:0:1", "2001:0DB8:0:0:0:0:0:1",
+                   "2001:db8:0:0:0:0:0:1", "::FFFF:c000:201",
+                   "FE80::1", "::ffff:c000:201")
+        for address in aliases:
+            with self.subTest(alias=address):
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(ValueError, "address must"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+        for address in ("::1", "2001:db8::1", mapped, "fe80::1"):
+            with self.subTest(canonical=address):
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(AssertionError, "TLS_SETUP_REACHED"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+
+    def test_ipv4_mapped_canonical_spelling_is_python_version_independent(self):
+        # Simulate an older ipaddress renderer even on Python 3.14, where
+        # IPv4-mapped addresses are already printed in dotted notation.
+        import ipaddress
+        from unittest.mock import patch
+        original = ipaddress.IPv6Address.__str__
+
+        def legacy_render(value):
+            if value.ipv4_mapped == ipaddress.IPv4Address("192.0.2.1"):
+                return "::ffff:c000:201"
+            return original(value)
+
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        with patch.object(link.ipaddress.IPv6Address, "__str__", legacy_render):
+            for address, should_accept in (
+                    ("::ffff:192.0.2.1", True),
+                    ("::ffff:c000:201", False)):
+                with self.subTest(address=address):
+                    with patch.object(link.ssl, "SSLContext",
+                                      side_effect=AssertionError("TLS_SETUP_REACHED")):
+                        if should_accept:
+                            with self.assertRaisesRegex(AssertionError, "TLS_SETUP_REACHED"):
+                                link.join(address, 2345, Path("ca"), Path("cert"),
+                                          Path("key"), hello=hello,
+                                          expected_node_id="test-node")
+                        else:
+                            with self.assertRaisesRegex(ValueError, "address must"):
+                                link.join(address, 2345, Path("ca"), Path("cert"),
+                                          Path("key"), hello=hello,
+                                          expected_node_id="test-node")
+
     def test_join_rejects_non_host_endpoint_syntax_before_tls(self):
         # The address parameter is a hostname/IP literal, not a URL,
         # userinfo authority, embedded port, or interface-scoped address.

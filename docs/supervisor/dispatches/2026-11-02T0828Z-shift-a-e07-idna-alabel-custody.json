@@ -1,0 +1,29 @@
+{
+  "schema": "ttg.supervisor.project-dispatch.v1",
+  "shift": "A",
+  "project": "ptah",
+  "frontier": "E07_IDNA_ALABEL_CANONICAL_PREFLIGHT",
+  "time_utc": "2026-11-02T08:28:51Z",
+  "before_head": "2f0fe205f963890949f1e421cecca018c0e39abd",
+  "local_implementation_commit": "60fd3ce74a9388e9dbf7277729b249a16372c7da",
+  "remote_source_head": "d287a3c4f565fc1bd97e17603b46d6adbf15c349",
+  "worker_action": "isolated Ptah project-owned worktree test-first correction; GitHub connector publication after workstation git push lacked credentials",
+  "worktree": "/home/kratos/projects/Ptah-space/.workspace/worktrees/e07-alabel-identity-shift-a-20261102-1000",
+  "proof": {
+    "predecessor": "RED: 3 malformed xn-- A-labels reached mocked TLS setup",
+    "focused": "PASS: 3 invalid A-labels refused, 3 valid IDNA controls preserved",
+    "native_python": "86/86 PASS",
+    "python_compile": "PASS",
+    "git_diff_check": "PASS",
+    "patrol": "exit 0; no explicit ALLOW message",
+    "cloud_source_readback": "2/2 exact file content MATCH",
+    "hosted_exact_head_ci": "PENDING",
+    "independent_review": "PENDING",
+    "physical_off_lan": "NOT_PROVEN"
+  },
+  "dependency_linkage": "Ptah E07 optional E01 transport; Prime F04-F07 remains separate, physical E02/A05 roaming qualification held",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "protected_promotion": false,
+  "disposition": "MATERIAL_SOURCE_PUBLISHED_NATIVE_PASS_REVIEW_PENDING"
+}

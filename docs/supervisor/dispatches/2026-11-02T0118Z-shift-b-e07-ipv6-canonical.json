@@ -1,0 +1,32 @@
+{
+  "schema": "ttg.cookpit.supervisor.dispatch.v1",
+  "shift": "B",
+  "project": "ptah",
+  "time_utc": "2026-11-02T01:18:42Z",
+  "frontier": "E07_IPV6_ENDPOINT_EXACT_TEXTUAL_IDENTITY_PRE_TLS",
+  "before_head": "fb9f7b413990c2b0671d48d8fcd4d5bc31dfd63a",
+  "before_state": "six IPv6 aliases of existing endpoints reached mocked TLS setup",
+  "worker_action": "project-owned isolated Ptah worktree; test-first RED/GREEN; source commit 53c2c97; draft PR219",
+  "after_implementation_head": "53c2c97c66b52d1c78c40d41168fc88f8e6afa91",
+  "after_state": "noncanonical expanded/mixed-case/alternate mapped IPv6 spelling rejected before TLS; canonical IPv6 controls retained",
+  "proof": {
+    "predecessor_adversarial": "6 RED",
+    "focused": "1 PASS with six invalid and four valid controls",
+    "e07_node_link": "52/52 PASS",
+    "python_client": "81/81 PASS",
+    "python_compile": "PASS",
+    "git_diff_check": "PASS",
+    "patrol_gui": "UNVERIFIED_MISSING_X_SERVER",
+    "project_worktree_preflight": "CLEAN_BASE_EXACT_HEAD",
+    "hosted_ci": "PENDING",
+    "independent_review": "PENDING",
+    "physical_roaming": "NOT_REQUALIFIED"
+  },
+  "workspace": "/home/kratos/projects/Ptah-space/.workspace/worktrees/e07-ipv6-canonical-shift-b-20261102-0312",
+  "pr": "https://github.com/jaydumisuni/Ptah-space/pull/219",
+  "dependency_linkage": "Ptah E07 optional transport -> Prime F04-F07 OS-owned; guarded Cookpit PR100 remains draft, no control promotion",
+  "disposition": "MATERIAL_SOURCE_PUBLISHED_NATIVE_81_PASS_REVIEW_PENDING",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false
+}

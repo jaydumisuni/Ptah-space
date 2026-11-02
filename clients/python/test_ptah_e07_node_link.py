@@ -257,6 +257,31 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   Path("key"), hello=hello,
                                   expected_node_id="test-node")
 
+    def test_join_rejects_invalid_punycode_alabels_before_tls(self):
+        # ASCII xn-- labels bypass Python's Unicode IDNA encoder, so
+        # malformed A-labels must not be accepted as canonical DNS names.
+        from unittest.mock import patch
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        for address in ("xn--a.example", "xn--abc.example",
+                        "node.xn--0.example"):
+            with self.subTest(invalid_address=address):
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(ValueError, "address must"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+        for address in ("xn--caf-dma.example", "XN--CAF-DMA.example",
+                        "café.example"):
+            with self.subTest(valid_address=address):
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(AssertionError, "TLS_SETUP_REACHED"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+
     def test_join_rejects_unassigned_idna_host_scalars_before_tls(self):
         # Python's IDNA2003 codec may preserve unassigned Unicode codepoints,
         # but their DNS identity is not stable across Unicode versions.

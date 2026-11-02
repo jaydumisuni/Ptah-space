@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PlaywrightBackend } from "../src/playwright_backend.mjs";
+import { readFileSync } from "node:fs";
 import { LOCKED_RUNTIME } from "../src/locks.mjs";
 import { supportedNodeRuntime } from "../src/runtime_compat.mjs";
 
@@ -67,4 +68,12 @@ test("unowned executable override is still prohibited", async () => {
   await assert.rejects(
     backend.launchProcess({ profileMode: "ephemeral", launchOptions: { executablePath: "/usr/bin/chromium" } }),
     (error) => error?.code === "external_browser_forbidden");
+});
+
+test("package and lockfile accept Node 22+ while preserving historical A11 baseline", () => {
+  const root = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"));
+  assert.equal(root.engines.node, ">=22.0.0");
+  assert.equal(lock.packages[""].engines.node, root.engines.node);
+  assert.equal(LOCKED_RUNTIME.node, "24.18.0");
 });

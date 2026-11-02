@@ -368,9 +368,12 @@ def _canonical_endpoint_host_syntax(address: str) -> bool:
         except ValueError:
             return False
         # A resolver accepts expanded, mixed-case and alternate IPv4-mapped
-        # spellings for the same destination. Require one compressed,
-        # lowercase textual identity before credential loading or TLS.
-        return ipv6.scope_id is None and str(ipv6) == address
+        # spellings for the same destination. Python versions disagree on
+        # whether str(IPv6Address) prints mapped IPv4 as hex or dotted text.
+        # Fix one reviewed identity across runtimes before credentials/TLS.
+        canonical = (f"::ffff:{ipv6.ipv4_mapped}"
+                     if ipv6.ipv4_mapped is not None else str(ipv6))
+        return ipv6.scope_id is None and canonical == address
     # Legacy libc resolvers interpret numeric, shortened, octal and hex
     # host spellings as IPv4 literals (for example 127.1 -> 127.0.0.1).
     # Refuse those alternate identities before TLS or DNS. Use the strict

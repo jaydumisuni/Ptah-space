@@ -454,6 +454,40 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   Path("key"), hello=hello,
                                   expected_node_id="test-node")
 
+    def test_join_rejects_case_variant_punycode_nonrendering_hosts_before_tls(self):
+        # DNS A-labels are case-insensitive. Older Python IDNA decoders can
+        # leave uppercase xn-- labels undecoded on their ASCII fast path.
+        # Every spelling must reach the decoded-scalar guard before TLS.
+        from unittest.mock import patch
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        for point in (0x180F, 0x17B4, 0x17B5, 0x2800, 0x115F, 0x1160):
+            label = ("node" + chr(point)).encode("idna").decode("ascii")
+            self.assertTrue(label.startswith("xn--"))
+            for variant in (label.upper(), "Xn--" + label[4:]):
+                address = variant + ".example"
+                with self.subTest(scalar=hex(point), address=address):
+                    with patch.object(
+                            link.ssl, "SSLContext",
+                            side_effect=AssertionError("TLS_SETUP_REACHED")):
+                        with self.assertRaisesRegex(ValueError, "address must"):
+                            link.join(address, 2345, Path("ca"), Path("cert"),
+                                      Path("key"), hello=hello,
+                                      expected_node_id="test-node")
+        # Preserve case-insensitive, visibly meaningful internationalized
+        # A-labels rather than rejecting uppercase xn-- wholesale.
+        for address in ("XN--CAF-DMA.example", "Xn--caf-dma.example",
+                        "xn--caf-dma.example"):
+            with self.subTest(valid_address=address):
+                with patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(AssertionError,
+                                                "TLS_SETUP_REACHED"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+
     def test_join_rejects_idna_ignored_unicode_host_aliases_before_tls(self):
         # Python's built-in IDNA codec erases these Unicode scalars. A
         # displayed host must not silently resolve to another host identity.

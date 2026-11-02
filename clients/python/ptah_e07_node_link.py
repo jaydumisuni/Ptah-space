@@ -311,6 +311,17 @@ def _validate_node_hello(hello: dict, expected_node_id: str) -> None:
         raise LinkFailure("invalid_node_hello: missing native Hello field")
     if all(key in hello for key in version_fields):
         _validate_native_version_offer(hello)
+    # Legacy direct join() accepts its small E01 fixture shape. However,
+    # the presence of any native-only authority member declares a Rust
+    # NodeHello: do not bypass the CLI's canonical UUID, complete Serde
+    # field, or structured EntityRef checks on the direct Python path.
+    # _validate_node_hello() also runs on the frozen outgoing frame, so
+    # mutable caller dictionaries cannot smuggle a changed native identity
+    # or apparent authority member into the authenticated TLS handshake.
+    if any(key in hello for key in (
+            "enrollment_ref", "agent_revision", "capability_snapshot_ref")):
+        _validate_canonical_native_node_id(hello["node_id"])
+        _validate_native_node_hello_fields(hello)
 
 
 def _validate_hello_ack(

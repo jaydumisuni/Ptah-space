@@ -429,7 +429,9 @@ def _canonical_endpoint_host_syntax(address: str) -> bool:
     for label in encoded_labels:
         if label.lower().startswith(b"xn--"):
             try:
-                decoded = label.decode("idna")
+                # A-labels are case-insensitive; older Python IDNA codecs
+                # can leave uppercase xn-- labels undecoded on the ASCII path.
+                decoded = label.lower().decode("idna")
                 # The outer address is ASCII, but a valid punycode label can
                 # encode a visually blank or unassigned Unicode scalar.
                 # Apply the same identity guard to its decoded DNS label

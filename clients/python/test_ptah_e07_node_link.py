@@ -1740,6 +1740,29 @@ class NodeLinkProtocolTests(unittest.TestCase):
                         link.join("localhost", 2345, Path("ca"),
                                   Path("cert"), Path("key"), hello=hello,
                                   expected_node_id=hello["node_id"])
+        # A native Hello must stay native even when encoding removes both
+        # required authority members from the frozen wire payload. The
+        # initial classification is authoritative; TLS must not start.
+        original_encode = link._encode_frame
+
+        def strip_native_authority(message):
+            if message.get("kind") == "hello":
+                message = {"kind": "hello", "payload": {
+                    key: value for key, value in message["payload"].items()
+                    if key not in ("enrollment_ref", "agent_revision")
+                }}
+            return original_encode(message)
+
+        with patch.object(link, "_encode_frame",
+                          side_effect=strip_native_authority):
+            with patch.object(
+                    link.ssl, "SSLContext",
+                    side_effect=AssertionError("TLS_SETUP_REACHED")):
+                with self.assertRaisesRegex(
+                        link.LinkFailure, "missing native Hello field"):
+                    link.join("localhost", 2345, Path("ca"),
+                              Path("cert"), Path("key"), hello=valid,
+                              expected_node_id=canonical)
         # A complete canonical native Hello remains eligible for TLS.
         with patch.object(
                 link.ssl, "SSLContext",

@@ -1,0 +1,60 @@
+{
+  "schema": "ttg.cookpit.supervisor.dispatch.v1",
+  "shift": "D",
+  "observed_at_utc": "2026-11-02T23:40:17Z",
+  "project": "ptah",
+  "repository": "jaydumisuni/Ptah-space",
+  "frontier": "E07 optional source-only direct legacy Hello unknown-authority pre-TLS rejection",
+  "selection": {
+    "canonical_registry": "jaydumisuni/cookpit@aa49182ce91c5261ac49d04d9d297fea6fe39b8d:registry.json",
+    "profile": "profiles/ptah.json",
+    "roadmap": "jaydumisuni/ptah-roadmap-:IMPLEMENTATION_ROADMAP.md and CURRENT_STATE.md; E07 tested standalone DONE; optional source-only maintenance allowed",
+    "fairness": "Ptah latest observed material movement 2026-11-02T22:06:12Z, older than recovered current cloud candidates; Origins direct consumption held, Prime P2 upstream was active at 22:46:50Z",
+    "active_worker_lease": "UNVERIFIED_ORACLE_TRANSPORT_FAILURE",
+    "patrol_preflight": "UNVERIFIED_ORACLE_TRANSPORT_FAILURE",
+    "local_dispatch_fairness": "UNVERIFIED_ORACLE_TRANSPORT_FAILURE"
+  },
+  "before": {
+    "branch": "supervisor/shift-b-e07-direct-native-hello-custody-20261102-2012",
+    "head": "cedf5e94bfaf7f2b85626baf1a5639288c1e32a1",
+    "review": "PR #229 has outdated original finding answered at exact head; native proof and independent re-review pending"
+  },
+  "action": {
+    "transport": "authenticated GitHub connector; cloud source-only",
+    "branch": "supervisor/shift-d-e07-legacy-hello-unbound-20261103-0136",
+    "test_first_commit": "69af20c15763b026ca8a01736c14eabc4a7c0776",
+    "implementation_commit": "bf111a546cc456d406086c93400e56e7619f7d60",
+    "change": "Reject unknown apparent-authority keys in direct legacy E01 Hello dictionaries before TLS; preserve both documented legacy shapes and existing native validator.",
+    "test_delta": "Eight negative pre-TLS cases over four unknown keys and two valid legacy shapes, plus two positive compatibility controls.",
+    "review": "Draft PR #230 opened and independent CodeRabbit review requested."
+  },
+  "after": {
+    "implementation_head": "bf111a546cc456d406086c93400e56e7619f7d60",
+    "ancestry": "exact predecessor +2 commits, 0 behind",
+    "source_delta": "clients/python/ptah_e07_node_link.py +8; clients/python/test_ptah_e07_node_link.py +37",
+    "remote_head_readback": "VERIFIED",
+    "health": "CLOUD_SOURCE_VERIFIED_NATIVE_UNVERIFIED",
+    "movement": "MATERIAL_IMPLEMENTATION_SOURCE_ADVANCED"
+  },
+  "proof": {
+    "exact_git_compare": "PASS_2_AHEAD_0_BEHIND",
+    "source_test_readback": "PASS",
+    "synthetic_allowlist_model": "8/8 negative and 2/2 positive, not native execution",
+    "hosted_exact_head_ci": "9 workflow runs queued or in progress, no PASS claimed",
+    "kratos_native_python_tests": "UNVERIFIED",
+    "patrol": "UNVERIFIED",
+    "independent_review": "REQUESTED_PENDING",
+    "physical_cross_host": "NOT_CLAIMED"
+  },
+  "dependency_linkage": {
+    "internal": "Prime OS owns F04-F07 integration and P2 component/package authority; this E07 optional maintenance grants no OS integration authority",
+    "external": "No device or production action required for source-only change"
+  },
+  "disposition": "MATERIAL_SOURCE_PUBLISHED_REVIEW_AND_NATIVE_QUALIFICATION_PENDING",
+  "production_touched": false,
+  "oracle_runtime_touched": false,
+  "stolen_device_touched": false,
+  "protected_main_touched": false,
+  "supervisor_schedules_changed": false,
+  "local_dispatch_and_attention": "QUEUED_FOR_KRATOS_RECONCILIATION"
+}

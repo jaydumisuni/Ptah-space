@@ -324,6 +324,14 @@ def _validate_node_hello(
             "enrollment_ref", "agent_revision", "capability_snapshot_ref")):
         _validate_canonical_native_node_id(hello["node_id"])
         _validate_native_node_hello_fields(hello)
+    # Legacy direct E01 fixtures have only the three identity/counter
+    # members and an optional complete version triple. Reject any extra
+    # apparent authority before credential loading or TLS, rather than
+    # serializing fields the native Rust peer would ignore or reject.
+    elif not set(hello).issubset({
+            "node_id", "node_generation", "connection_epoch",
+            "supported_major", "minimum_minor", "maximum_minor"}):
+        raise LinkFailure("invalid_node_hello: unbound legacy Hello field")
 
 
 def _validate_hello_ack(

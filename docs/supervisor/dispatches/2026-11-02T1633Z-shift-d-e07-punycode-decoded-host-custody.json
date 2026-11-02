@@ -1,0 +1,51 @@
+{
+  "schema": "ttg.supervisor.project-dispatch.v1",
+  "shift": "D",
+  "project": "ptah",
+  "time_utc": "2026-11-02T16:33:00Z",
+  "frontier": "E07_OPTIONAL_PYTHON_NODE_LINK_DECODED_A_LABEL_SCALAR_PREFLIGHT",
+  "authority": {
+    "canonical_cookpit_registry": "jaydumisuni/cookpit:main:registry.json",
+    "profile": "profiles/ptah.json",
+    "roadmap": "jaydumisuni/ptah-roadmap-:IMPLEMENTATION_ROADMAP.md (E07 standalone complete; optional source-only hardening)",
+    "predecessor_pr": "https://github.com/jaydumisuni/Ptah-space/pull/227",
+    "predecessor_head": "bf241f34d2a216e2a7d0230c73a1cfff4ffada91",
+    "draft_pr": "https://github.com/jaydumisuni/Ptah-space/pull/228",
+    "branch": "supervisor/shift-d-e07-alabel-decoded-scalar-20261102-1836"
+  },
+  "before_state": {
+    "head": "bf241f34d2a216e2a7d0230c73a1cfff4ffada91",
+    "gap": "ASCII canonical xn-- A-labels decoded to forbidden visually blank Unicode host scalars, bypassing direct Unicode pre-TLS hostname guard"
+  },
+  "worker_action": "Cloud GitHub source-only test-first regression and bounded Python pre-TLS decoded A-label scalar guard; no machine, credential, device or runtime actions",
+  "test_commit": "62c96b5e0622d8f2b6afbc9048573102acc9e518",
+  "implementation_head": "4d82cc8e7dd744fe508a72fdb6977e8c83559430",
+  "after_state": {
+    "source_blob": "0a81f28c9d18f4377d95c045ddb34bc29cdeed73",
+    "test_blob": "2d2ccad669cdcc7eaf8d12cf56628491a3b653a8",
+    "delta": "Reject punycode-wrapped U+180F U+17B4 U+17B5 U+2800 U+115F U+1160 before TLS; retain canonical visible A-labels"
+  },
+  "material_movement": {
+    "state": "SOURCE_IMPLEMENTATION_COMMITTED",
+    "at_utc": "2026-11-02T16:32:00Z",
+    "candidate_advanced": true
+  },
+  "engineering_health": {
+    "predecessor_semantic_reproduction": "6/6 A-label aliases accepted by prior lexical and IDNA round-trip policy in isolated stdlib model",
+    "corrected_semantic_model": "6/6 rejected; 2/2 canonical visible A-labels accepted (isolated Python stdlib fixture)",
+    "native_python_tests": "UNVERIFIED: Oracle KRATOS transport failed internally",
+    "patrol": "UNVERIFIED: Oracle KRATOS transport failed internally",
+    "hosted_exact_head_ci": "UNVERIFIED: no workflow runs returned immediately after PR creation",
+    "independent_exact_head_review": "PENDING",
+    "physical_acceptance": "NOT REQUALIFIED; E07 standalone previously complete"
+  },
+  "dependency_linkage": "Ptah E07 optional client hardening; Prime OS owns F04-F07 integration. No new Ptah access gate, relay or hardware requirement.",
+  "local_dispatch_reconciliation": "PENDING_KRATOS_TRANSPORT",
+  "local_attention_reconciliation": "PENDING_KRATOS_TRANSPORT",
+  "oracle_roster": "UNVERIFIED: direct cloud roster failed internally",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "protected_promotion": false,
+  "supervisor_schedules_changed": false,
+  "disposition": "MATERIAL_SOURCE_COMMITTED_NATIVE_UNVERIFIED_REVIEW_PENDING"
+}

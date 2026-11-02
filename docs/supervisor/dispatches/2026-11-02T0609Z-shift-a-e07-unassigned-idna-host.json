@@ -1,0 +1,36 @@
+{
+  "before_head": "48f15b137124f04cf792958103f0cfe5c9c5bc02",
+  "dependency_linkage": "Ptah E07 source-only -> Prime F04-F07 OS-owned; physical off-LAN acceptance remains separate",
+  "disposition": "MATERIAL_SOURCE_COMMITTED_RECONCILED_WITH_LATEST_UPSTREAM_PENDING_REMOTE_READBACK",
+  "frontier": "E07_UNASSIGNED_IDNA_HOST_SCALAR_PREFLIGHT",
+  "implementation_head": "7828bd1484249e854941c29c5c76cd750e2c4258",
+  "production_touched": false,
+  "project": "ptah",
+  "proof": {
+    "focused": "1 test PASS; 3 negative cases and 2 positive controls",
+    "git_diff_check": "PASS",
+    "hosted_exact_head_ci": "UNVERIFIED",
+    "independent_exact_head_review": "PENDING",
+    "native_python": "83/83 PASS at initial source commit; 85/85 PASS after nonforce PR220 reconciliation",
+    "patrol": "xvfb-run -a patrol --no-sandbox check exit 0; no explicit ALLOW output",
+    "physical_roaming": "NOT_PROVEN",
+    "predecessor": "RED: 3 unassigned IDNA host aliases reached TLS setup",
+    "python_compile": "PASS"
+  },
+  "protected_promotion": false,
+  "reconciliation": {
+    "combined_native_python": "85/85 PASS",
+    "diff_check": "PASS",
+    "independent_review": "PENDING",
+    "merge_head": "326192cd0d5a02237583e59d9fc0aea060c89c2f",
+    "strategy": "nonforce merge of newer source candidate into Shift A isolated branch",
+    "upstream_head": "7f1c00ee064b2e37702e75967b704a92b18dc45d",
+    "upstream_pr": "https://github.com/jaydumisuni/Ptah-space/pull/220"
+  },
+  "schema": "ttg.supervisor.project-dispatch.v1",
+  "shift": "A",
+  "stolen_device_touched": false,
+  "time_utc": "2026-11-02T06:09:00Z",
+  "worker_action": "isolated project-owned worktree; test-first regression and minimal pre-TLS Unicode Cn guard",
+  "worktree": "/home/kratos/projects/Ptah-space/.workspace/worktrees/e07-idna-unassigned-shift-a-20261102-0800"
+}

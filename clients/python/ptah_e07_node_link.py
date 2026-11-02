@@ -436,11 +436,12 @@ def join(
     # the caller's address into a different transport target.
     # Socket/IDNA libraries can normalize compatibility host aliases into a
     # different destination. Do not silently reinterpret the caller's host.
-    # Reject invisible formatting controls before certificate or socket setup.
+    # Reject invisible controls and unassigned Unicode scalars before TLS.
+    # IDNA2003 may preserve Cn scalars that later Unicode releases reassign.
     if (type(address) is not str or not address
             or unicodedata.normalize("NFKC", address) != address
             or any(char.isspace()
-                   or unicodedata.category(char) in {"Cc", "Cf", "Cs"}
+                   or unicodedata.category(char) in {"Cc", "Cf", "Cs", "Cn"}
                    or _idna_ignored_host_scalar(char) for char in address)
             or not _idna_host_identity_is_canonical(address)
             or not _canonical_endpoint_host_syntax(address)):

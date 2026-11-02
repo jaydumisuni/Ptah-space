@@ -257,6 +257,33 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   Path("key"), hello=hello,
                                   expected_node_id="test-node")
 
+    def test_join_rejects_unassigned_idna_host_scalars_before_tls(self):
+        # Python's IDNA2003 codec may preserve unassigned Unicode codepoints,
+        # but their DNS identity is not stable across Unicode versions.
+        from unittest.mock import patch
+        import unicodedata
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        for scalar in map(chr, (0x0378, 0x0379, 0x0380)):
+            address = f"node{scalar}.example"
+            with self.subTest(address=repr(address)):
+                self.assertEqual(unicodedata.category(scalar), "Cn")
+                self.assertEqual(address.encode("idna").decode("idna"), address)
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(ValueError, "address must"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+        for address in ("café.example", "xn--caf-dma.example"):
+            with self.subTest(valid_address=address):
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(AssertionError, "TLS_SETUP_REACHED"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+
     def test_join_rejects_idna_ignored_unicode_host_aliases_before_tls(self):
         # Python's built-in IDNA codec erases these Unicode scalars. A
         # displayed host must not silently resolve to another host identity.

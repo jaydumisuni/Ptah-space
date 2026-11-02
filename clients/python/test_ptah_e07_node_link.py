@@ -254,7 +254,7 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   expected_node_id=node_id)
         # Do not mistake a visible combining accent or international name
         # for a nonrendering identity alias.
-        for node_id in ("node-e\\u0301", "node-مرحبا", "node-🚀"):
+        for node_id in ("node-e\u0301", "node-مرحبا", "node-🚀"):
             with self.subTest(visible=node_id):
                 hello = {"node_id": node_id, "node_generation": 1,
                          "connection_epoch": 2}

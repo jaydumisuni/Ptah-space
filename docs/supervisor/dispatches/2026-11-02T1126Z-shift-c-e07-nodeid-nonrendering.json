@@ -11,12 +11,12 @@
   "worker_action": "bounded source-only NodeId pre-TLS admission correction with 8 hostile and 3 visible-text test cases",
   "after_state": "Ptah draft PR #225 published on project-owned branch; source/test exact blobs verified; native qualification and independent review pending",
   "proof": {
-    "cloud_readback": "VERIFIED: exact source blob a6f92612b8a5ad6290a9ba6ccce9cc7f50b06def; test blob 02492bd4dcc2c9a33949cbbd1596e3a5ebd54515; receipt and PR head readback",
+    "cloud_readback": "VERIFIED: source blob a6f92612b8a5ad6290a9ba6ccce9cc7f50b06def and test blob 02492bd4dcc2c9a33949cbbd1596e3a5ebd54515 on PR #225; final receipt HEAD readback separately",
     "predecessor": "static Python category check: 8/8 nonrendering Mn/Lo scalars bypass existing Cc/Cf/Cs/Cn/whitespace predicate",
     "corrected_predicate": "static Python helper check: 8/8 rejected; 3/3 visible-text controls retained",
     "native_python_tests": "UNVERIFIED; no KRATOS execution",
     "patrol": "UNVERIFIED; KRATOS Oracle workstation transport failed",
-    "hosted_ci": "QUEUED/IN_PROGRESS at exact-head PR #225 observation; no aggregate PASS",
+    "hosted_ci": "UNVERIFIED at final receipt HEAD; earlier PR head 68575ede had queued/in-progress workflows, not PASS",
     "independent_review": "PENDING",
     "physical_e07": "NOT_REQUALIFIED; standalone E07 previously completed"
   },

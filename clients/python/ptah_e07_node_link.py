@@ -402,6 +402,17 @@ def _canonical_endpoint_host_syntax(address: str) -> bool:
         encoded_labels = [label.encode("idna") for label in labels]
     except UnicodeError:
         return False
+    # The ASCII IDNA encoder leaves apparent xn-- A-labels untouched.
+    # Require each reserved A-label to decode and round-trip canonically;
+    # otherwise a malformed punycode name reaches certificate/TLS setup.
+    for label in encoded_labels:
+        if label.lower().startswith(b"xn--"):
+            try:
+                decoded = label.decode("idna")
+                if decoded.encode("idna").lower() != label.lower():
+                    return False
+            except UnicodeError:
+                return False
     # A TLS endpoint host is an LDH hostname, not an arbitrary DNS owner
     # name. Python's IDNA codec passes ASCII punctuation and leading or
     # trailing hyphens through unchanged; refuse those before TLS setup.

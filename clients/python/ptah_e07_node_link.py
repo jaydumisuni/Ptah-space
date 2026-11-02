@@ -9,9 +9,11 @@ import argparse
 import ipaddress
 import json
 import math
+import os
 import re
 import socket
 import ssl
+import stat
 import struct
 import unicodedata
 import uuid
@@ -504,8 +506,50 @@ def join(
 def _load_hello_json(path: Path) -> dict:
     # Read at most one byte beyond the E01 frame limit. A caller-provided
     # file must not allocate unbounded memory or bypass wire JSON custody.
-    with path.open("rb") as stream:
-        raw = stream.read(1_048_577)
+    # A supplied Hello pathname must not open a FIFO, socket or symlink as
+    # protocol input. On Linux, O_PATH pins a regular inode without opening
+    # it for reading; /proc/self/fd then reopens that exact inode, not a
+    # potentially replaced pathname. The fallback rejects special leaves
+    # before opening and rechecks the resulting descriptor.
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    try:
+        if hasattr(os, "O_PATH") and Path("/proc/self/fd").is_dir():
+            pinned = os.open(path, os.O_PATH | os.O_NOFOLLOW)
+            try:
+                identity = os.fstat(pinned)
+                if not stat.S_ISREG(identity.st_mode):
+                    raise LinkFailure("invalid_hello_source: not a regular file")
+                reader = os.open(f"/proc/self/fd/{pinned}", flags)
+                try:
+                    actual = os.fstat(reader)
+                    if (not stat.S_ISREG(actual.st_mode)
+                            or (actual.st_dev, actual.st_ino)
+                            != (identity.st_dev, identity.st_ino)):
+                        raise LinkFailure("invalid_hello_source: changed inode")
+                    with os.fdopen(reader, "rb", closefd=False) as stream:
+                        raw = stream.read(1_048_577)
+                finally:
+                    os.close(reader)
+            finally:
+                os.close(pinned)
+        else:
+            identity = path.lstat()
+            if not stat.S_ISREG(identity.st_mode):
+                raise LinkFailure("invalid_hello_source: not a regular file")
+            reader = os.open(path, flags | getattr(os, "O_NOFOLLOW", 0))
+            try:
+                actual = os.fstat(reader)
+                if (not stat.S_ISREG(actual.st_mode)
+                        or (actual.st_dev, actual.st_ino)
+                        != (identity.st_dev, identity.st_ino)):
+                    raise LinkFailure("invalid_hello_source: changed inode")
+                with os.fdopen(reader, "rb", closefd=False) as stream:
+                    raw = stream.read(1_048_577)
+            finally:
+                os.close(reader)
+    except OSError as error:
+        raise LinkFailure("invalid_hello_source: cannot open regular file") from error
     if not 0 < len(raw) <= 1_048_576:
         raise LinkFailure("invalid_hello_frame_size")
     try:

@@ -281,6 +281,14 @@ def _validate_node_hello(hello: dict, expected_node_id: str) -> None:
         expected_node_id.encode("utf-8", errors="strict")
     except UnicodeError as error:
         raise LinkFailure("invalid_node_hello") from error
+    # Direct join() intentionally supports legacy textual test NodeIds, but
+    # cannot admit invisible/format/control/unassigned scalars as an E01
+    # identity. Those strings could appear different in reviewed evidence
+    # while comparing byte-for-byte equal before credential/TLS setup.
+    if any(char.isspace()
+           or unicodedata.category(char) in {"Cc", "Cf", "Cs", "Cn"}
+           for char in expected_node_id):
+        raise LinkFailure("invalid_node_hello: noncanonical identity scalar")
     # Legacy direct codec callers may omit the entire version triple.
     # A partially supplied native offer is neither legacy nor a complete
     # Rust NodeHello: refuse it before credentials or TLS are opened.

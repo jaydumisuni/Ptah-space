@@ -234,6 +234,36 @@ class NodeLinkProtocolTests(unittest.TestCase):
         self.assertIn("ptah_second_user_login",source)
 
 
+    def test_join_rejects_noncanonical_node_identity_controls_before_tls(self):
+        # Direct join() retains legacy fixture NodeIds, but a control,
+        # invisible format scalar or unassigned code point cannot be a
+        # reviewed E01 identity. Fail before certificate/TLS setup.
+        from unittest.mock import patch
+        for node_id in ("node\u202e-identity", "node\u2066-identity",
+                        "node\x00-identity", "node\u0378-identity"):
+            with self.subTest(node_id=repr(node_id)):
+                hello = {"node_id": node_id, "node_generation": 1,
+                         "connection_epoch": 2}
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(link.LinkFailure,
+                                                "invalid_node_hello"):
+                        link.join("localhost", 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id=node_id)
+        # Preserve ordinary legacy codec fixtures and visible Unicode text.
+        for node_id in ("test-node", "node-مرحبا", "node-🚀"):
+            with self.subTest(valid_node_id=node_id):
+                hello = {"node_id": node_id, "node_generation": 1,
+                         "connection_epoch": 2}
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(AssertionError,
+                                                "TLS_SETUP_REACHED"):
+                        link.join("localhost", 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id=node_id)
+
     def test_join_rejects_unicode_host_aliases_before_tls_setup(self):
         from unittest.mock import patch
         hello = {"node_id": "test-node", "node_generation": 1,

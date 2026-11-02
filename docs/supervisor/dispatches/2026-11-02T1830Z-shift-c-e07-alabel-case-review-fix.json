@@ -1,0 +1,41 @@
+{
+  "schema": "ttg.cookpit.supervisor.dispatch.v1",
+  "shift": "C",
+  "project": "ptah",
+  "time_utc": "2026-11-02T18:30:45Z",
+  "frontier": "E07_OPTIONAL_PYTHON_NODE_LINK_CASE_INSENSITIVE_A_LABEL_REVIEW_FINDING",
+  "canonical_registry": "jaydumisuni/cookpit:main:registry.json (ptah enabled; oracle-phase27-prep absent)",
+  "roadmap": "jaydumisuni/ptah-roadmap-:main:IMPLEMENTATION_ROADMAP.md (E07 standalone completed; optional client hardening only)",
+  "project_pr": "https://github.com/jaydumisuni/Ptah-space/pull/228",
+  "review_finding": "Unresolved major CodeRabbit review thread PRRT_kwDOTaK5cM6yw3ch: Python 3.11 IDNA uppercase/mixed-case A-label decoding can skip forbidden scalar validation",
+  "before_head": "9c2209e6131e45674a2723c162c83d84476a6eaa",
+  "before_state": "PR #228 source checks punycode decoded Unicode scalars but uses case-preserving label.decode('idna'); major review finding not consumed",
+  "worker_action": "Authenticated GitHub cloud source-only update in existing project PR branch: first add 12 negative and 3 positive case-variant pre-TLS tests, then normalize reserved ASCII A-label case before IDNA decode; no Oracle workstation/runtime or device action",
+  "test_commit": "535a3ccb4032ccb9199ce74c5093921852a34585",
+  "implementation_head": "e9099e66777c45adb1d7cd10fd1cf18478c6e864",
+  "after_state": "Case-insensitive reserved xn-- label decoding passes decoded Unicode through existing nonrendering-scalar policy before TLS; visible internationalized A-labels preserved",
+  "material_movement": {
+    "state": "REVIEW_FINDING_CONSUMED_IN_SOURCE_DELTA",
+    "candidate_advanced": true,
+    "at_utc": "2026-11-02T18:30:45Z"
+  },
+  "engineering_health": {
+    "source_blob": "98209547f1ad4f0f31f70a736e7edb8a4af4cfae",
+    "test_blob": "3616fec37c17cc81efc844123177f9c04f72c117",
+    "source_test_readback": "MATCH",
+    "isolated_python_stdlib_model": "12/12 forbidden scalar aliases exposed after lowercase decoding; 3/3 visible A-label controls preserved; model on isolated Python 3.13, not KRATOS-native project test",
+    "native_python_tests": "UNVERIFIED",
+    "patrol": "UNVERIFIED: Oracle Live cloud roster failed internally; KRATOS workspace unavailable",
+    "hosted_exact_head": "QUEUED_OR_IN_PROGRESS_AT_IMPLEMENTATION_HEAD; final receipt HEAD to be rechecked",
+    "independent_review": "PENDING_RE_REVIEW",
+    "physical_qualification": "NOT_REQUALIFIED; E07 standalone already complete"
+  },
+  "dependency_linkage": "Ptah E07 optional client hardening; Prime OS owns F04-F07 integration; no new access or transport gate",
+  "kratos_local_dispatch_receipt": "PENDING_RECONCILIATION_WHEN_ORACLE_RECONNECTS",
+  "attention_reconciliation": "PENDING_RECONCILIATION_WHEN_ORACLE_RECONNECTS",
+  "protected_promotion": false,
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false,
+  "disposition": "MATERIAL_SOURCE_DELTA_PUBLISHED_REVIEW_FINDING_CONSUMED_NATIVE_UNVERIFIED"
+}

@@ -1,0 +1,48 @@
+{
+  "schema": "ttg.supervisor.project-dispatch.v1",
+  "shift": "E",
+  "project": "ptah",
+  "time_utc": "2026-11-02T15:10:00Z",
+  "frontier": "E07_OPTIONAL_PYTHON_NODE_LINK_IDNA_STABLE_INVISIBLE_DNS_HOST_PREFLIGHT",
+  "authority": {
+    "canonical_cookpit_registry": "jaydumisuni/cookpit:main:registry.json",
+    "roadmap": "jaydumisuni/ptah-roadmap-:IMPLEMENTATION_ROADMAP.md (E07 standalone complete; optional source hardening only)",
+    "predecessor_pr": "https://github.com/jaydumisuni/Ptah-space/pull/226",
+    "predecessor_head": "e01757e9871d076b9539e918296b9358464f54e5",
+    "branch": "supervisor/shift-e-e07-hidden-host-20261102-1707"
+  },
+  "before_state": {
+    "head": "e01757e9871d076b9539e918296b9358464f54e5",
+    "gap": "Six visually blank Mn/Lo/So DNS hostname scalars survive NFKC and Python IDNA2003 round-trip and reached TLS context construction in direct E07 join()"
+  },
+  "worker_action": "Cloud GitHub source-only test-first regression followed by reuse of existing E01 nonrendering identity predicate in DNS pre-TLS validation; no machine runtime, credentials or remote device operations",
+  "test_commit": "f718a71f1a0d1175c36a5fb3e30ded093bd992ae",
+  "implementation_head": "cff59d2caeb4ecb4922d5ac4082552e2cd41303f",
+  "after_state": {
+    "source_blob": "6b42141ee9fcb2a03693e2c73cda9e285d013b68",
+    "test_blob": "0187ec366634a31397708966080111b89712e821",
+    "delta": "Reject U+180F U+17B4 U+17B5 U+2800 U+115F U+1160 before TLS; retain visible internationalized hostnames and canonical ASCII A-labels"
+  },
+  "material_movement": {
+    "state": "SOURCE_IMPLEMENTATION_COMMITTED",
+    "at_utc": "2026-11-02T15:09:00Z",
+    "candidate_advanced": true
+  },
+  "engineering_health": {
+    "predecessor_semantic_reproduction": "6/6 hostile IDNA-stable aliases accepted by isolated Python model",
+    "corrected_semantic_model": "6/6 rejected; 4/4 valid hostname controls preserved",
+    "native_python_tests": "UNVERIFIED: Oracle KRATOS transport failed",
+    "patrol": "UNVERIFIED: Oracle KRATOS transport failed",
+    "independent_exact_head_review": "PENDING",
+    "physical_acceptance": "NOT REQUALIFIED; E07 standalone previously complete",
+    "hosted_ci": "PENDING"
+  },
+  "dependency_linkage": "Ptah E07 optional source-only Python client hardening; Prime OS owns F04-F07; no new Ptah gate, Knights permission layer, relay or physical deployment",
+  "local_dispatch_reconciliation": "PENDING_KRATOS_TRANSPORT",
+  "oracle_roster": "UNVERIFIED: direct cloud roster failed",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "protected_promotion": false,
+  "supervisor_schedules_changed": false,
+  "disposition": "MATERIAL_SOURCE_COMMITTED_NATIVE_UNVERIFIED_REVIEW_PENDING"
+}

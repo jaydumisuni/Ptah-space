@@ -430,7 +430,18 @@ def _canonical_endpoint_host_syntax(address: str) -> bool:
         if label.lower().startswith(b"xn--"):
             try:
                 decoded = label.decode("idna")
-                if decoded.encode("idna").lower() != label.lower():
+                # The outer address is ASCII, but a valid punycode label can
+                # encode a visually blank or unassigned Unicode scalar.
+                # Apply the same identity guard to its decoded DNS label
+                # before allowing the endpoint to reach TLS.
+                if (unicodedata.normalize("NFKC", decoded) != decoded
+                        or any(char.isspace()
+                               or unicodedata.category(char)
+                               in {"Cc", "Cf", "Cs", "Cn"}
+                               or _idna_ignored_host_scalar(char)
+                               or _node_id_nonrendering_scalar(char)
+                               for char in decoded)
+                        or decoded.encode("idna").lower() != label.lower()):
                     return False
             except UnicodeError:
                 return False

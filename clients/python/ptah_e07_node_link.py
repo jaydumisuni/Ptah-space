@@ -268,12 +268,12 @@ def _validate_native_node_hello_fields(hello: object) -> None:
 
 
 def _node_id_nonrendering_scalar(char: str) -> bool:
-    # Some nonrendering scalars are Mn/Lo, not Cf or whitespace. They can
-    # produce visually identical reviewed NodeIds with different wire bytes.
-    # Keep this bounded to known format/variation and Hangul filler ranges;
-    # ordinary combining accents and visible international text remain valid.
+    # Some visually blank Mn/Lo/So scalars are not Cf or whitespace.
+    # Include Mongolian selector four, Khmer inherent vowels and Braille
+    # blank; retain ordinary combining accents and visible international text.
     point = ord(char)
-    return (point in {0x034F, 0x115F, 0x1160, 0x3164, 0xFFA0}
+    return (point in {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5,
+                      0x180F, 0x2800, 0x3164, 0xFFA0}
             or 0x180B <= point <= 0x180D
             or 0xFE00 <= point <= 0xFE0F
             or 0xE0100 <= point <= 0xE01EF)

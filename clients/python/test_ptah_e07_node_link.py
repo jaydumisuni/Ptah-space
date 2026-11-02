@@ -234,6 +234,24 @@ class NodeLinkProtocolTests(unittest.TestCase):
         self.assertIn("ptah_second_user_login",source)
 
 
+    def test_join_rejects_remaining_nonrendering_node_id_aliases_before_tls(self):
+        # These visually blank scalars are not whitespace/Cc/Cf/Cs/Cn.
+        # U+180F was omitted from the Mongolian selector range; Khmer
+        # inherent vowels and BRAILLE PATTERN BLANK are likewise invisible.
+        from unittest.mock import patch
+        for point in (0x180F, 0x17B4, 0x17B5, 0x2800):
+            node_id = "node" + chr(point) + "-identity"
+            with self.subTest(scalar=hex(point)):
+                hello = {"node_id": node_id, "node_generation": 1,
+                         "connection_epoch": 2}
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(link.LinkFailure,
+                                                "invalid_node_hello"):
+                        link.join("localhost", 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id=node_id)
+
     def test_join_rejects_nonrendering_node_id_mn_and_filler_aliases_before_tls(self):
         # Mn/Lo nonrendering codepoints bypass the predecessor's Cc/Cf/Cs/Cn
         # and whitespace checks, yet alter the reviewed NodeId wire bytes.

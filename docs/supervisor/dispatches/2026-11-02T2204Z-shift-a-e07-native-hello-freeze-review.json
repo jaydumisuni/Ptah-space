@@ -1,0 +1,66 @@
+{
+  "schema": "ttg.cookpit.supervisor.dispatch.v1",
+  "shift": "A",
+  "observed_at_utc": "2026-11-02T22:05:24.146Z",
+  "project": "ptah",
+  "repository": "jaydumisuni/Ptah-space",
+  "frontier": "E07 optional source-only review correction: preserve initial native NodeHello authority classification after outgoing frame freeze",
+  "canonical_authority": {
+    "cookpit_registry": "jaydumisuni/cookpit@aa49182ce91c5261ac49d04d9d297fea6fe39b8d:registry.json",
+    "profile": "profiles/ptah.json",
+    "roadmap": "jaydumisuni/ptah-roadmap-:CURRENT_STATE.md, AI_HANDOFF.md, IMPLEMENTATION_ROADMAP.md",
+    "scope": "E07 standalone tested/merged; optional maintenance only, Prime OS owns F04-F07"
+  },
+  "fairness": {
+    "basis": "oldest observed latest cloud candidate movement among enabled project repositories (Ptah PR #229 updated 2026-11-02T20:17:51Z)",
+    "local_dispatch_receipts": "UNVERIFIED_ORACLE_TRANSPORT_FAILURE",
+    "fresh_worker_lease": "UNVERIFIED_ORACLE_TRANSPORT_FAILURE",
+    "patrol_preflight": "UNVERIFIED_ORACLE_TRANSPORT_FAILURE"
+  },
+  "before": {
+    "pr": 229,
+    "branch": "supervisor/shift-b-e07-direct-native-hello-custody-20261102-2012",
+    "head": "e146cec52e5cbdc69e2e4cead4f1ae57413a2677",
+    "finding": "CodeRabbit inline review 4447262655: frozen Hello can lose all native-only fields and downgrade to legacy"
+  },
+  "action": {
+    "transport": "authenticated GitHub connector, source-only",
+    "test_first_commit": "675607ee0efd6e75de4700edeb554084325a2b41",
+    "implementation_commit": "2d43b8cf200989e2f60fd28e204a6c5080c9819c",
+    "change": "Carry native Hello classification from initially validated caller payload into frozen frame validator via require_native, rejecting removed required native authority members before TLS",
+    "test": "Add _encode_frame mutation that removes enrollment_ref and agent_revision; require LinkFailure before SSLContext, retain canonical-native and legacy positives"
+  },
+  "after": {
+    "implementation_head": "2d43b8cf200989e2f60fd28e204a6c5080c9819c",
+    "source_files": [
+      "clients/python/ptah_e07_node_link.py",
+      "clients/python/test_ptah_e07_node_link.py"
+    ],
+    "source_delta": "11 additions/6 deletions validator; 23 added test lines",
+    "git_compare": "2 commits ahead, 0 behind"
+  },
+  "proof": {
+    "predecessor_static": "Native classification not preserved across freeze",
+    "exact_source_and_test_readback": "MATCH",
+    "focused_static_checks": "7/7 PASS",
+    "native_python_tests": "UNVERIFIED",
+    "hosted_exact_head_ci": "NO_RUNS_RETURNED",
+    "independent_exact_head_review": "PENDING",
+    "physical_cross_host": "NOT_CLAIMED",
+    "stolen_device": "NOT_CONTACTED"
+  },
+  "dependency_linkage": {
+    "upstream": "Ptah standalone E07 maintenance",
+    "downstream": "Prime OS F04-F07 integration; does not grant OS admission",
+    "external": "Planned specialized hardware tests remain scoped and deferred only where actually required"
+  },
+  "movement": "MATERIAL_REVIEW_FINDING_CONSUMED_IN_SOURCE_CHANGE",
+  "health": "SOURCE_READBACK_PASS_NATIVE_AND_REVIEW_UNVERIFIED",
+  "disposition": "MATERIAL_REVIEW_FIX_PUBLISHED_STATIC_PASS_NATIVE_UNVERIFIED_REVIEW_PENDING",
+  "production_touched": false,
+  "oracle_runtime_touched": false,
+  "stolen_device_touched": false,
+  "protected_main_touched": false,
+  "supervisor_schedules_changed": false,
+  "local_dispatch_and_attention": "QUEUED_FOR_KRATOS_RECONCILIATION"
+}

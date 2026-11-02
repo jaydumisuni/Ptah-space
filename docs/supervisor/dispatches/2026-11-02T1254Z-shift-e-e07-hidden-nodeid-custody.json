@@ -1,0 +1,46 @@
+{
+  "schema": "ttg.supervisor.project-dispatch.v1",
+  "shift": "E",
+  "project": "ptah",
+  "time_utc": "2026-11-02T12:54:00Z",
+  "frontier": "E07_OPTIONAL_PYTHON_NODE_LINK_REMAINING_VISUALLY_BLANK_NODEID_PREFLIGHT",
+  "authority": {
+    "roadmap": "jaydumisuni/ptah-roadmap-:IMPLEMENTATION_ROADMAP.md E07 complete; optional Python client hardening only",
+    "predecessor_pr": "https://github.com/jaydumisuni/Ptah-space/pull/225",
+    "predecessor_head": "60d3dd6d632fe26cf463d45c8ce5558d84ade8eb",
+    "branch": "supervisor/shift-e-e07-hidden-nodeid-20261102-1451"
+  },
+  "before_state": {
+    "head": "60d3dd6d632fe26cf463d45c8ce5558d84ade8eb",
+    "gap": "Direct join() NodeId predicate admits U+180F, U+17B4, U+17B5 and U+2800 despite their visually blank presentation"
+  },
+  "worker_action": "GitHub cloud fallback: test-first four hostile NodeId cases, then bounded scalar rejection in existing pre-TLS validator; no live Ptah/Oracle changes",
+  "implementation_head": "1d832627bba47744bd036fc8b8a5d12768862c99",
+  "after_state": {
+    "source_blob": "00f902873b0a42dbf52f9b59e5fd05f5a9eb864d",
+    "test_blob": "20481580e6a1d80aff66fda9d2c07fc71cd2b70b",
+    "delta": "four new pre-TLS rejections with legacy visible NodeId controls preserved"
+  },
+  "material_movement": {
+    "state": "SOURCE_IMPLEMENTATION_COMMITTED",
+    "at_utc": "2026-11-02T12:53:00Z",
+    "candidate_advanced": true
+  },
+  "engineering_health": {
+    "native_python_tests": "UNVERIFIED: KRATOS Oracle transport failed",
+    "patrol": "UNVERIFIED: KRATOS Oracle transport failed",
+    "static_semantic_model": "4/4 predecessor accepted; 4/4 corrected rejected; 3/3 visible controls accepted",
+    "exact_file_readback": "VERIFIED",
+    "hosted_ci": "PENDING",
+    "independent_exact_head_review": "PENDING",
+    "physical_acceptance": "NOT REQUALIFIED; E07 previously completed"
+  },
+  "dependency_linkage": "Ptah E07 optional client hardening; Prime OS F04-F07 remain OS-owned; no new E07 gate or independent Ptah admission",
+  "local_dispatch_reconciliation": "PENDING_KRATOS_TRANSPORT",
+  "oracle_roster": "UNVERIFIED: direct cloud roster failed",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "protected_promotion": false,
+  "supervisor_schedules_changed": false,
+  "disposition": "MATERIAL_SOURCE_COMMITTED_NATIVE_UNVERIFIED_REVIEW_PENDING"
+}

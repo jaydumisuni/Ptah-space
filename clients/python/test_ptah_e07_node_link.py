@@ -234,6 +234,38 @@ class NodeLinkProtocolTests(unittest.TestCase):
         self.assertIn("ptah_second_user_login",source)
 
 
+    def test_join_rejects_nonrendering_node_id_mn_and_filler_aliases_before_tls(self):
+        # Mn/Lo nonrendering codepoints bypass the predecessor's Cc/Cf/Cs/Cn
+        # and whitespace checks, yet alter the reviewed NodeId wire bytes.
+        from unittest.mock import patch
+        hidden = (0x034F, 0x180B, 0xFE0F, 0xE0100,
+                  0x115F, 0x1160, 0x3164, 0xFFA0)
+        for point in hidden:
+            node_id = "node" + chr(point) + "-identity"
+            with self.subTest(scalar=hex(point)):
+                hello = {"node_id": node_id, "node_generation": 1,
+                         "connection_epoch": 2}
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(link.LinkFailure,
+                                                "invalid_node_hello"):
+                        link.join("localhost", 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id=node_id)
+        # Do not mistake a visible combining accent or international name
+        # for a nonrendering identity alias.
+        for node_id in ("node-e\\u0301", "node-مرحبا", "node-🚀"):
+            with self.subTest(visible=node_id):
+                hello = {"node_id": node_id, "node_generation": 1,
+                         "connection_epoch": 2}
+                with patch.object(link.ssl, "SSLContext",
+                                  side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(AssertionError,
+                                                "TLS_SETUP_REACHED"):
+                        link.join("localhost", 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id=node_id)
+
     def test_join_rejects_noncanonical_node_identity_controls_before_tls(self):
         # Direct join() retains legacy fixture NodeIds, but a control,
         # invisible format scalar or unassigned code point cannot be a

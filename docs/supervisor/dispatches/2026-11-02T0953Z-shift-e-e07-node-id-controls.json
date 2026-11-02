@@ -1,0 +1,29 @@
+{
+  "schema": "ttg.supervisor.project-dispatch.v1",
+  "shift": "E",
+  "project": "ptah",
+  "frontier": "E07_DIRECT_JOIN_NODE_IDENTITY_SCALAR_PREFLIGHT",
+  "time_utc": "2026-11-02T09:53:18.704749Z",
+  "before_head": "e6496026b54d6ce3ce47e098e4c84d8ead697590",
+  "implementation_head": "6bc43de86420a04fb36b17a92efb7eb93688240b",
+  "candidate_branch": "supervisor/shift-e-e07-node-id-controls-20261102-1148",
+  "worktree": "/home/kratos/projects/Ptah-space/.workspace/worktrees/e07-node-id-controls-shift-e-20261102-1148",
+  "worker_action": "isolated Ptah-owned test-first pre-TLS NodeId control scalar rejection",
+  "proof": {
+    "predecessor": "RED: four invalid NodeId scalar cases reached mocked TLS setup",
+    "focused": "PASS: four invalid scalar cases rejected; three visible legacy identities preserved",
+    "e07_native": "58/58 PASS",
+    "python_client_suite": "87/87 PASS",
+    "python_compile": "PASS",
+    "git_diff_check": "PASS",
+    "patrol": "ALLOW for project-owned worktree",
+    "independent_review": "PENDING",
+    "hosted_ci": "UNVERIFIED",
+    "physical_off_lan": "NOT_PROVEN"
+  },
+  "dependency_linkage": "Ptah E07 optional E01 transport; Prime F04-F07 OS-owned; E02/A05 physical roaming separately gated",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "protected_promotion": false,
+  "disposition": "LOCAL_IMPLEMENTATION_COMMITTED_PUBLICATION_PENDING"
+}

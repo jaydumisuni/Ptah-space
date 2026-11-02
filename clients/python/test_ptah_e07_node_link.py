@@ -1699,6 +1699,43 @@ class NodeLinkProtocolTests(unittest.TestCase):
                 link._validate_node_hello({**base, **offer}, "test-node")
 
 
+    def test_direct_join_legacy_rejects_unbound_authority_fields_before_tls(self):
+        # Legacy direct E01 fixtures may omit the version triple, but may
+        # not smuggle arbitrary apparent authority fields past preflight.
+        # Unknown JSON members are not a second Ptah permission channel.
+        from unittest.mock import patch
+        base = {"node_id": "test-node", "node_generation": 1,
+                "connection_epoch": 2}
+        offers = ({}, {"supported_major": 1, "minimum_minor": 0,
+                       "maximum_minor": 0})
+        unbound_fields = ("dispatch_authorized", "owner_grant",
+                          "agent_revision_hint", "protocol_override")
+        for offer in offers:
+            for field in unbound_fields:
+                with self.subTest(offer=offer, field=field):
+                    with patch.object(
+                            link.ssl, "SSLContext",
+                            side_effect=AssertionError("TLS_SETUP_REACHED")):
+                        with self.assertRaisesRegex(
+                                link.LinkFailure, "unbound legacy Hello field"):
+                            link.join(
+                                "localhost", 2345, Path("ca"), Path("cert"),
+                                Path("key"),
+                                hello={**base, **offer, field: True},
+                                expected_node_id="test-node")
+        # Both established legacy forms still reach the TLS boundary.
+        for offer in offers:
+            with self.subTest(positive_offer=offer):
+                with patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(
+                            AssertionError, "TLS_SETUP_REACHED"):
+                        link.join("localhost", 2345, Path("ca"),
+                                  Path("cert"), Path("key"),
+                                  hello={**base, **offer},
+                                  expected_node_id="test-node")
+
     def test_direct_join_native_hello_custody_precedes_tls(self):
         # Direct Python callers can supply a complete native Rust NodeHello
         # without using main()'s CLI validator. Native identity and authority

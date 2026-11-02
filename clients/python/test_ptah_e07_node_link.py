@@ -1468,5 +1468,73 @@ class NodeLinkProtocolTests(unittest.TestCase):
                 link._validate_node_hello({**base, **offer}, "test-node")
 
 
+    def test_local_hello_pinned_inode_survives_path_replacement(self):
+        # Linux O_PATH pins the exact Hello source before the read open.
+        import os
+        import tempfile
+        from unittest.mock import patch
+        if not hasattr(os, "O_PATH") or not Path("/proc/self/fd").is_dir():
+            self.skipTest("requires Linux O_PATH and procfs")
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "hello.json"
+            source.write_text(
+                '{"node_id":"original","node_generation":1,'
+                '"connection_epoch":2}', encoding="utf-8")
+            replacement = Path(directory) / "original.json"
+            original_open = link.os.open
+            replaced = False
+
+            def swap_at_read(path, flags, *args, **kwargs):
+                nonlocal replaced
+                if (not replaced and isinstance(path, str)
+                        and path.startswith("/proc/self/fd/")):
+                    source.rename(replacement)
+                    source.write_text(
+                        '{"node_id":"forged","node_generation":1,'
+                        '"connection_epoch":2}', encoding="utf-8")
+                    replaced = True
+                return original_open(path, flags, *args, **kwargs)
+
+            with patch.object(link.os, "open", side_effect=swap_at_read):
+                actual = link._load_hello_json(source)
+            self.assertTrue(replaced)
+            self.assertEqual(actual["node_id"], "original")
+
+    def test_local_hello_refuses_special_leaves_before_effectful_open(self):
+        # A caller-supplied FIFO can block indefinitely in Path.open("rb").
+        # Symlinks and directories must not become alternate Hello sources.
+        import os
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            regular = root / "hello.json"
+            regular.write_text(
+                '{"node_id":"test-node","node_generation":1,'
+                '"connection_epoch":2}', encoding="utf-8")
+            self.assertEqual(link._load_hello_json(regular)["node_id"],
+                             "test-node")
+            invalid = [root]
+            alias = root / "hello-alias.json"
+            try:
+                alias.symlink_to(regular)
+            except (OSError, NotImplementedError):
+                pass
+            else:
+                invalid.append(alias)
+            if hasattr(os, "mkfifo"):
+                fifo = root / "hello.pipe"
+                os.mkfifo(fifo)
+                invalid.append(fifo)
+            for path in invalid:
+                with self.subTest(path=path.name):
+                    with patch.object(
+                            Path, "open",
+                            side_effect=AssertionError("EFFECTFUL_OPEN_REACHED")):
+                        with self.assertRaisesRegex(
+                                link.LinkFailure, "invalid_hello_source"):
+                            link._load_hello_json(path)
+
+
 if __name__=="__main__":
     unittest.main()

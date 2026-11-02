@@ -389,6 +389,38 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   Path("key"), hello=hello,
                                   expected_node_id="test-node")
 
+    def test_join_rejects_idna_stable_nonrendering_host_aliases_before_tls(self):
+        # IDNA can preserve these invisible scalars exactly, unlike the
+        # ignored selectors covered below. A distinct wire hostname must
+        # not masquerade as the visibly identical reviewed DNS endpoint.
+        # Rejection must precede TLS context construction and socket I/O.
+        from unittest.mock import patch
+        hello = {"node_id": "test-node", "node_generation": 1,
+                 "connection_epoch": 2}
+        for point in (0x180F, 0x17B4, 0x17B5, 0x2800, 0x115F, 0x1160):
+            address = "node" + chr(point) + ".example"
+            with self.subTest(scalar=hex(point)):
+                with patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(ValueError, "address must"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+        # Internationalized visible DNS labels and canonical ASCII A-labels
+        # remain eligible to reach the transport's actual TLS checks.
+        for address in ("café.example", "مرحبا.example",
+                        "xn--caf-dma.example", "localhost"):
+            with self.subTest(valid_address=address):
+                with patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(AssertionError,
+                                                "TLS_SETUP_REACHED"):
+                        link.join(address, 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id="test-node")
+
     def test_join_rejects_idna_ignored_unicode_host_aliases_before_tls(self):
         # Python's built-in IDNA codec erases these Unicode scalars. A
         # displayed host must not silently resolve to another host identity.

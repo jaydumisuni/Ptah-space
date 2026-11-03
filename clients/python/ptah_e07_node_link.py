@@ -6,6 +6,7 @@ the optional protocol transport's peer integrity (not workspace admission).
 from __future__ import annotations
 
 import argparse
+import copy
 import ipaddress
 import json
 import math
@@ -520,6 +521,10 @@ def join(
     _validate_node_hello(hello, expected_node_id)
     native_hello = any(key in hello for key in (
         "enrollment_ref", "agent_revision", "capability_snapshot_ref"))
+    # Preserve the validated native authority envelope before serialization.
+    # A caller may mutate still-valid enrollment/revision/snapshot fields
+    # inside the encoder without changing NodeId, generation or epoch.
+    preflight_native_hello = copy.deepcopy(hello) if native_hello else None
     node_generation = hello["node_generation"]
     connection_epoch = hello["connection_epoch"]
     # The caller may mutate Hello while it is being encoded. Revalidate the
@@ -529,6 +534,9 @@ def join(
     frozen_hello = frozen["payload"]
     _validate_node_hello(frozen_hello, expected_node_id,
                          require_native=native_hello)
+    if (preflight_native_hello is not None
+            and frozen_hello != preflight_native_hello):
+        raise LinkFailure("invalid_node_hello: native authority changed during freeze")
     if (frozen_hello["node_generation"] != node_generation
             or frozen_hello["connection_epoch"] != connection_epoch):
         raise LinkFailure("invalid_node_hello: identity changed during freeze")

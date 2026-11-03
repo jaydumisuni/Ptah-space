@@ -977,6 +977,47 @@ class NodeLinkProtocolTests(unittest.TestCase):
                                   Path("key"), hello=hello,
                                   expected_node_id="test-node")
 
+    def test_join_rejects_native_authority_mutation_during_hello_freeze(self):
+        # All preflighted native authority fields must be identical in the
+        # frozen outbound frame, even when a mutation stays schema-valid.
+        from unittest.mock import patch
+        canonical = "018f0f4e-7b5c-7abc-8abc-0123456789ab"
+        original_encode = link._encode_frame
+        mutations = (
+            ("agent_revision", "other-revision"),
+            ("enrollment_ref", {
+                "entity_id": canonical, "entity_kind": "ptah.other",
+            }),
+            ("capability_snapshot_ref", {
+                "entity_id": canonical, "entity_kind": "ptah.snapshot",
+            }),
+        )
+        for field, value in mutations:
+            with self.subTest(field=field):
+                hello = {
+                    "node_id": canonical, "node_generation": 1,
+                    "connection_epoch": 2, "supported_major": 1,
+                    "minimum_minor": 0, "maximum_minor": 0,
+                    "enrollment_ref": {
+                        "entity_id": canonical, "entity_kind": "ptah.enrollment",
+                    },
+                    "agent_revision": "revision",
+                }
+
+                def mutate_then_encode(frame):
+                    hello[field] = value
+                    return original_encode(frame)
+
+                with patch.object(link, "_encode_frame",
+                                  side_effect=mutate_then_encode), patch.object(
+                        link.ssl, "SSLContext",
+                        side_effect=AssertionError("TLS_SETUP_REACHED")):
+                    with self.assertRaisesRegex(
+                            link.LinkFailure, "changed during freeze"):
+                        link.join("localhost", 2345, Path("ca"), Path("cert"),
+                                  Path("key"), hello=hello,
+                                  expected_node_id=canonical)
+
     def test_join_rejects_noncanonical_hello_counters_before_transport(self):
         from unittest.mock import patch
         good = {"node_id": "test-node", "node_generation": 1, "connection_epoch": 2}

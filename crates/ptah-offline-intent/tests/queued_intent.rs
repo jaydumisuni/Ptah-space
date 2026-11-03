@@ -1015,3 +1015,26 @@ fn bidirectional_format_controls_are_rejected_in_queued_authority() {
         ));
     }
 }
+
+#[test]
+fn invisible_unicode_tag_characters_are_rejected_in_queued_authority() {
+    for scalar in [0xE0001, 0xE0020, 0xE0061, 0xE007F] {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        assert!(matches!(
+            queued(
+                &format!("prepare{ch}execute"),
+                1,
+                format!("sha256:{}", "a".repeat(64))
+            ),
+            Err(IntentValidationError::ControlCharacter("action"))
+        ));
+        let origin = LocalSequence {
+            node_id: format!("node{ch}1"),
+            value: 1,
+        };
+        assert!(matches!(
+            origin.checkpoint_bytes(),
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        ));
+    }
+}

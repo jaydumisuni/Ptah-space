@@ -35,10 +35,17 @@
   "proof": {
     "exact_github_source_test_readback": "PASS",
     "focused_independent_python_snapshot_model": "3/3 changed authority rejected; 1/1 unchanged accepted",
-    "hosted_python_client_workflow": "QUEUED",
+    "hosted_python_client_workflow": "Python 3.11: 92/92 PASS; Python 3.13: 92/92 PASS at implementation head f0c5bc69133399c186f021444f89e028ffc6fa06; overall workflow still in progress",
     "native_python_suite": "UNVERIFIED",
     "kratos_patrol": "UNVERIFIED_ORACLE_TRANSPORT_FAILED",
-    "independent_review": "PENDING"
+    "independent_review": "PENDING",
+    "hosted_run_url": "https://github.com/jaydumisuni/Ptah-space/actions/runs/41555143375",
+    "hosted_jobs": {
+      "python_3_11": 125652087832,
+      "python_3_13": 125652087990
+    },
+    "new_regression_observed": "test_join_rejects_native_authority_mutation_during_hello_freeze ... ok on both Python versions",
+    "receipt_commit_ci": "PENDING"
   },
   "movement": {
     "status": "MATERIAL_SOURCE_PUBLISHED",
@@ -47,7 +54,7 @@
   },
   "dependency_linkage": "E07 optional hardening; E07 accepted physical scope unchanged; no Origins/Prime authority granted",
   "disposition": "DRAFT_REVIEW_PENDING",
-  "observed_at_utc": "2026-11-03T00:46:00Z",
+  "observed_at_utc": "2026-11-03T00:46:38Z",
   "production_touched": false,
   "stolen_device_touched": false,
   "supervisor_schedules_changed": false,

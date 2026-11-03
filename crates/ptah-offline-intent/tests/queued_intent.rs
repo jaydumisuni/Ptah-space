@@ -1038,3 +1038,27 @@ fn invisible_unicode_tag_characters_are_rejected_in_queued_authority() {
         ));
     }
 }
+
+#[test]
+fn visually_blank_unicode_fillers_are_rejected_in_queued_authority() {
+    // Hangul fillers and Braille blank render as empty or near-empty identities.
+    for scalar in [0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800] {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        assert!(matches!(
+            queued(
+                &format!("prepare{ch}execute"),
+                1,
+                format!("sha256:{}", "a".repeat(64))
+            ),
+            Err(IntentValidationError::ControlCharacter("action"))
+        ));
+        let origin = LocalSequence {
+            node_id: format!("node{ch}1"),
+            value: 1,
+        };
+        assert!(matches!(
+            origin.checkpoint_bytes(),
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        ));
+    }
+}

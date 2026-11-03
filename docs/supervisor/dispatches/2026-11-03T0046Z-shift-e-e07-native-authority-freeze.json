@@ -1,0 +1,55 @@
+{
+  "schema": "ttg.supervisor.dispatch.v1",
+  "shift": "E",
+  "project": "ptah",
+  "repository": "jaydumisuni/Ptah-space",
+  "frontier": "E07 optional source-only native NodeHello authority identity across serialization",
+  "authority": {
+    "canonical_registry": "jaydumisuni/cookpit@main:registry.json",
+    "profile": "profiles/ptah.json",
+    "predecessor_pr": 229,
+    "predecessor_head": "cedf5e94bfaf7f2b85626baf1a5639288c1e32a1",
+    "candidate_branch": "supervisor/shift-e-e07-native-authority-freeze-20261103-0043"
+  },
+  "before": {
+    "head": "cedf5e94bfaf7f2b85626baf1a5639288c1e32a1",
+    "finding": "Schema-valid mutation of agent_revision, enrollment_ref or capability_snapshot_ref during _encode_frame could change the native authority envelope while NodeId/generation/epoch remained unchanged."
+  },
+  "action": {
+    "worker": "Shift E authenticated GitHub cloud fallback",
+    "test_first_commit": "8b86273c61372e76cb03bf36c0aa1f8d1476cfda",
+    "implementation_commit": "f0c5bc69133399c186f021444f89e028ffc6fa06",
+    "changes": [
+      "Three native authority-mutation regressions before TLS",
+      "Snapshot complete preflighted native Hello before encoding",
+      "Reject frozen native envelope that differs from preflighted authority"
+    ],
+    "scope": "two Ptah-owned Python files; no production or device interaction"
+  },
+  "after": {
+    "head_before_receipt": "f0c5bc69133399c186f021444f89e028ffc6fa06",
+    "exact_head_ancestry": "2 ahead, 0 behind predecessor",
+    "draft_pr": 231,
+    "material_movement": true
+  },
+  "proof": {
+    "exact_github_source_test_readback": "PASS",
+    "focused_independent_python_snapshot_model": "3/3 changed authority rejected; 1/1 unchanged accepted",
+    "hosted_python_client_workflow": "QUEUED",
+    "native_python_suite": "UNVERIFIED",
+    "kratos_patrol": "UNVERIFIED_ORACLE_TRANSPORT_FAILED",
+    "independent_review": "PENDING"
+  },
+  "movement": {
+    "status": "MATERIAL_SOURCE_PUBLISHED",
+    "health_status": "UNVERIFIED_NATIVE",
+    "worker_lease": "none claimed"
+  },
+  "dependency_linkage": "E07 optional hardening; E07 accepted physical scope unchanged; no Origins/Prime authority granted",
+  "disposition": "DRAFT_REVIEW_PENDING",
+  "observed_at_utc": "2026-11-03T00:46:00Z",
+  "production_touched": false,
+  "stolen_device_touched": false,
+  "supervisor_schedules_changed": false,
+  "local_dispatch_reconciliation": "QUEUED_ON_KRATOS_RETURN"
+}

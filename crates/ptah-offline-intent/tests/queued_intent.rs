@@ -1086,3 +1086,27 @@ fn invisible_mathematical_operators_are_rejected_in_queued_authority() {
         ));
     }
 }
+
+#[test]
+fn interior_nonbreaking_spaces_cannot_alias_queued_authority() {
+    // These spaces remain invisible to ordinary trim checks when embedded.
+    for scalar in [0x00A0, 0x2007, 0x202F] {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        assert!(matches!(
+            queued(
+                &format!("prepare{ch}execute"),
+                1,
+                format!("sha256:{}", "a".repeat(64))
+            ),
+            Err(IntentValidationError::ControlCharacter("action"))
+        ));
+        let origin = LocalSequence {
+            node_id: format!("node{ch}1"),
+            value: 1,
+        };
+        assert!(matches!(
+            origin.checkpoint_bytes(),
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        ));
+    }
+}

@@ -1062,3 +1062,27 @@ fn visually_blank_unicode_fillers_are_rejected_in_queued_authority() {
         ));
     }
 }
+
+#[test]
+fn invisible_mathematical_operators_are_rejected_in_queued_authority() {
+    // U+2061..U+2064 are invisible function/application separators, not safe identity text.
+    for scalar in 0x2061..=0x2064 {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        assert!(matches!(
+            queued(
+                &format!("prepare{ch}execute"),
+                1,
+                format!("sha256:{}", "a".repeat(64))
+            ),
+            Err(IntentValidationError::ControlCharacter("action"))
+        ));
+        let origin = LocalSequence {
+            node_id: format!("node{ch}1"),
+            value: 1,
+        };
+        assert!(matches!(
+            origin.checkpoint_bytes(),
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        ));
+    }
+}

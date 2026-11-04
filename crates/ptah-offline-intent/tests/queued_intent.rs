@@ -1110,3 +1110,26 @@ fn interior_nonbreaking_spaces_cannot_alias_queued_authority() {
         ));
     }
 }
+
+#[test]
+fn interior_unicode_spacing_cannot_alias_queue_identity() {
+    for scalar in [0x1680, 0x2000, 0x2002, 0x2009, 0x205F, 0x3000] {
+        let ch = char::from_u32(scalar).unwrap();
+        assert!(matches!(
+            queued(
+                &format!("prepare{ch}execute"),
+                1,
+                format!("sha256:{}", "a".repeat(64))
+            ),
+            Err(IntentValidationError::ControlCharacter("action"))
+        ));
+        let origin = LocalSequence {
+            node_id: format!("node{ch}1"),
+            value: 1,
+        };
+        assert!(matches!(
+            origin.checkpoint_bytes(),
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        ));
+    }
+}

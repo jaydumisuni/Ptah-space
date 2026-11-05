@@ -1133,3 +1133,26 @@ fn interior_unicode_spacing_cannot_alias_queue_identity() {
         ));
     }
 }
+
+#[test]
+fn reserved_invisible_format_scalar_is_rejected() {
+    // U+2065 is reserved between invisible operators and bidi isolates.
+    // Reject it now rather than letting persisted identities change meaning.
+    let ch = char::from_u32(0x2065).expect("valid Unicode scalar");
+    assert!(matches!(
+        queued(
+            &format!("prepare{ch}execute"),
+            1,
+            format!("sha256:{}", "a".repeat(64))
+        ),
+        Err(IntentValidationError::ControlCharacter("action"))
+    ));
+    let origin = LocalSequence {
+        node_id: format!("node{ch}1"),
+        value: 1,
+    };
+    assert!(matches!(
+        origin.checkpoint_bytes(),
+        Err(IntentValidationError::ControlCharacter("origin.node_id"))
+    ));
+}

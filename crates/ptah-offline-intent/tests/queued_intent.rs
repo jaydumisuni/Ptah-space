@@ -1191,3 +1191,29 @@ fn noncharacters_cannot_enter_authority_bound_identities_or_checkpoints() {
         );
     }
 }
+
+#[test]
+fn arabic_prepend_format_controls_cannot_alias_queued_authority() {
+    // Unicode Prepend format controls are invisible and can alter display grouping.
+    for scalar in [
+        0x0600, 0x0601, 0x0602, 0x0603, 0x0604, 0x0605, 0x06DD, 0x070F, 0x08E2,
+    ] {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        assert!(matches!(
+            queued(
+                &format!("prepare{ch}execute"),
+                1,
+                format!("sha256:{}", "a".repeat(64))
+            ),
+            Err(IntentValidationError::ControlCharacter("action"))
+        ));
+        let origin = LocalSequence {
+            node_id: format!("node{ch}1"),
+            value: 1,
+        };
+        assert!(matches!(
+            origin.checkpoint_bytes(),
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        ));
+    }
+}

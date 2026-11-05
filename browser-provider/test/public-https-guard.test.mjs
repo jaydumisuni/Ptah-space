@@ -70,3 +70,29 @@ test("Ptah browser backend fails closed if public policy lacks owned proxy", asy
     }
   }),{code:"public_egress_browser_policy_required"});
 });
+
+test("CONNECT reset during pending DNS does not terminate proxy process",async()=>{
+  let reachedDns;
+  const dnsStarted=new Promise(resolve=>{reachedDns=resolve});
+  const proxy=await startPublicHttpsProxy({
+    resolveDns:()=>{
+      reachedDns();
+      return new Promise(resolve=>setTimeout(()=>resolve([{address:"127.0.0.1"}]),120));
+    }
+  });
+  try {
+    const dest=new URL(proxy.url);
+    const conn=connect(Number(dest.port),"127.0.0.1");
+    await once(conn,"connect");
+    conn.write("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n");
+    await Promise.race([dnsStarted,
+      new Promise((_,reject)=>setTimeout(()=>reject(Error("DNS_HANDLER_NOT_REACHED")),900))
+    ]);
+    conn.on("error",()=>{});
+    conn.resetAndDestroy();
+    await new Promise(resolve=>setTimeout(resolve,180));
+    const stillAlive=connect(Number(dest.port),"127.0.0.1");
+    await once(stillAlive,"connect");
+    stillAlive.destroy();
+  } finally {await proxy.close()}
+});

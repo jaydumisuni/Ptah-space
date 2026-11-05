@@ -59,6 +59,11 @@ export async function startPublicHttpsProxy({ resolveDns = lookup } = {}) {
     socket.setTimeout(35000, () => socket.destroy());
   });
   server.on("connect", async (req, client, head) => {
+    // A remote client may reset its socket while DNS resolution is awaited.
+    // Install error and close listeners before that async boundary.
+    let remote = null;
+    client.on("error", () => remote?.destroy());
+    client.on("close", () => remote?.destroy());
     const deny = () => {
       if (!client.destroyed) client.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
     };
@@ -67,7 +72,7 @@ export async function startPublicHttpsProxy({ resolveDns = lookup } = {}) {
     // any destination socket.
     const allowed = await authorizedPublicIp(req.url, resolveDns);
     if (!allowed || client.destroyed) return deny();
-    const remote = connect({ host: allowed.address, port: 443, timeout: 24000 });
+    remote = connect({ host: allowed.address, port: 443, timeout: 24000 });
     sockets.add(remote);
     remote.on("close", () => sockets.delete(remote));
     remote.once("connect", () => {
@@ -79,8 +84,6 @@ export async function startPublicHttpsProxy({ resolveDns = lookup } = {}) {
     });
     remote.on("error", () => { if (!client.destroyed) client.destroy(); });
     remote.on("timeout", () => remote.destroy());
-    client.on("error", () => remote.destroy());
-    client.on("close", () => remote.destroy());
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");

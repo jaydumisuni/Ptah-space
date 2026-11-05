@@ -1309,6 +1309,23 @@ fn egyptian_format_controls_are_rejected_on_checkpoint_recovery() {
 }
 
 #[test]
+fn language_tag_and_variation_selectors_are_rejected_on_checkpoint_recovery() {
+    // These default-ignorable scalars are outside the Unicode tag-letter range.
+    // Recovered cursor identities must reject them before any queue authority is derived.
+    for scalar in [0xE0001, 0xFE00, 0xFE0F, 0xE0100, 0xE01EF] {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        let checkpoint = format!("ptah.local-sequence.v1\nnode{ch}1\n1\n");
+        assert!(
+            matches!(
+                LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
+                Err(IntentValidationError::ControlCharacter("origin.node_id"))
+            ),
+            "checkpoint admitted U+{scalar:04X}"
+        );
+    }
+}
+
+#[test]
 fn unicode_tag_range_is_rejected_on_checkpoint_recovery() {
     // All tag letters and cancel-tag must fail closed when read from persisted bytes.
     for scalar in 0xE0020..=0xE007F {

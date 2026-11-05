@@ -1242,3 +1242,25 @@ fn mongolian_free_variation_selectors_cannot_alias_queued_authority() {
         ));
     }
 }
+
+#[test]
+fn tifinagh_consonant_joiner_cannot_alias_queued_authority() {
+    // U+2D7F is an invisible joining mark; do not admit it in persisted identities.
+    let ch = char::from_u32(0x2D7F).expect("valid Unicode scalar");
+    assert!(matches!(
+        queued(
+            &format!("prepare{ch}execute"),
+            1,
+            format!("sha256:{}", "a".repeat(64))
+        ),
+        Err(IntentValidationError::ControlCharacter("action"))
+    ));
+    let origin = LocalSequence {
+        node_id: format!("node{ch}1"),
+        value: 1,
+    };
+    assert!(matches!(
+        origin.checkpoint_bytes(),
+        Err(IntentValidationError::ControlCharacter("origin.node_id"))
+    ));
+}

@@ -1156,3 +1156,38 @@ fn reserved_invisible_format_scalar_is_rejected() {
         Err(IntentValidationError::ControlCharacter("origin.node_id"))
     ));
 }
+
+#[test]
+fn noncharacters_cannot_enter_authority_bound_identities_or_checkpoints() {
+    for scalar in [
+        '\u{FDD0}',
+        '\u{FDEF}',
+        '\u{FFFE}',
+        '\u{1FFFF}',
+        '\u{10FFFF}',
+    ] {
+        let node_id = format!("node{scalar}1");
+        let result = QueuedIntent::try_new(
+            "intent-1".into(),
+            "workspace-1".into(),
+            "activity-1".into(),
+            "operation-1".into(),
+            "attempt-1".into(),
+            LocalSequence {
+                node_id: node_id.clone(),
+                value: 1,
+            },
+            "prepare".into(),
+            format!("sha256:{}", "a".repeat(64)),
+        );
+        assert_eq!(
+            result,
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        );
+        let checkpoint = format!("ptah.local-sequence.v1\n{node_id}\n1\n");
+        assert_eq!(
+            LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        );
+    }
+}

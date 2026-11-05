@@ -9,6 +9,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ProviderCore } from "../browser-provider/src/core.mjs";
 import { PlaywrightBackend } from "../browser-provider/src/playwright_backend.mjs";
+import { startPublicHttpsProxy } from "../browser-provider/src/public_https_guard.mjs";
 
 const workspaceRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const evidenceRoot = join(workspaceRoot, ".workspace", "browser-evidence");
@@ -22,17 +23,37 @@ async function main(argv) {
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
     throw new Error("only public website-style HTTP(S) URLs without embedded credentials are accepted");
   }
+  const publicOnly = process.env.HUNTER_PTAH_PUBLIC_ONLY === "1";
+  if (publicOnly && (url.protocol !== "https:" || url.hash ||
+      (url.port && url.port !== "443"))) {
+    throw new Error("Hunter public-read mode requires ordinary HTTPS port 443");
+  }
+  const proxy = publicOnly ? await startPublicHttpsProxy() : null;
+  try {
   const backend = new PlaywrightBackend();
   const core = new ProviderCore({ backend, providerGeneration: 1 });
   const launched = await core.launchProcess({
     expectedProviderGeneration: 1, processGeneration: 1, profileMode: "ephemeral",
-    launchOptions: { headless: !extra.includes("--headed") },
+    launchOptions: {
+      headless: !extra.includes("--headed"),
+      ...(publicOnly ? {
+        args: ["--disable-quic",
+          "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"],
+      } : {})
+    },
   });
   try {
     const context = await core.createContext({
       expectedProviderGeneration: 1, processHandle: launched.processHandle,
       processGeneration: 1, contextGeneration: 1, storageMode: "ephemeral",
-      contextOptions: { viewport: { width: 1280, height: 800 }, acceptDownloads: false }
+      networkPolicy: { publicHttpsEgress: publicOnly },
+      contextOptions: {
+        viewport: { width: 1280, height: 800 }, acceptDownloads: false,
+        ...(publicOnly ? {
+          proxy: { server: proxy.url, bypass: "<-loopback>" },
+          serviceWorkers: "block"
+        } : {}),
+      }
     });
     const page = await core.createPage({
       expectedProviderGeneration: 1, contextHandle: context.contextHandle,
@@ -83,6 +104,9 @@ async function main(argv) {
       expectedProviderGeneration: 1, processHandle: launched.processHandle,
       processGeneration: 1
     });
+  }
+  } finally {
+    if (proxy) await proxy.close();
   }
 }
 main(process.argv.slice(2)).then((result) => {

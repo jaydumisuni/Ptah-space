@@ -174,3 +174,27 @@ Playwright 1.60.0 / Chromium 148 local-data page boot and the new
 assertRuntimeCompatible() check. These checks do not certify every possible
 Node version; newer combinations are admitted by observed compatibility,
 not historical proof inheritance.
+
+
+### Hunter owner-chat public browser egress (post-baseline candidate)
+
+When invoked with HUNTER_PTAH_PUBLIC_ONLY=1, the Ptah-owned A11 browser
+uses an ephemeral context and a loopback-only HTTPS CONNECT proxy.
+The proxy resolves destination hostnames to public IPv4 addresses and
+connects to the checked IP directly, including after cross-origin redirects.
+Literal IPs, private/bogon DNS results, alternate ports, non-HTTPS requests,
+browser downloads, and service workers are denied. Context creation fails
+closed when the network policy lacks the guarded proxy. Chromium also disables
+QUIC and non-proxied WebRTC UDP for this bounded read mode.
+
+This is egress control within Ptah's owned browser lifecycle; it does
+not add a second Ptah owner login, grant, approval or independent transport.
+The flag is owned by the Hunter public-read adapter; default Ptah browser
+operations and normal app sessions do not acquire this policy implicitly.
+
+Proof obligations: public HTTPS page renders with Ptah-owned Chromium;
+loopback destination receives no connection; frozen A01 and historical A11
+qualification remain untouched. This network boundary does not turn
+untrusted page content into trusted instructions or grant a Director authority
+to modify another product. Browser-engine vulnerabilities and future
+network interfaces still require ongoing independent security review.

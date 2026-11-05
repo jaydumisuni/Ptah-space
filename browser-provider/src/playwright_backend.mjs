@@ -105,7 +105,18 @@ export class PlaywrightBackend {
     return { kind: "ephemeral", browser, aliases: [{ kind: "playwright_browser", value: browser.browserType().name() }] };
   }
 
-  async createContext(processHandle, { contextOptions }) {
+  async createContext(processHandle, { contextOptions, networkPolicy = {} }) {
+    if (networkPolicy?.publicHttpsEgress === true) {
+      invariant(processHandle?.kind === "ephemeral",
+        "public_egress_ephemeral_only", "public HTTPS guard requires an isolated ephemeral context");
+      invariant(contextOptions?.serviceWorkers === "block" &&
+          contextOptions?.acceptDownloads === false,
+        "public_egress_browser_policy_required", "public HTTPS guard must block service workers and downloads");
+      invariant(typeof contextOptions?.proxy?.server === "string" &&
+          /^http:\/\/127[.]0[.]0[.]1:[0-9]{1,5}$/.test(contextOptions.proxy.server) &&
+          contextOptions.proxy.bypass === "<-loopback>",
+        "public_egress_proxy_required", "public HTTPS guard requires the local checked egress proxy without loopback bypass");
+    }
     invariant(contextOptions?.ignoreHTTPSErrors !== true,
       "tls_verification_bypass_forbidden", "Ptah-owned Chromium must verify HTTPS certificates");
     let context;

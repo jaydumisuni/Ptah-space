@@ -1357,3 +1357,20 @@ fn script_specific_invisible_marks_are_rejected_on_checkpoint_recovery() {
         );
     }
 }
+
+#[test]
+fn musical_format_marks_are_rejected_on_checkpoint_recovery() {
+    // Music notation format controls must not survive persisted cursor recovery.
+    // Exercise every scalar in both accepted Unicode music-control ranges.
+    for scalar in (0x1D185..=0x1D18B).chain(0x1D1AA..=0x1D1AD) {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        let checkpoint = format!("ptah.local-sequence.v1\nnode{ch}1\n1\n");
+        assert!(
+            matches!(
+                LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
+                Err(IntentValidationError::ControlCharacter("origin.node_id"))
+            ),
+            "checkpoint admitted U+{scalar:04X}"
+        );
+    }
+}

@@ -1374,3 +1374,22 @@ fn musical_format_marks_are_rejected_on_checkpoint_recovery() {
         );
     }
 }
+
+#[test]
+fn arabic_prepend_controls_are_rejected_on_checkpoint_recovery() {
+    // Export-time validation must not be the only boundary: persisted cursor bytes
+    // can arrive from an untrusted or older writer.
+    for scalar in [
+        0x0600, 0x0601, 0x0602, 0x0603, 0x0604, 0x0605, 0x06DD, 0x070F, 0x08E2,
+    ] {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        let checkpoint = format!("ptah.local-sequence.v1\nnode{ch}1\n1\n");
+        assert!(
+            matches!(
+                LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
+                Err(IntentValidationError::ControlCharacter("origin.node_id"))
+            ),
+            "checkpoint admitted U+{scalar:04X}"
+        );
+    }
+}

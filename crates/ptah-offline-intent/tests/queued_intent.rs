@@ -1340,3 +1340,20 @@ fn unicode_tag_range_is_rejected_on_checkpoint_recovery() {
         );
     }
 }
+
+#[test]
+fn script_specific_invisible_marks_are_rejected_on_checkpoint_recovery() {
+    // Recovery must enforce the same identity boundary as queue construction.
+    // These script-specific marks are not ASCII controls or ordinary whitespace.
+    for scalar in [0x034F, 0x17B4, 0x17B5, 0x1D173, 0x1D17A, 0x1BCA0, 0x1BCA3] {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        let checkpoint = format!("ptah.local-sequence.v1\nnode{ch}1\n1\n");
+        assert!(
+            matches!(
+                LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
+                Err(IntentValidationError::ControlCharacter("origin.node_id"))
+            ),
+            "checkpoint admitted U+{scalar:04X}"
+        );
+    }
+}

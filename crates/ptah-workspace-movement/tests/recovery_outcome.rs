@@ -407,3 +407,17 @@ fn unresolved_operation_cannot_be_overridden_by_multiple_passing_postconditions(
     assert_eq!(verified.recovery_verification.outcome, RecoveryOutcome::Partial);
     assert_eq!(verified.phase, WorkspaceMovePhase::Failed);
 }
+
+#[test]
+fn missing_postconditions_cannot_be_treated_as_recovered() {
+    let verified = WorkspaceMover::verify_recovery(
+        restored(),
+        "verifier:independent",
+        Vec::new(),
+        Vec::new(),
+        vec!["evidence:independent-recovery".to_owned()],
+    );
+
+    assert_ne!(verified.recovery_verification.outcome, RecoveryOutcome::Recovered);
+    assert_eq!(verified.phase, WorkspaceMovePhase::Failed);
+}

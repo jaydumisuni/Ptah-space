@@ -301,3 +301,20 @@ fn reconstruction_rejects_restore_attempt_or_checkpoint_rebinding() {
         ))
     ));
 }
+
+#[test]
+fn reconstruction_rejects_recovery_generation_rebinding() {
+    let source = source('g');
+    let target = target(entity("activity.attempt"), 7, 1);
+    let transfer = transfer(&source, TransferRouteKind::Direct);
+    let restore = restore(&source, &target, "restore:generation-bound");
+    let mut proof = recovery(&restore, RecoveryOutcome::Recovered);
+    proof.target_materialization_generation += 1;
+
+    assert!(matches!(
+        WorkspaceMover::reconstruct_terminal_evidence(source, target, transfer, restore, proof),
+        Err(WorkspaceMoveError::OwnerEvidenceMismatch(
+            "recovery target_materialization_generation"
+        ))
+    ));
+}

@@ -1393,3 +1393,20 @@ fn arabic_prepend_controls_are_rejected_on_checkpoint_recovery() {
         );
     }
 }
+
+
+#[test]
+fn mongolian_and_tifinagh_marks_are_rejected_on_checkpoint_recovery() {
+    // Persisted cursors must enforce the same boundary as queued-intent construction.
+    for scalar in [0x180B, 0x180C, 0x180D, 0x180F, 0x2D7F] {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        let checkpoint = format!("ptah.local-sequence.v1\nnode{ch}1\n1\n");
+        assert!(
+            matches!(
+                LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
+                Err(IntentValidationError::ControlCharacter("origin.node_id"))
+            ),
+            "checkpoint admitted U+{scalar:04X}"
+        );
+    }
+}

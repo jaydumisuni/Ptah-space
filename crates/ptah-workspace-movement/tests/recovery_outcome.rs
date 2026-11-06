@@ -389,3 +389,21 @@ fn non_independent_verifier_is_inconclusive_and_remains_non_success() {
     assert!(!verified.recovery_verification.verifier_independent);
     assert_eq!(verified.phase, WorkspaceMovePhase::Failed);
 }
+
+#[test]
+fn unresolved_operation_cannot_be_overridden_by_multiple_passing_postconditions() {
+    let verified = WorkspaceMover::verify_recovery(
+        restored(),
+        "verifier:independent",
+        vec![passed_postcondition(), Postcondition {
+            key: "workspace.storage".to_owned(),
+            passed: true,
+            evidence_refs: vec!["evidence:workspace-storage".to_owned()],
+        }],
+        vec!["operation:pending-copy".to_owned()],
+        vec!["evidence:independent-recovery".to_owned()],
+    );
+
+    assert_eq!(verified.recovery_verification.outcome, RecoveryOutcome::Partial);
+    assert_eq!(verified.phase, WorkspaceMovePhase::Failed);
+}

@@ -395,16 +395,22 @@ fn unresolved_operation_cannot_be_overridden_by_multiple_passing_postconditions(
     let verified = WorkspaceMover::verify_recovery(
         restored(),
         "verifier:independent",
-        vec![passed_postcondition(), Postcondition {
-            key: "workspace.storage".to_owned(),
-            passed: true,
-            evidence_refs: vec!["evidence:workspace-storage".to_owned()],
-        }],
+        vec![
+            passed_postcondition(),
+            Postcondition {
+                key: "workspace.storage".to_owned(),
+                passed: true,
+                evidence_refs: vec!["evidence:workspace-storage".to_owned()],
+            },
+        ],
         vec!["operation:pending-copy".to_owned()],
         vec!["evidence:independent-recovery".to_owned()],
     );
 
-    assert_eq!(verified.recovery_verification.outcome, RecoveryOutcome::Partial);
+    assert_eq!(
+        verified.recovery_verification.outcome,
+        RecoveryOutcome::Partial
+    );
     assert_eq!(verified.phase, WorkspaceMovePhase::Failed);
 }
 
@@ -418,6 +424,25 @@ fn missing_postconditions_cannot_be_treated_as_recovered() {
         vec!["evidence:independent-recovery".to_owned()],
     );
 
-    assert_ne!(verified.recovery_verification.outcome, RecoveryOutcome::Recovered);
+    assert_ne!(
+        verified.recovery_verification.outcome,
+        RecoveryOutcome::Recovered
+    );
+    assert_eq!(verified.phase, WorkspaceMovePhase::Failed);
+}
+
+#[test]
+fn duplicate_recovery_postcondition_keys_cannot_certify_success() {
+    let verified = WorkspaceMover::verify_recovery(
+        restored(),
+        "verifier:independent",
+        vec![passed_postcondition(), passed_postcondition()],
+        Vec::new(),
+        vec!["evidence:independent-recovery".to_owned()],
+    );
+    assert_eq!(
+        verified.recovery_verification.outcome,
+        RecoveryOutcome::Inconclusive
+    );
     assert_eq!(verified.phase, WorkspaceMovePhase::Failed);
 }

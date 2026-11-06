@@ -1040,9 +1040,15 @@ impl CheckpointEngine {
                 .map(|item| item.subject_ref.clone()),
         );
         let unresolved_operation_refs: Vec<_> = unresolved.into_iter().collect();
+        // Repeated keys cannot independently certify distinct recovery obligations.
+        let mut seen_postcondition_keys = BTreeSet::new();
+        let duplicate_postcondition = postconditions
+            .iter()
+            .any(|item| !seen_postcondition_keys.insert(item.key.trim()));
         let missing_evidence = evidence_refs.is_empty()
             || restore.restart_evidence_refs.is_empty()
             || postconditions.is_empty()
+            || duplicate_postcondition
             || postconditions
                 .iter()
                 .any(|item| item.key.trim().is_empty() || item.evidence_refs.is_empty());

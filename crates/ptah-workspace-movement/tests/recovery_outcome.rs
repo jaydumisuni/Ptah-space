@@ -446,3 +446,33 @@ fn duplicate_recovery_postcondition_keys_cannot_certify_success() {
     );
     assert_eq!(verified.phase, WorkspaceMovePhase::Failed);
 }
+
+#[test]
+fn blank_recovery_evidence_cannot_certify_success() {
+    for evidence in [vec![" ".to_owned()], vec!["evidence:valid".to_owned(), "".to_owned()]] {
+        let verified = WorkspaceMover::verify_recovery(
+            restored(),
+            "verifier:independent",
+            vec![passed_postcondition()],
+            Vec::new(),
+            evidence,
+        );
+        assert_eq!(verified.recovery_verification.outcome, RecoveryOutcome::Inconclusive);
+        assert_eq!(verified.phase, WorkspaceMovePhase::Failed);
+    }
+}
+
+#[test]
+fn blank_postcondition_evidence_cannot_certify_success() {
+    let mut postcondition = passed_postcondition();
+    postcondition.evidence_refs.push("  ".to_owned());
+    let verified = WorkspaceMover::verify_recovery(
+        restored(),
+        "verifier:independent",
+        vec![postcondition],
+        Vec::new(),
+        vec!["evidence:independent-recovery".to_owned()],
+    );
+    assert_eq!(verified.recovery_verification.outcome, RecoveryOutcome::Inconclusive);
+    assert_eq!(verified.phase, WorkspaceMovePhase::Failed);
+}

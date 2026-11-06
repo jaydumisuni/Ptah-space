@@ -1031,7 +1031,7 @@ impl CheckpointEngine {
     ) -> RecoveryVerification {
         let verifier_ref = verifier_ref.into();
         let verifier_independent =
-            !verifier_ref.trim().is_empty() && verifier_ref != restore.executor_ref;
+            !verifier_ref.trim().is_empty() && verifier_ref.trim() != restore.executor_ref.trim();
         let mut unresolved: BTreeSet<String> = unresolved_operation_refs.into_iter().collect();
         unresolved.extend(
             restore
@@ -1046,12 +1046,16 @@ impl CheckpointEngine {
             .iter()
             .any(|item| !seen_postcondition_keys.insert(item.key.trim()));
         let missing_evidence = evidence_refs.is_empty()
+            || evidence_refs.iter().any(|item| item.trim().is_empty())
             || restore.restart_evidence_refs.is_empty()
+            || restore.restart_evidence_refs.iter().any(|item| item.trim().is_empty())
             || postconditions.is_empty()
             || duplicate_postcondition
             || postconditions
                 .iter()
-                .any(|item| item.key.trim().is_empty() || item.evidence_refs.is_empty());
+                .any(|item| item.key.trim().is_empty()
+                    || item.evidence_refs.is_empty()
+                    || item.evidence_refs.iter().any(|evidence| evidence.trim().is_empty()));
         let failed_postcondition = postconditions.iter().any(|item| !item.passed);
         let outcome = if failed_postcondition {
             RecoveryOutcome::Failed

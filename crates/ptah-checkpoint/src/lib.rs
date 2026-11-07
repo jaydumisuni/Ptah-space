@@ -1487,6 +1487,7 @@ fn validate_compatibility_decision(
         decision.outcome,
         CompatibilityOutcome::Compatible | CompatibilityOutcome::CompatibleWithConversion
     ) || decision.evidence_refs.is_empty()
+        || decision.evidence_refs.iter().any(|item| item.trim().is_empty())
     {
         return Err(CheckpointError::IncompatibleRestoreTarget);
     }
@@ -1606,4 +1607,37 @@ fn sha256_json<T: Serialize>(value: &T) -> Result<String, CheckpointError> {
 
 fn serialization_error(error: &serde_json::Error) -> CheckpointError {
     CheckpointError::Serialization(error.to_string())
+}
+
+#[cfg(test)]
+mod compatibility_evidence_tests {
+    use super::*;
+
+    #[test]
+    fn whitespace_only_compatibility_evidence_cannot_authorize_restore() {
+        let target = RestoreTarget {
+            workspace_ref: "workspace".into(),
+            workspace_revision_ref: "revision".into(),
+            target_materialization_generation: 2,
+            provider_targets: vec![],
+            compatibility_refs: vec![],
+            restart_evidence_refs: vec!["restart".into()],
+            authorization_refs: vec!["authorization".into()],
+            executor_ref: "executor".into(),
+        };
+        let decision = RestoreCompatibilityDecision {
+            decision_id: "decision".into(),
+            checkpoint_bundle_ref: "bundle".into(),
+            target_fingerprint_sha256: target_fingerprint(&target).unwrap(),
+            outcome: CompatibilityOutcome::Compatible,
+            evaluated_at_unix_ms: 1,
+            valid_until_unix_ms: 100,
+            evidence_refs: vec!["  ".into()],
+            limitations: vec![],
+        };
+        assert!(matches!(
+            validate_compatibility_decision("bundle", &target, &decision, 2),
+            Err(CheckpointError::IncompatibleRestoreTarget)
+        ));
+    }
 }

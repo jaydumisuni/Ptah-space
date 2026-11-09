@@ -1487,7 +1487,8 @@ fn validate_compatibility_decision(
         decision.outcome,
         CompatibilityOutcome::Compatible | CompatibilityOutcome::CompatibleWithConversion
     ) || decision.evidence_refs.is_empty()
-        || decision.evidence_refs.iter().any(|item| item.trim().is_empty() || item.chars().any(char::is_control))
+        || decision.evidence_refs.iter().any(|item| item.trim().is_empty()
+            || item.chars().any(|ch| ch.is_control() || matches!(ch, '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')))
     {
         return Err(CheckpointError::IncompatibleRestoreTarget);
     }
@@ -1625,7 +1626,7 @@ mod compatibility_evidence_tests {
             authorization_refs: vec!["authorization".into()],
             executor_ref: "executor".into(),
         };
-        for evidence in ["evidence\nforged", "evidence\0hidden"] {
+        for evidence in ["evidence\nforged", "evidence\0hidden", "evidence\u{200b}hidden", "evidence\u{202e}reversed", "evidence\u{2066}isolated"] {
             let decision = RestoreCompatibilityDecision {
                 decision_id: "decision".into(),
                 checkpoint_bundle_ref: "bundle".into(),

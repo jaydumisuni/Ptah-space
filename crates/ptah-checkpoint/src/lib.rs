@@ -1487,7 +1487,7 @@ fn validate_compatibility_decision(
         decision.outcome,
         CompatibilityOutcome::Compatible | CompatibilityOutcome::CompatibleWithConversion
     ) || decision.evidence_refs.is_empty()
-        || decision.evidence_refs.iter().any(|item| item.trim().is_empty())
+        || decision.evidence_refs.iter().any(|item| item.trim().is_empty() || item.chars().any(char::is_control))
     {
         return Err(CheckpointError::IncompatibleRestoreTarget);
     }
@@ -1612,6 +1612,36 @@ fn serialization_error(error: &serde_json::Error) -> CheckpointError {
 #[cfg(test)]
 mod compatibility_evidence_tests {
     use super::*;
+
+    #[test]
+    fn control_character_compatibility_evidence_cannot_authorize_restore() {
+        let target = RestoreTarget {
+            workspace_ref: "workspace".into(),
+            workspace_revision_ref: "revision".into(),
+            target_materialization_generation: 2,
+            provider_targets: vec![],
+            compatibility_refs: vec![],
+            restart_evidence_refs: vec!["restart".into()],
+            authorization_refs: vec!["authorization".into()],
+            executor_ref: "executor".into(),
+        };
+        for evidence in ["evidence\nforged", "evidence\0hidden"] {
+            let decision = RestoreCompatibilityDecision {
+                decision_id: "decision".into(),
+                checkpoint_bundle_ref: "bundle".into(),
+                target_fingerprint_sha256: target_fingerprint(&target).unwrap(),
+                outcome: CompatibilityOutcome::Compatible,
+                evaluated_at_unix_ms: 1,
+                valid_until_unix_ms: 100,
+                evidence_refs: vec![evidence.into()],
+                limitations: vec![],
+            };
+            assert!(matches!(
+                validate_compatibility_decision("bundle", &target, &decision, 2),
+                Err(CheckpointError::IncompatibleRestoreTarget)
+            ));
+        }
+    }
 
     #[test]
     fn whitespace_only_compatibility_evidence_cannot_authorize_restore() {

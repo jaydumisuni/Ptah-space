@@ -1048,14 +1048,20 @@ impl CheckpointEngine {
         let missing_evidence = evidence_refs.is_empty()
             || evidence_refs.iter().any(|item| item.trim().is_empty())
             || restore.restart_evidence_refs.is_empty()
-            || restore.restart_evidence_refs.iter().any(|item| item.trim().is_empty())
+            || restore
+                .restart_evidence_refs
+                .iter()
+                .any(|item| item.trim().is_empty())
             || postconditions.is_empty()
             || duplicate_postcondition
-            || postconditions
-                .iter()
-                .any(|item| item.key.trim().is_empty()
+            || postconditions.iter().any(|item| {
+                item.key.trim().is_empty()
                     || item.evidence_refs.is_empty()
-                    || item.evidence_refs.iter().any(|evidence| evidence.trim().is_empty()));
+                    || item
+                        .evidence_refs
+                        .iter()
+                        .any(|evidence| evidence.trim().is_empty())
+            });
         let failed_postcondition = postconditions.iter().any(|item| !item.passed);
         let outcome = if failed_postcondition {
             RecoveryOutcome::Failed
@@ -1488,7 +1494,7 @@ fn validate_compatibility_decision(
         CompatibilityOutcome::Compatible | CompatibilityOutcome::CompatibleWithConversion
     ) || decision.evidence_refs.is_empty()
         || decision.evidence_refs.iter().any(|item| item.trim().is_empty()
-            || item.chars().any(|ch| ch.is_control() || matches!(ch, '\u{00ad}' | '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{202a}'..='\u{202e}' | '\u{2060}' | '\u{2063}' | '\u{2066}'..='\u{2069}' | '\u{feff}')))
+            || item.chars().any(|ch| ch.is_control() || matches!(ch, '\u{00ad}' | '\u{034f}' | '\u{180e}' | '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{feff}')))
     {
         return Err(CheckpointError::IncompatibleRestoreTarget);
     }
@@ -1626,7 +1632,24 @@ mod compatibility_evidence_tests {
             authorization_refs: vec!["authorization".into()],
             executor_ref: "executor".into(),
         };
-        for evidence in ["evidence\nforged", "evidence\0hidden", "evidence\u{200b}hidden", "evidence\u{202e}reversed", "evidence\u{2066}isolated", "evidence\u{2060}joined", "evidence\u{2063}separated", "evidence\u{feff}hidden", "evidence\u{00ad}soft"] {
+        for evidence in [
+            "evidence\nforged",
+            "evidence\0hidden",
+            "evidence\u{200b}hidden",
+            "evidence\u{202e}reversed",
+            "evidence\u{2066}isolated",
+            "evidence\u{2060}joined",
+            "evidence\u{2063}separated",
+            "evidence\u{feff}hidden",
+            "evidence\u{00ad}soft",
+            "evidence\u{034f}joiner",
+            "evidence\u{180e}separator",
+            "evidence\u{200e}ltr",
+            "evidence\u{200f}rtl",
+            "evidence\u{2061}function",
+            "evidence\u{2062}multiply",
+            "evidence\u{2064}plus",
+        ] {
             let decision = RestoreCompatibilityDecision {
                 decision_id: "decision".into(),
                 checkpoint_bundle_ref: "bundle".into(),

@@ -1494,7 +1494,7 @@ fn validate_compatibility_decision(
         CompatibilityOutcome::Compatible | CompatibilityOutcome::CompatibleWithConversion
     ) || decision.evidence_refs.is_empty()
         || decision.evidence_refs.iter().any(|item| item.trim().is_empty()
-            || item.chars().any(|ch| ch.is_control() || matches!(ch, '\u{00ad}' | '\u{034f}' | '\u{180e}' | '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{feff}')))
+            || item.chars().any(|ch| ch.is_control() || matches!(ch, '\u{00ad}' | '\u{034f}' | '\u{061c}' | '\u{180e}' | '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206f}' | '\u{feff}')))
     {
         return Err(CheckpointError::IncompatibleRestoreTarget);
     }
@@ -1643,6 +1643,9 @@ mod compatibility_evidence_tests {
             "evidence\u{feff}hidden",
             "evidence\u{00ad}soft",
             "evidence\u{034f}joiner",
+            "evidence\u{061c}arabic-mark",
+            "evidence\u{206a}deprecated-inhibit",
+            "evidence\u{206f}deprecated-nominal",
             "evidence\u{180e}separator",
             "evidence\u{200e}ltr",
             "evidence\u{200f}rtl",

@@ -1671,6 +1671,33 @@ mod compatibility_evidence_tests {
     }
 
     #[test]
+    fn ordinary_international_compatibility_evidence_remains_acceptable() {
+        let target = RestoreTarget {
+            workspace_ref: "workspace".into(),
+            workspace_revision_ref: "revision".into(),
+            target_materialization_generation: 2,
+            provider_targets: vec![],
+            compatibility_refs: vec![],
+            restart_evidence_refs: vec!["restart".into()],
+            authorization_refs: vec!["authorization".into()],
+            executor_ref: "executor".into(),
+        };
+        for evidence in ["preuve-récupération", "証拠-復元", "دليل-استعادة"] {
+            let decision = RestoreCompatibilityDecision {
+                decision_id: "decision".into(),
+                checkpoint_bundle_ref: "bundle".into(),
+                target_fingerprint_sha256: target_fingerprint(&target).unwrap(),
+                outcome: CompatibilityOutcome::Compatible,
+                evaluated_at_unix_ms: 1,
+                valid_until_unix_ms: 100,
+                evidence_refs: vec![evidence.into()],
+                limitations: vec![],
+            };
+            assert!(validate_compatibility_decision("bundle", &target, &decision, 2).is_ok());
+        }
+    }
+
+    #[test]
     fn whitespace_only_compatibility_evidence_cannot_authorize_restore() {
         let target = RestoreTarget {
             workspace_ref: "workspace".into(),

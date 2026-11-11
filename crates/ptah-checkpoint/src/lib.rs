@@ -1494,7 +1494,7 @@ fn validate_compatibility_decision(
         CompatibilityOutcome::Compatible | CompatibilityOutcome::CompatibleWithConversion
     ) || decision.evidence_refs.is_empty()
         || decision.evidence_refs.iter().any(|item| item.trim().is_empty()
-            || item.chars().any(|ch| ch.is_control() || matches!(ch, '\u{00ad}' | '\u{034f}' | '\u{061c}' | '\u{180e}' | '\u{115f}' | '\u{1160}' | '\u{17b4}' | '\u{17b5}' | '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{200e}' | '\u{200f}' | '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206f}' | '\u{fe00}'..='\u{fe0f}' | '\u{feff}' | '\u{3164}' | '\u{ffa0}' | '\u{e0000}'..='\u{e007f}' | '\u{e0100}'..='\u{e01ef}')))
+            || item.chars().any(|ch| ch.is_control() || matches!(ch, '\u{00ad}' | '\u{034f}' | '\u{061c}' | '\u{180e}' | '\u{115f}' | '\u{1160}' | '\u{17b4}' | '\u{17b5}' | '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{200e}' | '\u{200f}' | '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206f}' | '\u{fe00}'..='\u{fe0f}' | '\u{feff}' | '\u{fff9}'..='\u{fffb}' | '\u{3164}' | '\u{ffa0}' | '\u{e0000}'..='\u{e007f}' | '\u{e0100}'..='\u{e01ef}')))
     {
         return Err(CheckpointError::IncompatibleRestoreTarget);
     }
@@ -1661,6 +1661,9 @@ mod compatibility_evidence_tests {
             "evidence\u{fe0f}emoji-variation",
             "evidence\u{17b4}khmer-inherent-a",
             "evidence\u{17b5}khmer-inherent-aa",
+            "evidence\u{fff9}interlinear-anchor",
+            "evidence\u{fffa}interlinear-separator",
+            "evidence\u{fffb}interlinear-terminator",
             "evidence\u{e0001}language-tag",
             "evidence\u{e0020}tag-space",
             "evidence\u{e007f}cancel-tag",

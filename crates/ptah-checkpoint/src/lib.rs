@@ -1494,7 +1494,7 @@ fn validate_compatibility_decision(
         CompatibilityOutcome::Compatible | CompatibilityOutcome::CompatibleWithConversion
     ) || decision.evidence_refs.is_empty()
         || decision.evidence_refs.iter().any(|item| item.trim().is_empty()
-            || item.chars().any(|ch| ch.is_control() || matches!(ch, '\u{00ad}' | '\u{034f}' | '\u{061c}' | '\u{180e}' | '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206f}' | '\u{feff}')))
+            || item.chars().any(|ch| ch.is_control() || matches!(ch, '\u{00ad}' | '\u{034f}' | '\u{061c}' | '\u{180e}' | '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206f}' | '\u{fe00}'..='\u{fe0f}' | '\u{feff}' | '\u{e0100}'..='\u{e01ef}')))
     {
         return Err(CheckpointError::IncompatibleRestoreTarget);
     }
@@ -1652,6 +1652,8 @@ mod compatibility_evidence_tests {
             "evidence\u{2061}function",
             "evidence\u{2062}multiply",
             "evidence\u{2064}plus",
+            "evidence\u{fe0f}emoji-variation",
+            "evidence\u{e0100}supplementary-variation",
         ] {
             let decision = RestoreCompatibilityDecision {
                 decision_id: "decision".into(),

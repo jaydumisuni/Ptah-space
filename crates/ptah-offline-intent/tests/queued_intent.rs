@@ -1410,3 +1410,20 @@ fn mongolian_and_tifinagh_marks_are_rejected_on_checkpoint_recovery() {
         );
     }
 }
+
+#[test]
+fn kaithi_format_controls_cannot_alias_queued_authority() {
+    // Kaithi number signs are default-ignorable format controls.
+    for scalar in [0x110BD, 0x110CD] {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        assert!(matches!(
+            queued(&format!("prepare{ch}execute"), 1, format!("sha256:{}", "a".repeat(64))),
+            Err(IntentValidationError::ControlCharacter("action"))
+        ));
+        let origin = LocalSequence { node_id: format!("node{ch}1"), value: 1 };
+        assert!(matches!(
+            origin.checkpoint_bytes(),
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        ));
+    }
+}

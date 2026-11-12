@@ -1439,3 +1439,25 @@ fn kaithi_format_controls_cannot_alias_queued_authority() {
         ));
     }
 }
+
+#[test]
+fn interlinear_annotation_controls_cannot_alias_queued_intent_identity() {
+    // Annotation anchors/separators/terminators must not be embedded in
+    // persisted action or node identities, including recovered checkpoints.
+    for scalar in 0xFFF9..=0xFFFB {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        assert!(matches!(
+            queued(
+                &format!("prepare{ch}execute"),
+                1,
+                format!("sha256:{}", "a".repeat(64))
+            ),
+            Err(IntentValidationError::ControlCharacter("action"))
+        ));
+        let checkpoint = format!("ptah.local-sequence.v1\nnode{ch}1\n1\n");
+        assert!(matches!(
+            LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        ));
+    }
+}

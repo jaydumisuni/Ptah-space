@@ -1431,5 +1431,11 @@ fn kaithi_format_controls_cannot_alias_queued_authority() {
             origin.checkpoint_bytes(),
             Err(IntentValidationError::ControlCharacter("origin.node_id"))
         ));
+        // Recovery must reject persisted bytes independently of the writer.
+        let checkpoint = format!("ptah.local-sequence.v1\nnode{ch}1\n1\n");
+        assert!(matches!(
+            LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        ));
     }
 }

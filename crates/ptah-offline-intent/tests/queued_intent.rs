@@ -1461,3 +1461,18 @@ fn interlinear_annotation_controls_cannot_alias_queued_intent_identity() {
         ));
     }
 }
+
+#[test]
+fn mongolian_vowel_separator_cannot_alias_queued_identity() {
+    // U+180E is a format character, not ordinary identity text.
+    let ch = '\u{180E}';
+    assert!(matches!(
+        queued(&format!("prepare{ch}execute"), 1, format!("sha256:{}", "a".repeat(64))),
+        Err(IntentValidationError::ControlCharacter("action"))
+    ));
+    let checkpoint = format!("ptah.local-sequence.v1\nnode{ch}1\n1\n");
+    assert!(matches!(
+        LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
+        Err(IntentValidationError::ControlCharacter("origin.node_id"))
+    ));
+}

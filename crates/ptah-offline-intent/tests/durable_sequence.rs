@@ -803,3 +803,25 @@ fn duplicate_replay_rejects_corrupt_prior_sequence_width() {
     drop(journal);
     clean(&path);
 }
+
+#[test]
+fn duplicate_replay_rejects_corrupt_prior_negative_sequence() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    journal.enqueue(&draft("n1", "first")).unwrap();
+    journal.enqueue(&draft("n1", "second")).unwrap();
+
+    // A forged negative predecessor cannot authorize replay of a valid tail.
+    let sql = Connection::open(&path).unwrap();
+    sql.execute_batch(
+        "PRAGMA ignore_check_constraints=ON;
+         UPDATE queued_intents SET sequence=-1 WHERE intent_id='first';
+         PRAGMA ignore_check_constraints=OFF;",
+    )
+    .unwrap();
+    drop(sql);
+    assert!(journal.enqueue(&draft("n1", "second")).is_err());
+    assert!(journal.append(&intent("n1", 2, "second")).is_err());
+    drop(journal);
+    clean(&path);
+}

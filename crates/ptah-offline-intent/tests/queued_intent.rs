@@ -1467,7 +1467,11 @@ fn mongolian_vowel_separator_cannot_alias_queued_identity() {
     // U+180E is a format character, not ordinary identity text.
     let ch = '\u{180E}';
     assert!(matches!(
-        queued(&format!("prepare{ch}execute"), 1, format!("sha256:{}", "a".repeat(64))),
+        queued(
+            &format!("prepare{ch}execute"),
+            1,
+            format!("sha256:{}", "a".repeat(64))
+        ),
         Err(IntentValidationError::ControlCharacter("action"))
     ));
     let checkpoint = format!("ptah.local-sequence.v1\nnode{ch}1\n1\n");
@@ -1475,4 +1479,25 @@ fn mongolian_vowel_separator_cannot_alias_queued_identity() {
         LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
         Err(IntentValidationError::ControlCharacter("origin.node_id"))
     ));
+}
+
+#[test]
+fn arabic_extended_b_prepend_marks_cannot_alias_queued_identity() {
+    // Unicode Arabic Extended-B prepend controls are invisible identity metadata.
+    for scalar in 0x0890..=0x0891 {
+        let ch = char::from_u32(scalar).expect("valid Unicode scalar");
+        assert!(matches!(
+            queued(
+                &format!("prepare{ch}execute"),
+                1,
+                format!("sha256:{}", "a".repeat(64))
+            ),
+            Err(IntentValidationError::ControlCharacter("action"))
+        ));
+        let checkpoint = format!("ptah.local-sequence.v1\nnode{ch}1\n1\n");
+        assert!(matches!(
+            LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
+            Err(IntentValidationError::ControlCharacter("origin.node_id"))
+        ));
+    }
 }

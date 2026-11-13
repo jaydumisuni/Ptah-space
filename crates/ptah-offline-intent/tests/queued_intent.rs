@@ -1540,3 +1540,18 @@ fn checkpoint_framing_rejects_noncanonical_line_endings() {
         ));
     }
 }
+
+#[test]
+fn checkpoint_recovery_rejects_invalid_utf8_and_oversized_payloads() {
+    // Validate the byte boundary before deriving any persisted cursor authority.
+    for checkpoint in [
+        b"ptah.local-sequence.v1\nnode\xff\n1\n".to_vec(),
+        b"ptah.local-sequence.v1\nnode1\n1\n\x80".to_vec(),
+        vec![b'x'; 174],
+    ] {
+        assert!(matches!(
+            LocalSequence::from_checkpoint_bytes(&checkpoint),
+            Err(IntentValidationError::InvalidCheckpoint)
+        ));
+    }
+}

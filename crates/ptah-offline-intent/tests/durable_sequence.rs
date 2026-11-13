@@ -982,3 +982,24 @@ fn duplicate_replay_rejects_prior_digest_with_word_joiner() {
     drop(journal);
     clean(&path);
 }
+
+#[test]
+fn duplicate_replay_rejects_prior_digest_with_byte_order_mark() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    journal.enqueue(&draft("n1", "first")).unwrap();
+    journal.enqueue(&draft("n1", "second")).unwrap();
+
+    // A Unicode BOM embedded in a historical digest is not valid custody.
+    let sql = Connection::open(&path).unwrap();
+    sql.execute(
+        "UPDATE queued_intents SET digest='sha256:0000\u{feff}0000' WHERE intent_id='first'",
+        [],
+    )
+    .unwrap();
+    drop(sql);
+    assert!(journal.enqueue(&draft("n1", "second")).is_err());
+    assert!(journal.append(&intent("n1", 2, "second")).is_err());
+    drop(journal);
+    clean(&path);
+}

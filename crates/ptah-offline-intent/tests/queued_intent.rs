@@ -1501,3 +1501,15 @@ fn arabic_extended_b_prepend_marks_cannot_alias_queued_identity() {
         ));
     }
 }
+
+
+#[test]
+fn byte_order_mark_is_rejected_on_checkpoint_recovery() {
+    // A BOM embedded in persisted node identity must not acquire cursor authority.
+    let ch = char::from_u32(0xFEFF).expect("valid Unicode scalar");
+    let checkpoint = format!("ptah.local-sequence.v1\nnode{ch}1\n1\n");
+    assert!(matches!(
+        LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
+        Err(IntentValidationError::ControlCharacter("origin.node_id"))
+    ));
+}

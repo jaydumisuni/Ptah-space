@@ -1525,3 +1525,18 @@ fn checkpoint_framing_rejects_leading_bom_and_trailing_bytes() {
         assert!(LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()).is_err());
     }
 }
+
+#[test]
+fn checkpoint_framing_rejects_noncanonical_line_endings() {
+    // Cursor custody requires exact LF framing and a final terminator.
+    for checkpoint in [
+        "ptah.local-sequence.v1\r\nnode1\r\n1\r\n",
+        "ptah.local-sequence.v1\nnode1\n1",
+        "ptah.local-sequence.v1\nnode1\n1\n\0",
+    ] {
+        assert!(matches!(
+            LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
+            Err(IntentValidationError::InvalidCheckpoint)
+        ));
+    }
+}

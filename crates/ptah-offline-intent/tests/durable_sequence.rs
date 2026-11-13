@@ -939,3 +939,25 @@ fn duplicate_replay_rejects_embedded_format_character_in_prior_digest() {
     drop(journal);
     clean(&path);
 }
+
+#[test]
+fn duplicate_replay_rejects_prior_digest_with_nonbreaking_space() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    journal.enqueue(&draft("n1", "first")).unwrap();
+    journal.enqueue(&draft("n1", "second")).unwrap();
+
+    // Unicode spacing in predecessor digest custody must not grant
+    // duplicate acknowledgement authority to an otherwise valid tail.
+    let sql = Connection::open(&path).unwrap();
+    sql.execute(
+        "UPDATE queued_intents SET digest='sha256:0000 0000' WHERE intent_id='first'",
+        [],
+    )
+    .unwrap();
+    drop(sql);
+    assert!(journal.enqueue(&draft("n1", "second")).is_err());
+    assert!(journal.append(&intent("n1", 2, "second")).is_err());
+    drop(journal);
+    clean(&path);
+}

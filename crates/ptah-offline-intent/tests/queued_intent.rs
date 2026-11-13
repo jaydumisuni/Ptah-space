@@ -1513,3 +1513,15 @@ fn byte_order_mark_is_rejected_on_checkpoint_recovery() {
         Err(IntentValidationError::ControlCharacter("origin.node_id"))
     ));
 }
+
+#[test]
+fn checkpoint_framing_rejects_leading_bom_and_trailing_bytes() {
+    // Persisted sequence framing is exact; recovery must not normalize a
+    // prefixed BOM or ignore appended bytes before deriving cursor authority.
+    for checkpoint in [
+        "\u{FEFF}ptah.local-sequence.v1\nnode1\n1\n",
+        "ptah.local-sequence.v1\nnode1\n1\nextra",
+    ] {
+        assert!(LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()).is_err());
+    }
+}

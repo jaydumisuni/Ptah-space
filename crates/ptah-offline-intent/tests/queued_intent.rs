@@ -1555,3 +1555,17 @@ fn checkpoint_recovery_rejects_invalid_utf8_and_oversized_payloads() {
         ));
     }
 }
+
+#[test]
+fn checkpoint_recovery_rejects_noncanonical_numeric_cursor_forms() {
+    // A recovered cursor must have exactly one canonical decimal identity.
+    for raw in ["01", "+1", "-1", " 1", "1 ", "18446744073709551616"] {
+        let checkpoint = format!("ptah.local-sequence.v1\nnode1\n{raw}\n");
+        assert!(matches!(
+            LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
+            Err(IntentValidationError::InvalidCheckpoint)
+        ), "admitted numeric alias: {raw:?}");
+    }
+    let maximum = format!("ptah.local-sequence.v1\nnode1\n{}\n", u64::MAX);
+    assert_eq!(LocalSequence::from_checkpoint_bytes(maximum.as_bytes()).unwrap().value, u64::MAX);
+}

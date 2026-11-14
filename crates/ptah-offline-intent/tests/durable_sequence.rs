@@ -1130,7 +1130,10 @@ fn duplicate_replay_rejects_prior_digest_with_ascii_del() {
 
 #[test]
 fn duplicate_replay_rejects_prior_digest_with_c1_controls() {
-    for invalid_digest in ["sha256:0000\u{0085}0000", "sha256:0000\u{009f}0000"] {
+    for control in ['\u{0085}', '\u{009f}'] {
+        // Preserve the 64-character digest width: reject the non-hex byte,
+        // not merely a truncated historical digest.
+        let invalid_digest = format!("sha256:{}{}{}", "0".repeat(31), control, "0".repeat(32));
         let path = scratch();
         let mut journal = DurableIntentJournal::open(&path).unwrap();
         journal.enqueue(&draft("n1", "first")).unwrap();
@@ -1139,7 +1142,7 @@ fn duplicate_replay_rejects_prior_digest_with_c1_controls() {
         let sql = Connection::open(&path).unwrap();
         sql.execute(
             "UPDATE queued_intents SET digest=?1 WHERE intent_id='first'",
-            [invalid_digest],
+            [invalid_digest.as_str()],
         ).unwrap();
         drop(sql);
         assert!(journal.enqueue(&draft("n1", "second")).is_err());

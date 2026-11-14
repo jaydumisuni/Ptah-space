@@ -1090,3 +1090,21 @@ fn duplicate_replay_rejects_prior_digest_with_ascii_line_breaks() {
         clean(&path);
     }
 }
+
+#[test]
+fn duplicate_replay_rejects_prior_digest_with_ascii_control_separators() {
+    for invalid_digest in ["sha256:0000\u{001c}0000", "sha256:0000\u{001d}0000", "sha256:0000\u{001e}0000", "sha256:0000\u{001f}0000"] {
+        let path = scratch();
+        let mut journal = DurableIntentJournal::open(&path).unwrap();
+        journal.enqueue(&draft("n1", "first")).unwrap();
+        journal.enqueue(&draft("n1", "second")).unwrap();
+        // Record, group, file, and unit separators cannot acquire historical digest authority.
+        let sql = Connection::open(&path).unwrap();
+        sql.execute("UPDATE queued_intents SET digest=?1 WHERE intent_id='first'", [invalid_digest]).unwrap();
+        drop(sql);
+        assert!(journal.enqueue(&draft("n1", "second")).is_err());
+        assert!(journal.append(&intent("n1", 2, "second")).is_err());
+        drop(journal);
+        clean(&path);
+    }
+}

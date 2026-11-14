@@ -1108,3 +1108,22 @@ fn duplicate_replay_rejects_prior_digest_with_ascii_control_separators() {
         clean(&path);
     }
 }
+
+#[test]
+fn duplicate_replay_rejects_prior_digest_with_ascii_del() {
+    let path = scratch();
+    let mut journal = DurableIntentJournal::open(&path).unwrap();
+    journal.enqueue(&draft("n1", "first")).unwrap();
+    journal.enqueue(&draft("n1", "second")).unwrap();
+    // DEL is a control character, not a hexadecimal digest digit.
+    let sql = Connection::open(&path).unwrap();
+    sql.execute(
+        "UPDATE queued_intents SET digest=?1 WHERE intent_id='first'",
+        ["sha256:0000\u{007f}0000"],
+    ).unwrap();
+    drop(sql);
+    assert!(journal.enqueue(&draft("n1", "second")).is_err());
+    assert!(journal.append(&intent("n1", 2, "second")).is_err());
+    drop(journal);
+    clean(&path);
+}

@@ -1154,6 +1154,7 @@ fn duplicate_replay_rejects_prior_digest_with_c1_controls() {
 
 #[test]
 fn duplicate_replay_rejects_prior_digest_with_unicode_fullwidth_hex() {
+    for lookalike in ['\u{ff41}', '\u{ff10}'] {
     let path = scratch();
     let mut journal = DurableIntentJournal::open(&path).unwrap();
     journal.enqueue(&draft("n1", "first")).unwrap();
@@ -1161,7 +1162,7 @@ fn duplicate_replay_rejects_prior_digest_with_unicode_fullwidth_hex() {
 
     // A fullwidth hexadecimal lookalike must not acquire historical
     // digest authority, even when the digest has 64 visible digits.
-    let invalid_digest = format!("sha256:{}{}{}", "0".repeat(31), '\u{ff41}', "0".repeat(32));
+    let invalid_digest = format!("sha256:{}{}{}", "0".repeat(31), lookalike, "0".repeat(32));
     let sql = Connection::open(&path).unwrap();
     sql.execute(
         "UPDATE queued_intents SET digest=?1 WHERE intent_id='first'",
@@ -1172,4 +1173,5 @@ fn duplicate_replay_rejects_prior_digest_with_unicode_fullwidth_hex() {
     assert!(journal.append(&intent("n1", 2, "second")).is_err());
     drop(journal);
     clean(&path);
+    }
 }

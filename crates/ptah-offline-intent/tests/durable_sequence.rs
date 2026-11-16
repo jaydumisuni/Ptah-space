@@ -1200,3 +1200,26 @@ fn duplicate_replay_rejects_prior_digest_with_unicode_confusable_prefix() {
         clean(&path);
     }
 }
+
+#[test]
+fn duplicate_replay_rejects_prior_digest_with_prefixed_whitespace() {
+    for prefix in [" ", "\t", "\r", "\n", "\u{feff}"] {
+        let path = scratch();
+        let mut journal = DurableIntentJournal::open(&path).unwrap();
+        journal.enqueue(&draft("n1", "first")).unwrap();
+        journal.enqueue(&draft("n1", "second")).unwrap();
+
+        // Leading whitespace or a BOM cannot normalize into valid historical custody.
+        let invalid_digest = format!("{}sha256:{}", prefix, "0".repeat(64));
+        let sql = Connection::open(&path).unwrap();
+        sql.execute(
+            "UPDATE queued_intents SET digest=?1 WHERE intent_id='first'",
+            [invalid_digest.as_str()],
+        ).unwrap();
+        drop(sql);
+        assert!(journal.enqueue(&draft("n1", "second")).is_err());
+        assert!(journal.append(&intent("n1", 2, "second")).is_err());
+        drop(journal);
+        clean(&path);
+    }
+}

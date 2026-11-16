@@ -204,6 +204,18 @@
       ],
       "contiguous_contract": "reject_order",
       "explicit_gap_contract": "reject_order"
+    },
+    {
+      "id": "negative-sequence-forbidden",
+      "records": [
+        [
+          "node-1",
+          -1,
+          "intent-negative"
+        ]
+      ],
+      "contiguous_contract": "reject_order",
+      "explicit_gap_contract": "reject_order"
     }
   ]
 }

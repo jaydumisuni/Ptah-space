@@ -175,6 +175,23 @@
       ],
       "contiguous_contract": "reject_gap",
       "explicit_gap_contract": "requires_gap_evidence"
+    },
+    {
+      "id": "terminal-wraparound-forbidden",
+      "records": [
+        [
+          "node-1",
+          18446744073709551615,
+          "intent-max"
+        ],
+        [
+          "node-1",
+          0,
+          "intent-wrapped-zero"
+        ]
+      ],
+      "contiguous_contract": "reject_order",
+      "explicit_gap_contract": "reject_order"
     }
   ]
 }

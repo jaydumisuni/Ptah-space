@@ -158,6 +158,23 @@
       ],
       "contiguous_contract": "accept_terminal",
       "explicit_gap_contract": "accept_terminal"
+    },
+    {
+      "id": "terminal-interior-gap",
+      "records": [
+        [
+          "node-1",
+          18446744073709551613,
+          "intent-max-minus-two"
+        ],
+        [
+          "node-1",
+          18446744073709551615,
+          "intent-max"
+        ]
+      ],
+      "contiguous_contract": "reject_gap",
+      "explicit_gap_contract": "requires_gap_evidence"
     }
   ]
 }

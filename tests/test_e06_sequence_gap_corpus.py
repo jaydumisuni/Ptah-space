@@ -1,0 +1,38 @@
+import copy
+import importlib.util
+import json
+import unittest
+from pathlib import Path
+
+SCRIPT = Path(__file__).resolve().parents[1] / "tools/validate_e06_sequence_gap_corpus.py"
+spec = importlib.util.spec_from_file_location("e06_validator", SCRIPT)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+class CorpusValidationTests(unittest.TestCase):
+    def setUp(self):
+        self.document = json.loads(module.CORPUS.read_text())
+
+    def test_current_corpus(self):
+        self.assertGreaterEqual(module.validate(self.document), 17)
+
+    def test_boolean_sequence_is_not_integer(self):
+        case = copy.deepcopy(self.document)
+        case["cases"][0]["records"][0][1] = True
+        with self.assertRaises(ValueError):
+            module.validate(case)
+
+    def test_duplicate_case_id_rejected(self):
+        case = copy.deepcopy(self.document)
+        case["cases"][1]["id"] = case["cases"][0]["id"]
+        with self.assertRaises(ValueError):
+            module.validate(case)
+
+    def test_authorizing_status_rejected(self):
+        case = copy.deepcopy(self.document)
+        case["status"] = "runtime_authorized"
+        with self.assertRaises(ValueError):
+            module.validate(case)
+
+if __name__ == "__main__":
+    unittest.main()

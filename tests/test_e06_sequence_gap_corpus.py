@@ -13,6 +13,16 @@ class CorpusValidationTests(unittest.TestCase):
     def setUp(self):
         self.document = json.loads(module.CORPUS.read_text())
 
+    def test_duplicate_json_keys_rejected_at_any_depth(self):
+        for raw in (
+            '{"schema":"first","schema":"second"}',
+            '{"cases":[{"id":"first","id":"second"}]}',
+            '{"cases":[{"records":[{"node":"a","node":"b"}]}]}',
+        ):
+            with self.subTest(raw=raw):
+                with self.assertRaisesRegex(ValueError, "duplicate corpus JSON key"):
+                    module.load_corpus(raw)
+
     def test_current_corpus(self):
         self.assertGreaterEqual(module.validate(self.document), 17)
 

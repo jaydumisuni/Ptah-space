@@ -12,6 +12,19 @@ def invalid_identity(value):
     return (not isinstance(value, str) or not value.strip()
             or any(unicodedata.category(ch) in ("Cc", "Cf") for ch in value))
 
+def load_corpus(raw):
+    """Reject ambiguous duplicate JSON keys before design-evidence validation."""
+    def unique_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate corpus JSON key")
+            result[key] = value
+        return result
+
+    return json.loads(raw, object_pairs_hook=unique_pairs)
+
+
 def validate(document):
     if not isinstance(document, dict):
         raise ValueError("corpus must be an object")
@@ -51,4 +64,4 @@ def validate(document):
     return len(cases)
 
 if __name__ == "__main__":
-    print(f"validated {validate(json.loads(CORPUS.read_text()))} non-authorizing cases")
+    print(f"validated {validate(load_corpus(CORPUS.read_text()))} non-authorizing cases")

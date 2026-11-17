@@ -8,6 +8,8 @@ ALLOWED = {"accept", "accept_terminal", "reject_gap", "requires_gap_evidence",
            "idempotent_replay", "reject_reuse", "reject_order"}
 
 def validate(document):
+    if not isinstance(document, dict):
+        raise ValueError("corpus must be an object")
     if document.get("schema") != "ptah.e06.sequence-gap-review-cases.v1":
         raise ValueError("unknown corpus schema")
     if document.get("status") != "non_authorizing_design_evidence":
@@ -17,6 +19,8 @@ def validate(document):
         raise ValueError("missing cases")
     seen = set()
     for case in cases:
+        if not isinstance(case, dict):
+            raise ValueError("case must be an object")
         identifier = case.get("id")
         if not isinstance(identifier, str) or not identifier or identifier in seen:
             raise ValueError("duplicate/invalid case id")

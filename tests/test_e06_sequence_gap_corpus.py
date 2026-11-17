@@ -16,6 +16,16 @@ class CorpusValidationTests(unittest.TestCase):
     def test_current_corpus(self):
         self.assertGreaterEqual(module.validate(self.document), 17)
 
+    def test_non_object_corpus_rejected(self):
+        with self.assertRaisesRegex(ValueError, "corpus must be an object"):
+            module.validate([])
+
+    def test_non_object_case_rejected(self):
+        case = copy.deepcopy(self.document)
+        case["cases"][0] = None
+        with self.assertRaisesRegex(ValueError, "case must be an object"):
+            module.validate(case)
+
     def test_boolean_sequence_is_not_integer(self):
         case = copy.deepcopy(self.document)
         case["cases"][0]["records"][0][1] = True

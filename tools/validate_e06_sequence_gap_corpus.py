@@ -22,7 +22,7 @@ def validate(document):
         if not isinstance(case, dict):
             raise ValueError("case must be an object")
         identifier = case.get("id")
-        if not isinstance(identifier, str) or not identifier or identifier in seen:
+        if not isinstance(identifier, str) or not identifier.strip() or identifier in seen:
             raise ValueError("duplicate/invalid case id")
         seen.add(identifier)
         if case.get("contiguous_contract") not in ALLOWED or case.get("explicit_gap_contract") not in ALLOWED:
@@ -35,7 +35,7 @@ def validate(document):
             if not isinstance(record, list) or len(record) != 3:
                 raise ValueError("invalid record shape")
             node, sequence, intent = record
-            if not isinstance(node, str) or not node or not isinstance(intent, str) or not intent:
+            if not isinstance(node, str) or not node.strip() or not isinstance(intent, str) or not intent.strip():
                 raise ValueError("invalid record identity")
             if type(sequence) is not int or not 1 <= sequence <= 2**64 - 1:
                 invalid_sequence = True

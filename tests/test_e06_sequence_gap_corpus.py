@@ -32,6 +32,20 @@ class CorpusValidationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.validate(case)
 
+    def test_whitespace_only_case_id_rejected(self):
+        case = copy.deepcopy(self.document)
+        case["cases"][0]["id"] = " \t "
+        with self.assertRaisesRegex(ValueError, "duplicate/invalid case id"):
+            module.validate(case)
+
+    def test_whitespace_only_record_identity_rejected(self):
+        for field in (0, 2):
+            with self.subTest(field=field):
+                case = copy.deepcopy(self.document)
+                case["cases"][0]["records"][0][field] = " \n "
+                with self.assertRaisesRegex(ValueError, "invalid record identity"):
+                    module.validate(case)
+
     def test_duplicate_case_id_rejected(self):
         case = copy.deepcopy(self.document)
         case["cases"][1]["id"] = case["cases"][0]["id"]

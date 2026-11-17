@@ -55,6 +55,15 @@ class CorpusValidationTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "unknown disposition"):
                         module.validate(case)
 
+    def test_invalid_sequence_requires_explicit_rejection(self):
+        for sequence in (0, -1, 2**64, 1.5, "1", None):
+            with self.subTest(sequence=sequence):
+                case = copy.deepcopy(self.document)
+                case["cases"][0]["records"][0][1] = sequence
+                case["cases"][0]["contiguous_contract"] = "accept"
+                with self.assertRaisesRegex(ValueError, "invalid sequence"):
+                    module.validate(case)
+
     def test_duplicate_case_id_rejected(self):
         case = copy.deepcopy(self.document)
         case["cases"][1]["id"] = case["cases"][0]["id"]

@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Validate non-authorizing E06 design evidence; never infer runtime admission."""
 import json
+import unicodedata
 from pathlib import Path
 
 CORPUS = Path(__file__).resolve().parents[1] / "docs/plans/e06-02-sequence-gap-cases.json"
 ALLOWED = {"accept", "accept_terminal", "reject_gap", "requires_gap_evidence",
            "idempotent_replay", "reject_reuse", "reject_order"}
+
+def invalid_identity(value):
+    return (not isinstance(value, str) or not value.strip()
+            or any(unicodedata.category(ch) in ("Cc", "Cf") for ch in value))
 
 def validate(document):
     if not isinstance(document, dict):
@@ -22,7 +27,7 @@ def validate(document):
         if not isinstance(case, dict):
             raise ValueError("case must be an object")
         identifier = case.get("id")
-        if not isinstance(identifier, str) or not identifier.strip() or any(ord(ch) < 32 or ord(ch) == 127 for ch in identifier) or identifier in seen:
+        if invalid_identity(identifier) or identifier in seen:
             raise ValueError("duplicate/invalid case id")
         seen.add(identifier)
         if any(type(case.get(key)) is not str or case[key] not in ALLOWED
@@ -36,8 +41,8 @@ def validate(document):
             if not isinstance(record, list) or len(record) != 3:
                 raise ValueError("invalid record shape")
             node, sequence, intent = record
-            if (not isinstance(node, str) or not node.strip() or any(ord(ch) < 32 or ord(ch) == 127 for ch in node)
-                    or not isinstance(intent, str) or not intent.strip() or any(ord(ch) < 32 or ord(ch) == 127 for ch in intent)):
+            if (invalid_identity(node)
+                    or invalid_identity(intent)):
                 raise ValueError("invalid record identity")
             if type(sequence) is not int or not 1 <= sequence <= 2**64 - 1:
                 invalid_sequence = True

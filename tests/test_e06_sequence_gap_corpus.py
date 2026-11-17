@@ -62,6 +62,15 @@ class CorpusValidationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "invalid record identity"):
                     module.validate(case)
 
+    def test_non_string_record_identity_rejected_fail_closed(self):
+        for field in (0, 2):
+            for value in (None, [], {}, True, 42):
+                with self.subTest(field=field, value=value):
+                    case = copy.deepcopy(self.document)
+                    case["cases"][0]["records"][0][field] = value
+                    with self.assertRaisesRegex(ValueError, "invalid record identity"):
+                        module.validate(case)
+
     def test_non_string_dispositions_rejected_fail_closed(self):
         for field in ("contiguous_contract", "explicit_gap_contract"):
             for value in ([], {}, None, True):

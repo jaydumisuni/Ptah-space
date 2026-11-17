@@ -21,6 +21,7 @@ fn rejected_cli_arguments_do_not_materialize_a_journal() {
         vec!["unknown"],
         vec!["status", "unexpected"],
         vec!["enqueue", "only-node"],
+        vec!["enqueue", "", "intent", "workspace", "activity", "operation", "attempt", "prepare", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
         vec![
             "enqueue",
             "node",

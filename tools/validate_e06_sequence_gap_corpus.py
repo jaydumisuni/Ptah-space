@@ -25,7 +25,8 @@ def validate(document):
         if not isinstance(identifier, str) or not identifier.strip() or identifier in seen:
             raise ValueError("duplicate/invalid case id")
         seen.add(identifier)
-        if case.get("contiguous_contract") not in ALLOWED or case.get("explicit_gap_contract") not in ALLOWED:
+        if any(type(case.get(key)) is not str or case[key] not in ALLOWED
+               for key in ("contiguous_contract", "explicit_gap_contract")):
             raise ValueError("unknown disposition")
         records = case.get("records")
         if not isinstance(records, list) or not records:

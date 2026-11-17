@@ -46,6 +46,15 @@ class CorpusValidationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "invalid record identity"):
                     module.validate(case)
 
+    def test_non_string_dispositions_rejected_fail_closed(self):
+        for field in ("contiguous_contract", "explicit_gap_contract"):
+            for value in ([], {}, None, True):
+                with self.subTest(field=field, value=value):
+                    case = copy.deepcopy(self.document)
+                    case["cases"][0][field] = value
+                    with self.assertRaisesRegex(ValueError, "unknown disposition"):
+                        module.validate(case)
+
     def test_duplicate_case_id_rejected(self):
         case = copy.deepcopy(self.document)
         case["cases"][1]["id"] = case["cases"][0]["id"]

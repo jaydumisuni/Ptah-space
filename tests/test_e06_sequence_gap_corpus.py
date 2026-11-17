@@ -26,6 +26,22 @@ class CorpusValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "case must be an object"):
             module.validate(case)
 
+    def test_missing_or_non_list_records_rejected(self):
+        for records in (None, {}, [], "records"):
+            with self.subTest(records=records):
+                case = copy.deepcopy(self.document)
+                case["cases"][0]["records"] = records
+                with self.assertRaisesRegex(ValueError, "missing records"):
+                    module.validate(case)
+
+    def test_malformed_record_shape_rejected(self):
+        for record in (None, {}, [], ["node", 1], ["node", 1, "intent", "extra"]):
+            with self.subTest(record=record):
+                case = copy.deepcopy(self.document)
+                case["cases"][0]["records"][0] = record
+                with self.assertRaisesRegex(ValueError, "invalid record shape"):
+                    module.validate(case)
+
     def test_boolean_sequence_is_not_integer(self):
         case = copy.deepcopy(self.document)
         case["cases"][0]["records"][0][1] = True

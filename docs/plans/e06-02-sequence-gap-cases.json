@@ -264,6 +264,18 @@
       ],
       "contiguous_contract": "reject_order",
       "explicit_gap_contract": "reject_order"
+    },
+    {
+      "id": "above-u64-max-forbidden",
+      "records": [
+        [
+          "node-1",
+          18446744073709551616,
+          "intent-overflow"
+        ]
+      ],
+      "contiguous_contract": "reject_order",
+      "explicit_gap_contract": "reject_order"
     }
   ]
 }

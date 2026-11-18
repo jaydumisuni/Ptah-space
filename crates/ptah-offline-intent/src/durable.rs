@@ -359,7 +359,9 @@ impl DurableIntentJournal {
     /// # Errors
     /// Propagates storage failures or an unrepresentable count.
     pub fn pending_count(&self) -> Result<usize, DurableIntentError> {
-        let count: i64 = self.db.query_row("SELECT COUNT(*) FROM queued_intents", [], |row| row.get(0))?;
+        let count: i64 = self
+            .db
+            .query_row("SELECT COUNT(*) FROM queued_intents", [], |row| row.get(0))?;
         usize::try_from(count).map_err(|_| DurableIntentError::Integrity("invalid pending count"))
     }
 

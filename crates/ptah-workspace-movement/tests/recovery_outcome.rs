@@ -451,7 +451,7 @@ fn duplicate_recovery_postcondition_keys_cannot_certify_success() {
 fn blank_recovery_evidence_cannot_certify_success() {
     for evidence in [
         vec![" ".to_owned()],
-        vec!["evidence:valid".to_owned(), "".to_owned()],
+        vec!["evidence:valid".to_owned(), String::new()],
     ] {
         let verified = WorkspaceMover::verify_recovery(
             restored(),

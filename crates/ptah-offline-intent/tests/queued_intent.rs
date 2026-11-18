@@ -1502,7 +1502,6 @@ fn arabic_extended_b_prepend_marks_cannot_alias_queued_identity() {
     }
 }
 
-
 #[test]
 fn byte_order_mark_is_rejected_on_checkpoint_recovery() {
     // A BOM embedded in persisted node identity must not acquire cursor authority.
@@ -1561,13 +1560,21 @@ fn checkpoint_recovery_rejects_noncanonical_numeric_cursor_forms() {
     // A recovered cursor must have exactly one canonical decimal identity.
     for raw in ["01", "+1", "-1", " 1", "1 ", "18446744073709551616"] {
         let checkpoint = format!("ptah.local-sequence.v1\nnode1\n{raw}\n");
-        assert!(matches!(
-            LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
-            Err(IntentValidationError::InvalidCheckpoint)
-        ), "admitted numeric alias: {raw:?}");
+        assert!(
+            matches!(
+                LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
+                Err(IntentValidationError::InvalidCheckpoint)
+            ),
+            "admitted numeric alias: {raw:?}"
+        );
     }
     let maximum = format!("ptah.local-sequence.v1\nnode1\n{}\n", u64::MAX);
-    assert_eq!(LocalSequence::from_checkpoint_bytes(maximum.as_bytes()).unwrap().value, u64::MAX);
+    assert_eq!(
+        LocalSequence::from_checkpoint_bytes(maximum.as_bytes())
+            .unwrap()
+            .value,
+        u64::MAX
+    );
 }
 
 #[test]
@@ -1576,10 +1583,13 @@ fn checkpoint_recovery_rejects_unicode_decimal_aliases() {
     // looks like a valid digit to a human reviewing recovered evidence.
     for raw in ["１", "١", "१", "𝟙", "1\u{200B}"] {
         let checkpoint = format!("ptah.local-sequence.v1\nnode1\n{raw}\n");
-        assert!(matches!(
-            LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
-            Err(IntentValidationError::InvalidCheckpoint)
-        ), "admitted Unicode numeric alias: {raw:?}");
+        assert!(
+            matches!(
+                LocalSequence::from_checkpoint_bytes(checkpoint.as_bytes()),
+                Err(IntentValidationError::InvalidCheckpoint)
+            ),
+            "admitted Unicode numeric alias: {raw:?}"
+        );
     }
     let zero = b"ptah.local-sequence.v1\nnode1\n0\n";
     assert!(matches!(

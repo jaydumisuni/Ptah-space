@@ -449,7 +449,10 @@ fn duplicate_recovery_postcondition_keys_cannot_certify_success() {
 
 #[test]
 fn blank_recovery_evidence_cannot_certify_success() {
-    for evidence in [vec![" ".to_owned()], vec!["evidence:valid".to_owned(), "".to_owned()]] {
+    for evidence in [
+        vec![" ".to_owned()],
+        vec!["evidence:valid".to_owned(), "".to_owned()],
+    ] {
         let verified = WorkspaceMover::verify_recovery(
             restored(),
             "verifier:independent",
@@ -457,7 +460,10 @@ fn blank_recovery_evidence_cannot_certify_success() {
             Vec::new(),
             evidence,
         );
-        assert_eq!(verified.recovery_verification.outcome, RecoveryOutcome::Inconclusive);
+        assert_eq!(
+            verified.recovery_verification.outcome,
+            RecoveryOutcome::Inconclusive
+        );
         assert_eq!(verified.phase, WorkspaceMovePhase::Failed);
     }
 }
@@ -473,6 +479,9 @@ fn blank_postcondition_evidence_cannot_certify_success() {
         Vec::new(),
         vec!["evidence:independent-recovery".to_owned()],
     );
-    assert_eq!(verified.recovery_verification.outcome, RecoveryOutcome::Inconclusive);
+    assert_eq!(
+        verified.recovery_verification.outcome,
+        RecoveryOutcome::Inconclusive
+    );
     assert_eq!(verified.phase, WorkspaceMovePhase::Failed);
 }

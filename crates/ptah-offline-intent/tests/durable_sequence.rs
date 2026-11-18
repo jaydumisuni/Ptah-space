@@ -751,7 +751,8 @@ fn duplicate_replay_rejects_corrupt_prior_revalidation_flag() {
         "PRAGMA ignore_check_constraints=ON;
          UPDATE queued_intents SET revalidate=0 WHERE intent_id='first';
          PRAGMA ignore_check_constraints=OFF;",
-    ).unwrap();
+    )
+    .unwrap();
     drop(sql);
     assert!(journal.enqueue(&draft("n1", "second")).is_err());
     assert!(journal.append(&intent("n1", 2, "second")).is_err());
@@ -825,7 +826,6 @@ fn duplicate_replay_rejects_corrupt_prior_negative_sequence() {
     drop(journal);
     clean(&path);
 }
-
 
 #[test]
 fn duplicate_replay_rejects_corrupt_prior_whitespace_sequence() {
@@ -932,7 +932,8 @@ fn duplicate_replay_rejects_embedded_format_character_in_prior_digest() {
     sql.execute(
         "UPDATE queued_intents SET digest='sha256:0000\\u{200b}0000' WHERE intent_id='first'",
         [],
-    ).unwrap();
+    )
+    .unwrap();
     drop(sql);
     assert!(journal.enqueue(&draft("n1", "second")).is_err());
     assert!(journal.append(&intent("n1", 2, "second")).is_err());
@@ -1070,7 +1071,11 @@ fn duplicate_replay_rejects_prior_digest_with_ascii_tab() {
 
 #[test]
 fn duplicate_replay_rejects_prior_digest_with_ascii_line_breaks() {
-    for invalid_digest in ["sha256:0000\r0000", "sha256:0000\n0000", "sha256:0000\r\n0000"] {
+    for invalid_digest in [
+        "sha256:0000\r0000",
+        "sha256:0000\n0000",
+        "sha256:0000\r\n0000",
+    ] {
         let path = scratch();
         let mut journal = DurableIntentJournal::open(&path).unwrap();
         journal.enqueue(&draft("n1", "first")).unwrap();
@@ -1082,7 +1087,8 @@ fn duplicate_replay_rejects_prior_digest_with_ascii_line_breaks() {
         sql.execute(
             "UPDATE queued_intents SET digest=?1 WHERE intent_id='first'",
             [invalid_digest],
-        ).unwrap();
+        )
+        .unwrap();
         drop(sql);
         assert!(journal.enqueue(&draft("n1", "second")).is_err());
         assert!(journal.append(&intent("n1", 2, "second")).is_err());
@@ -1093,14 +1099,23 @@ fn duplicate_replay_rejects_prior_digest_with_ascii_line_breaks() {
 
 #[test]
 fn duplicate_replay_rejects_prior_digest_with_ascii_control_separators() {
-    for invalid_digest in ["sha256:0000\u{001c}0000", "sha256:0000\u{001d}0000", "sha256:0000\u{001e}0000", "sha256:0000\u{001f}0000"] {
+    for invalid_digest in [
+        "sha256:0000\u{001c}0000",
+        "sha256:0000\u{001d}0000",
+        "sha256:0000\u{001e}0000",
+        "sha256:0000\u{001f}0000",
+    ] {
         let path = scratch();
         let mut journal = DurableIntentJournal::open(&path).unwrap();
         journal.enqueue(&draft("n1", "first")).unwrap();
         journal.enqueue(&draft("n1", "second")).unwrap();
         // Record, group, file, and unit separators cannot acquire historical digest authority.
         let sql = Connection::open(&path).unwrap();
-        sql.execute("UPDATE queued_intents SET digest=?1 WHERE intent_id='first'", [invalid_digest]).unwrap();
+        sql.execute(
+            "UPDATE queued_intents SET digest=?1 WHERE intent_id='first'",
+            [invalid_digest],
+        )
+        .unwrap();
         drop(sql);
         assert!(journal.enqueue(&draft("n1", "second")).is_err());
         assert!(journal.append(&intent("n1", 2, "second")).is_err());
@@ -1120,7 +1135,8 @@ fn duplicate_replay_rejects_prior_digest_with_ascii_del() {
     sql.execute(
         "UPDATE queued_intents SET digest=?1 WHERE intent_id='first'",
         ["sha256:0000\u{007f}0000"],
-    ).unwrap();
+    )
+    .unwrap();
     drop(sql);
     assert!(journal.enqueue(&draft("n1", "second")).is_err());
     assert!(journal.append(&intent("n1", 2, "second")).is_err());
@@ -1143,7 +1159,8 @@ fn duplicate_replay_rejects_prior_digest_with_c1_controls() {
         sql.execute(
             "UPDATE queued_intents SET digest=?1 WHERE intent_id='first'",
             [invalid_digest.as_str()],
-        ).unwrap();
+        )
+        .unwrap();
         drop(sql);
         assert!(journal.enqueue(&draft("n1", "second")).is_err());
         assert!(journal.append(&intent("n1", 2, "second")).is_err());
@@ -1155,24 +1172,25 @@ fn duplicate_replay_rejects_prior_digest_with_c1_controls() {
 #[test]
 fn duplicate_replay_rejects_prior_digest_with_unicode_fullwidth_hex() {
     for lookalike in ['\u{ff41}', '\u{ff10}'] {
-    let path = scratch();
-    let mut journal = DurableIntentJournal::open(&path).unwrap();
-    journal.enqueue(&draft("n1", "first")).unwrap();
-    journal.enqueue(&draft("n1", "second")).unwrap();
+        let path = scratch();
+        let mut journal = DurableIntentJournal::open(&path).unwrap();
+        journal.enqueue(&draft("n1", "first")).unwrap();
+        journal.enqueue(&draft("n1", "second")).unwrap();
 
-    // A fullwidth hexadecimal lookalike must not acquire historical
-    // digest authority, even when the digest has 64 visible digits.
-    let invalid_digest = format!("sha256:{}{}{}", "0".repeat(31), lookalike, "0".repeat(32));
-    let sql = Connection::open(&path).unwrap();
-    sql.execute(
-        "UPDATE queued_intents SET digest=?1 WHERE intent_id='first'",
-        [invalid_digest.as_str()],
-    ).unwrap();
-    drop(sql);
-    assert!(journal.enqueue(&draft("n1", "second")).is_err());
-    assert!(journal.append(&intent("n1", 2, "second")).is_err());
-    drop(journal);
-    clean(&path);
+        // A fullwidth hexadecimal lookalike must not acquire historical
+        // digest authority, even when the digest has 64 visible digits.
+        let invalid_digest = format!("sha256:{}{}{}", "0".repeat(31), lookalike, "0".repeat(32));
+        let sql = Connection::open(&path).unwrap();
+        sql.execute(
+            "UPDATE queued_intents SET digest=?1 WHERE intent_id='first'",
+            [invalid_digest.as_str()],
+        )
+        .unwrap();
+        drop(sql);
+        assert!(journal.enqueue(&draft("n1", "second")).is_err());
+        assert!(journal.append(&intent("n1", 2, "second")).is_err());
+        drop(journal);
+        clean(&path);
     }
 }
 
@@ -1215,7 +1233,8 @@ fn duplicate_replay_rejects_prior_digest_with_prefixed_whitespace() {
         sql.execute(
             "UPDATE queued_intents SET digest=?1 WHERE intent_id='first'",
             [invalid_digest.as_str()],
-        ).unwrap();
+        )
+        .unwrap();
         drop(sql);
         assert!(journal.enqueue(&draft("n1", "second")).is_err());
         assert!(journal.append(&intent("n1", 2, "second")).is_err());

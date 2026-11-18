@@ -45,6 +45,7 @@ fn intent(node: &str, sequence: u64, key: &str) -> QueuedIntent {
 fn atomic_append_and_reopen_with_interleaved_nodes() {
     let path = scratch();
     let mut j = DurableIntentJournal::open(&path).unwrap();
+    assert_eq!(j.pending_count().unwrap(), 0);
     for (node, n, key) in [
         ("n1", 1, "n1-1"),
         ("n2", 1, "n2-1"),
@@ -61,6 +62,7 @@ fn atomic_append_and_reopen_with_interleaved_nodes() {
         j.append(&intent("n1", 3, "n1-3")).unwrap(),
         ReplayDisposition::Idempotent
     );
+    assert_eq!(j.pending_count().unwrap(), 5);
     assert_eq!(j.history().unwrap().len(), 5);
     drop(j);
     let again = DurableIntentJournal::open(&path).unwrap();

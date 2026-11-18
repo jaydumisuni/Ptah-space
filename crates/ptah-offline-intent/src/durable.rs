@@ -353,6 +353,16 @@ impl DurableIntentJournal {
             .map_err(Into::into)
     }
 
+    /// Count local intents without materializing their envelopes. This is a local
+    /// observation only and never grants dispatch or replay authority.
+    ///
+    /// # Errors
+    /// Propagates storage failures or an unrepresentable count.
+    pub fn pending_count(&self) -> Result<usize, DurableIntentError> {
+        let count: i64 = self.db.query_row("SELECT COUNT(*) FROM queued_intents", [], |row| row.get(0))?;
+        usize::try_from(count).map_err(|_| DurableIntentError::Integrity("invalid pending count"))
+    }
+
     /// Verify all origin streams and stored cursors, including hidden interior gaps.
     /// Stream recovered envelopes instead of collecting the entire journal:
     /// memory must scale with distinct origins, not with queued intent count.

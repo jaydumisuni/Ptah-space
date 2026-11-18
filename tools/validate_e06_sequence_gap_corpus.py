@@ -59,8 +59,11 @@ def validate(document):
                 raise ValueError("invalid record identity")
             if type(sequence) is not int or not 1 <= sequence <= 2**64 - 1:
                 invalid_sequence = True
-        if invalid_sequence and case["contiguous_contract"] != "reject_order":
-            raise ValueError("invalid sequence must reject under contiguous contract")
+        if invalid_sequence and any(
+            case[contract] != "reject_order"
+            for contract in ("contiguous_contract", "explicit_gap_contract")
+        ):
+            raise ValueError("invalid sequence must reject under both contracts")
     return len(cases)
 
 if __name__ == "__main__":

@@ -127,6 +127,16 @@ class CorpusValidationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "invalid sequence"):
                     module.validate(case)
 
+    def test_invalid_sequence_must_reject_under_both_contracts(self):
+        for contract in ("contiguous_contract", "explicit_gap_contract"):
+            for sequence in (0, -1, 2**64, True, "1"):
+                with self.subTest(contract=contract, sequence=sequence):
+                    case = copy.deepcopy(self.document)
+                    case["cases"][0]["records"][0][1] = sequence
+                    case["cases"][0][contract] = "accept"
+                    with self.assertRaisesRegex(ValueError, "invalid sequence"):
+                        module.validate(case)
+
     def test_duplicate_case_id_rejected(self):
         case = copy.deepcopy(self.document)
         case["cases"][1]["id"] = case["cases"][0]["id"]

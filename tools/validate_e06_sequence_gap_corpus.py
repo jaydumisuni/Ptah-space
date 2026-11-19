@@ -22,7 +22,10 @@ def load_corpus(raw):
             result[key] = value
         return result
 
-    return json.loads(raw, object_pairs_hook=unique_pairs)
+    def reject_nonfinite(token):
+        raise ValueError("non-finite corpus JSON constant: " + token)
+
+    return json.loads(raw, object_pairs_hook=unique_pairs, parse_constant=reject_nonfinite)
 
 
 def validate(document):

@@ -23,6 +23,12 @@ class CorpusValidationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "duplicate corpus JSON key"):
                     module.load_corpus(raw)
 
+    def test_nonfinite_json_constants_rejected_at_any_depth(self):
+        for raw in ('{"extra":NaN}', '{"cases":[{"extra":Infinity}]}', '{"cases":[{"records":[-Infinity]}]}'):
+            with self.subTest(raw=raw):
+                with self.assertRaisesRegex(ValueError, "non-finite corpus JSON constant"):
+                    module.load_corpus(raw)
+
     def test_current_corpus(self):
         self.assertGreaterEqual(module.validate(self.document), 17)
 

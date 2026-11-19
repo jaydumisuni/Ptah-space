@@ -137,6 +137,13 @@ class CorpusValidationTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "invalid sequence"):
                         module.validate(case)
 
+    def test_canonically_equivalent_case_ids_rejected(self):
+        case = copy.deepcopy(self.document)
+        case["cases"][0]["id"] = "caf\u00e9"
+        case["cases"][1]["id"] = "cafe\u0301"
+        with self.assertRaisesRegex(ValueError, "duplicate/invalid case id"):
+            module.validate(case)
+
     def test_duplicate_case_id_rejected(self):
         case = copy.deepcopy(self.document)
         case["cases"][1]["id"] = case["cases"][0]["id"]

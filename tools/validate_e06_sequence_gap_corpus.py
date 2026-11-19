@@ -40,9 +40,12 @@ def validate(document):
         if not isinstance(case, dict):
             raise ValueError("case must be an object")
         identifier = case.get("id")
-        if invalid_identity(identifier) or identifier in seen:
+        # Canonically equivalent Unicode identifiers must not alias distinct cases.
+        normalized_id = (unicodedata.normalize("NFC", identifier)
+                         if isinstance(identifier, str) else None)
+        if invalid_identity(identifier) or normalized_id in seen:
             raise ValueError("duplicate/invalid case id")
-        seen.add(identifier)
+        seen.add(normalized_id)
         if any(type(case.get(key)) is not str or case[key] not in ALLOWED
                for key in ("contiguous_contract", "explicit_gap_contract")):
             raise ValueError("unknown disposition")

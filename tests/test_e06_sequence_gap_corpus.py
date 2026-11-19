@@ -121,6 +121,21 @@ class CorpusValidationTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, error):
                         module.validate(case)
 
+    def test_unpaired_unicode_surrogates_rejected_in_identities(self):
+        # JSON permits escaped surrogate code points that cannot be UTF-8 encoded.
+        for field in ("case", "node", "intent"):
+            for character in ("\ud800", "\udfff"):
+                with self.subTest(field=field, character=repr(character)):
+                    case = copy.deepcopy(self.document)
+                    if field == "case":
+                        case["cases"][0]["id"] += character
+                        error = "duplicate/invalid case id"
+                    else:
+                        case["cases"][0]["records"][0][0 if field == "node" else 2] += character
+                        error = "invalid record identity"
+                    with self.assertRaisesRegex(ValueError, error):
+                        module.validate(case)
+
     def test_non_string_record_identity_rejected_fail_closed(self):
         for field in (0, 2):
             for value in (None, [], {}, True, 42):

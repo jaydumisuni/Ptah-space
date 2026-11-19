@@ -11,7 +11,7 @@ ALLOWED = {"accept", "accept_terminal", "reject_gap", "requires_gap_evidence",
 def invalid_identity(value):
     return (not isinstance(value, str) or not value.strip()
             or value != value.strip()
-            or any(unicodedata.category(ch) in ("Cc", "Cf") for ch in value))
+            or any(unicodedata.category(ch) in ("Cc", "Cf", "Cs") for ch in value))
 
 def load_corpus(raw):
     """Reject ambiguous duplicate JSON keys before design-evidence validation."""

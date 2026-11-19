@@ -78,6 +78,21 @@ class CorpusValidationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "invalid record identity"):
                     module.validate(case)
 
+    def test_padded_case_and_record_identities_rejected(self):
+        for field in ("case", "node", "intent"):
+            for padding in (" ", "\t", "\u00a0"):
+                for leading in (True, False):
+                    with self.subTest(field=field, padding=repr(padding), leading=leading):
+                        case = copy.deepcopy(self.document)
+                        record = case["cases"][0]["records"][0]
+                        if field == "case":
+                            target, key, error = case["cases"][0], "id", "duplicate/invalid case id"
+                        else:
+                            target, key, error = record, 0 if field == "node" else 2, "invalid record identity"
+                        target[key] = (padding + target[key]) if leading else (target[key] + padding)
+                        with self.assertRaisesRegex(ValueError, error):
+                            module.validate(case)
+
     def test_control_characters_in_case_and_record_identities_rejected(self):
         for field in ("case", "node", "intent"):
             for character in ("\x00", "\x1b", "\x7f", "\n"):

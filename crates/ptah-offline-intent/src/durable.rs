@@ -98,7 +98,10 @@ mod journal_leaf_tests {
         symlink("/dev/null", &sidecar).unwrap();
         assert!(DurableIntentJournal::open(&db).is_err());
         std::fs::remove_file(sidecar).unwrap();
-        std::fs::remove_file(db).unwrap();
+        // A fail-closed open may reject the sidecar before creating SQLite.
+        if db.exists() {
+            std::fs::remove_file(db).unwrap();
+        }
         std::fs::remove_dir(dir).unwrap();
     }
 

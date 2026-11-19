@@ -11,6 +11,7 @@ ALLOWED = {"accept", "accept_terminal", "reject_gap", "requires_gap_evidence",
 def invalid_identity(value):
     return (not isinstance(value, str) or not value.strip()
             or value != value.strip()
+            or unicodedata.normalize("NFC", value) != value
             or any(unicodedata.category(ch) in ("Cc", "Cf", "Cs") for ch in value))
 
 def load_corpus(raw):

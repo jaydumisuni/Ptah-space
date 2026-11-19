@@ -83,6 +83,26 @@ mod journal_leaf_tests {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     #[test]
+    fn rollback_journal_symlink_is_rejected_before_sqlite_open() {
+        use super::DurableIntentJournal;
+        use std::os::unix::fs::symlink;
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("ptah-e06-rollback-{}-{nonce}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let db = dir.join("queue.sqlite");
+        let sidecar = dir.join("queue.sqlite-journal");
+        symlink("/dev/null", &sidecar).unwrap();
+        assert!(DurableIntentJournal::open(&db).is_err());
+        std::fs::remove_file(sidecar).unwrap();
+        std::fs::remove_file(db).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
+
+    #[test]
     fn private_leaf_must_belong_to_the_effective_owner() {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -289,9 +309,10 @@ impl DurableIntentJournal {
                 }
                 Err(_) => return Err(DurableIntentError::Integrity("journal metadata failed")),
             }
-            // SQLite may reuse pre-existing WAL/SHM sidecars. Reject unsafe
-            // aliases before SQLite can open or modify an unrelated target.
-            for suffix in ["-wal", "-shm"] {
+            // SQLite can recover a pre-existing rollback journal before
+            // switching to WAL mode. Apply the same alias checks to it.
+            // Reject unsafe sidecars before SQLite touches their targets.
+            for suffix in ["-journal", "-wal", "-shm"] {
                 let mut name = path.as_os_str().to_os_string();
                 name.push(suffix);
                 match Path::new(&name).symlink_metadata() {

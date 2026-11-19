@@ -388,7 +388,12 @@ impl DurableIntentJournal {
     /// # Errors
     /// Rejects any gap, cursor mismatch, forged envelope or invalid checkpoint.
     pub fn verify(&self) -> Result<(), DurableIntentError> {
-        Self::verify_on(&self.db)
+        // Both journal rows and origin cursors must come from one read snapshot.
+        // A concurrent append between independent SELECTs is not corruption.
+        let snapshot = self.db.unchecked_transaction()?;
+        Self::verify_on(&snapshot)?;
+        snapshot.commit()?;
+        Ok(())
     }
 
     fn verify_on(db: &Connection) -> Result<(), DurableIntentError> {

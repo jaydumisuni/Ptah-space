@@ -365,6 +365,22 @@ impl DurableIntentJournal {
         usize::try_from(count).map_err(|_| DurableIntentError::Integrity("invalid pending count"))
     }
 
+    /// Verify and count one SQLite read snapshot, so concurrent writers cannot
+    /// change the queue between the integrity check and status projection.
+    ///
+    /// # Errors
+    /// Rejects corrupt journals and invalid pending counts.
+    pub fn verified_pending_count(&self) -> Result<usize, DurableIntentError> {
+        let snapshot = self.db.unchecked_transaction()?;
+        Self::verify_on(&snapshot)?;
+        let count: i64 =
+            snapshot.query_row("SELECT COUNT(*) FROM queued_intents", [], |row| row.get(0))?;
+        let count = usize::try_from(count)
+            .map_err(|_| DurableIntentError::Integrity("invalid pending count"))?;
+        snapshot.commit()?;
+        Ok(count)
+    }
+
     /// Verify all origin streams and stored cursors, including hidden interior gaps.
     /// Stream recovered envelopes instead of collecting the entire journal:
     /// memory must scale with distinct origins, not with queued intent count.
@@ -372,7 +388,11 @@ impl DurableIntentJournal {
     /// # Errors
     /// Rejects any gap, cursor mismatch, forged envelope or invalid checkpoint.
     pub fn verify(&self) -> Result<(), DurableIntentError> {
-        let mut stmt = self.db.prepare(
+        Self::verify_on(&self.db)
+    }
+
+    fn verify_on(db: &Connection) -> Result<(), DurableIntentError> {
+        let mut stmt = db.prepare(
             "SELECT node,sequence,intent_id,workspace_id,activity_id,operation_id,
              attempt_id,action,digest,revalidate FROM queued_intents ORDER BY node,sequence",
         )?;
@@ -394,7 +414,7 @@ impl DurableIntentJournal {
             }
             last.insert(item.origin.node_id, item.origin.value);
         }
-        let mut stmt = self.db.prepare("SELECT node,sequence FROM origin_cursor")?;
+        let mut stmt = db.prepare("SELECT node,sequence FROM origin_cursor")?;
         let cursors =
             stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
         let mut seen = 0;

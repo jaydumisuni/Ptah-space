@@ -42,8 +42,7 @@ impl DegradedProjection {
     /// # Errors
     /// Propagates journal corruption or failure.
     pub fn from_queue(journal: &DurableIntentJournal) -> Result<Self, DurableIntentError> {
-        journal.verify()?;
-        let count = journal.pending_count()?;
+        let count = journal.verified_pending_count()?;
         Ok(Self {
             state: if count == 0 {
                 DegradedState::OfflineLocal

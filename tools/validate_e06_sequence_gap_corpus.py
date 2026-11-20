@@ -13,6 +13,8 @@ def invalid_identity(value):
             or value != value.strip()
             or unicodedata.normalize("NFC", value) != value
             or any(unicodedata.category(ch) in ("Cc", "Cf", "Cs", "Zl", "Zp")
+                   or 0xFE00 <= ord(ch) <= 0xFE0F  # variation selectors spoof visible identities
+                   or 0xE0100 <= ord(ch) <= 0xE01EF
                    or 0xFDD0 <= ord(ch) <= 0xFDEF
                    or ord(ch) & 0xFFFF in (0xFFFE, 0xFFFF)
                    for ch in value))

@@ -181,6 +181,21 @@ class CorpusValidationTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, error):
                         module.validate(case)
 
+    def test_variation_selectors_cannot_alias_evidence_identities(self):
+        # Variation selectors are NFC-stable and can be invisible in review logs.
+        for field in ("case", "node", "intent"):
+            for selector in ("\ufe0e", "\ufe0f", "\U000e0100", "\U000e01ef"):
+                with self.subTest(field=field, selector=repr(selector)):
+                    case = copy.deepcopy(self.document)
+                    if field == "case":
+                        case["cases"][0]["id"] += selector
+                        error = "duplicate/invalid case id"
+                    else:
+                        case["cases"][0]["records"][0][0 if field == "node" else 2] += selector
+                        error = "invalid record identity"
+                    with self.assertRaisesRegex(ValueError, error):
+                        module.validate(case)
+
     def test_non_string_record_identity_rejected_fail_closed(self):
         for field in (0, 2):
             for value in (None, [], {}, True, 42):

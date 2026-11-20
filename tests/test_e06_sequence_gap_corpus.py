@@ -121,6 +121,21 @@ class CorpusValidationTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, error):
                         module.validate(case)
 
+    def test_unicode_line_and_paragraph_separators_rejected_in_identities(self):
+        # These separators can spoof record boundaries in human review evidence.
+        for field in ("case", "node", "intent"):
+            for character in ("\u2028", "\u2029"):
+                with self.subTest(field=field, character=repr(character)):
+                    case = copy.deepcopy(self.document)
+                    if field == "case":
+                        case["cases"][0]["id"] += character
+                        error = "duplicate/invalid case id"
+                    else:
+                        case["cases"][0]["records"][0][0 if field == "node" else 2] += character
+                        error = "invalid record identity"
+                    with self.assertRaisesRegex(ValueError, error):
+                        module.validate(case)
+
     def test_decomposed_unicode_identity_rejected_at_all_boundaries(self):
         # Distinct serialized identities must not alias after NFC normalization.
         for field in ("case", "node", "intent"):

@@ -367,8 +367,23 @@ impl QueuedIntent {
         history: impl IntoIterator<Item = &'a Self>,
     ) -> Result<(), IntentValidationError> {
         let mut last_sequence_by_node: HashMap<&str, u64> = HashMap::new();
+        let mut seen_ids: HashMap<&str, &Self> = HashMap::new();
+        let mut seen_origins: HashMap<(&str, u64), &Self> = HashMap::new();
         for stored in history {
             stored.validate_replay_envelope()?;
+            if let Some(previous) = seen_ids.get(stored.intent_id.as_str()) {
+                previous.classify_replay(stored)?;
+            }
+            if let Some(previous) =
+                seen_origins.get(&(stored.origin.node_id.as_str(), stored.origin.value))
+            {
+                previous.classify_replay(stored)?;
+            }
+            seen_ids.insert(stored.intent_id.as_str(), stored);
+            seen_origins.insert(
+                (stored.origin.node_id.as_str(), stored.origin.value),
+                stored,
+            );
             if let Some(previous) = last_sequence_by_node.get(stored.origin.node_id.as_str()) {
                 if stored.origin.value < *previous {
                     return Err(IntentValidationError::OutOfOrderOriginSequence);
@@ -472,6 +487,25 @@ mod tests {
             "prepare".into(),
             format!("sha256:{}", "a".repeat(64)),
         )
+    }
+
+    #[test]
+    fn append_order_rejects_conflicting_duplicate_envelopes() {
+        let original = valid().unwrap();
+        let mut conflicting = original.clone();
+        conflicting.action = "different-action".into();
+        assert!(matches!(
+            QueuedIntent::validate_append_order([&original, &conflicting]),
+            Err(IntentValidationError::ConflictingReplay)
+        ));
+
+        let mut reused = original.clone();
+        reused.intent_id = "another-intent".into();
+        assert!(matches!(
+            QueuedIntent::validate_append_order([&original, &reused]),
+            Err(IntentValidationError::ReusedOriginSequence)
+        ));
+        assert!(QueuedIntent::validate_append_order([&original, &original]).is_ok());
     }
 
     #[test]

@@ -47,6 +47,8 @@ def validate(document):
         raise ValueError("unknown corpus schema")
     if document.get("status") != "non_authorizing_design_evidence":
         raise ValueError("corpus must remain non-authorizing")
+    if document.get("authority") != "docs/plans/2026-10-13-e06-02-journal-sequence-gap-review.md":
+        raise ValueError("unknown corpus authority")
     cases = document.get("cases")
     if not isinstance(cases, list) or not cases:
         raise ValueError("missing cases")

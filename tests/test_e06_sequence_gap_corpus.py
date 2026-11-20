@@ -267,6 +267,14 @@ class CorpusValidationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.validate(case)
 
+    def test_authority_must_match_frozen_review_document(self):
+        for authority in (None, "", "docs/plans/other.md", "runtime_authorized", 1):
+            with self.subTest(authority=authority):
+                case = copy.deepcopy(self.document)
+                case["authority"] = authority
+                with self.assertRaisesRegex(ValueError, "unknown corpus authority"):
+                    module.validate(case)
+
     def test_authorizing_status_rejected(self):
         case = copy.deepcopy(self.document)
         case["status"] = "runtime_authorized"

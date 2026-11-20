@@ -12,7 +12,10 @@ def invalid_identity(value):
     return (not isinstance(value, str) or not value.strip()
             or value != value.strip()
             or unicodedata.normalize("NFC", value) != value
-            or any(unicodedata.category(ch) in ("Cc", "Cf", "Cs") for ch in value))
+            or any(unicodedata.category(ch) in ("Cc", "Cf", "Cs")
+                   or 0xFDD0 <= ord(ch) <= 0xFDEF
+                   or ord(ch) & 0xFFFF in (0xFFFE, 0xFFFF)
+                   for ch in value))
 
 def load_corpus(raw):
     """Reject ambiguous duplicate JSON keys before design-evidence validation."""

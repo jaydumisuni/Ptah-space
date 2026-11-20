@@ -150,6 +150,22 @@ class CorpusValidationTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, error):
                         module.validate(case)
 
+    def test_unicode_noncharacters_rejected_in_evidence_identities(self):
+        # Unicode noncharacters are not portable evidence identifiers, even
+        # though JSON permits them and Python classifies them as unassigned.
+        for field in ("case", "node", "intent"):
+            for character in ("\ufdd0", "\ufdef", "\ufffe", "\U0001ffff"):
+                with self.subTest(field=field, character=repr(character)):
+                    case = copy.deepcopy(self.document)
+                    if field == "case":
+                        case["cases"][0]["id"] += character
+                        error = "duplicate/invalid case id"
+                    else:
+                        case["cases"][0]["records"][0][0 if field == "node" else 2] += character
+                        error = "invalid record identity"
+                    with self.assertRaisesRegex(ValueError, error):
+                        module.validate(case)
+
     def test_non_string_record_identity_rejected_fail_closed(self):
         for field in (0, 2):
             for value in (None, [], {}, True, 42):

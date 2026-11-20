@@ -186,6 +186,22 @@ impl PlacementAuthorityOwner {
         Ok(binding)
     }
 
+    /// Validate that an admitted Node link is still the exact E01 session.
+    #[must_use]
+    pub fn is_current_session(&self, binding: &SessionBinding) -> bool {
+        self.node_link.is_current(binding)
+    }
+
+    /// End one disconnected E01 session and drop its cached placement state.
+    /// A late close on a superseded connection cannot affect its replacement.
+    pub fn end_session_if_current(&mut self, binding: &SessionBinding) -> bool {
+        if !self.node_link.end_if_current(binding) {
+            return false;
+        }
+        self.nodes.retain(|state| state.session != *binding);
+        true
+    }
+
     /// Accept capability evidence only for the exact current E01 session.
     ///
     /// # Errors

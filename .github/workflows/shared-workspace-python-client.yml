@@ -1,0 +1,59 @@
+name: Shared Ptah Workspace Control Python Client
+on:
+  push:
+    branches:
+      - integration/shared-workspace-control-client-20261016
+    paths:
+      - 'clients/python/**'
+      - 'services/ptah-control/src/server.rs'
+      - 'services/ptah-control/src/verified_readback.rs'
+      - 'services/ptah-control/src/main.rs'
+      - '.github/workflows/shared-workspace-python-client.yml'
+  pull_request:
+    paths:
+      - 'clients/python/**'
+      - 'services/ptah-control/src/server.rs'
+      - 'services/ptah-control/src/verified_readback.rs'
+      - 'services/ptah-control/src/main.rs'
+      - '.github/workflows/shared-workspace-python-client.yml'
+jobs:
+  python-client:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '${{ matrix.python-version }}'
+      - name: Compile adapter
+        run: python -m py_compile clients/python/ptah_control_client.py clients/python/ptah_shared_workspace.py clients/python/ptah_local_workspace.py clients/python/qualify_live_ptah_control.py
+      - name: Run authority and submission boundary tests
+        working-directory: clients/python
+        run: python -m unittest -v test_ptah_control_client.py test_ptah_shared_workspace.py test_ptah_local_workspace.py test_ptah_verified_readback.py
+  windows-local-workspace:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Compile Windows-compatible local workspace client
+        run: python -m py_compile clients/python/ptah_local_workspace.py
+      - name: Test partial ATHENA-style workspace via Python CLI
+        working-directory: clients/python
+        run: python -m unittest -v test_ptah_windows_workspace.py
+  physical-control-readback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Validate real Control Rust server
+        run: cargo test --locked -p ptah-control --bin ptah-control
+      - name: Build Control executable
+        run: cargo build --locked -p ptah-control --bin ptah-control
+      - name: Physically submit, restart and read back
+        run: python3 clients/python/qualify_live_ptah_control.py --binary target/debug/ptah-control --fixture services/ptah-control/tests/fixtures/a14_snapshot.json
+      - name: Prove shared Ptah Control across independent tools after restart
+        run: python3 clients/python/qualify_live_ptah_control.py --binary target/debug/ptah-control --fixture services/ptah-control/tests/fixtures/a14_snapshot.json --shared-clients

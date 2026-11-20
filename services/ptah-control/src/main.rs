@@ -2,6 +2,7 @@
 //! Ptah human-control service executable and HTTP projection boundary.
 
 mod server;
+mod verified_readback;
 
 use server::{ControlServer, ServerConfig};
 use std::env;
@@ -28,6 +29,7 @@ fn parse_args() -> Result<ServerConfig, String> {
 
     let mut snapshot = None;
     let mut submissions = None;
+    let mut dispatch_journal = None;
     let mut listen = String::from("127.0.0.1:7800");
     while let Some(flag) = args.next() {
         let value = args
@@ -36,6 +38,7 @@ fn parse_args() -> Result<ServerConfig, String> {
         match flag.as_str() {
             "--snapshot" => snapshot = Some(PathBuf::from(value)),
             "--submissions" => submissions = Some(PathBuf::from(value)),
+            "--verified-dispatch-journal" => dispatch_journal = Some(PathBuf::from(value)),
             "--listen" => listen = value,
             _ => return Err(format!("unknown argument: {flag}")),
         }
@@ -45,5 +48,6 @@ fn parse_args() -> Result<ServerConfig, String> {
         listen,
         snapshot_path: snapshot.ok_or_else(|| String::from("--snapshot is required"))?,
         submission_path: submissions.ok_or_else(|| String::from("--submissions is required"))?,
+        verified_dispatch_journal: dispatch_journal,
     })
 }

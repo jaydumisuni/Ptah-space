@@ -127,6 +127,18 @@ impl SessionRegistry {
 
     /// Return the current accepted session for one stable Node identity.
     #[must_use]
+    /// Expire a disconnected session only when it is still the current binding.
+    /// A late disconnect from an older epoch cannot revoke a successor.
+    pub fn end_if_current(&mut self, binding: &SessionBinding) -> bool {
+        if self.current.get(&binding.node_id) != Some(binding) {
+            return false;
+        }
+        self.current.remove(&binding.node_id);
+        true
+    }
+
+    /// The exact current E01 session for a canonical Node, if any.
+    #[must_use]
     pub fn current(&self, node_id: NodeId) -> Option<&SessionBinding> {
         self.current.get(&node_id)
     }

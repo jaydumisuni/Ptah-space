@@ -15,6 +15,8 @@ ptah-platform-admission = { path = "../../crates/ptah-platform-admission", versi
 ptah-transfer = { path = "../../crates/ptah-transfer", version = "=0.0.0-phase0c" }
 serde.workspace = true
 serde_json.workspace = true
+rusqlite.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
 ptah-android-runtime = { path = "../../crates/ptah-android-runtime", version = "=0.0.0-phase0c" }

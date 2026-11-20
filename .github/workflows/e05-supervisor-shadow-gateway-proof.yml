@@ -1,0 +1,60 @@
+name: E05 Supervisor shadow gateway proof
+
+on:
+  push:
+    branches:
+      - feat/e05-supervisor-gateway-proof-20261013
+    paths:
+      - "Cargo.lock"
+      - "services/ptah-node/**"
+      - "services/ptah-control/**"
+      - "docs/SUPERVISOR_E05_GATEWAY_TEST_PROOF_20261013.md"
+      - ".github/workflows/e05-supervisor-shadow-gateway-proof.yml"
+  pull_request:
+    paths:
+      - "Cargo.lock"
+      - "services/ptah-node/**"
+      - "services/ptah-control/**"
+      - ".github/workflows/e05-supervisor-shadow-gateway-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  native-gateway-boundary:
+    name: "Exact-head Ptah E05/E02/A05 shadow boundary"
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prove checked-out commit
+        env:
+          EXACT_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXACT_HEAD"
+      - name: Select repository-pinned toolchain
+        run: rustup show
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Exact gateway tests (fixture-only)
+        run: cargo test --locked -p ptah-node --test supervisor_gateway_boundary
+      - name: Authentic TLS 1.3 enrollment proof
+        run: cargo test --locked -p ptah-control --test gateway_mtls_enrollment
+      - name: Strict Clippy
+        run: cargo clippy --locked -p ptah-node --test supervisor_gateway_boundary -- -D warnings
+      - name: Enrollment-only executable validation
+        run: cargo test --locked -p ptah-control --bin ptah-enrollment-gateway
+      - name: Enrollment-only executable Clippy
+        run: cargo clippy --locked -p ptah-control --bin ptah-enrollment-gateway -- -D warnings
+      - name: Current E01 session and disconnect fencing
+        run: cargo test --locked -p ptah-control --test e01_node_link
+      - name: Strict E01 session Clippy
+        run: cargo clippy --locked -p ptah-control --test e01_node_link -- -D warnings
+      - name: Retained E01 TLS heartbeat and disconnect proof
+        run: cargo test --locked -p ptah-control --test gateway_retained_session
+      - name: Strict retained-session Clippy
+        run: cargo clippy --locked -p ptah-control --test gateway_retained_session -- -D warnings
+      - name: Strict TLS enrollment Clippy
+        run: cargo clippy --locked -p ptah-control --test gateway_mtls_enrollment -- -D warnings

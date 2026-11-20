@@ -38,6 +38,8 @@ def load_corpus(raw):
 def validate(document):
     if not isinstance(document, dict):
         raise ValueError("corpus must be an object")
+    if set(document) != {"schema", "status", "authority", "cases"}:
+        raise ValueError("unexpected corpus fields")
     if document.get("schema") != "ptah.e06.sequence-gap-review-cases.v1":
         raise ValueError("unknown corpus schema")
     if document.get("status") != "non_authorizing_design_evidence":
@@ -49,6 +51,8 @@ def validate(document):
     for case in cases:
         if not isinstance(case, dict):
             raise ValueError("case must be an object")
+        if set(case) != {"id", "records", "contiguous_contract", "explicit_gap_contract"}:
+            raise ValueError("unexpected case fields")
         identifier = case.get("id")
         # Canonically equivalent Unicode identifiers must not alias distinct cases.
         normalized_id = (unicodedata.normalize("NFC", identifier)

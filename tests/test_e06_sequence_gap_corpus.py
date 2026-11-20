@@ -29,6 +29,16 @@ class CorpusValidationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "non-finite corpus JSON constant"):
                     module.load_corpus(raw)
 
+    def test_unrecognized_corpus_or_case_fields_rejected(self):
+        # Unknown fields must not smuggle authority claims into review evidence.
+        for location in ("corpus", "case"):
+            with self.subTest(location=location):
+                case = copy.deepcopy(self.document)
+                target = case if location == "corpus" else case["cases"][0]
+                target["runtime_authorized"] = True
+                with self.assertRaisesRegex(ValueError, "unexpected .* fields"):
+                    module.validate(case)
+
     def test_current_corpus(self):
         self.assertGreaterEqual(module.validate(self.document), 17)
 

@@ -39,6 +39,17 @@ class CorpusValidationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "unexpected .* fields"):
                     module.validate(case)
 
+    def test_contradictory_policy_dispositions_rejected(self):
+        for contiguous, alternate in (("accept", "reject_order"), ("reject_gap", "accept"),
+                                      ("requires_gap_evidence", "reject_gap"),
+                                      ("reject_reuse", "idempotent_replay")):
+            with self.subTest(contiguous=contiguous, alternate=alternate):
+                case = copy.deepcopy(self.document)
+                case["cases"][0]["contiguous_contract"] = contiguous
+                case["cases"][0]["explicit_gap_contract"] = alternate
+                with self.assertRaisesRegex(ValueError, "inconsistent policy dispositions"):
+                    module.validate(case)
+
     def test_current_corpus(self):
         self.assertGreaterEqual(module.validate(self.document), 17)
 

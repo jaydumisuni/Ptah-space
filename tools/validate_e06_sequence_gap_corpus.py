@@ -7,6 +7,9 @@ from pathlib import Path
 CORPUS = Path(__file__).resolve().parents[1] / "docs/plans/e06-02-sequence-gap-cases.json"
 ALLOWED = {"accept", "accept_terminal", "reject_gap", "requires_gap_evidence",
            "idempotent_replay", "reject_reuse", "reject_order"}
+# The selected contiguous policy and historical alternate may diverge only on gaps.
+ALLOWED_PAIRS = {(value, value) for value in ALLOWED if value not in ("reject_gap", "requires_gap_evidence")}
+ALLOWED_PAIRS.add(("reject_gap", "requires_gap_evidence"))
 
 def invalid_identity(value):
     return (not isinstance(value, str) or not value.strip()
@@ -63,6 +66,8 @@ def validate(document):
         if any(type(case.get(key)) is not str or case[key] not in ALLOWED
                for key in ("contiguous_contract", "explicit_gap_contract")):
             raise ValueError("unknown disposition")
+        if (case["contiguous_contract"], case["explicit_gap_contract"]) not in ALLOWED_PAIRS:
+            raise ValueError("inconsistent policy dispositions")
         records = case.get("records")
         if not isinstance(records, list) or not records:
             raise ValueError("missing records")

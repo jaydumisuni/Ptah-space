@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { ownedChromiumExecutable, bundleLayout, lockedOwnedLaunchOptions } from "../src/owned_chromium.mjs";
 
 test("workspace-owned Chromium bundle layout is pinned to the A11 revision", () => {
@@ -61,13 +61,12 @@ test("valid workspace-owned path is selected without Oracle or personal browser 
   const folder = await mkdtemp(join(tmpdir(), "ptah-a11-owned-browser-"));
   const prev = process.env.PTAH_BROWSER_RUNTIME_DIR;
   try {
-    const dest = join(folder, "chromium-1223", "chrome-linux64");
-    await mkdir(dest, { recursive: true });
-    const binary = join(dest, "chrome");
+    const binary = join(folder, bundleLayout(process.platform));
+    await mkdir(dirname(binary), { recursive: true });
     await writeFile(binary, "standalone test executable");
     process.env.PTAH_BROWSER_RUNTIME_DIR = folder;
     const opts = await lockedOwnedLaunchOptions({ headless: true });
-    assert.equal(opts.executablePath, resolve(binary));
+    assert.equal(opts.executablePath, await realpath(binary));
     assert.equal(opts.headless, true);
     assert.equal("channel" in opts, false);
   } finally {

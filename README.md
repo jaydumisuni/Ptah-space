@@ -31,3 +31,7 @@ self-enroll or self-authorize for production. See
 Repository-owned public Ptah source is licensed under the Apache License, Version 2.0. See `LICENSE`, `NOTICE`, `CONTRIBUTING.md`, `SECURITY.md`, `REUSE.toml`, and `legal/apache-2.0-boundary.json`.
 
 Private THETECHGUY systems, Hunter private knowledge, customer/device/payment data, restricted adapters, unlicensed donor source, and THETECHGUY/Ptah/Hunter trademarks are not automatically licensed by this public repository.
+
+## Optional internal donor QA intake — 2026-11-23
+
+[Storytold + Vork donor QA intake](docs/STORYTOLD_VORK_WORKSPACE_INTAKE_2026-11-23.md) records a **future** candidate workload from existing TTG product owners. This is documentation only. Ptah has not admitted, installed, provisioned, executed or approved any donor runtime or workspace by this notice.

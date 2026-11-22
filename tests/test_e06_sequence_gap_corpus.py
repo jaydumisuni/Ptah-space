@@ -186,6 +186,20 @@ class CorpusValidationTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, error):
                         module.validate(case)
 
+    def test_unassigned_unicode_rejected_in_evidence_identities(self):
+        # Unassigned code points have no stable human-readable evidence identity.
+        for field in ("case", "node", "intent"):
+            with self.subTest(field=field):
+                case = copy.deepcopy(self.document)
+                if field == "case":
+                    case["cases"][0]["id"] += "\u0378"
+                    error = "duplicate/invalid case id"
+                else:
+                    case["cases"][0]["records"][0][0 if field == "node" else 2] += "\u0378"
+                    error = "invalid record identity"
+                with self.assertRaisesRegex(ValueError, error):
+                    module.validate(case)
+
     def test_unicode_noncharacters_rejected_in_evidence_identities(self):
         # Unicode noncharacters are not portable evidence identifiers, even
         # though JSON permits them and Python classifies them as unassigned.

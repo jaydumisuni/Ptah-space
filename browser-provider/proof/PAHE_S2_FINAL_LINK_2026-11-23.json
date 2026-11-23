@@ -1,0 +1,21 @@
+{
+  "procedure": "Ptah A11 - Pahe PD human-verified shortlink to final file page, auto-continue",
+  "date": "2026-11-23",
+  "node": "kratos-HP-290-G4-Microtower-PC",
+  "state": "season_2_final_page_verified",
+  "media": "Snowfall (2017), Season 2",
+  "pahe_pack": "720p x265 PD batch",
+  "shortlink_gate": "https://pahe.plus/9JgU5",
+  "human_challenge": "hCaptcha completed by user; browser clicked real Continue only once enabled",
+  "ad_requests_blocked": 8,
+  "http_endpoint": "POST https://pahe.plus/links/go",
+  "http_status": 200,
+  "response_url": "https://pixeldrain.com/u/VQkujDJg",
+  "final_page_url": "https://pixeldrain.com/u/VQkujDJg",
+  "final_page_title": "snowfall.s2.web72.265-pahe.in.rar ~ pixeldrain",
+  "download_started": false,
+  "archive_integrity_proven": false,
+  "seasons_3_to_6_verified": false,
+  "frozen_handler": "browser-provider/examples/proven/pahe-season2-pd-auto-2026-11-23.cjs",
+  "reference_execution_log": ".workspace/snowfall-navigation/season2-auto.log"
+}

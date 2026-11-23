@@ -1,0 +1,22 @@
+{
+  "procedure": "Ptah A11 - Pahe PD shortlink to final file page",
+  "date": "2026-11-23",
+  "node": "kratos-HP-290-G4-Microtower-PC",
+  "state": "season_1_final_page_verified",
+  "media": "Snowfall (2017), Season 1",
+  "pahe_pack": "720p x265 10-bit, batch, advertised 2.53 GB",
+  "shortlink_gate": "https://pahe.plus/TDG99g",
+  "human_challenge": "hCaptcha completed by user in same isolated browser session",
+  "ad_requests_blocked": 8,
+  "http_endpoint": "POST https://pahe.plus/links/go",
+  "http_status": 200,
+  "response_url": "https://pixeldrain.com/u/RAc7akBc",
+  "final_page_url": "https://pixeldrain.com/u/RAc7akBc",
+  "final_page_title": "snowfall.s1.web72.265-pahe.in.rar ~ pixeldrain",
+  "http_get_final_page_status": 200,
+  "download_started": false,
+  "archive_integrity_proven": false,
+  "other_seasons_verified": false,
+  "frozen_handler": "browser-provider/examples/proven/pahe-season1-pd-2026-11-23.cjs",
+  "reference_execution_log": ".workspace/snowfall-navigation/final-handler.log"
+}

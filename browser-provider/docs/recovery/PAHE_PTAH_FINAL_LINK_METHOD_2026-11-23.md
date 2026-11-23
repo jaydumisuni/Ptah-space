@@ -1,0 +1,44 @@
+# Ptah A11 recovery: Pahe shortlinks to verified file pages
+
+**Checkpoint:** 2026-11-23, KRATOS, actual Season 1 success. **Contribution:** New procedure and verified runtime trace; not a claim that all other seasons have been resolved, nor that any archive has been downloaded or contents tested.
+
+## Objective and authority
+
+When asked to find a season's **batch** file page, deliver the final hosting page (`pixeldrain.com/u/...`, `*.gdflix.io/file/...`, etc.), **not** Pahe's search page, Intercelestial, Linegee, a CAPTCHA landing page, or an advertising popup. Do not start any download. Do not close tabs for other seasons without explicit user instruction. Ptah A11 browser provider on KRATOS is the browser automation mechanism; Oracle Live only supplies workstation access. Honor Ptah's human-verification, lease, profile, and download authority boundaries.
+
+## Recovered sites and known-good Season 1
+
+- Pahe listing: `https://pahe.ink/snowfall-season-1-5/`. Season 6 listing: `https://pahe.ink/snowfall-season-6/`. Their season packs are **not** interchangeable with individual episodes. Confirm the intended season, codec, resolution, host choice, and pack size on the page.
+- On 2026-11-23, the Season 1 **GD** path had reports of dead links. The user's chosen substitute was **PD**, available as a **Season 1 720p x265 10-bit batch (2.53 GB as advertised on Pahe)**. **Do not mistake this for the 720p x264 batch.**
+- The verified Season 1 PD shortlink gate was `https://pahe.plus/TDG99g` (this identifier may expire). Its authorized server response yielded **`https://pixeldrain.com/u/RAc7akBc`**, with page title **`snowfall.s1.web72.265-pahe.in.rar ~ pixeldrain`**. HTTP 200 and the file page title were checked independently. File contents/download integrity **not** checked.
+- At the same checkpoint, Seasons 2–6 still had distinct `pahe.plus` links; opening those gates was **not** equivalent to obtaining their final file pages. No other final season file pages were verified.
+
+## Exact proven procedure
+
+1. **Recover the listing and provider.** Search Pahe's actual catalog (WordPress search API `https://pahe.ink/wp-json/wp/v2/search?search=Snowfall`) and inspect the post's Season 1–5 tabs or Season 6 Batch tab. Select the **PD** or **GD** button within the desired batch and quality; do not infer provider from button order alone. Pahe's button URLs often point at `intercelestial.com/?ht=...` rather than the ultimate host.
+2. **Open a separate Ptah A11 Playwright/Chromium context** on KRATOS, preserving existing personal Brave windows/profiles. Disable download acceptance and cancel any download event. Do not claim Playwright can solve CAPTCHA; let a human complete the real hCaptcha in that exact session. Changing sessions/navigation can invalidate a solved token.
+3. **Navigate the real shortlink stages.** On Intercelestial, the observed sequence was `Click To Verify` → `Continue` → `Generate Link` → `Continue` → `Get Link`. Advertising popups intercepted initial clicks; closing popup tabs and distinguishing underlying real controls was necessary. The chain then reached site-dependent `pahe.plus/<id>` or `linegee.net/<id>` pages. Not all routes resolve to a file, and some older GD links are dead. Do not classify Linegee/Pahe+ as a finished result.
+4. **Remove advertising interference, not the actual gate.** On `pahe.plus`, legitimate HTML did **not** contain “Your link has been generated,” “Your download is ready,” or the fake “Download” panels observed in the browser. These were injected by advertising scripts, which could send clicks to irrelevant Google pages and unrelated sites. In the successful isolated session, the browser-provider `route('**/*')` filter blocked the version-specific first-party injected JS paths matching `^/[a-z0-9]{9,}/[a-f0-9]{8,}\.js$` on `pahe.plus`, plus identified ad-script hosts, **without** blocking the real `cloud_theme/build/js/script.min.js`, hCaptcha widget, `/links/go`, or Pahe's form. The proof counted **8 blocked ad requests**. Recheck signatures if the site changes; never disable the anti-bot gate or invent a CAPTCHA answer.
+5. **After the human checks hCaptcha, click only genuine `#invisibleCaptchaShortlink` (“Click here to continue”).** On success, Pahe advances to its **banner page**, with `#go-link` and text “Your link is almost ready.” Do not manually `requestSubmit()` or guess an address: direct submissions and advertising interactions were associated with wrong navigation and Google tabs.
+6. **Trust Pahe's real AJAX handoff.** Its `cloud_theme/build/js/script.min.js` attaches a `submit.adLinkFly.counterSubmit` handler to `#go-link`. After the site's countdown, it uses a **POST to `/links/go`**, with serialized form data, and receives JSON containing `result.url`. Watch network `response` events for exactly `https://pahe.plus/links/go`, check HTTP status and JSON type, and extract **`result.url`**. The real script also assigns the URL to `a.get-link` (or the interstitial skip control). Do not confuse the endpoint with a Google Search URL or a popup.
+7. **Validate and open the final file page.** Require HTTPS and a recognized file host. For this run, the returned URL was `https://pixeldrain.com/u/RAc7akBc`; Ptah opened it in a new page and checked its title against Season 1. If the host is unrecognized, stop and inspect rather than guessing. Do not click a Download button or use a direct file-fetch URL.
+8. **Preserve session-specific tabs.** Once Season 1 is resolved, close **only Season 1** if the user requests that; keep other seasons' tabs. If resuming a later season, use the same method with its own original Pahe batch/provider and separate verified final destination.
+
+## Proof and reproduction
+
+- Exact successful Season 1 handler, preserved **byte-for-byte**, is `browser-provider/examples/proven/pahe-season1-pd-2026-11-23.cjs`. Its absolute KRATOS workspace paths are environment-specific. Read/reuse it as an evidence-backed baseline; do not assume it is a general-purpose reusable CLI.
+- Reproduction requires the installed `browser-provider/node_modules/playwright`, a suitable Chrome/Chromium binary (`/usr/bin/google-chrome` was used), a graphical KRATOS session (`DISPLAY=:0`, appropriate `XAUTHORITY`), and the user's explicit human CAPTCHA completion. The source sets `acceptDownloads:false` and cancels any download event.
+- Frozen proof summary: `browser-provider/proof/PAHE_S1_FINAL_LINK_2026-11-23.json`; original execution log: `.workspace/snowfall-navigation/final-handler.log` on KRATOS (workspace is ignored by Git; proof summary is tracked).
+- Critical log anchors, 2026-11-23: `READY captcha_present=true ad_scripts_blocked=8` → `BANNER_REACHED go-link-form-present` → `GO_LINK_RESPONSE 200` → `GO_LINK_TARGET https://pixeldrain.com/u/RAc7akBc` → `FINAL_PAGE ... snowfall.s1.web72.265-pahe.in.rar ~ pixeldrain`.
+
+## Failure diagnosis / non-regression
+
+- **Google Search tab opens:** Do not mark success. An ad overlay/popup was intercepting clicks; compare live page DOM against Pahe's legitimate HTML and follow the real `/links/go` response.
+- **“Your link has been generated” overlay:** Fake injected advertising, not Pahe proof.
+- **CAPTCHA solved in one tab, fails in another:** hCaptcha session/token is not transferable to a new Playwright context; stay in the exact verified session, or request a new human check.
+- **Get Link button leads nowhere:** Check that `#go-link.go-link` and Pahe's own countdown/AJAX event ran, and inspect the actual `/links/go` JSON. Never manually submit an unqualified form or fabricate a target.
+- **PD versus GD:** Provider selection matters. On Season 1, the successful result came from **PD 720p x265** after GD reliability concerns. For Seasons 2–6, verify afresh rather than copying the Season 1 link or title.
+- **Tabs closed unintentionally:** Do not close unrelated session tabs; the user explicitly corrected this after an earlier overbroad closure.
+- **Download safety:** The goal is to open file *pages*, not fetch bytes. Never call direct transfer endpoints or enable downloads without a separate request.
+
+**Acceptance boundary:** The **Season 1 final page was proved**, not all seasons; no remote link longevity, host reliability, or archive integrity is claimed.

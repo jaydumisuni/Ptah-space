@@ -15,3 +15,7 @@ Authority boundary:
 Locked physical qualification target: Node.js 24.18.0; Playwright/playwright-core 1.60.0; Chromium 148.0.7778.96 revision 1223.
 
 `src/index.mjs` intentionally avoids importing Playwright. `src/server.mjs` loads the concrete locked backend.
+
+## Recovery playbooks
+
+- [Pahe/PD shortlinks to verified file pages — Ptah A11, 2026-11-23](docs/recovery/PAHE_PTAH_FINAL_LINK_METHOD_2026-11-23.md) — frozen successful Season 1 browser handler and proof; human CAPTCHA is never bypassed.

@@ -1,0 +1,18 @@
+{
+ "procedure":"Ptah A11 - Pahe GD human-verified shortlink to verified GDFlix file page, auto-continue plus HTTP redirects",
+ "date":"2026-11-23", "node":"kratos-HP-290-G4-Microtower-PC", "state":"season_6_final_page_verified",
+ "media":"Snowfall (2017), Season 6", "pahe_pack":"720p x265 GD batch",
+ "gd_shortlink_gate":"https://pahe.plus/86jB", "pd_alternative_gate":"https://pahe.plus/4PRZY0Z",
+ "pd_returned_unresolved_shortlink":"https://ouo.io/SMdOV3",
+ "human_challenge":"hCaptcha completed by user; Ptah clicked genuine Continue once enabled",
+ "ad_requests_blocked":8,
+ "http_endpoint":"POST https://pahe.plus/links/go", "http_status":200,
+ "response_url":"https://gdlink.dev/file/nnz69cSRG1hQWIW",
+ "http_redirect_chain":["https://gdlink.dev/file/nnz69cSRG1hQWIW","https://gdflix.dev/file/nnz69cSRG1hQWIW","https://new10.gdflix.io/file/nnz69cSRG1hQWIW"],
+ "final_page_http_status":200,
+ "final_page_url":"https://new10.gdflix.io/file/nnz69cSRG1hQWIW",
+ "final_page_title":"GDFlix | snowfall.s6.web.72.x265-pahe.in.zip",
+ "download_started":false, "archive_integrity_proven":false,
+ "frozen_handler":"browser-provider/examples/proven/pahe-season6-gd-auto-2026-11-23.cjs",
+ "reference_execution_log":".workspace/snowfall-navigation/season6-gd-auto.log"
+}

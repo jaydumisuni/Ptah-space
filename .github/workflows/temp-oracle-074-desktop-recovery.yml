@@ -1,0 +1,36 @@
+name: Temporary installed Oracle recovery
+on:
+  push:
+    branches: [recovery/oracle-074-desktop-20261126]
+    paths: ['.github/workflows/temp-oracle-074-desktop-recovery.yml']
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: [self-hosted, athena, Windows, X64, physical, ptah]
+    timeout-minutes: 4
+    steps:
+      - name: Verify and start existing Oracle desktop if absent
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path ${env:ProgramFiles(x86)} 'THETECHGUY Digital Solutions\Oracle'
+          $exe=Join-Path $root 'Oracle.exe'
+          $state=Join-Path $env:APPDATA 'oracle\update-state.json'
+          $session=(Get-Process -Id $PID).SessionId
+          $interactive=@(Get-Process explorer -ErrorAction SilentlyContinue | Where-Object {$_.SessionId -eq $session}).Count -gt 0
+          $p=@(Get-Process Oracle -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq $exe})
+          $version=if(Test-Path -LiteralPath $exe){(Get-Item -LiteralPath $exe).VersionInfo.FileVersion}else{'missing'}
+          $s=if(Test-Path -LiteralPath $state){Get-Content -LiteralPath $state -Raw|ConvertFrom-Json}else{$null}
+          Write-Host ('Installed version: '+$version+'; processes: '+$p.Count+'; interactive runner: '+$interactive+'; update state: '+$s.status)
+          if($version -notin @('0.7.2','0.7.4')){throw 'Unexpected installed executable; no mutation'}
+          if(!$p.Count){
+            if(!$interactive){throw 'No matching interactive desktop session; no mutation'}
+            Start-Process -FilePath $exe -WorkingDirectory $root
+            Start-Sleep -Seconds 10
+          }
+          $p=@(Get-Process Oracle -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq $exe})
+          $health=$false
+          try{$h=Invoke-RestMethod 'http://127.0.0.1:5069/health' -TimeoutSec 3;$health=[bool]$h.connected -and [bool]$h.executionReady}catch{}
+          Write-Host ('Installed processes after check: '+$p.Count+'; node ready: '+$health)
+          if(!$p.Count){throw 'Installed application did not remain running'}

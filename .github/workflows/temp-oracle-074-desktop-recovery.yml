@@ -10,16 +10,20 @@ jobs:
     runs-on: [self-hosted, athena, Windows, X64, physical, ptah]
     timeout-minutes: 3
     steps:
-      - name: Inspect bounded file recovery
+      - name: Inspect signed 075 recovery (read-only)
         shell: powershell
         run: |
           $r='C:\Program Files (x86)\THETECHGUY Digital Solutions'
-          $d=Join-Path $r 'Oracle-074-Recovery'
+          $d=Join-Path $r 'Oracle-075-Recovery'
           $log=Join-Path $d 'file-recovery.log'
           if(Test-Path $log){Get-Content -LiteralPath $log -Tail 10}
-          $b=Join-Path $d 'rollback-074-files'
+          $b=Join-Path $d 'rollback-075-files'
           $journal=Join-Path $b 'attempted-paths.txt'
           if(Test-Path $journal){'Attempted paths: '+@(Get-Content $journal).Count;Get-Content $journal -Tail 4}
-          $t=Get-ScheduledTask -TaskName 'Oracle Pending Signed Update 074 File Recovery' -ErrorAction SilentlyContinue
+          $t=Get-ScheduledTask -TaskName 'Oracle Pending Signed Update 075 File Recovery' -ErrorAction SilentlyContinue
           $e=Join-Path $r 'Oracle\Oracle.exe'
           [pscustomobject]@{version=(Get-Item $e -ErrorAction SilentlyContinue).VersionInfo.FileVersion;taskState=$t.State;appProcesses=@(Get-Process Oracle -ErrorAction SilentlyContinue|Select-Object Id,FileVersion);backup=(Test-Path $b);adb=[bool](Get-Process -Id 24160 -ErrorAction SilentlyContinue);python=[bool](Get-Process -Id 27716 -ErrorAction SilentlyContinue)}|ConvertTo-Json -Depth 4
+
+          try { $h=Invoke-RestMethod 'http://127.0.0.1:5069/health' -TimeoutSec 3; $h|Select-Object nodeId,connected,transportConnected,executionReady,packagedRuntime,pid|ConvertTo-Json -Depth 5 } catch { 'Local health unavailable' }
+          $grant=Join-Path $env:LOCALAPPDATA 'OracleNode\ai-takeover.v1.json'
+          if(Test-Path $grant){'Owner grant enabled: '+(Get-Content $grant -Raw|ConvertFrom-Json).enabled}else{'Owner grant absent'}

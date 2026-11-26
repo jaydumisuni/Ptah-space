@@ -6,78 +6,19 @@ on:
 permissions:
   contents: read
 jobs:
-  recover:
+  inspect:
     runs-on: [self-hosted, athena, Windows, X64, physical, ptah]
-    timeout-minutes: 5
+    timeout-minutes: 2
     steps:
-      - name: Complete verified pending update with rollback
+      - name: Read pending update recovery evidence
         shell: powershell
         run: |
-          $ErrorActionPreference='Stop'
-          $root=Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'THETECHGUY Digital Solutions\Oracle'
-          $exe=Join-Path $root 'Oracle.exe'
-          $backup=$root+'.rollback'
-          $candidate=$root+'.pending-0.7.4'
-          $state=Join-Path $env:APPDATA 'oracle\update-state.json'
-          $expected='b8463112e802385cacaf41fa8fd58d0c709ed90f0c2e74a63da414ebce7fdb2f'
-          $session=(Get-Process -Id $PID).SessionId
-          if(!(@(Get-Process explorer -ErrorAction SilentlyContinue|Where-Object SessionId -eq $session).Count)){throw 'Runner not in interactive session'}
-          function Processes { @(Get-Process Oracle -ErrorAction SilentlyContinue|Where-Object {$_.Path -eq $exe}) }
-          function StartExisting { if((Test-Path -LiteralPath $exe) -and !(Processes).Count){Start-Process -FilePath $exe -WorkingDirectory $root} }
-          function Version { if(Test-Path -LiteralPath $exe){(Get-Item -LiteralPath $exe).VersionInfo.FileVersion}else{'missing'} }
-          function Health { try { $h=Invoke-RestMethod 'http://127.0.0.1:5069/health' -TimeoutSec 2; return [bool]$h.connected }catch{return $false} }
-          $oldMoved=$false
-          $newMoved=$false
-          try {
-            if(!(Test-Path -LiteralPath $exe) -and (Test-Path -LiteralPath (Join-Path $backup 'Oracle.exe')) -and !(Test-Path -LiteralPath $root)){Move-Item -LiteralPath $backup -Destination $root}
-            $v=Version
-            Write-Host "Installed version before recovery: $v"
-            if($v -eq '0.7.4'){StartExisting;return}
-            if($v -ne '0.7.2'){throw 'Unexpected installed version'}
-            if(Test-Path -LiteralPath $backup){throw 'Existing rollback path; no swap'}
-            if(!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Runner lacks existing administrator token'}
-            if(!(Test-Path -LiteralPath $state)){throw 'Pending update state missing'}
-            $s=Get-Content -LiteralPath $state -Raw|ConvertFrom-Json
-            if($s.status -ne 'pending-install' -or $s.targetVersion -ne '0.7.4' -or $s.currentPath -ne $root -or $s.rollbackPath -ne $backup -or $s.release.sha256 -ne $expected){throw 'Pending update identity mismatch'}
-            $zip=Join-Path $env:APPDATA 'oracle\updates\Oracle-update.zip'
-            if(!(Test-Path -LiteralPath $zip)){$zip=Join-Path 'D:\projects\oracle-074-candidate-20261126' 'Oracle-0.7.4-windows-x64.zip'}
-            if(!(Test-Path -LiteralPath $zip) -or (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected){throw 'Signed artifact digest mismatch'}
-            # Verify the staged archive against the already installed app's verifier.
-            $cache='D:\projects\THETECHGUY Software Builder\builder_cache\electron-workspaces\Oracle-windows-installer\runtime\node_modules'
-            & node -e "const fs=require('fs'),p=require('path'),M=require('module'),a=require(p.join(process.argv[1],'@electron','asar')),f=p.join(process.argv[2],'resources','app.asar'),m=new M(f);m.filename=f;m.paths=M._nodeModulePaths(p.dirname(f));m._compile(a.extractFile(f,'updater.cjs').toString(),f);const s=JSON.parse(fs.readFileSync(process.argv[3]));m.exports.verifyArtifactBytes(s.release,fs.readFileSync(process.argv[4]));console.log('Release signature and bytes verified')" $cache $root $state $zip
-            if($LASTEXITCODE -ne 0){throw 'Existing updater verification failed'}
-            if(Test-Path -LiteralPath $candidate){if((Get-Item -LiteralPath $candidate).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Unsafe staging directory'};Remove-Item -LiteralPath $candidate -Recurse -Force}
-            if((Get-PSDrive C).Free -lt 500MB){throw 'Insufficient staging space'}
-            Expand-Archive -LiteralPath $zip -DestinationPath $candidate
-            if((Get-Item (Join-Path $candidate 'Oracle.exe')).VersionInfo.FileVersion -ne '0.7.4'){throw 'Candidate executable version mismatch'}
-            if(!(Test-Path -LiteralPath (Join-Path $candidate 'resources\app.asar'))){throw 'Candidate ASAR missing'}
-            Write-Host 'Signed payload staged; current installation retained'
-            # Only the exact installed app processes are affected.
-            foreach($p in (Processes)){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}
-            Start-Sleep -Seconds 2
-            if((Processes).Count){throw 'Installed processes did not stop'}
-            Move-Item -LiteralPath $root -Destination $backup
-            $oldMoved=$true
-            Move-Item -LiteralPath $candidate -Destination $root
-            $newMoved=$true
-            $s.status='pending-health'
-            [IO.File]::WriteAllText($state,($s|ConvertTo-Json -Depth 16),(New-Object Text.UTF8Encoding($false)))
-            StartExisting
-            for($i=0;$i -lt 24;$i++){Start-Sleep -Seconds 2;if((Version) -eq '0.7.4' -and (Health)){Write-Host 'Updated application 0.7.4 and node connected';return}}
-            throw 'Updated app did not reconnect'
-          } catch {
-            Write-Host 'Recovery transaction did not complete; restoring existing installation if necessary'
-            if($oldMoved -and (Test-Path -LiteralPath $backup)){
-              if($newMoved -and (Test-Path -LiteralPath $root)){
-                foreach($p in (Processes)){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}
-                Start-Sleep -Seconds 2
-                if(!(Test-Path -LiteralPath $candidate)){Move-Item -LiteralPath $root -Destination $candidate}
-              }
-              if(!(Test-Path -LiteralPath $root)){Move-Item -LiteralPath $backup -Destination $root}
-            }
-            StartExisting
-            throw
-          } finally {
-            StartExisting
-            Write-Host ('Installed version after recovery: '+(Version))
-          }
+          $r='C:\Program Files (x86)\THETECHGUY Digital Solutions'
+          $log=Join-Path $r 'Oracle-074-Recovery\result.log'
+          if(Test-Path $log){Get-Content -LiteralPath $log -Tail 12}
+          $task=Get-ScheduledTask -TaskName 'Oracle Pending Signed Update 074 Recovery' -ErrorAction SilentlyContinue
+          $s=Join-Path $env:APPDATA 'oracle\update-state.json'
+          $j=if(Test-Path $s){Get-Content -LiteralPath $s -Raw|ConvertFrom-Json}
+          $health=$false
+          try{$health=[bool](Invoke-RestMethod 'http://127.0.0.1:5069/health' -TimeoutSec 3).connected}catch{}
+          [pscustomobject]@{version=(Get-Item (Join-Path $r 'Oracle\Oracle.exe') -ErrorAction SilentlyContinue).VersionInfo.FileVersion;taskState=$task.State;rollback=(Test-Path (Join-Path $r 'Oracle.rollback'));pending=(Test-Path (Join-Path $r 'Oracle.pending-0.7.4'));updateState=$j.status;connected=$health;oracleProcesses=@(Get-Process Oracle -ErrorAction SilentlyContinue|Select-Object Id,FileVersion,SessionId)}|ConvertTo-Json -Depth 4

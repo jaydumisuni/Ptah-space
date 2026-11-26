@@ -8,17 +8,18 @@ permissions:
 jobs:
   inspect:
     runs-on: [self-hosted, athena, Windows, X64, physical, ptah]
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
-      - name: Read pending update recovery evidence
+      - name: Inspect bounded file recovery
         shell: powershell
         run: |
           $r='C:\Program Files (x86)\THETECHGUY Digital Solutions'
-          $log=Join-Path $r 'Oracle-074-Recovery\result.log'
-          if(Test-Path $log){Get-Content -LiteralPath $log -Tail 12}
-          $task=Get-ScheduledTask -TaskName 'Oracle Pending Signed Update 074 Recovery' -ErrorAction SilentlyContinue
-          $s=Join-Path $env:APPDATA 'oracle\update-state.json'
-          $j=if(Test-Path $s){Get-Content -LiteralPath $s -Raw|ConvertFrom-Json}
-          $health=$false
-          try{$health=[bool](Invoke-RestMethod 'http://127.0.0.1:5069/health' -TimeoutSec 3).connected}catch{}
-          [pscustomobject]@{version=(Get-Item (Join-Path $r 'Oracle\Oracle.exe') -ErrorAction SilentlyContinue).VersionInfo.FileVersion;taskState=$task.State;rollback=(Test-Path (Join-Path $r 'Oracle.rollback'));pending=(Test-Path (Join-Path $r 'Oracle.pending-0.7.4'));updateState=$j.status;connected=$health;oracleProcesses=@(Get-Process Oracle -ErrorAction SilentlyContinue|Select-Object Id,FileVersion,SessionId)}|ConvertTo-Json -Depth 4
+          $d=Join-Path $r 'Oracle-074-Recovery'
+          $log=Join-Path $d 'file-recovery.log'
+          if(Test-Path $log){Get-Content -LiteralPath $log -Tail 10}
+          $b=Join-Path $d 'rollback-074-files'
+          $journal=Join-Path $b 'attempted-paths.txt'
+          if(Test-Path $journal){'Attempted paths: '+@(Get-Content $journal).Count;Get-Content $journal -Tail 4}
+          $t=Get-ScheduledTask -TaskName 'Oracle Pending Signed Update 074 File Recovery' -ErrorAction SilentlyContinue
+          $e=Join-Path $r 'Oracle\Oracle.exe'
+          [pscustomobject]@{version=(Get-Item $e -ErrorAction SilentlyContinue).VersionInfo.FileVersion;taskState=$t.State;appProcesses=@(Get-Process Oracle -ErrorAction SilentlyContinue|Select-Object Id,FileVersion);backup=(Test-Path $b);adb=[bool](Get-Process -Id 24160 -ErrorAction SilentlyContinue);python=[bool](Get-Process -Id 27716 -ErrorAction SilentlyContinue)}|ConvertTo-Json -Depth 4
